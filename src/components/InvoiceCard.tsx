@@ -15,7 +15,9 @@ import { InvoiceGenerateModal } from './InvoiceGenerateModal'
 // button emails it to the client. The invoice itself lives in QuickBooks; the CRM
 // just shows its number, total, and sent status.
 function money(n: number) {
-  return '$' + Math.round(n || 0).toLocaleString('en-US')
+  const v = Math.round((n || 0) * 100) / 100
+  // Whole-dollar amounts stay clean ($7); fees and partials show cents ($3.61).
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(v) ? 0 : 2, maximumFractionDigits: 2 })
 }
 function fmtDate(iso: string) {
   const d = new Date(iso)
@@ -152,16 +154,22 @@ export function InvoiceCard({ project }: { project: Project }) {
           <p className="mt-1 text-[11.5px] leading-relaxed text-faint">Generate an invoice from this project's quote.</p>
           <button
             type="button"
-            onClick={generate}
-            disabled={busy}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+            onClick={() => setGenOpen(true)}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass"
           >
-            {busy ? 'Generating…' : 'Generate invoice'}
+            Generate invoice
           </button>
         </>
       )}
 
       {note && <p className="mt-2 text-[11px] leading-relaxed text-muted">{note}</p>}
+
+      <InvoiceGenerateModal
+        project={genOpen ? project : null}
+        mode={invoice ? 'regenerate' : 'create'}
+        onCancel={() => setGenOpen(false)}
+        onCreated={onCreated}
+      />
     </div>
   )
 }
