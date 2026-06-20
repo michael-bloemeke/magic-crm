@@ -27,6 +27,9 @@ crm-files/
 # Local data backups (contain copied client records) — never commit
 migration-backups/
 
+# Published portal bundles (generated on Publish, deployed to Vercel; regenerable)
+portal/data/*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
