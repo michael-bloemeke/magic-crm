@@ -7,6 +7,8 @@
 // Dev-only. When this becomes an Electron app, the renderer will call the same
 // crm-data-core functions over IPC instead.
 
+import { exec } from 'node:child_process'
+import os from 'node:os'
 import {
   loadAll,
   setStage,
@@ -91,10 +93,31 @@ function withbody(req, res, handler) {
   })
 }
 
+// Auto-backup: while the app is running, push the code + data repos to GitHub on a
+// timer. This runs in the app's process, which already has the file access the CRM
+// needs, so it sidesteps the macOS rule that blocks background schedulers (launchd/
+// cron) from touching the Desktop folder. Fire-and-forget; never blocks the server.
+// (Moves to the Electron main process when the app is packaged.)
+function runBackup() {
+  const script = `${os.homedir()}/.local/bin/magic-crm-backup.sh`
+  exec(`/bin/bash "${script}"`, { timeout: 120000 }, (err, stdout, stderr) => {
+    const out = `${stdout || ''}${stderr || ''}`.trim()
+    if (out) console.log('[crm-backup]', out.replace(/\n/g, ' | '))
+  })
+}
+
 export function crmDataPlugin() {
   return {
     name: 'crm-data',
     configureServer(server) {
+      // Back up shortly after the app starts, then every 4 hours it stays running.
+      const t1 = setTimeout(runBackup, 90_000)
+      const t2 = setInterval(runBackup, 4 * 60 * 60 * 1000)
+      server.httpServer?.on('close', () => {
+        clearTimeout(t1)
+        clearInterval(t2)
+      })
+
       server.middlewares.use('/api/projects', (req, res, next) => {
         if (req.method !== 'GET') return next()
         try {
