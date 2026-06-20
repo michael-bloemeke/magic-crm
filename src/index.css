@@ -1,0 +1,187 @@
+@import 'tailwindcss';
+
+/* ----------------------------------------------------------------------------
+   Magic CRM — design tokens
+   Aesthetic: warm near-black "stage" canvas, champagne-brass accents,
+   editorial serif wordmark (Fraunces) + refined grotesk UI (Hanken Grotesk).
+---------------------------------------------------------------------------- */
+@theme {
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+
+  /* Canvas + surfaces */
+  --color-canvas: #100e0c;
+  --color-surface: #17130f;
+  --color-surface-2: #1c1813;
+  --color-surface-3: #221d17;
+  --color-surface-4: #2c2720;
+  --color-surface-5: #38322a;
+
+  /* Brass / champagne accent family */
+  --color-brass: #cb9b5d;
+  --color-brass-bright: #e6c590;
+  --color-brass-dim: #8c6f47;
+
+  /* Text */
+  --color-parchment: #efe9dd;
+  --color-muted: #a89e8d;
+  --color-faint: #74695a;
+
+  /* Hairlines */
+  --color-line: rgba(233, 218, 192, 0.08);
+  --color-line-strong: rgba(233, 218, 192, 0.14);
+
+  /* Umbrella accents (tuned for dark canvas) */
+  --color-umb-inquiry: #99a0ab;
+  --color-umb-postcall: #6f9bd1;
+  --color-umb-booked: #7fbc8c;
+  --color-umb-archive: #bd8f5e;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-parchment);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Stage spotlight: a soft warm glow from top center, never harsh. */
+    background-image:
+      radial-gradient(
+        120% 80% at 50% -10%,
+        rgba(203, 155, 93, 0.1) 0%,
+        rgba(203, 155, 93, 0.03) 32%,
+        transparent 60%
+      ),
+      radial-gradient(
+        90% 60% at 85% 0%,
+        rgba(111, 155, 209, 0.05) 0%,
+        transparent 55%
+      );
+    background-attachment: fixed;
+  }
+
+  /* Fine film grain for depth — subtle, premium, not noisy. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  ::selection {
+    background: rgba(203, 155, 93, 0.28);
+    color: var(--color-brass-bright);
+  }
+}
+
+/* Slim, warm scrollbars for the horizontal board */
+@layer utilities {
+  .board-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(203, 155, 93, 0.28) transparent;
+  }
+  .board-scroll::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+  }
+  .board-scroll::-webkit-scrollbar-thumb {
+    background: rgba(203, 155, 93, 0.22);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .board-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(203, 155, 93, 0.4);
+    background-clip: content-box;
+  }
+}
+
+/* Shared form control (used on the Finance page forms). Themed via tokens. */
+.input {
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-line);
+  background-color: var(--color-surface-2);
+  padding: 0.5rem 0.625rem;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--color-parchment);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--color-brass-dim);
+}
+.input::placeholder {
+  color: var(--color-faint);
+}
+
+/* ----------------------------------------------------------------------------
+   THEMES
+   The @theme block above is EMBER (the default, also data-theme="ember").
+   FISM redefines the same tokens in deep royal navy + gold, matching the FISM
+   award artwork used on michaelbloemeke.com. Switching themes only sets
+   data-theme on <html>; these higher-specificity overrides cascade everywhere.
+---------------------------------------------------------------------------- */
+:root[data-theme='fism'] {
+  /* Dominant surfaces are a near-neutral charcoal with a whisper of blue (so the
+     app reads "blue-themed," not drowned in blue); the ramp climbs toward true
+     royal blue only for raised cards/panels, mirroring the website's FISM logic
+     (neutral charcoal dominant, saturated royal reserved for brand moments). */
+  --color-canvas: #0a0d14;
+  --color-surface: #0e1220;
+  --color-surface-2: #141a2b;
+  --color-surface-3: #1b2339;
+  --color-surface-4: #243358;
+  --color-surface-5: #2f4170;
+
+  /* Gold accent family (the FISM medal gold) */
+  --color-brass: #cda85f;
+  --color-brass-bright: #ecc879;
+  --color-brass-dim: #8a7440;
+
+  /* Text (neutral, no blue tint, per the website's FISM rules) */
+  --color-parchment: #f1f3f9;
+  --color-muted: #a7adc0;
+  --color-faint: #6a7187;
+
+  /* Hairlines (cool) */
+  --color-line: rgba(200, 214, 255, 0.08);
+  --color-line-strong: rgba(200, 214, 255, 0.15);
+
+  /* Pipeline category accents: deliberately NOT three blues. Silver (new) ->
+     teal (in conversation) -> green (booked) all pop against the charcoal-navy
+     so the stages are easy to tell apart. */
+  --color-umb-inquiry: #aab2cc;
+  --color-umb-postcall: #46c2d6;
+  --color-umb-booked: #5fcf8f;
+  --color-umb-archive: #cda85f;
+}
+
+/* FISM stage glow: gold from top center, a royal-blue wash upper-right. */
+:root[data-theme='fism'] body {
+  background-image:
+    radial-gradient(
+      120% 80% at 50% -10%,
+      rgba(201, 169, 97, 0.1) 0%,
+      rgba(201, 169, 97, 0.03) 32%,
+      transparent 60%
+    ),
+    radial-gradient(90% 60% at 85% 0%, rgba(40, 70, 140, 0.2) 0%, transparent 55%);
+}
+:root[data-theme='fism'] ::selection {
+  background: rgba(201, 169, 97, 0.3);
+  color: var(--color-brass-bright);
+}
+:root[data-theme='fism'] .board-scroll {
+  scrollbar-color: rgba(201, 169, 97, 0.3) transparent;
+}

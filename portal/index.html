@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- This is a private, per-client page. Never index it. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Michael Bloemeke</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f4f1ea;
+        --card: #fffdf8;
+        --ink: #241f17;
+        --muted: #6f685a;
+        --faint: #9a9282;
+        --line: #e7e1d4;
+        --brass: #b0832f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.5;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 56px 22px 72px; }
+      .hero { text-align: center; margin-bottom: 30px; }
+      .brand {
+        margin: 0 0 14px;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--brass);
+        font-weight: 600;
+      }
+      h1 {
+        font-family: 'Fraunces', Georgia, serif;
+        font-weight: 600;
+        font-size: clamp(30px, 6vw, 44px);
+        line-height: 1.08;
+        margin: 0;
+      }
+      .etype {
+        margin: 12px 0 0;
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 22px 24px;
+        margin-top: 16px;
+        box-shadow: 0 20px 50px -38px rgba(0, 0, 0, 0.5);
+      }
+      .card h2 {
+        font-family: 'Fraunces', Georgia, serif;
+        font-weight: 600;
+        font-size: 17px;
+        margin: 0 0 14px;
+      }
+      .message { font-size: 16px; line-height: 1.65; color: #34302a; white-space: pre-line; }
+      .rows { display: flex; flex-direction: column; }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .row:last-child { border-bottom: 0; }
+      .lbl { color: var(--muted); font-size: 13px; }
+      .val { text-align: right; font-weight: 500; }
+      .links { display: flex; flex-wrap: wrap; gap: 10px; }
+      .link {
+        display: inline-block;
+        padding: 9px 15px;
+        border: 1px solid var(--brass);
+        border-radius: 999px;
+        color: var(--brass);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+        transition: background 0.15s, color 0.15s;
+      }
+      .link:hover { background: var(--brass); color: #fff; }
+      footer { margin-top: 28px; text-align: center; color: var(--faint); font-size: 12.5px; }
+      .center { text-align: center; }
+      .center h1 { font-size: clamp(24px, 5vw, 32px); }
+      .center p { color: var(--muted); margin: 14px auto 0; max-width: 30rem; }
+      .loading { padding: 80px 0; text-align: center; color: var(--faint); }
+    </style>
+  </head>
+  <body>
+    <main id="app"><div class="loading">Loading…</div></main>
+    <script>
+      const app = document.getElementById('app')
+      const token = location.pathname.replace(/^\/p\//, '').replace(/\/+$/, '').trim()
+
+      const esc = (s) =>
+        String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+      const LINK_LABELS = { video: 'Promo video', reviews: 'Reviews', intro: 'Intro video', site: 'Website' }
+
+      function invalid() {
+        app.innerHTML =
+          '<div class="wrap"><div class="card center"><p class="brand">Michael Bloemeke</p>' +
+          '<h1>This link isn’t available</h1>' +
+          '<p>It may have expired or been turned off. Please reach out to Michael for an updated link.</p></div></div>'
+      }
+
+      function render(b) {
+        const fields = (b.fields || [])
+          .map((f) => '<div class="row"><span class="lbl">' + esc(f.label) + '</span><span class="val">' + esc(f.value) + '</span></div>')
+          .join('')
+        const links = Object.entries(b.links || {})
+          .filter(([, v]) => v)
+          .map(
+            ([k, v]) =>
+              '<a class="link" href="' + esc(v) + '" target="_blank" rel="noopener noreferrer">' + esc(LINK_LABELS[k] || k) + '</a>',
+          )
+          .join('')
+        app.innerHTML =
+          '<div class="wrap">' +
+          '<header class="hero"><p class="brand">The Award-Winning Magic of Michael Bloemeke</p>' +
+          '<h1>' + esc(b.projectName || 'Your Event') + '</h1>' +
+          (b.eventType ? '<p class="etype">' + esc(b.eventType) + '</p>' : '') +
+          '</header>' +
+          (b.message ? '<section class="card message">' + esc(b.message) + '</section>' : '') +
+          (fields ? '<section class="card"><h2>Event details</h2><div class="rows">' + fields + '</div></section>' : '') +
+          (links ? '<section class="card"><h2>Links</h2><div class="links">' + links + '</div></section>' : '') +
+          '<footer>Questions? Just reply to Michael’s email.</footer>' +
+          '</div>'
+      }
+
+      if (!token) {
+        invalid()
+      } else {
+        fetch('/data/' + encodeURIComponent(token) + '.json', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error('not found'))))
+          .then(render)
+          .catch(invalid)
+      }
+    </script>
+  </body>
+</html>
