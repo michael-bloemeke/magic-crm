@@ -15,6 +15,7 @@ const CONFIG_FILE = path.join(RECORDS_DIR, 'crm-config.json')
 
 // Defaults; the live values live in crm-config.json and are editable in the app.
 const DEFAULT_GOALS = [80000, 100000, 150000]
+const DEFAULT_MONTHLY_GOAL = 10000
 const DEFAULT_REASONS = [
   'Booked elsewhere',
   'Went with someone else',
@@ -89,7 +90,8 @@ export function loadConfig() {
       ? d.archiveReasons.map((s) => String(s).trim()).filter(Boolean)
       : DEFAULT_REASONS
   const contactTags = Array.isArray(d.contactTags) ? uniqStrings(d.contactTags) : []
-  return { incomeGoals: [...goals].sort((a, b) => a - b), archiveReasons: reasons, contactTags }
+  const monthlyGoal = num(d.monthlyGoal) > 0 ? num(d.monthlyGoal) : DEFAULT_MONTHLY_GOAL
+  return { incomeGoals: [...goals].sort((a, b) => a - b), monthlyGoal, archiveReasons: reasons, contactTags }
 }
 export function saveConfig(patch) {
   const cur = readJson(CONFIG_FILE, {})
@@ -102,10 +104,14 @@ export function saveConfig(patch) {
   if (patch.contactTags != null) {
     cur.contactTags = uniqStrings(patch.contactTags)
   }
+  if (patch.monthlyGoal != null) {
+    const g = num(patch.monthlyGoal)
+    cur.monthlyGoal = g > 0 ? g : DEFAULT_MONTHLY_GOAL
+  }
   cur._meta = metaBlock(
     'crm-config.json',
-    'CRM editable settings: income goal tiers, the archive-reason list, and the reusable contact-tag library. Edited from the app (Finance goals editor, archive dialog, contact tag inputs).',
-    'incomeGoals[] (numbers), archiveReasons[] (strings), contactTags[] (strings)',
+    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, and the reusable contact-tag library. Edited from the app (Finance goals editor, archive dialog, contact tag inputs).',
+    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings)',
   )
   writeJson(CONFIG_FILE, cur)
   return loadConfig()
@@ -395,7 +401,8 @@ export function computeFinance() {
     .sort((a, b) => b.amount - a.amount)
   const expectedRemaining = expectedItems.reduce((s, it) => s + it.amount, 0)
 
-  const goals = loadConfig().incomeGoals.map((goal) => ({ goal }))
+  const cfg = loadConfig()
+  const goals = cfg.incomeGoals.map((goal) => ({ goal }))
 
   return {
     year,
@@ -406,6 +413,7 @@ export function computeFinance() {
     expectedRemaining,
     expectedItems,
     goals,
+    monthlyGoal: cfg.monthlyGoal,
     hasPayments: payments.length > 0,
   }
 }

@@ -518,7 +518,7 @@ export function fileRawUrl(name: string): string {
 
 // --- Editable settings -------------------------------------------------------
 
-export type AppConfig = { incomeGoals: number[]; archiveReasons: string[]; contactTags: string[] }
+export type AppConfig = { incomeGoals: number[]; monthlyGoal: number; archiveReasons: string[]; contactTags: string[] }
 
 export async function loadConfig(): Promise<AppConfig> {
   const res = await fetch('/api/config')
@@ -562,6 +562,7 @@ export type FinanceSummary = {
   expectedRemaining: number
   expectedItems: BreakdownItem[]
   goals: { goal: number }[]
+  monthlyGoal: number
   hasPayments: boolean
 }
 

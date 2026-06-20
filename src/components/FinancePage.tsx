@@ -99,6 +99,8 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
   const [includeTips, setIncludeTips] = useState(false)
   const [editingGoals, setEditingGoals] = useState(false)
   const [goalDraft, setGoalDraft] = useState<string[]>([])
+  const [editingMonthly, setEditingMonthly] = useState(false)
+  const [monthlyDraft, setMonthlyDraft] = useState('')
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null)
 
   useEffect(() => {
@@ -119,6 +121,16 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
     setData(await loadFinance())
     setEditingGoals(false)
   }
+  const startEditMonthly = () => {
+    setMonthlyDraft(String(data.monthlyGoal))
+    setEditingMonthly(true)
+  }
+  const saveMonthly = async () => {
+    const n = Number(monthlyDraft.replace(/[^0-9.]/g, ''))
+    await saveConfig({ monthlyGoal: n > 0 ? n : 10000 })
+    setData(await loadFinance())
+    setEditingMonthly(false)
+  }
 
   // Every figure reads from the PAYMENTS field. The basis only changes which month
   // a payment counts in (received = month it arrived, earned = its event month).
@@ -134,7 +146,9 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
     (basis === 'received' ? 'Payments by date received, by project' : 'Payments by event month, by project') +
     (includeTips ? ' (tips included)' : '')
   const last12Value = valueOf(data.last12)
-  const max = Math.max(1, ...data.months.map(valueOf))
+  // Month blocks fill toward the monthly goal (100% at goal or above), not relative
+  // to the highest month.
+  const monthlyGoal = Math.max(1, data.monthlyGoal)
 
   return (
     <div className="space-y-8">
@@ -288,10 +302,50 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
 
       {/* 12-month blocks */}
       <section>
-        <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">Month by month</h3>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">Month by month</h3>
+          {editingMonthly ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-faint">Goal $</span>
+              <input
+                autoFocus
+                value={monthlyDraft}
+                onChange={(e) => setMonthlyDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveMonthly()
+                  if (e.key === 'Escape') setEditingMonthly(false)
+                }}
+                className="w-24 rounded-md border border-line bg-surface-2/40 px-2 py-1 text-[12px] tabular-nums text-parchment outline-none focus:border-brass-dim"
+              />
+              <button
+                type="button"
+                onClick={saveMonthly}
+                className="rounded-md border border-brass-dim/60 px-2 py-1 text-[11px] font-semibold text-brass-bright hover:border-brass"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingMonthly(false)}
+                className="px-1 text-[11px] text-faint hover:text-muted"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={startEditMonthly}
+              className="text-[11px] text-faint underline-offset-2 transition-colors hover:text-muted hover:underline"
+            >
+              Goal {money(data.monthlyGoal)}/mo · edit
+            </button>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {data.months.map((m) => {
             const val = valueOf(m)
+            const pct = Math.min(1, val / monthlyGoal)
             return (
               <button
                 type="button"
@@ -299,12 +353,15 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
                 onClick={() =>
                   setBreakdown({ title: `${m.label} · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(m) })
                 }
-                title="See the breakdown"
+                title={`${money(val)} of ${money(data.monthlyGoal)} goal · see the breakdown`}
                 className="relative overflow-hidden rounded-xl border border-line bg-surface-2/60 p-3 text-left transition-colors hover:border-line-strong"
               >
                 <div
-                  className="absolute inset-x-0 bottom-0 bg-brass/10"
-                  style={{ height: `${(val / max) * 100}%` }}
+                  className="absolute inset-x-0 bottom-0"
+                  style={{
+                    height: `${pct * 100}%`,
+                    backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 28%, transparent)',
+                  }}
                   aria-hidden
                 />
                 <div className="relative">
