@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { type Project } from '../pipeline'
 import {
   loadQuickBooks,
-  createQbInvoice,
   sendQbInvoice,
   qbInvoicePdfUrl,
   type QuickBooksInvoice,
   type QuickBooksStatus,
 } from '../api'
+import { InvoiceGenerateModal } from './InvoiceGenerateModal'
 
 // The Booking-section "Invoice" card, backed by QuickBooks. If QuickBooks isn't
 // connected it offers a one-time Connect. Once connected, "Generate invoice" creates
@@ -21,12 +21,18 @@ function fmtDate(iso: string) {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
+function fmtDay(ymd: string) {
+  if (!ymd) return ''
+  const d = new Date(ymd + 'T00:00:00')
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 
 export function InvoiceCard({ project }: { project: Project }) {
   const [status, setStatus] = useState<QuickBooksStatus | null>(null)
   const [invoice, setInvoice] = useState<QuickBooksInvoice | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  const [genOpen, setGenOpen] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -44,17 +50,10 @@ export function InvoiceCard({ project }: { project: Project }) {
     }
   }, [project.id])
 
-  const generate = async () => {
-    setBusy(true)
-    setNote(null)
-    try {
-      setInvoice(await createQbInvoice(project.id))
-      setNote('Invoice created in QuickBooks.')
-    } catch (e) {
-      setNote(String(e instanceof Error ? e.message : e))
-    } finally {
-      setBusy(false)
-    }
+  const onCreated = (inv: QuickBooksInvoice) => {
+    setInvoice(inv)
+    setNote(invoice ? 'Invoice regenerated in QuickBooks.' : 'Invoice created in QuickBooks.')
+    setGenOpen(false)
   }
   const send = async () => {
     setBusy(true)
@@ -118,6 +117,8 @@ export function InvoiceCard({ project }: { project: Project }) {
         <>
           <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
             Invoice {invoice.docNumber ? `#${invoice.docNumber}` : ''} for {money(invoice.total)} to {invoice.customer}.
+            {invoice.processingFee ? ` Includes ${money(invoice.processingFee)} card fee.` : ''}
+            {invoice.dueDate ? ` Due ${fmtDay(invoice.dueDate)}.` : ''}
             {invoice.sentAt ? ` Sent ${fmtDate(invoice.sentAt)}.` : ' Not sent yet.'}
           </p>
           <div className="mt-2 flex items-center gap-2">
@@ -138,7 +139,7 @@ export function InvoiceCard({ project }: { project: Project }) {
             </button>
             <button
               type="button"
-              onClick={generate}
+              onClick={() => setGenOpen(true)}
               disabled={busy}
               className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
             >

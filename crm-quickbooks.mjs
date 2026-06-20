@@ -160,15 +160,17 @@ async function ensureCustomer(name, email) {
   return created.Customer
 }
 
-// Find a Service item for the invoice line, or create one ("Magic Performance").
-async function ensureItem() {
-  const found = await query(`select * from Item where Type = 'Service' maxresults 1`)
+// Find a Service item by name, or create it (attached to the first income account).
+// Used for the performance line ("Magic Performance") and the optional card-fee line.
+async function ensureServiceItem(name) {
+  const safe = String(name || 'Service').replace(/['\\]/g, ' ').trim()
+  const found = await query(`select * from Item where Name = '${safe}'`)
   const existing = found?.QueryResponse?.Item?.[0]
   if (existing) return existing
   const accRes = await query(`select * from Account where AccountType = 'Income' maxresults 1`)
   const acc = accRes?.QueryResponse?.Account?.[0]
   if (!acc) throw new Error('No income account found in QuickBooks to attach a service item to.')
-  const body = { Name: 'Magic Performance', Type: 'Service', IncomeAccountRef: { value: acc.Id } }
+  const body = { Name: safe, Type: 'Service', IncomeAccountRef: { value: acc.Id } }
   const created = await qb('/item', { method: 'POST', body: JSON.stringify(body) })
   return created.Item
 }
@@ -191,7 +193,7 @@ function writeInvoices(d) {
     purpose:
       'Per-project reference to the QuickBooks invoice generated from the CRM (the invoice itself lives in QuickBooks; this just links projectId -> invoice id/number/total/status so the project page can show it).',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
-    shape: 'invoices[projectId] = { invoiceId, docNumber, total, customer, createdAt, sentAt }',
+    shape: 'invoices[projectId] = { invoiceId, docNumber, total, amount, processingFee, dueDate, customer, email, createdAt, sentAt }',
   }
   fs.writeFileSync(INVOICES_FILE, JSON.stringify(d, null, 2) + '\n')
 }
@@ -199,33 +201,56 @@ export function loadInvoices() {
   return readInvoices().invoices
 }
 
-export async function createInvoiceForProject(projectId) {
+// opts: { amount, dueDate (YYYY-MM-DD), processingFeePercent }. Amount defaults to
+// the project's Quote (total fee) when not given, so partial invoices (e.g. a 50%
+// deposit) are just a lower amount. A processingFeePercent > 0 adds a separate
+// "Card Processing Fee" line so the client covers the card-processing cost.
+export async function createInvoiceForProject(projectId, opts = {}) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
-  const fee = project.totalFee == null ? NaN : Number(project.totalFee)
-  if (!fee || Number.isNaN(fee)) throw new Error('Set a Quote (total fee) on this project before creating an invoice.')
+  const quote = project.totalFee == null ? NaN : Number(project.totalFee)
+  let amount = opts.amount === undefined || opts.amount === null || opts.amount === '' ? quote : Number(opts.amount)
+  if (!amount || Number.isNaN(amount) || amount <= 0) {
+    throw new Error('Enter an invoice amount (or set a Quote on the project first).')
+  }
+  amount = Math.round(amount * 100) / 100
   const email = String(project.contactEmails || '').split(/[,;]/)[0].trim() || ''
   const customer = await ensureCustomer(project.client, email)
-  const item = await ensureItem()
+  const item = await ensureServiceItem('Magic Performance')
   const description = `${project.eventType || 'Magic performance'}${project.eventDate ? ` on ${project.eventDate}` : ''}`
-  const body = {
-    CustomerRef: { value: customer.Id },
-    Line: [
-      {
-        DetailType: 'SalesItemLineDetail',
-        Amount: fee,
-        Description: description,
-        SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: fee },
-      },
-    ],
+  const lines = [
+    {
+      DetailType: 'SalesItemLineDetail',
+      Amount: amount,
+      Description: description,
+      SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: amount },
+    },
+  ]
+  const feePct = opts.processingFeePercent == null || opts.processingFeePercent === '' ? 0 : Number(opts.processingFeePercent)
+  let processingFee = 0
+  if (feePct && !Number.isNaN(feePct) && feePct > 0) {
+    processingFee = Math.round(amount * feePct) / 100 // amount * (pct/100), 2 decimals
+    const feeItem = await ensureServiceItem('Card Processing Fee')
+    lines.push({
+      DetailType: 'SalesItemLineDetail',
+      Amount: processingFee,
+      Description: `Card processing fee (${feePct}%)`,
+      SalesItemLineDetail: { ItemRef: { value: feeItem.Id }, Qty: 1, UnitPrice: processingFee },
+    })
   }
+  const body = { CustomerRef: { value: customer.Id }, Line: lines }
   if (email) body.BillEmail = { Address: email }
+  const due = String(opts.dueDate || '').trim()
+  if (due) body.DueDate = due // QuickBooks expects YYYY-MM-DD
   const created = await qb('/invoice', { method: 'POST', body: JSON.stringify(body) })
   const inv = created.Invoice
   const ref = {
     invoiceId: inv.Id,
     docNumber: inv.DocNumber || '',
     total: inv.TotalAmt,
+    amount,
+    processingFee,
+    dueDate: inv.DueDate || due || '',
     customer: customer.DisplayName,
     email,
     createdAt: new Date().toISOString(),

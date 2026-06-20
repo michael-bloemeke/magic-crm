@@ -440,11 +440,15 @@ export type QuickBooksInvoice = {
   invoiceId: string
   docNumber: string
   total: number
+  amount?: number
+  processingFee?: number
+  dueDate?: string
   customer: string
   email: string
   createdAt: string
   sentAt: string
 }
+export type InvoiceOptions = { amount?: number; dueDate?: string; processingFeePercent?: number }
 
 export async function loadQuickBooks(): Promise<{ status: QuickBooksStatus; invoices: Record<string, QuickBooksInvoice> }> {
   const res = await fetch('/api/quickbooks')
@@ -452,11 +456,11 @@ export async function loadQuickBooks(): Promise<{ status: QuickBooksStatus; invo
   const d = await res.json()
   return { status: d.status, invoices: d.invoices ?? {} }
 }
-export async function createQbInvoice(projectId: string): Promise<QuickBooksInvoice> {
+export async function createQbInvoice(projectId: string, opts: InvoiceOptions = {}): Promise<QuickBooksInvoice> {
   const res = await fetch('/api/quickbooks/invoice', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify({ projectId, ...opts }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Failed to create invoice (${res.status})`)

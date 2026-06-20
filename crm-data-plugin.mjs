@@ -535,7 +535,13 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/quickbooks/invoice', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ invoice: await qbCreateInvoice(b.projectId) }))
+        withbody(req, res, async (b) => ({
+          invoice: await qbCreateInvoice(b.projectId, {
+            amount: b.amount,
+            dueDate: b.dueDate,
+            processingFeePercent: b.processingFeePercent,
+          }),
+        }))
       })
       server.middlewares.use('/api/quickbooks', (req, res, next) => {
         if (req.method !== 'GET') return next()
