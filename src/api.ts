@@ -434,6 +434,48 @@ export async function loadPortalBundle(projectId: string): Promise<PortalBundle 
   return ((await res.json()).bundle ?? null) as PortalBundle | null
 }
 
+// --- QuickBooks --------------------------------------------------------------
+export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }
+export type QuickBooksInvoice = {
+  invoiceId: string
+  docNumber: string
+  total: number
+  customer: string
+  email: string
+  createdAt: string
+  sentAt: string
+}
+
+export async function loadQuickBooks(): Promise<{ status: QuickBooksStatus; invoices: Record<string, QuickBooksInvoice> }> {
+  const res = await fetch('/api/quickbooks')
+  if (!res.ok) throw new Error(`Failed to load QuickBooks status (${res.status})`)
+  const d = await res.json()
+  return { status: d.status, invoices: d.invoices ?? {} }
+}
+export async function createQbInvoice(projectId: string): Promise<QuickBooksInvoice> {
+  const res = await fetch('/api/quickbooks/invoice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to create invoice (${res.status})`)
+  return data.invoice as QuickBooksInvoice
+}
+export async function sendQbInvoice(projectId: string, email?: string): Promise<QuickBooksInvoice> {
+  const res = await fetch('/api/quickbooks/invoice/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, email }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to send invoice (${res.status})`)
+  return data.invoice as QuickBooksInvoice
+}
+export async function disconnectQuickBooks(): Promise<void> {
+  await postJson('/api/quickbooks/disconnect', {})
+}
+
 // --- Business files ----------------------------------------------------------
 
 export type FileItem = {

@@ -7,6 +7,7 @@ import { PaymentsEditor } from './PaymentsEditor'
 import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { EmailBuilderCard } from './EmailBuilderCard'
+import { InvoiceCard } from './InvoiceCard'
 import { contactsForProject } from '../contacts'
 import { evalNumberFormula } from '../calc'
 
@@ -197,7 +198,7 @@ export function ProjectDetailsBody({
         <div className={splitGrid}>
           <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
           <div className="space-y-2">
-            <ComingSoon title="Invoice" desc="Generate and send an invoice for this booking." />
+            <InvoiceCard project={project} />
             <ComingSoon title="Contract" desc="Generate a performance agreement to sign." />
           </div>
         </div>

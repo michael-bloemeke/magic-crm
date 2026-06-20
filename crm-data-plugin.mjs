@@ -45,6 +45,15 @@ import {
   SHAREABLE_FIELDS,
   PORTAL_BASE_URL,
 } from './crm-portal.mjs'
+import {
+  status as qbStatus,
+  authUrl as qbAuthUrl,
+  handleCallback as qbHandleCallback,
+  disconnect as qbDisconnect,
+  loadInvoices as qbLoadInvoices,
+  createInvoiceForProject as qbCreateInvoice,
+  sendInvoiceForProject as qbSendInvoice,
+} from './crm-quickbooks.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -468,6 +477,53 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ portals: loadPortals(), shareableFields: SHAREABLE_FIELDS, baseUrl: PORTAL_BASE_URL }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- QuickBooks (OAuth connect + invoices). Specific paths before generic. ---
+      server.middlewares.use('/api/quickbooks/auth', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.writeHead(302, { Location: qbAuthUrl() })
+          res.end()
+        } catch (e) {
+          res.statusCode = 400
+          res.end(String(e?.message || e))
+        }
+      })
+      server.middlewares.use('/api/quickbooks/callback', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        qbHandleCallback({ code: url.searchParams.get('code'), realmId: url.searchParams.get('realmId') })
+          .then(() => {
+            res.writeHead(302, { Location: '/?qb=connected' })
+            res.end()
+          })
+          .catch((e) => {
+            res.setHeader('Content-Type', 'text/html')
+            res.end(`<body style="font-family:sans-serif;padding:40px"><h2>QuickBooks connection failed</h2><p>${String(e?.message || e)}</p><p>Close this tab and try Connect again.</p></body>`)
+          })
+      })
+      server.middlewares.use('/api/quickbooks/disconnect', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, () => qbDisconnect())
+      })
+      server.middlewares.use('/api/quickbooks/invoice/send', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ invoice: await qbSendInvoice(b.projectId, b.email) }))
+      })
+      server.middlewares.use('/api/quickbooks/invoice', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ invoice: await qbCreateInvoice(b.projectId) }))
+      })
+      server.middlewares.use('/api/quickbooks', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ status: qbStatus(), invoices: qbLoadInvoices() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
