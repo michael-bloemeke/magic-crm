@@ -32,7 +32,16 @@ import {
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
-import { loadPortals, savePortal, publishPortal, unpublishPortal, buildBundle, SHAREABLE_FIELDS } from './crm-portal.mjs'
+import {
+  loadPortals,
+  savePortal,
+  unpublishPortal,
+  buildBundle,
+  writeBundleFile,
+  deployPortal,
+  SHAREABLE_FIELDS,
+  PORTAL_BASE_URL,
+} from './crm-portal.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -398,13 +407,25 @@ export function crmDataPlugin() {
         if (req.method !== 'POST') return next()
         withbody(req, res, (b) => ({ portal: savePortal(b) }))
       })
+      // Publish = save the latest config, write the curated bundle, push it live.
       server.middlewares.use('/api/portal/publish', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ portal: publishPortal(b.projectId), bundle: buildBundle(b.projectId) }))
+        withbody(req, res, async (b) => {
+          const portal = savePortal({ projectId: b.projectId, patch: { ...(b.patch || {}), published: true } })
+          writeBundleFile(b.projectId)
+          const deploy = await deployPortal()
+          return { portal, bundle: buildBundle(b.projectId), baseUrl: PORTAL_BASE_URL, deploy }
+        })
       })
+      // Unpublish = mark unpublished, remove the bundle file, push so the link 404s.
       server.middlewares.use('/api/portal/unpublish', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ portal: unpublishPortal(b.projectId) }))
+        withbody(req, res, async (b) => {
+          const portal = unpublishPortal(b.projectId)
+          writeBundleFile(b.projectId)
+          const deploy = await deployPortal()
+          return { portal, baseUrl: PORTAL_BASE_URL, deploy }
+        })
       })
       server.middlewares.use('/api/portal/bundle', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -422,7 +443,7 @@ export function crmDataPlugin() {
         if (req.method !== 'GET') return next()
         try {
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ portals: loadPortals(), shareableFields: SHAREABLE_FIELDS }))
+          res.end(JSON.stringify({ portals: loadPortals(), shareableFields: SHAREABLE_FIELDS, baseUrl: PORTAL_BASE_URL }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

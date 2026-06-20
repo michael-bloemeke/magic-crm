@@ -18,6 +18,7 @@ import { ThreadReader } from './ThreadReader'
 import { MiniComms } from './MiniComms'
 import { NotesDrawer } from './NotesDrawer'
 import { EmailBuilderModal } from './EmailBuilderModal'
+import { PortalModal } from './PortalModal'
 import { ProjectActions } from './ProjectActions'
 import { EditableTitle } from './EditableTitle'
 import { contactsForProject } from '../contacts'
@@ -88,6 +89,7 @@ export function ProjectView({
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [notesOpen, setNotesOpen] = useState(false)
   const [writeOpen, setWriteOpen] = useState(false)
+  const [portalOpen, setPortalOpen] = useState(false)
 
   // Recipient emails for the one-off "Write email" composer: every email on the
   // project's linked contacts.
@@ -189,6 +191,17 @@ export function ProjectView({
               </svg>
               Notes
             </button>
+            <button
+              type="button"
+              onClick={() => setPortalOpen(true)}
+              title="Client portal (share a page with the client)"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[12.5px] font-semibold text-muted transition-colors hover:border-brass-dim hover:text-brass-bright"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12a8 8 0 1 0 16 0 8 8 0 0 0-16 0M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16" />
+              </svg>
+              Portal
+            </button>
             <ProjectActions
               project={project}
               onArchive={onArchive}
@@ -251,6 +264,8 @@ export function ProjectView({
       </div>
 
       <NotesDrawer project={project} open={notesOpen} onClose={() => setNotesOpen(false)} onSaveField={onSaveField} />
+
+      <PortalModal project={project} open={portalOpen} onClose={() => setPortalOpen(false)} />
 
       <EmailBuilderModal
         open={writeOpen}

@@ -385,16 +385,16 @@ export type PortalBundle = {
   publishedAt: string | null
 }
 
-export async function loadPortals(): Promise<{ portals: Record<string, PortalSettings>; shareableFields: ShareableField[] }> {
+export type PortalDeploy = { ok: boolean; url?: string; error?: string }
+type PortalPatch = Partial<Pick<PortalSettings, 'sharedFields' | 'assetIds' | 'links' | 'message' | 'accessCode' | 'expiresAt'>>
+
+export async function loadPortals(): Promise<{ portals: Record<string, PortalSettings>; shareableFields: ShareableField[]; baseUrl: string }> {
   const res = await fetch('/api/portal')
   if (!res.ok) throw new Error(`Failed to load portals (${res.status})`)
   const d = await res.json()
-  return { portals: d.portals ?? {}, shareableFields: d.shareableFields ?? [] }
+  return { portals: d.portals ?? {}, shareableFields: d.shareableFields ?? [], baseUrl: d.baseUrl ?? '' }
 }
-export async function savePortal(input: {
-  projectId: string
-  patch: Partial<Pick<PortalSettings, 'sharedFields' | 'assetIds' | 'links' | 'message' | 'accessCode' | 'expiresAt' | 'published'>>
-}): Promise<PortalSettings> {
+export async function savePortal(input: { projectId: string; patch: PortalPatch }): Promise<PortalSettings> {
   const res = await fetch('/api/portal/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -403,23 +403,30 @@ export async function savePortal(input: {
   if (!res.ok) throw new Error(`Failed to save portal (${res.status})`)
   return (await res.json()).portal as PortalSettings
 }
-export async function publishPortal(projectId: string): Promise<{ portal: PortalSettings; bundle: PortalBundle | null }> {
+// Publish saves the latest config, writes the curated bundle, and deploys it live.
+// Slow (~20-40s) because it pushes to Vercel.
+export async function publishPortal(
+  projectId: string,
+  patch: PortalPatch,
+): Promise<{ portal: PortalSettings; bundle: PortalBundle | null; baseUrl: string; deploy: PortalDeploy }> {
   const res = await fetch('/api/portal/publish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify({ projectId, patch }),
   })
   if (!res.ok) throw new Error(`Failed to publish portal (${res.status})`)
-  return (await res.json()) as { portal: PortalSettings; bundle: PortalBundle | null }
+  return (await res.json()) as { portal: PortalSettings; bundle: PortalBundle | null; baseUrl: string; deploy: PortalDeploy }
 }
-export async function unpublishPortal(projectId: string): Promise<PortalSettings> {
+export async function unpublishPortal(
+  projectId: string,
+): Promise<{ portal: PortalSettings; baseUrl: string; deploy: PortalDeploy }> {
   const res = await fetch('/api/portal/unpublish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectId }),
   })
   if (!res.ok) throw new Error(`Failed to unpublish portal (${res.status})`)
-  return (await res.json()).portal as PortalSettings
+  return (await res.json()) as { portal: PortalSettings; baseUrl: string; deploy: PortalDeploy }
 }
 export async function loadPortalBundle(projectId: string): Promise<PortalBundle | null> {
   const res = await fetch(`/api/portal/bundle?projectId=${encodeURIComponent(projectId)}`)

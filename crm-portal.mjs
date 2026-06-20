@@ -9,9 +9,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { execFile } from 'node:child_process'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
+
+// The static portal site that gets deployed (magic-crm/portal/). Curated bundles
+// are written into its data/ dir, one per token, then the folder is pushed to
+// Vercel. The production alias is stable across deploys, so client links never change.
+const PORTAL_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'portal')
+const PORTAL_DATA_DIR = path.join(PORTAL_DIR, 'data')
+export const PORTAL_BASE_URL = 'https://portal-liard-phi.vercel.app'
 
 // The ONLY project fields a portal may expose. `id` matches the normalized Project
 // field; `label` is what the client sees. Adding a field here is the deliberate way
@@ -148,4 +157,37 @@ export function bundleForToken(token) {
     if (s && s.token === token) return buildBundle(projectId)
   }
   return null
+}
+
+// Write (or remove) the curated bundle file the static portal serves. Published ->
+// write portal/data/<token>.json; not published/expired -> delete it so the link 404s.
+export function writeBundleFile(projectId) {
+  const settings = loadPortal(projectId)
+  if (!settings) return { ok: false, error: 'no portal settings' }
+  const file = path.join(PORTAL_DATA_DIR, `${settings.token}.json`)
+  const bundle = buildBundle(projectId)
+  try {
+    fs.mkdirSync(PORTAL_DATA_DIR, { recursive: true })
+    if (bundle) fs.writeFileSync(file, JSON.stringify(bundle, null, 2) + '\n')
+    else if (fs.existsSync(file)) fs.unlinkSync(file)
+    return { ok: true, token: settings.token, live: !!bundle }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
+// Push the static portal folder to Vercel production (so the latest bundles go
+// live). The production alias is stable, so we just confirm success. ~20-40s.
+export function deployPortal() {
+  return new Promise((resolve) => {
+    execFile('vercel', ['--cwd', PORTAL_DIR, 'deploy', '--prod', '--yes'], { timeout: 180000 }, (err, stdout, stderr) => {
+      const out = `${stdout || ''}\n${stderr || ''}`
+      const m = out.match(/https:\/\/[a-z0-9-]+\.vercel\.app/i)
+      if (err && !m) {
+        resolve({ ok: false, error: String(stderr || err.message || 'deploy failed').trim().slice(-400) })
+      } else {
+        resolve({ ok: true, url: PORTAL_BASE_URL })
+      }
+    })
+  })
 }
