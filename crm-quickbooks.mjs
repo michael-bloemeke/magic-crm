@@ -243,10 +243,36 @@ export async function sendInvoiceForProject(projectId, overrideEmail) {
   if (!ref || !ref.invoiceId) throw new Error('No invoice has been generated for this project yet.')
   const to = String(overrideEmail || ref.email || '').trim()
   if (!to) throw new Error('No client email on file to send the invoice to.')
-  await qb(`/invoice/${ref.invoiceId}/send?sendTo=${encodeURIComponent(to)}`, { method: 'POST' })
+  // The send endpoint requires Content-Type: application/octet-stream with an empty
+  // body. Posting application/json here makes QuickBooks throw a 500 NullPointerException.
+  await qb(`/invoice/${ref.invoiceId}/send?sendTo=${encodeURIComponent(to)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+  })
   ref.sentAt = new Date().toISOString()
   ref.email = to
   d.invoices[projectId] = ref
   writeInvoices(d)
   return ref
+}
+
+// Fetch the rendered invoice PDF from QuickBooks (for in-app preview, before or
+// after sending). Returns the raw PDF bytes as a Buffer plus a name for the file.
+// Uses a dedicated fetch because qb() assumes a JSON response, not binary.
+export async function invoicePdfForProject(projectId) {
+  const d = readInvoices()
+  const ref = d.invoices[projectId]
+  if (!ref || !ref.invoiceId) throw new Error('No invoice has been generated for this project yet.')
+  const c = creds()
+  const t = await freshToken()
+  const url = `${apiBase(c.environment)}/v3/company/${t.realmId}/invoice/${ref.invoiceId}/pdf?minorversion=${MINOR_VERSION}`
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${t.access_token}`, Accept: 'application/pdf' },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`QuickBooks PDF ${res.status}: ${text.slice(0, 200)}`)
+  }
+  const buffer = Buffer.from(await res.arrayBuffer())
+  return { buffer, docNumber: ref.docNumber || ref.invoiceId }
 }

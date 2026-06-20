@@ -4,6 +4,7 @@ import {
   loadQuickBooks,
   createQbInvoice,
   sendQbInvoice,
+  qbInvoicePdfUrl,
   type QuickBooksInvoice,
   type QuickBooksStatus,
 } from '../api'
@@ -68,6 +69,12 @@ export function InvoiceCard({ project }: { project: Project }) {
     }
   }
 
+  const preview = () => {
+    // Open the QuickBooks-rendered PDF in a new browser tab. Synchronous (no await)
+    // so the browser keeps it tied to the click and doesn't block the popup.
+    window.open(qbInvoicePdfUrl(project.id), '_blank')
+  }
+
   const sandbox = status?.environment !== 'production'
 
   return (
@@ -121,6 +128,13 @@ export function InvoiceCard({ project }: { project: Project }) {
               className="rounded-lg bg-brass px-3 py-1.5 text-[12px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
             >
               {busy ? 'Working…' : invoice.sentAt ? 'Send again' : 'Send to client'}
+            </button>
+            <button
+              type="button"
+              onClick={preview}
+              className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
+            >
+              Preview
             </button>
             <button
               type="button"

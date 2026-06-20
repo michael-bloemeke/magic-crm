@@ -472,6 +472,9 @@ export async function sendQbInvoice(projectId: string, email?: string): Promise<
   if (!res.ok) throw new Error(data.error || `Failed to send invoice (${res.status})`)
   return data.invoice as QuickBooksInvoice
 }
+export function qbInvoicePdfUrl(projectId: string): string {
+  return `/api/quickbooks/invoice/pdf?projectId=${encodeURIComponent(projectId)}`
+}
 export async function disconnectQuickBooks(): Promise<void> {
   await postJson('/api/quickbooks/disconnect', {})
 }

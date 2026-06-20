@@ -53,6 +53,7 @@ import {
   loadInvoices as qbLoadInvoices,
   createInvoiceForProject as qbCreateInvoice,
   sendInvoiceForProject as qbSendInvoice,
+  invoicePdfForProject as qbInvoicePdf,
 } from './crm-quickbooks.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
@@ -514,6 +515,23 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/quickbooks/invoice/send', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => ({ invoice: await qbSendInvoice(b.projectId, b.email) }))
+      })
+      server.middlewares.use('/api/quickbooks/invoice/pdf', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        const projectId = url.searchParams.get('projectId') || ''
+        qbInvoicePdf(projectId)
+          .then(({ buffer, docNumber }) => {
+            res.setHeader('Content-Type', 'application/pdf')
+            res.setHeader('Content-Disposition', `inline; filename="invoice-${docNumber}.pdf"`)
+            res.end(buffer)
+          })
+          .catch((e) => {
+            // Render a readable page in the new tab rather than raw JSON.
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'text/html')
+            res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't load the invoice preview</h2><p>${String(e?.message || e)}</p></body>`)
+          })
       })
       server.middlewares.use('/api/quickbooks/invoice', (req, res, next) => {
         if (req.method !== 'POST') return next()
