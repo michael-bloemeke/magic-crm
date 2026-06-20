@@ -8,7 +8,8 @@
 // crm-data-core functions over IPC instead.
 
 import { exec } from 'node:child_process'
-import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   loadAll,
   setStage,
@@ -99,7 +100,7 @@ function withbody(req, res, handler) {
 // cron) from touching the Desktop folder. Fire-and-forget; never blocks the server.
 // (Moves to the Electron main process when the app is packaged.)
 function runBackup() {
-  const script = `${os.homedir()}/.local/bin/magic-crm-backup.sh`
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), 'scripts', 'backup.sh')
   exec(`/bin/bash "${script}"`, { timeout: 120000 }, (err, stdout, stderr) => {
     const out = `${stdout || ''}${stderr || ''}`.trim()
     if (out) console.log('[crm-backup]', out.replace(/\n/g, ' | '))
