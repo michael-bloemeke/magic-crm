@@ -30,8 +30,9 @@ function renderHtml(text: string) {
       const line = raw.replace(/\s+$/, '')
       if (i === 0) return `<p class="ct-title">${escapeHtml(line)}</p>`
       if (line === '') return '<p class="ct-gap"><br></p>'
+      if (/^Client signature:/.test(line)) return `<p class="ct-sig">${escapeHtml(line)}</p>`
       if (/^\d+\.\s/.test(line)) return `<p class="ct-head">${escapeHtml(line)}</p>`
-      if (/^- /.test(line)) return `<p class="ct-bullet">${escapeHtml(line)}</p>`
+      if (/^[•-]\s/.test(line)) return `<p class="ct-bullet">${escapeHtml(line)}</p>`
       return `<p class="ct-body">${escapeHtml(line)}</p>`
     })
     .join('')
@@ -102,12 +103,16 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
           transition={{ duration: 0.18 }}
         >
           <style>{`
-            .ct-doc { font-family: Georgia, 'Times New Roman', serif; color: #1c1a17; }
-            .ct-doc p { margin: 0 0 3px; }
-            .ct-doc .ct-title { text-align: center; font-weight: 700; font-size: 15px; letter-spacing: 0.02em; margin: 0 0 16px; }
-            .ct-doc .ct-head { font-weight: 700; font-size: 12.5px; margin: 12px 0 4px; }
-            .ct-doc .ct-body { font-size: 11.5px; line-height: 1.6; }
-            .ct-doc .ct-bullet { font-size: 11.5px; line-height: 1.6; padding-left: 16px; text-indent: -12px; }
+            .ct-brand { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
+              font-size: 13.5px; letter-spacing: 0.08em; color: #9a7536; margin: 0 0 6px; }
+            .ct-doc { font-family: Georgia, 'Times New Roman', serif; color: #1f1c17; }
+            .ct-doc p { margin: 0 0 4px; }
+            .ct-doc .ct-title { text-align: center; font-weight: 700; font-size: 16.5px; letter-spacing: 0.06em;
+              margin: 2px 0 0; padding-bottom: 12px; border-bottom: 1px solid #9a7536; }
+            .ct-doc .ct-head { font-weight: 700; font-size: 13px; margin: 15px 0 5px; }
+            .ct-doc .ct-body { font-size: 12px; line-height: 1.65; }
+            .ct-doc .ct-bullet { font-size: 12px; line-height: 1.65; padding-left: 18px; text-indent: -14px; }
+            .ct-doc .ct-sig { font-size: 12px; margin-top: 16px; padding-top: 13px; border-top: 1px solid #9a7536; }
             .ct-doc .ct-gap { min-height: 9px; }
             .ct-doc:focus { outline: none; }
           `}</style>
@@ -115,7 +120,7 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onCancel} aria-hidden />
 
           <motion.div
-            className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="relative flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -154,7 +159,9 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
               {loading ? (
                 <p className="animate-pulse text-[12.5px] text-faint">Building draft…</p>
               ) : (
-                <div className="mx-auto max-w-[660px] rounded-md bg-[#fbfaf6] px-12 py-12 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.6)]">
+                <div className="mx-auto max-w-[760px] rounded-md bg-[#fbfaf6] px-16 py-16 shadow-[0_10px_40px_-12px_rgba(0,0,0,0.6)]">
+                  {/* Letterhead (logo goes here once Michael has one). */}
+                  <div className="ct-brand">The Award-Winning Magic of Michael Bloemeke</div>
                   <div ref={editorRef} className="ct-doc" contentEditable suppressContentEditableWarning />
                 </div>
               )}

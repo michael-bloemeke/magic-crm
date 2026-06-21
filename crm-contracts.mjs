@@ -97,33 +97,67 @@ export function deleteContract(projectId, id) {
 }
 
 // --- PDF rendering (on demand, from the stored text) ------------------------
+// Brand mark for the letterhead. When Michael has a logo image, swap this centered
+// wordmark for doc.image(...) here.
+const BRAND = 'The Award-Winning Magic of Michael Bloemeke'
+const BRONZE = '#9a7536' // tasteful brass that reads on white; matches the editor accent
+const INK = '#1f1c17'
+
 function pdfFromText(text) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margins: { top: 64, bottom: 64, left: 64, right: 64 } })
+    const doc = new PDFDocument({ size: 'LETTER', margins: { top: 58, bottom: 58, left: 66, right: 66 } })
     const chunks = []
     doc.on('data', (c) => chunks.push(c))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', reject)
 
+    const left = doc.page.margins.left
+    const right = doc.page.width - doc.page.margins.right
+    const contentW = right - left
+    const rule = () => {
+      doc.moveDown(0.5)
+      const y = doc.y
+      doc.save().lineWidth(0.75).strokeColor(BRONZE).moveTo(left, y).lineTo(right, y).stroke().restore()
+      doc.moveDown(0.7)
+    }
+
+    // Letterhead (logo placeholder): centered bronze wordmark.
+    doc.font('Times-Bold').fontSize(13).fillColor(BRONZE)
+      .text(BRAND, left, doc.y, { width: contentW, align: 'center', characterSpacing: 0.6 })
+    doc.moveDown(0.5)
+
     const lines = String(text).split('\n')
     lines.forEach((raw, idx) => {
       const line = raw.replace(/\s+$/, '')
       if (idx === 0) {
-        doc.font('Helvetica-Bold').fontSize(15).text(line, { align: 'center' })
-        doc.moveDown(0.8)
+        doc.font('Times-Bold').fontSize(15).fillColor(INK).text(line, left, doc.y, { width: contentW, align: 'center', characterSpacing: 1 })
+        rule()
         return
       }
       if (line === '') {
-        doc.moveDown(0.45)
+        doc.moveDown(0.4)
+        return
+      }
+      if (/^Client signature:/.test(line)) {
+        rule()
+        doc.font('Times-Roman').fontSize(10.5).fillColor(INK).text(line, left, doc.y, { width: contentW })
         return
       }
       if (/^\d+\.\s/.test(line)) {
-        doc.moveDown(0.15)
-        doc.font('Helvetica-Bold').fontSize(11.5).text(line)
+        doc.moveDown(0.25)
+        doc.font('Times-Bold').fontSize(11.5).fillColor(INK).text(line, left, doc.y, { width: contentW })
         doc.moveDown(0.1)
         return
       }
-      doc.font('Helvetica').fontSize(10.5).text(line, { align: 'left' })
+      if (/^[•-]\s/.test(line)) {
+        const txt = line.replace(/^[•-]\s+/, '')
+        const y = doc.y
+        doc.font('Times-Roman').fontSize(10.5).fillColor(INK)
+        doc.text('•', left + 4, y, { width: 10 })
+        doc.text(txt, left + 18, y, { width: contentW - 18 })
+        return
+      }
+      doc.font('Times-Roman').fontSize(10.5).fillColor(INK).text(line, left, doc.y, { width: contentW })
     })
     doc.end()
   })

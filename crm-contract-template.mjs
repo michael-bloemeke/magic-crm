@@ -16,10 +16,10 @@ const SECTIONS = [
     key: 'event',
     title: 'Event',
     body: `This Agreement covers the following event:
-- Date: {{event_date}}
-- Location: {{event_location}} ({{venue_type}}; {{indoors_or_outdoors}})
-- Event start time: {{event_start_time}}
-- Performance start time: {{show_start_time}}`,
+• Date: {{event_date}}
+• Location: {{event_location}} ({{venue_type}}; {{indoors_or_outdoors}})
+• Event start time: {{event_start_time}}
+• Performance start time: {{show_start_time}}`,
   },
   {
     key: 'services',
@@ -29,14 +29,14 @@ const SECTIONS = [
   {
     key: 'compensation',
     title: 'Compensation',
-    body: `- Booking Fee: {{booking_fee}}, due in full upon signing.
-- The event date is reserved only once the Booking Fee has been received in full.`,
+    body: `• Booking Fee: {{booking_fee}}, due in full upon signing.
+• The event date is reserved only once the Booking Fee has been received in full.`,
   },
   {
     key: 'cancellation',
     title: 'Cancellation',
-    body: `- By the Client: All payments are non-refundable, including if the event itself is cancelled, postponed, or does not proceed for any reason. The Client acknowledges that the Performer reserves the event date upon booking and may decline other engagements for that date. At the Performer's sole discretion, a reschedule, partial credit, or refund may be offered depending on timing, circumstances, and availability, but none is guaranteed.
-- By the Performer: If the Performer is unable to fulfill the engagement due to illness, injury, or unforeseen circumstances, the Performer will refund the Booking Fee in full or, with the Client's approval, arrange a qualified replacement performer.`,
+    body: `• By the Client: All payments are non-refundable, including if the event itself is cancelled, postponed, or does not proceed for any reason. The Client acknowledges that the Performer reserves the event date upon booking and may decline other engagements for that date. At the Performer's sole discretion, a reschedule, partial credit, or refund may be offered depending on timing, circumstances, and availability, but none is guaranteed.
+• By the Performer: If the Performer is unable to fulfill the engagement due to illness, injury, or unforeseen circumstances, the Performer will refund the Booking Fee in full or, with the Client's approval, arrange a qualified replacement performer.`,
   },
   {
     key: 'forceMajeure',
@@ -46,9 +46,9 @@ const SECTIONS = [
   {
     key: 'performanceConditions',
     title: 'Performance Conditions',
-    body: `- The Client will provide a safe and suitable environment for the performance, including adequate lighting, reasonable audience access, and any audio/visual equipment agreed upon for a stage show.
-- For performances exceeding 3 hours, the Performer may take brief breaks.
-- The Performer may pause or end the performance if the environment becomes unsafe; doing so does not affect the Booking Fee.`,
+    body: `• The Client will provide a safe and suitable environment for the performance, including adequate lighting, reasonable audience access, and any audio/visual equipment agreed upon for a stage show.
+• For performances exceeding 3 hours, the Performer may take brief breaks.
+• The Performer may pause or end the performance if the environment becomes unsafe; doing so does not affect the Booking Fee.`,
   },
   {
     key: 'media',
