@@ -483,6 +483,69 @@ export async function disconnectQuickBooks(): Promise<void> {
   await postJson('/api/quickbooks/disconnect', {})
 }
 
+// --- Contracts ---------------------------------------------------------------
+export type ContractStatus = 'draft' | 'sent' | 'archived'
+export type ContractVersion = {
+  id: string
+  version: number
+  status: ContractStatus
+  includeMedia: boolean
+  body: string
+  createdAt: string
+  sentAt: string
+}
+
+export async function loadContracts(): Promise<Record<string, ContractVersion[]>> {
+  const res = await fetch('/api/contracts')
+  if (!res.ok) throw new Error(`Failed to load contracts (${res.status})`)
+  const d = await res.json()
+  return d.contracts ?? {}
+}
+export async function draftContract(projectId: string, includeMedia: boolean): Promise<{ body: string; missingFields: string[] }> {
+  const res = await fetch('/api/contracts/draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, includeMedia }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to build contract draft (${res.status})`)
+  return { body: data.body ?? '', missingFields: data.missingFields ?? [] }
+}
+export async function createContract(projectId: string, body: string, includeMedia: boolean): Promise<ContractVersion> {
+  const res = await fetch('/api/contracts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, body, includeMedia }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to save contract (${res.status})`)
+  return data.contract as ContractVersion
+}
+export async function setContractStatus(projectId: string, id: string, status: ContractStatus): Promise<ContractVersion> {
+  const res = await fetch('/api/contracts/status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, id, status }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to update contract (${res.status})`)
+  return data.contract as ContractVersion
+}
+export async function deleteContract(projectId: string, id: string): Promise<void> {
+  const res = await fetch('/api/contracts/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, id }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `Failed to delete contract (${res.status})`)
+  }
+}
+export function contractPdfUrl(projectId: string, id: string): string {
+  return `/api/contracts/pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
+}
+
 // --- Business files ----------------------------------------------------------
 
 export type FileItem = {

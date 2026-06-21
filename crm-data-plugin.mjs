@@ -55,6 +55,14 @@ import {
   sendInvoiceForProject as qbSendInvoice,
   invoicePdfForProject as qbInvoicePdf,
 } from './crm-quickbooks.mjs'
+import {
+  loadContracts,
+  draftContract,
+  createContract,
+  setContractStatus,
+  deleteContract,
+  contractPdf,
+} from './crm-contracts.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -552,6 +560,49 @@ export function crmDataPlugin() {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
         }
+      })
+
+      // --- Contracts (generate a Performance Services Agreement PDF; versioned). ---
+      server.middlewares.use('/api/contracts/draft', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => draftContract(b.projectId, { includeMedia: b.includeMedia }))
+      })
+      server.middlewares.use('/api/contracts/status', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ contract: setContractStatus(b.projectId, b.id, b.status) }))
+      })
+      server.middlewares.use('/api/contracts/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => deleteContract(b.projectId, b.id))
+      })
+      server.middlewares.use('/api/contracts/pdf', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        contractPdf(url.searchParams.get('projectId') || '', url.searchParams.get('id') || '')
+          .then(({ buffer, fileName }) => {
+            res.setHeader('Content-Type', 'application/pdf')
+            res.setHeader('Content-Disposition', `inline; filename="${fileName}"`)
+            res.end(buffer)
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'text/html')
+            res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't load the contract</h2><p>${String(e?.message || e)}</p></body>`)
+          })
+      })
+      server.middlewares.use('/api/contracts', (req, res, next) => {
+        if (req.method === 'GET') {
+          try {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ contracts: loadContracts() }))
+          } catch (e) {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          }
+          return
+        }
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ contract: createContract(b.projectId, { body: b.body, includeMedia: b.includeMedia }) }))
       })
 
       // --- Business files (upload raw bytes; specific paths before generic GET) ---
