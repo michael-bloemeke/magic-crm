@@ -9,8 +9,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import PDFDocument from 'pdfkit'
+import PdfPrinter from 'pdfmake'
+import htmlToPdfmake from 'html-to-pdfmake'
+import { JSDOM } from 'jsdom'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
-import { buildContractText } from './crm-contract-template.mjs'
+import { buildContractBody, BRAND, TITLE, SIGNATURE_LINES } from './crm-contract-template.mjs'
 
 const CONTRACTS_FILE = path.join(RECORDS_DIR, 'crm-contracts.json')
 
@@ -31,7 +34,7 @@ function writeContracts(d) {
     purpose:
       'Per-project Performance Services Agreement versions generated in the CRM. Each version stores the final (edited) contract TEXT; the PDF is rendered on demand from it. Michael signs/sends the PDF outside the app.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
-    shape: 'contracts[projectId] = [ { id, version, status (draft|sent), includeMedia, body, createdAt, sentAt } ]',
+    shape: 'contracts[projectId] = [ { id, version, status (draft|sent), includeMedia, format (html|text), body, createdAt, sentAt } ]',
   }
   fs.writeFileSync(CONTRACTS_FILE, JSON.stringify(d, null, 2) + '\n')
 }
@@ -46,17 +49,19 @@ function findProject(projectId) {
   return project
 }
 
-// Assemble a fresh draft (auto-filled, unsaved) for the generate dialog.
+// Assemble a fresh draft (auto-filled, unsaved) for the generate dialog. Returns the
+// editable body HTML, the Insert-field list, and any missing fields.
 export function draftContract(projectId, { includeMedia = false } = {}) {
   const project = findProject(projectId)
   const todayISO = new Date().toISOString().slice(0, 10)
-  return buildContractText(project, { includeMedia, todayISO })
+  const built = buildContractBody(project, { includeMedia, todayISO })
+  return { ...built, brand: BRAND, title: TITLE, signatureLines: SIGNATURE_LINES }
 }
 
-// Save a new version from the (possibly edited) text.
-export function createContract(projectId, { body, includeMedia = false }) {
-  const text = String(body || '').trim()
-  if (!text) throw new Error('The contract is empty.')
+// Save a new version from the (possibly edited) rich HTML body.
+export function createContract(projectId, { body, includeMedia = false, format = 'html' }) {
+  const html = String(body || '').trim()
+  if (!html) throw new Error('The contract is empty.')
   const d = readContracts()
   const list = Array.isArray(d.contracts[projectId]) ? d.contracts[projectId] : []
   const version = list.reduce((m, c) => Math.max(m, c.version || 0), 0) + 1
@@ -65,7 +70,8 @@ export function createContract(projectId, { body, includeMedia = false }) {
     version,
     status: 'draft',
     includeMedia: !!includeMedia,
-    body: text,
+    format: format === 'html' ? 'html' : 'text',
+    body: html,
     createdAt: new Date().toISOString(),
     sentAt: '',
   }
@@ -97,11 +103,68 @@ export function deleteContract(projectId, id) {
 }
 
 // --- PDF rendering (on demand, from the stored text) ------------------------
-// Brand mark for the letterhead. When Michael has a logo image, swap this centered
-// wordmark for doc.image(...) here.
-const BRAND = 'The Award-Winning Magic of Michael Bloemeke'
 const BRONZE = '#9a7536' // tasteful brass that reads on white; matches the editor accent
 const INK = '#1f1c17'
+
+// Pick an available serif font family from the system so the PDF matches the serif editor.
+// (pdfmake needs real font files; macOS ships Georgia + Times New Roman as plain TTFs.)
+function serifFonts() {
+  const dir = '/System/Library/Fonts/Supplemental'
+  const families = [
+    { name: 'Georgia', files: ['Georgia.ttf', 'Georgia Bold.ttf', 'Georgia Italic.ttf', 'Georgia Bold Italic.ttf'] },
+    { name: 'Times New Roman', files: ['Times New Roman.ttf', 'Times New Roman Bold.ttf', 'Times New Roman Italic.ttf', 'Times New Roman Bold Italic.ttf'] },
+  ]
+  for (const f of families) {
+    const p = f.files.map((n) => path.join(dir, n))
+    if (p.every((x) => fs.existsSync(x))) {
+      return { name: f.name, config: { [f.name]: { normal: p[0], bold: p[1], italics: p[2], bolditalics: p[3] } } }
+    }
+  }
+  return null
+}
+
+// Render the rich HTML body to a PDF via pdfmake, wrapped in the fixed chrome (centered
+// bronze letterhead, title + rule, signature block). Honors the editor's formatting
+// (bold/italic/underline/strikethrough/highlight, bullet + numbered lists, alignment).
+async function pdfFromHtml(bodyHtml) {
+  const serif = serifFonts()
+  if (!serif) throw new Error('No serif font available on this machine to render the contract PDF.')
+  const printer = new PdfPrinter(serif.config)
+  const { window } = new JSDOM('')
+  const margins = [66, 56, 66, 56] // left, top, right, bottom
+  const contentW = 612 - margins[0] - margins[2] // LETTER width
+  const rule = () => ({
+    canvas: [{ type: 'line', x1: 0, y1: 0, x2: contentW, y2: 0, lineWidth: 0.75, lineColor: BRONZE }],
+    margin: [0, 5, 0, 11],
+  })
+  const converted = htmlToPdfmake(bodyHtml, {
+    window,
+    defaultStyles: { p: { margin: [0, 0, 0, 6] }, ul: { margin: [0, 0, 0, 6] }, ol: { margin: [0, 0, 0, 6] }, li: { margin: [0, 0, 0, 2] } },
+  })
+  const body = Array.isArray(converted) ? converted : [converted]
+  const docDef = {
+    pageSize: 'LETTER',
+    pageMargins: margins,
+    defaultStyle: { font: serif.name, fontSize: 10.5, color: INK, lineHeight: 1.25 },
+    content: [
+      { text: BRAND, alignment: 'center', color: BRONZE, bold: true, fontSize: 12.5, characterSpacing: 0.5, margin: [0, 0, 0, 6] },
+      { text: TITLE, alignment: 'center', bold: true, fontSize: 15, characterSpacing: 1, margin: [0, 0, 0, 2] },
+      rule(),
+      ...body,
+      rule(),
+      { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
+      { text: SIGNATURE_LINES[1], margin: [0, 10, 0, 0] },
+    ],
+  }
+  const pdfDoc = printer.createPdfKitDocument(docDef)
+  const chunks = []
+  return new Promise((resolve, reject) => {
+    pdfDoc.on('data', (c) => chunks.push(c))
+    pdfDoc.on('end', () => resolve(Buffer.concat(chunks)))
+    pdfDoc.on('error', reject)
+    pdfDoc.end()
+  })
+}
 
 function pdfFromText(text) {
   return new Promise((resolve, reject) => {
@@ -169,6 +232,6 @@ export async function contractPdf(projectId, id) {
   if (!ref) throw new Error('Contract version not found.')
   const project = loadAll().projects.find((p) => p.id === projectId)
   const name = (project?.client || 'contract').replace(/[^\w.-]+/g, '-')
-  const buffer = await pdfFromText(ref.body)
+  const buffer = ref.format === 'html' ? await pdfFromHtml(ref.body) : await pdfFromText(ref.body)
   return { buffer, fileName: `Contract - ${name} v${ref.version}.pdf` }
 }

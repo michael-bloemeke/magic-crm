@@ -1,16 +1,21 @@
-// Performance Services Agreement template (the CRM contract generator's source text).
-// Structured as ordered sections so they can be toggled/renumbered and, later, edited
-// from a Settings page. The Liability section is intentionally OMITTED for now (Michael
-// will supply updated wording). Output is plain text: a title line, numbered section
-// headings ("1. Event"), and bullet lines, which crm-contracts.mjs styles into a PDF.
-// House rule: no em-dashes anywhere in generated output.
+// Performance Services Agreement template (the CRM contract generator's source).
+// Emits the EDITABLE BODY as semantic HTML (headings, real <ul> bullets, paragraphs) so
+// the rich-text editor and the pdfmake PDF render it consistently. The fixed chrome
+// (letterhead, title + rule, signature block) is added around this body by both the editor
+// and the PDF renderer, so it's always present and not accidentally editable. Liability and
+// Governing Law sections are intentionally omitted. House rule: no em-dashes.
 
+export const BRAND = 'The Award-Winning Magic of Michael Bloemeke'
+export const TITLE = 'PERFORMANCE SERVICES AGREEMENT'
+export const SIGNATURE_LINES = [
+  'Client signature: ______________________________     Date: ____________',
+  'Performer signature: ___________________________     Date: ____________',
+]
 const PERFORMER_LINE = 'Performer: Michael Bloemeke, michael@michaelbloemeke.com, (919) 239-9898'
 
 // Numbered sections, in order. `optional: true` ones are included only when toggled on
-// at generate time (today: just "Media", the videographer/likeness clause). {{tokens}}
-// are filled from the project record. Sections are numbered sequentially AFTER filtering,
-// so toggling a section off never leaves a gap.
+// (today: just "Media"). {{tokens}} fill from the project. Bodies use "• " for bullet
+// lines (converted to <ul><li> in HTML).
 const SECTIONS = [
   {
     key: 'event',
@@ -56,7 +61,6 @@ const SECTIONS = [
     optional: true,
     body: `The Performer may photograph and/or video record portions of the event, and the Client grants the Performer permission to use those photos and recordings for the Performer's promotional and marketing purposes.`,
   },
-  // NOTE: Liability section intentionally omitted (2026-06-21) pending updated wording.
   {
     key: 'independentContractor',
     title: 'Independent Contractor',
@@ -96,9 +100,12 @@ function money(n) {
 function firstEmail(str) {
   return s(str).split(/[,;]/)[0].trim()
 }
+function escapeHtml(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
 
-// Resolve the {{tokens}} for a project. Missing values become an obvious [placeholder]
-// so nothing goes out blank, and they're reported back as missingFields.
+// Resolve {{tokens}} for a project. Missing values become an obvious [placeholder] and are
+// reported in missingFields. Also returns a labeled `fields` list for the Insert-field menu.
 function resolveTokens(project, todayISO) {
   const missing = []
   const need = (val, placeholder) => {
@@ -107,52 +114,85 @@ function resolveTokens(project, todayISO) {
     missing.push(placeholder)
     return `[${placeholder}]`
   }
+  const eventDate = fmtDate(project.eventDate)
+  if (!eventDate) missing.push('event date')
+  const fee = money(project.totalFee)
+  if (!fee) missing.push('booking fee')
   const tokens = {
     contract_date: fmtDate(todayISO) || s(todayISO),
     client_name: need(project.client, 'client name'),
     client_email: need(firstEmail(project.contactEmails), 'client email'),
     client_phone: need(project.contactPhones, 'client phone'),
-    event_date: fmtDate(project.eventDate) || `[${pushReturn(missing, 'event date')}]`,
+    event_date: eventDate || '[event date]',
     event_location: need(project.eventLocation, 'event location'),
     venue_type: need(project.venueType, 'venue type'),
     indoors_or_outdoors: need(project.indoorsOrOutdoors, 'indoor or outdoor'),
     event_start_time: need(project.eventStartTime, 'event start time'),
     show_start_time: need(project.showStartTime, 'show start time'),
     services_description: need(project.performanceStyle, 'performance scope, e.g. 1 hour of strolling close-up magic'),
-    booking_fee: money(project.totalFee) || `[${pushReturn(missing, 'booking fee')}]`,
+    booking_fee: fee || '[booking fee]',
   }
-  return { tokens, missing }
-}
-function pushReturn(arr, v) {
-  arr.push(v)
-  return v
+  // Insert-field menu: label -> the value to drop in at the cursor.
+  const fields = [
+    { label: 'Client name', value: tokens.client_name },
+    { label: 'Client email', value: tokens.client_email },
+    { label: 'Client phone', value: tokens.client_phone },
+    { label: 'Event date', value: tokens.event_date },
+    { label: 'Event location', value: tokens.event_location },
+    { label: 'Venue type', value: tokens.venue_type },
+    { label: 'Indoor / outdoor', value: tokens.indoors_or_outdoors },
+    { label: 'Event start time', value: tokens.event_start_time },
+    { label: 'Show start time', value: tokens.show_start_time },
+    { label: 'Performance scope', value: tokens.services_description },
+    { label: 'Booking fee', value: tokens.booking_fee },
+    { label: "Today's date", value: tokens.contract_date },
+  ]
+  return { tokens, fields, missing }
 }
 
 function fill(text, tokens) {
   return text.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in tokens ? tokens[k] : `{{${k}}}`))
 }
 
-// Build the full contract text for a project. Returns { body, missingFields }.
-export function buildContractText(project, { includeMedia = false, todayISO } = {}) {
-  const { tokens, missing } = resolveTokens(project, todayISO)
-  const lines = []
-  lines.push('PERFORMANCE SERVICES AGREEMENT')
-  lines.push('')
-  lines.push(`This Performance Services Agreement (the "Agreement") is entered into as of ${tokens.contract_date} by and between:`)
-  lines.push('')
-  lines.push(PERFORMER_LINE)
-  lines.push(`Client: ${tokens.client_name}, ${tokens.client_email}, ${tokens.client_phone}`)
-  lines.push('')
+// One section body (already token-filled text) -> HTML. Runs of "• " lines become a single
+// <ul>; other lines become <p>.
+function bodyTextToHtml(text) {
+  const lines = text.split('\n')
+  const out = []
+  let bullets = []
+  const flush = () => {
+    if (bullets.length) {
+      out.push(`<ul>${bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`)
+      bullets = []
+    }
+  }
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    if (/^•\s/.test(line)) {
+      bullets.push(line.replace(/^•\s+/, ''))
+    } else {
+      flush()
+      out.push(`<p>${escapeHtml(line)}</p>`)
+    }
+  }
+  flush()
+  return out.join('')
+}
+
+// Build the EDITABLE BODY HTML for a project (preamble + numbered sections + closing).
+// The letterhead, title, and signature block are chrome added by the editor and PDF.
+export function buildContractBody(project, { includeMedia = false, todayISO } = {}) {
+  const { tokens, fields, missing } = resolveTokens(project, todayISO)
+  const parts = []
+  parts.push(`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${escapeHtml(tokens.contract_date)} by and between:</p>`)
+  parts.push(`<p>${escapeHtml(PERFORMER_LINE)}</p>`)
+  parts.push(`<p>Client: ${escapeHtml(tokens.client_name)}, ${escapeHtml(tokens.client_email)}, ${escapeHtml(tokens.client_phone)}</p>`)
   const sections = SECTIONS.filter((sec) => !sec.optional || (sec.key === 'media' && includeMedia))
   sections.forEach((sec, i) => {
-    lines.push(`${i + 1}. ${sec.title}`)
-    lines.push(fill(sec.body, tokens))
-    lines.push('')
+    parts.push(`<p style="font-weight:bold">${i + 1}. ${escapeHtml(sec.title)}</p>`)
+    parts.push(bodyTextToHtml(fill(sec.body, tokens)))
   })
-  lines.push(CLOSING)
-  lines.push('')
-  lines.push('Client signature: ______________________________     Date: ____________')
-  lines.push('')
-  lines.push('Performer signature: ___________________________     Date: ____________')
-  return { body: lines.join('\n'), missingFields: missing }
+  parts.push(`<p>${escapeHtml(CLOSING)}</p>`)
+  return { html: parts.join('\n'), fields, missingFields: missing }
 }

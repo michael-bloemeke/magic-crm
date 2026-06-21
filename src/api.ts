@@ -485,11 +485,13 @@ export async function disconnectQuickBooks(): Promise<void> {
 
 // --- Contracts ---------------------------------------------------------------
 export type ContractStatus = 'draft' | 'sent'
+export type ContractField = { label: string; value: string }
 export type ContractVersion = {
   id: string
   version: number
   status: ContractStatus
   includeMedia: boolean
+  format?: string
   body: string
   createdAt: string
   sentAt: string
@@ -501,7 +503,15 @@ export async function loadContracts(): Promise<Record<string, ContractVersion[]>
   const d = await res.json()
   return d.contracts ?? {}
 }
-export async function draftContract(projectId: string, includeMedia: boolean): Promise<{ body: string; missingFields: string[] }> {
+export type ContractDraft = {
+  html: string
+  fields: ContractField[]
+  missingFields: string[]
+  brand: string
+  title: string
+  signatureLines: string[]
+}
+export async function draftContract(projectId: string, includeMedia: boolean): Promise<ContractDraft> {
   const res = await fetch('/api/contracts/draft', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -509,13 +519,20 @@ export async function draftContract(projectId: string, includeMedia: boolean): P
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Failed to build contract draft (${res.status})`)
-  return { body: data.body ?? '', missingFields: data.missingFields ?? [] }
+  return {
+    html: data.html ?? '',
+    fields: data.fields ?? [],
+    missingFields: data.missingFields ?? [],
+    brand: data.brand ?? '',
+    title: data.title ?? '',
+    signatureLines: data.signatureLines ?? [],
+  }
 }
 export async function createContract(projectId: string, body: string, includeMedia: boolean): Promise<ContractVersion> {
   const res = await fetch('/api/contracts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId, body, includeMedia }),
+    body: JSON.stringify({ projectId, body, includeMedia, format: 'html' }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Failed to save contract (${res.status})`)
