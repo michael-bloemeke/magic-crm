@@ -22,7 +22,6 @@ function fmtDate(iso: string) {
 const STATUS_STYLE: Record<string, { label: string; color: string }> = {
   draft: { label: 'Draft', color: 'var(--color-faint)' },
   sent: { label: 'Sent', color: 'var(--color-umb-booked)' },
-  archived: { label: 'Archived', color: 'var(--color-faint)' },
 }
 
 export function ContractCard({ project }: { project: Project }) {
@@ -44,7 +43,7 @@ export function ContractCard({ project }: { project: Project }) {
     refresh()
   }
   const preview = (id: string) => window.open(contractPdfUrl(project.id, id), '_blank')
-  const mark = async (id: string, status: 'draft' | 'sent' | 'archived') => {
+  const mark = async (id: string, status: 'draft' | 'sent') => {
     setBusy(true)
     setNote(null)
     try {
@@ -109,10 +108,7 @@ export function ContractCard({ project }: { project: Project }) {
           {sorted.map((c) => {
             const st = STATUS_STYLE[c.status] ?? STATUS_STYLE.draft
             return (
-              <li
-                key={c.id}
-                className={`rounded-lg border border-line bg-surface-2/40 px-3 py-2 ${c.status === 'archived' ? 'opacity-60' : ''}`}
-              >
+              <li key={c.id} className="rounded-lg border border-line bg-surface-2/40 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] font-semibold text-parchment">v{c.version}</span>
@@ -137,15 +133,6 @@ export function ContractCard({ project }: { project: Project }) {
                   ) : (
                     <button type="button" disabled={busy} onClick={() => mark(c.id, 'draft')} className="text-muted hover:text-parchment disabled:opacity-40">
                       Mark unsent
-                    </button>
-                  )}
-                  {c.status !== 'archived' ? (
-                    <button type="button" disabled={busy} onClick={() => mark(c.id, 'archived')} className="text-muted hover:text-parchment disabled:opacity-40">
-                      Archive
-                    </button>
-                  ) : (
-                    <button type="button" disabled={busy} onClick={() => mark(c.id, 'draft')} className="text-muted hover:text-parchment disabled:opacity-40">
-                      Unarchive
                     </button>
                   )}
                   <button type="button" disabled={busy} onClick={() => remove(c.id)} className="text-[#e08a6b] hover:brightness-110 disabled:opacity-40">

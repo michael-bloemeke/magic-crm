@@ -484,7 +484,7 @@ export async function disconnectQuickBooks(): Promise<void> {
 }
 
 // --- Contracts ---------------------------------------------------------------
-export type ContractStatus = 'draft' | 'sent' | 'archived'
+export type ContractStatus = 'draft' | 'sent'
 export type ContractVersion = {
   id: string
   version: number

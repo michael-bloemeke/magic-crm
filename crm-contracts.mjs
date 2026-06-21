@@ -31,7 +31,7 @@ function writeContracts(d) {
     purpose:
       'Per-project Performance Services Agreement versions generated in the CRM. Each version stores the final (edited) contract TEXT; the PDF is rendered on demand from it. Michael signs/sends the PDF outside the app.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
-    shape: 'contracts[projectId] = [ { id, version, status (draft|sent|archived), includeMedia, body, createdAt, sentAt } ]',
+    shape: 'contracts[projectId] = [ { id, version, status (draft|sent), includeMedia, body, createdAt, sentAt } ]',
   }
   fs.writeFileSync(CONTRACTS_FILE, JSON.stringify(d, null, 2) + '\n')
 }
@@ -75,7 +75,7 @@ export function createContract(projectId, { body, includeMedia = false }) {
 }
 
 export function setContractStatus(projectId, id, status) {
-  const allowed = ['draft', 'sent', 'archived']
+  const allowed = ['draft', 'sent']
   if (!allowed.includes(status)) throw new Error('Invalid status.')
   const d = readContracts()
   const list = d.contracts[projectId] || []

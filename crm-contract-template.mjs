@@ -68,11 +68,6 @@ const SECTIONS = [
     body: `This Agreement is the entire agreement between the parties regarding the performance and supersedes any prior discussions or understandings. Any changes must be made in writing and signed by both parties.`,
   },
   {
-    key: 'governingLaw',
-    title: 'Governing Law',
-    body: `This Agreement is governed by the laws of the State of North Carolina.`,
-  },
-  {
     key: 'acceptance',
     title: 'Acceptance',
     body: `By signing below, both the Client and the Performer acknowledge their understanding and acceptance of these terms.`,
