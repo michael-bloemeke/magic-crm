@@ -8,12 +8,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
-import PdfPrinter from 'pdfmake'
-import htmlToPdfmake from 'html-to-pdfmake'
-import { JSDOM } from 'jsdom'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { buildContractBody, BRAND, TITLE, SIGNATURE_LINES } from './crm-contract-template.mjs'
+
+// pdfmake (server build), html-to-pdfmake, and jsdom are CommonJS; the ESM default of
+// 'pdfmake' resolves to its browser build, so load all three via createRequire.
+const require = createRequire(import.meta.url)
+const PdfPrinter = require('pdfmake/src/printer')
+const htmlToPdfmake = require('html-to-pdfmake')
+const { JSDOM } = require('jsdom')
 
 const CONTRACTS_FILE = path.join(RECORDS_DIR, 'crm-contracts.json')
 
