@@ -505,22 +505,24 @@ export async function loadContracts(): Promise<Record<string, ContractVersion[]>
 }
 export type ContractDraft = {
   html: string
+  mediaHtml: string
   fields: ContractField[]
   missingFields: string[]
   brand: string
   title: string
   signatureLines: string[]
 }
-export async function draftContract(projectId: string, includeMedia: boolean): Promise<ContractDraft> {
+export async function draftContract(projectId: string): Promise<ContractDraft> {
   const res = await fetch('/api/contracts/draft', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId, includeMedia }),
+    body: JSON.stringify({ projectId }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Failed to build contract draft (${res.status})`)
   return {
     html: data.html ?? '',
+    mediaHtml: data.mediaHtml ?? '',
     fields: data.fields ?? [],
     missingFields: data.missingFields ?? [],
     brand: data.brand ?? '',

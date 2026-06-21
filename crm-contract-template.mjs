@@ -182,17 +182,22 @@ function bodyTextToHtml(text) {
 
 // Build the EDITABLE BODY HTML for a project (preamble + numbered sections + closing).
 // The letterhead, title, and signature block are chrome added by the editor and PDF.
-export function buildContractBody(project, { includeMedia = false, todayISO } = {}) {
+// The optional Media section is returned SEPARATELY as `mediaHtml` (a removable block) so
+// the editor can toggle it in/out in place without rebuilding the body or losing edits.
+// Section headings carry data-section/data-key so the editor can renumber them.
+export function buildContractBody(project, { todayISO } = {}) {
   const { tokens, fields, missing } = resolveTokens(project, todayISO)
   const parts = []
   parts.push(`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${escapeHtml(tokens.contract_date)} by and between:</p>`)
   parts.push(`<p>${escapeHtml(PERFORMER_LINE)}</p>`)
   parts.push(`<p>Client: ${escapeHtml(tokens.client_name)}, ${escapeHtml(tokens.client_email)}, ${escapeHtml(tokens.client_phone)}</p>`)
-  const sections = SECTIONS.filter((sec) => !sec.optional || (sec.key === 'media' && includeMedia))
+  const sections = SECTIONS.filter((sec) => !sec.optional) // Media handled separately
   sections.forEach((sec, i) => {
-    parts.push(`<p style="font-weight:bold">${i + 1}. ${escapeHtml(sec.title)}</p>`)
+    parts.push(`<p data-section data-key="${sec.key}" style="font-weight:bold">${i + 1}. ${escapeHtml(sec.title)}</p>`)
     parts.push(bodyTextToHtml(fill(sec.body, tokens)))
   })
   parts.push(`<p>${escapeHtml(CLOSING)}</p>`)
-  return { html: parts.join('\n'), fields, missingFields: missing }
+  const mediaSec = SECTIONS.find((s) => s.key === 'media')
+  const mediaHtml = `<div data-clause="media"><p data-section data-key="media" style="font-weight:bold">Media</p>${bodyTextToHtml(fill(mediaSec.body, tokens))}</div>`
+  return { html: parts.join('\n'), mediaHtml, fields, missingFields: missing }
 }

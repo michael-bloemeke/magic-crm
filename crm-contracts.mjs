@@ -56,10 +56,10 @@ function findProject(projectId) {
 
 // Assemble a fresh draft (auto-filled, unsaved) for the generate dialog. Returns the
 // editable body HTML, the Insert-field list, and any missing fields.
-export function draftContract(projectId, { includeMedia = false } = {}) {
+export function draftContract(projectId) {
   const project = findProject(projectId)
   const todayISO = new Date().toISOString().slice(0, 10)
-  const built = buildContractBody(project, { includeMedia, todayISO })
+  const built = buildContractBody(project, { todayISO })
   return { ...built, brand: BRAND, title: TITLE, signatureLines: SIGNATURE_LINES }
 }
 
@@ -144,7 +144,15 @@ async function pdfFromHtml(bodyHtml) {
   })
   const converted = htmlToPdfmake(bodyHtml, {
     window,
-    defaultStyles: { p: { margin: [0, 0, 0, 6] }, ul: { margin: [0, 0, 0, 6] }, ol: { margin: [0, 0, 0, 6] }, li: { margin: [0, 0, 0, 2] } },
+    defaultStyles: {
+      p: { margin: [0, 0, 0, 6] },
+      ul: { margin: [0, 0, 0, 6] },
+      ol: { margin: [0, 0, 0, 6] },
+      li: { margin: [0, 0, 0, 2] },
+      h1: { fontSize: 15, bold: true, margin: [0, 8, 0, 4] },
+      h2: { fontSize: 13, bold: true, margin: [0, 7, 0, 3] },
+      h3: { fontSize: 11.5, bold: true, margin: [0, 6, 0, 2] },
+    },
   })
   const body = Array.isArray(converted) ? converted : [converted]
   const docDef = {

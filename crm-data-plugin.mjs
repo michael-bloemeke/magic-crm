@@ -565,7 +565,7 @@ export function crmDataPlugin() {
       // --- Contracts (generate a Performance Services Agreement PDF; versioned). ---
       server.middlewares.use('/api/contracts/draft', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => draftContract(b.projectId, { includeMedia: b.includeMedia }))
+        withbody(req, res, (b) => draftContract(b.projectId))
       })
       server.middlewares.use('/api/contracts/status', (req, res, next) => {
         if (req.method !== 'POST') return next()
