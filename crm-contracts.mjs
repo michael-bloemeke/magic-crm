@@ -160,7 +160,7 @@ async function pdfFromHtml(bodyHtml) {
     pageMargins: margins,
     defaultStyle: { font: serif.name, fontSize: 10.5, color: INK, lineHeight: 1.25 },
     content: [
-      { text: BRAND, alignment: 'center', color: BRONZE, bold: true, fontSize: 12.5, characterSpacing: 0.5, margin: [0, 0, 0, 6] },
+      { text: BRAND, alignment: 'center', color: INK, bold: true, fontSize: 12.5, characterSpacing: 0.5, margin: [0, 0, 0, 6] },
       { text: TITLE, alignment: 'center', bold: true, fontSize: 15, characterSpacing: 1, margin: [0, 0, 0, 2] },
       rule(),
       ...body,

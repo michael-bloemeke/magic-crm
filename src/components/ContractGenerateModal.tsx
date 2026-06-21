@@ -137,9 +137,9 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
           transition={{ duration: 0.18 }}
         >
           <style>{`
-            .ct-page ::selection { background: #bcd7fb; color: #1f1c17; }
+            .ct-page ::selection { background: #bcd7fb !important; color: #1f1c17 !important; }
             .ct-brand { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
-              font-size: 13.5px; letter-spacing: 0.08em; color: #9a7536; margin: 0 0 6px; }
+              font-size: 13.5px; letter-spacing: 0.08em; color: #1f1c17; margin: 0 0 6px; }
             .ct-title { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
               font-size: 16.5px; letter-spacing: 0.06em; color: #1f1c17; padding-bottom: 12px;
               margin: 0 0 14px; border-bottom: 1px solid #9a7536; }
