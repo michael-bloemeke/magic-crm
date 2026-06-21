@@ -8,6 +8,7 @@ import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { EmailBuilderCard } from './EmailBuilderCard'
 import { InvoiceCard } from './InvoiceCard'
+import { ContractCard } from './ContractCard'
 import { contactsForProject } from '../contacts'
 import { evalNumberFormula } from '../calc'
 
@@ -199,7 +200,7 @@ export function ProjectDetailsBody({
           <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
           <div className="space-y-2">
             <InvoiceCard project={project} />
-            <ComingSoon title="Contract" desc="Generate a performance agreement to sign." />
+            <ContractCard project={project} />
           </div>
         </div>
       </DetailSection>
