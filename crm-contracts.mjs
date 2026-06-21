@@ -139,7 +139,7 @@ async function pdfFromHtml(bodyHtml) {
   const margins = [66, 56, 66, 56] // left, top, right, bottom
   const contentW = 612 - margins[0] - margins[2] // LETTER width
   const rule = () => ({
-    canvas: [{ type: 'line', x1: 0, y1: 0, x2: contentW, y2: 0, lineWidth: 0.75, lineColor: BRONZE }],
+    canvas: [{ type: 'line', x1: 0, y1: 0, x2: contentW, y2: 0, lineWidth: 0.75, lineColor: INK }],
     margin: [0, 5, 0, 11],
   })
   const converted = htmlToPdfmake(bodyHtml, {

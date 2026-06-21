@@ -142,7 +142,7 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
               font-size: 13.5px; letter-spacing: 0.08em; color: #1f1c17; margin: 0 0 6px; }
             .ct-title { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
               font-size: 16.5px; letter-spacing: 0.06em; color: #1f1c17; padding-bottom: 12px;
-              margin: 0 0 14px; border-bottom: 1px solid #9a7536; }
+              margin: 0 0 14px; border-bottom: 1px solid #1f1c17; }
             .ct-doc { font-family: Georgia, 'Times New Roman', serif; color: #1f1c17; }
             .ct-doc p { margin: 0 0 6px; font-size: 12px; line-height: 1.65; }
             .ct-doc h1 { font-size: 17px; font-weight: 700; margin: 10px 0 5px; }
@@ -152,7 +152,7 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
             .ct-doc li { font-size: 12px; line-height: 1.65; margin-bottom: 2px; }
             .ct-doc:focus { outline: none; }
             .ct-sig { font-family: Georgia, 'Times New Roman', serif; color: #1f1c17; font-size: 12px;
-              margin-top: 16px; padding-top: 13px; border-top: 1px solid #9a7536; }
+              margin-top: 16px; padding-top: 13px; border-top: 1px solid #1f1c17; }
             .ct-sig div { margin-bottom: 10px; }
           `}</style>
 
