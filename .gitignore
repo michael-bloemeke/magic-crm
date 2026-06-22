@@ -21,6 +21,7 @@ gmail-credentials.json
 gmail-token.json
 quickbooks-credentials.json
 quickbooks-token.json
+signwell-credentials.json
 anthropic-key.txt
 
 # Uploaded business files (Files page) — local working assets, not source

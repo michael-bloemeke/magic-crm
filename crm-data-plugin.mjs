@@ -62,7 +62,11 @@ import {
   setContractStatus,
   deleteContract,
   contractPdf,
+  sendForSignature,
+  refreshSignature,
+  signedContractPdf,
 } from './crm-contracts.mjs'
+import { status as esignStatus } from './crm-esign.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -589,6 +593,39 @@ export function crmDataPlugin() {
             res.setHeader('Content-Type', 'text/html')
             res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't load the contract</h2><p>${String(e?.message || e)}</p></body>`)
           })
+      })
+      server.middlewares.use('/api/contracts/send-signature', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ contract: await sendForSignature(b.projectId, b.id, { signerName: b.signerName, signerEmail: b.signerEmail }) }))
+      })
+      server.middlewares.use('/api/contracts/refresh-signature', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ contract: await refreshSignature(b.projectId, b.id) }))
+      })
+      server.middlewares.use('/api/contracts/signed-pdf', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        signedContractPdf(url.searchParams.get('projectId') || '', url.searchParams.get('id') || '')
+          .then(({ buffer, fileName }) => {
+            res.setHeader('Content-Type', 'application/pdf')
+            res.setHeader('Content-Disposition', `inline; filename="${fileName}"`)
+            res.end(buffer)
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'text/html')
+            res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't load the signed contract</h2><p>${String(e?.message || e)}</p></body>`)
+          })
+      })
+      server.middlewares.use('/api/esign', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ status: esignStatus() }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
       })
       server.middlewares.use('/api/contracts', (req, res, next) => {
         if (req.method === 'GET') {

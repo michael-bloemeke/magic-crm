@@ -12,6 +12,7 @@ import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { buildContractBody, BRAND, TITLE, SIGNATURE_LINES } from './crm-contract-template.mjs'
+import * as esign from './crm-esign.mjs'
 
 // pdfmake (server build), html-to-pdfmake, and jsdom are CommonJS; the ESM default of
 // 'pdfmake' resolves to its browser build, so load all three via createRequire.
@@ -39,7 +40,7 @@ function writeContracts(d) {
     purpose:
       'Per-project Performance Services Agreement versions generated in the CRM. Each version stores the final (edited) contract TEXT; the PDF is rendered on demand from it. Michael signs/sends the PDF outside the app.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
-    shape: 'contracts[projectId] = [ { id, version, status (draft|sent), includeMedia, format (html|text), body, createdAt, sentAt } ]',
+    shape: 'contracts[projectId] = [ { id, version, status (draft|sent), includeMedia, format (html|text), body, createdAt, sentAt, esign? { id, status, signerName, signerEmail, testMode, sentAt, signedAt } } ]',
   }
   fs.writeFileSync(CONTRACTS_FILE, JSON.stringify(d, null, 2) + '\n')
 }
@@ -131,7 +132,7 @@ function serifFonts() {
 // Render the rich HTML body to a PDF via pdfmake, wrapped in the fixed chrome (centered
 // bronze letterhead, title + rule, signature block). Honors the editor's formatting
 // (bold/italic/underline/strikethrough/highlight, bullet + numbered lists, alignment).
-async function pdfFromHtml(bodyHtml) {
+async function pdfFromHtml(bodyHtml, { forSigning = false } = {}) {
   const serif = serifFonts()
   if (!serif) throw new Error('No serif font available on this machine to render the contract PDF.')
   const printer = new PdfPrinter(serif.config)
@@ -155,6 +156,18 @@ async function pdfFromHtml(bodyHtml) {
     },
   })
   const body = Array.isArray(converted) ? converted : [converted]
+  // Signature block. For an e-signature send, the client line carries a white (invisible)
+  // SignWell text tag so the platform overlays the signature field there; otherwise plain
+  // signature lines for printing/manual signing.
+  const sigItems = forSigning
+    ? [
+        { text: ['Client signature: ', { text: '{{signature|1}}', color: '#ffffff' }], margin: [0, 6, 0, 0] },
+        { text: 'Performer signature: ___________________________     Date: ____________', margin: [0, 12, 0, 0] },
+      ]
+    : [
+        { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
+        { text: SIGNATURE_LINES[1], margin: [0, 10, 0, 0] },
+      ]
   const docDef = {
     pageSize: 'LETTER',
     pageMargins: margins,
@@ -165,8 +178,7 @@ async function pdfFromHtml(bodyHtml) {
       rule(),
       ...body,
       rule(),
-      { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
-      { text: SIGNATURE_LINES[1], margin: [0, 10, 0, 0] },
+      ...sigItems,
     ],
   }
   const pdfDoc = printer.createPdfKitDocument(docDef)
@@ -239,12 +251,74 @@ function pdfFromText(text) {
   })
 }
 
-export async function contractPdf(projectId, id) {
+export async function contractPdf(projectId, id, { forSigning = false } = {}) {
   const d = readContracts()
   const ref = (d.contracts[projectId] || []).find((c) => c.id === id)
   if (!ref) throw new Error('Contract version not found.')
   const project = loadAll().projects.find((p) => p.id === projectId)
   const name = (project?.client || 'contract').replace(/[^\w.-]+/g, '-')
-  const buffer = ref.format === 'html' ? await pdfFromHtml(ref.body) : await pdfFromText(ref.body)
+  const buffer = ref.format === 'html' ? await pdfFromHtml(ref.body, { forSigning }) : await pdfFromText(ref.body)
   return { buffer, fileName: `Contract - ${name} v${ref.version}.pdf` }
+}
+
+// --- E-signature (SignWell) orchestration -----------------------------------
+function findVersion(projectId, id) {
+  const d = readContracts()
+  const ref = (d.contracts[projectId] || []).find((c) => c.id === id)
+  if (!ref) throw new Error('Contract version not found.')
+  return { d, ref }
+}
+
+// Render the signing PDF (with the text tag) and send it to the signer via SignWell.
+export async function sendForSignature(projectId, id, { signerName, signerEmail } = {}) {
+  if (!esign.isConfigured()) throw new Error('SignWell is not connected.')
+  const to = String(signerEmail || '').trim()
+  if (!to) throw new Error("Enter the signer's email address.")
+  const { d, ref } = findVersion(projectId, id)
+  if (ref.format !== 'html') throw new Error('Generate a fresh contract version before sending for e-signature.')
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  const clientName = String(signerName || project?.client || 'Client').trim()
+  const { buffer } = await contractPdf(projectId, id, { forSigning: true })
+  const doc = await esign.createDocument({
+    name: `Contract - ${project?.client || clientName} v${ref.version}`,
+    fileName: `Contract - ${project?.client || clientName}.pdf`,
+    fileBase64: buffer.toString('base64'),
+    signerName: clientName,
+    signerEmail: to,
+  })
+  ref.esign = {
+    id: doc.id || doc.document_id || '',
+    status: doc.status || 'sent',
+    signerName: clientName,
+    signerEmail: to,
+    testMode: esign.isTestMode(),
+    sentAt: new Date().toISOString(),
+    signedAt: '',
+  }
+  if (ref.status === 'draft') ref.status = 'sent'
+  writeContracts(d)
+  return ref
+}
+
+// Poll SignWell for the latest status; mark signed when complete.
+export async function refreshSignature(projectId, id) {
+  const { d, ref } = findVersion(projectId, id)
+  if (!ref.esign || !ref.esign.id) throw new Error('No signature request on this contract version.')
+  const doc = await esign.getDocument(ref.esign.id)
+  const st = String(doc.status || '').toLowerCase()
+  ref.esign.status = doc.status || ref.esign.status
+  const done = st === 'completed' || st === 'signed' || doc.completed === true
+  if (done && !ref.esign.signedAt) ref.esign.signedAt = new Date().toISOString()
+  writeContracts(d)
+  return ref
+}
+
+// Fetch the completed signed PDF bytes from SignWell.
+export async function signedContractPdf(projectId, id) {
+  const { ref } = findVersion(projectId, id)
+  if (!ref.esign || !ref.esign.id) throw new Error('No signature request on this contract version.')
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  const name = (project?.client || 'contract').replace(/[^\w.-]+/g, '-')
+  const buffer = await esign.completedPdf(ref.esign.id)
+  return { buffer, fileName: `Contract - ${name} v${ref.version} (signed).pdf` }
 }
