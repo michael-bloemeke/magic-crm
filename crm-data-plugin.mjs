@@ -67,6 +67,13 @@ import {
   signedContractPdf,
 } from './crm-contracts.mjs'
 import { status as esignStatus } from './crm-esign.mjs'
+import {
+  defaultTemplateHtml,
+  FIELD_DEFS as CONTRACT_FIELD_DEFS,
+  BRAND as CONTRACT_BRAND,
+  TITLE as CONTRACT_TITLE,
+  SIGNATURE_LINES as CONTRACT_SIGNATURE_LINES,
+} from './crm-contract-template.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -616,6 +623,35 @@ export function crmDataPlugin() {
             res.setHeader('Content-Type', 'text/html')
             res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't load the signed contract</h2><p>${String(e?.message || e)}</p></body>`)
           })
+      })
+      server.middlewares.use('/api/contract-template', (req, res, next) => {
+        if (req.method === 'GET') {
+          try {
+            const cfg = loadConfig()
+            const custom = cfg.contractTemplate && String(cfg.contractTemplate).trim()
+            res.setHeader('Content-Type', 'application/json')
+            res.end(
+              JSON.stringify({
+                template: custom || defaultTemplateHtml(),
+                isCustom: !!custom,
+                brand: CONTRACT_BRAND,
+                title: CONTRACT_TITLE,
+                signatureLines: CONTRACT_SIGNATURE_LINES,
+                fields: CONTRACT_FIELD_DEFS.map((d) => ({ key: d.key, label: d.label })),
+              }),
+            )
+          } catch (e) {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          }
+          return
+        }
+        if (req.method !== 'POST') return next()
+        // Empty template resets to the built-in default.
+        withbody(req, res, (b) => {
+          saveConfig({ contractTemplate: b.template == null ? '' : String(b.template) })
+          return { ok: true }
+        })
       })
       server.middlewares.use('/api/esign', (req, res, next) => {
         if (req.method !== 'GET') return next()

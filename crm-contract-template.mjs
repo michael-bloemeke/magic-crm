@@ -1,9 +1,10 @@
-// Performance Services Agreement template (the CRM contract generator's source).
-// Emits the EDITABLE BODY as semantic HTML (headings, real <ul> bullets, paragraphs) so
-// the rich-text editor and the pdfmake PDF render it consistently. The fixed chrome
-// (letterhead, title + rule, signature block) is added around this body by both the editor
-// and the PDF renderer, so it's always present and not accidentally editable. Liability and
-// Governing Law sections are intentionally omitted. House rule: no em-dashes.
+// Performance Services Agreement template. The contract is HTML where every auto-filled
+// spot is a FIELD SPAN: <span class="cf" data-f="KEY">Label</span>. The editor highlights
+// these (filled = subtle, unfilled = warning) and blocks sending until the unfilled ones
+// are filled; the PDF ignores the class so it renders clean. The DEFAULT template is built
+// from SECTIONS here, but Michael can edit and save his own in Settings (stored in
+// crm-config.json -> contractTemplate); buildContractBody (in crm-contracts.mjs) fills the
+// spans from a project. Liability + Governing Law omitted. House rule: no em-dashes.
 
 export const BRAND = 'The Award-Winning Magic of Michael Bloemeke'
 export const TITLE = 'PERFORMANCE SERVICES AGREEMENT'
@@ -13,9 +14,25 @@ export const SIGNATURE_LINES = [
 ]
 const PERFORMER_LINE = 'Performer: Michael Bloemeke, michael@michaelbloemeke.com, (919) 239-9898'
 
-// Numbered sections, in order. `optional: true` ones are included only when toggled on
-// (today: just "Media"). {{tokens}} fill from the project. Bodies use "• " for bullet
-// lines (converted to <ul><li> in HTML).
+// Field registry: key -> { label, get(project, todayISO) }. The single source of truth for
+// what can be auto-filled and how it reads from a project. Used to fill spans and to build
+// the editor's "Insert field" menu.
+export const FIELD_DEFS = [
+  { key: 'contract_date', label: 'Date', get: (_p, today) => fmtDate(today) },
+  { key: 'client_name', label: 'Client name', get: (p) => s(p.client) },
+  { key: 'client_email', label: 'Client email', get: (p) => firstEmail(p.contactEmails) },
+  { key: 'client_phone', label: 'Client phone', get: (p) => s(p.contactPhones) },
+  { key: 'event_date', label: 'Event date', get: (p) => fmtDate(p.eventDate) },
+  { key: 'event_location', label: 'Event location', get: (p) => s(p.eventLocation) },
+  { key: 'venue_type', label: 'Venue type', get: (p) => s(p.venueType) },
+  { key: 'indoors_or_outdoors', label: 'Indoor / outdoor', get: (p) => s(p.indoorsOrOutdoors) },
+  { key: 'event_start_time', label: 'Event start time', get: (p) => s(p.eventStartTime) },
+  { key: 'show_start_time', label: 'Show start time', get: (p) => s(p.showStartTime) },
+  { key: 'services_description', label: 'Performance scope', get: (p) => s(p.performanceStyle) },
+  { key: 'booking_fee', label: 'Booking fee', get: (p) => money(p.totalFee) },
+]
+const FIELD_LABEL = Object.fromEntries(FIELD_DEFS.map((d) => [d.key, d.label]))
+
 const SECTIONS = [
   {
     key: 'event',
@@ -85,7 +102,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 function s(v) {
   return v == null ? '' : String(v).trim()
 }
-function fmtDate(ymd) {
+export function fmtDate(ymd) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s(ymd))
   if (!m) return s(ymd)
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
@@ -103,101 +120,61 @@ function firstEmail(str) {
 function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
-
-// Resolve {{tokens}} for a project. Missing values become an obvious [placeholder] and are
-// reported in missingFields. Also returns a labeled `fields` list for the Insert-field menu.
-function resolveTokens(project, todayISO) {
-  const missing = []
-  const need = (val, placeholder) => {
-    const t = s(val)
-    if (t) return t
-    missing.push(placeholder)
-    return `[${placeholder}]`
-  }
-  const eventDate = fmtDate(project.eventDate)
-  if (!eventDate) missing.push('event date')
-  const fee = money(project.totalFee)
-  if (!fee) missing.push('booking fee')
-  const tokens = {
-    contract_date: fmtDate(todayISO) || s(todayISO),
-    client_name: need(project.client, 'client name'),
-    client_email: need(firstEmail(project.contactEmails), 'client email'),
-    client_phone: need(project.contactPhones, 'client phone'),
-    event_date: eventDate || '[event date]',
-    event_location: need(project.eventLocation, 'event location'),
-    venue_type: need(project.venueType, 'venue type'),
-    indoors_or_outdoors: need(project.indoorsOrOutdoors, 'indoor or outdoor'),
-    event_start_time: need(project.eventStartTime, 'event start time'),
-    show_start_time: need(project.showStartTime, 'show start time'),
-    services_description: need(project.performanceStyle, 'performance scope, e.g. 1 hour of strolling close-up magic'),
-    booking_fee: fee || '[booking fee]',
-  }
-  // Insert-field menu: label -> the value to drop in at the cursor.
-  const fields = [
-    { label: 'Client name', value: tokens.client_name },
-    { label: 'Client email', value: tokens.client_email },
-    { label: 'Client phone', value: tokens.client_phone },
-    { label: 'Event date', value: tokens.event_date },
-    { label: 'Event location', value: tokens.event_location },
-    { label: 'Venue type', value: tokens.venue_type },
-    { label: 'Indoor / outdoor', value: tokens.indoors_or_outdoors },
-    { label: 'Event start time', value: tokens.event_start_time },
-    { label: 'Show start time', value: tokens.show_start_time },
-    { label: 'Performance scope', value: tokens.services_description },
-    { label: 'Booking fee', value: tokens.booking_fee },
-    { label: "Today's date", value: tokens.contract_date },
-  ]
-  return { tokens, fields, missing }
+function fieldSpan(key) {
+  return `<span class="cf" data-f="${key}">${escapeHtml(FIELD_LABEL[key] || key)}</span>`
 }
-
-function fill(text, tokens) {
-  return text.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in tokens ? tokens[k] : `{{${k}}}`))
+// Convert a body line (with {{token}} markers) to HTML, escaping text and injecting spans.
+function lineToHtml(line) {
+  let out = ''
+  let last = 0
+  const re = /\{\{(\w+)\}\}/g
+  let m
+  while ((m = re.exec(line))) {
+    out += escapeHtml(line.slice(last, m.index))
+    out += fieldSpan(m[1])
+    last = m.index + m[0].length
+  }
+  return out + escapeHtml(line.slice(last))
 }
-
-// One section body (already token-filled text) -> HTML. Runs of "• " lines become a single
-// <ul>; other lines become <p>.
-function bodyTextToHtml(text) {
+function bodyToHtml(text) {
   const lines = text.split('\n')
   const out = []
   let bullets = []
   const flush = () => {
     if (bullets.length) {
-      out.push(`<ul>${bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`)
+      out.push(`<ul>${bullets.map((b) => `<li>${lineToHtml(b)}</li>`).join('')}</ul>`)
       bullets = []
     }
   }
   for (const raw of lines) {
     const line = raw.trim()
     if (!line) continue
-    if (/^•\s/.test(line)) {
-      bullets.push(line.replace(/^•\s+/, ''))
-    } else {
+    if (/^•\s/.test(line)) bullets.push(line.replace(/^•\s+/, ''))
+    else {
       flush()
-      out.push(`<p>${escapeHtml(line)}</p>`)
+      out.push(`<p>${lineToHtml(line)}</p>`)
     }
   }
   flush()
   return out.join('')
 }
+function sectionHtml(sec) {
+  const heading = `<p data-section data-key="${sec.key}" style="font-weight:bold">${escapeHtml(sec.title)}</p>`
+  return heading + bodyToHtml(sec.body)
+}
 
-// Build the EDITABLE BODY HTML for a project (preamble + numbered sections + closing).
-// The letterhead, title, and signature block are chrome added by the editor and PDF.
-// The optional Media section is returned SEPARATELY as `mediaHtml` (a removable block) so
-// the editor can toggle it in/out in place without rebuilding the body or losing edits.
-// Section headings carry data-section/data-key so the editor can renumber them.
-export function buildContractBody(project, { todayISO } = {}) {
-  const { tokens, fields, missing } = resolveTokens(project, todayISO)
+// The built-in default template HTML (used when Michael hasn't saved a custom one). Field
+// spans show labels; the Media section is an inline removable block. Headings have NO
+// numbers; numbering is applied at build/generate time.
+export function defaultTemplateHtml() {
   const parts = []
-  parts.push(`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${escapeHtml(tokens.contract_date)} by and between:</p>`)
+  parts.push(`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${fieldSpan('contract_date')} by and between:</p>`)
   parts.push(`<p>${escapeHtml(PERFORMER_LINE)}</p>`)
-  parts.push(`<p>Client: ${escapeHtml(tokens.client_name)}, ${escapeHtml(tokens.client_email)}, ${escapeHtml(tokens.client_phone)}</p>`)
-  const sections = SECTIONS.filter((sec) => !sec.optional) // Media handled separately
-  sections.forEach((sec, i) => {
-    parts.push(`<p data-section data-key="${sec.key}" style="font-weight:bold">${i + 1}. ${escapeHtml(sec.title)}</p>`)
-    parts.push(bodyTextToHtml(fill(sec.body, tokens)))
-  })
+  parts.push(`<p>Client: ${fieldSpan('client_name')}, ${fieldSpan('client_email')}, ${fieldSpan('client_phone')}</p>`)
+  for (const sec of SECTIONS) {
+    if (sec.optional && sec.key === 'media') parts.push(`<div data-clause="media">${sectionHtml(sec)}</div>`)
+    else parts.push(sectionHtml(sec))
+  }
   parts.push(`<p>${escapeHtml(CLOSING)}</p>`)
-  const mediaSec = SECTIONS.find((s) => s.key === 'media')
-  const mediaHtml = `<div data-clause="media"><p data-section data-key="media" style="font-weight:bold">Media</p>${bodyTextToHtml(fill(mediaSec.body, tokens))}</div>`
-  return { html: parts.join('\n'), mediaHtml, fields, missingFields: missing }
+  return parts.join('\n')
 }

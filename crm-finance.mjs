@@ -91,7 +91,8 @@ export function loadConfig() {
       : DEFAULT_REASONS
   const contactTags = Array.isArray(d.contactTags) ? uniqStrings(d.contactTags) : []
   const monthlyGoal = num(d.monthlyGoal) > 0 ? num(d.monthlyGoal) : DEFAULT_MONTHLY_GOAL
-  return { incomeGoals: [...goals].sort((a, b) => a - b), monthlyGoal, archiveReasons: reasons, contactTags }
+  const contractTemplate = typeof d.contractTemplate === 'string' ? d.contractTemplate : ''
+  return { incomeGoals: [...goals].sort((a, b) => a - b), monthlyGoal, archiveReasons: reasons, contactTags, contractTemplate }
 }
 export function saveConfig(patch) {
   const cur = readJson(CONFIG_FILE, {})
@@ -108,10 +109,14 @@ export function saveConfig(patch) {
     const g = num(patch.monthlyGoal)
     cur.monthlyGoal = g > 0 ? g : DEFAULT_MONTHLY_GOAL
   }
+  if (patch.contractTemplate != null) {
+    // Empty string clears it (falls back to the built-in default contract).
+    cur.contractTemplate = String(patch.contractTemplate)
+  }
   cur._meta = metaBlock(
     'crm-config.json',
-    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, and the reusable contact-tag library. Edited from the app (Finance goals editor, archive dialog, contact tag inputs).',
-    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings)',
+    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, the reusable contact-tag library, and the editable default contract template HTML (Settings page; empty = built-in default).',
+    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings), contractTemplate (HTML string)',
   )
   writeJson(CONFIG_FILE, cur)
   return loadConfig()

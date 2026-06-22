@@ -11,7 +11,8 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
-import { buildContractBody, BRAND, TITLE, SIGNATURE_LINES } from './crm-contract-template.mjs'
+import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES } from './crm-contract-template.mjs'
+import { loadConfig } from './crm-finance.mjs'
 import * as esign from './crm-esign.mjs'
 
 // pdfmake (server build), html-to-pdfmake, and jsdom are CommonJS; the ESM default of
@@ -57,10 +58,53 @@ function findProject(projectId) {
 
 // Assemble a fresh draft (auto-filled, unsaved) for the generate dialog. Returns the
 // editable body HTML, the Insert-field list, and any missing fields.
+// Build the editable contract body for a project: load the template (Michael's saved
+// default from config, else the built-in), fill every field span with the project value
+// (marking unfilled ones with `cf-missing` + a [Label] placeholder), pull the Media block
+// out separately so the editor can toggle it, and renumber the section headings.
+export function buildContractBody(project) {
+  const cfg = loadConfig()
+  const templateHtml = (cfg.contractTemplate && String(cfg.contractTemplate).trim()) || defaultTemplateHtml()
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const { document } = new JSDOM(`<!DOCTYPE html><body>${templateHtml}</body>`).window
+  const body = document.body
+  const defOf = (k) => FIELD_DEFS.find((d) => d.key === k)
+  const missing = []
+  body.querySelectorAll('[data-f]').forEach((el) => {
+    const def = defOf(el.getAttribute('data-f'))
+    if (!def) return
+    el.classList.add('cf')
+    const val = String(def.get(project, todayISO) || '').trim()
+    if (val) {
+      el.textContent = val
+      el.classList.remove('cf-missing')
+    } else {
+      el.textContent = `[${def.label}]`
+      el.classList.add('cf-missing')
+      missing.push(def.label)
+    }
+  })
+  let mediaHtml = ''
+  const mediaEl = body.querySelector('[data-clause="media"]')
+  if (mediaEl) {
+    mediaHtml = mediaEl.outerHTML
+    mediaEl.remove()
+  }
+  let n = 0
+  body.querySelectorAll('[data-section]').forEach((el) => {
+    n += 1
+    el.textContent = `${n}. ` + (el.textContent || '').replace(/^\s*\d+\.\s*/, '')
+  })
+  const fields = FIELD_DEFS.map((d) => {
+    const v = String(d.get(project, todayISO) || '').trim()
+    return { label: d.label, value: v || `[${d.label}]` }
+  })
+  return { html: body.innerHTML, mediaHtml, fields, missingFields: [...new Set(missing)] }
+}
+
 export function draftContract(projectId) {
   const project = findProject(projectId)
-  const todayISO = new Date().toISOString().slice(0, 10)
-  const built = buildContractBody(project, { todayISO })
+  const built = buildContractBody(project)
   return { ...built, brand: BRAND, title: TITLE, signatureLines: SIGNATURE_LINES }
 }
 
