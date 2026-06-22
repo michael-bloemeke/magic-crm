@@ -203,10 +203,13 @@ async function pdfFromHtml(bodyHtml, { forSigning = false } = {}) {
   // Signature block. For an e-signature send, the client line carries a white (invisible)
   // SignWell text tag so the platform overlays the signature field there; otherwise plain
   // signature lines for printing/manual signing.
+  // For an e-signature send, put the signature block at the TOP of a fresh final page so the
+  // SignWell signature field can be placed at known coordinates (the "Client signature:" line
+  // is the first element on the last page, at the top margin). Otherwise plain signature lines.
   const sigItems = forSigning
     ? [
-        { text: ['Client signature: ', { text: '{{signature|1}}', color: '#ffffff' }], margin: [0, 6, 0, 0] },
-        { text: 'Performer signature: ___________________________     Date: ____________', margin: [0, 12, 0, 0] },
+        { text: 'Client signature:', pageBreak: 'before', margin: [0, 0, 0, 0] },
+        { text: 'Performer signature: ___________________________     Date: ____________', margin: [0, 48, 0, 0] },
       ]
     : [
         { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
@@ -302,7 +305,8 @@ export async function contractPdf(projectId, id, { forSigning = false } = {}) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   const name = (project?.client || 'contract').replace(/[^\w.-]+/g, '-')
   const buffer = ref.format === 'html' ? await pdfFromHtml(ref.body, { forSigning }) : await pdfFromText(ref.body)
-  return { buffer, fileName: `Contract - ${name} v${ref.version}.pdf` }
+  const pageCount = (buffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length || 1
+  return { buffer, fileName: `Contract - ${name} v${ref.version}.pdf`, pageCount }
 }
 
 // --- E-signature (SignWell) orchestration -----------------------------------
@@ -322,13 +326,17 @@ export async function sendForSignature(projectId, id, { signerName, signerEmail 
   if (ref.format !== 'html') throw new Error('Generate a fresh contract version before sending for e-signature.')
   const project = loadAll().projects.find((p) => p.id === projectId)
   const clientName = String(signerName || project?.client || 'Client').trim()
-  const { buffer } = await contractPdf(projectId, id, { forSigning: true })
+  const { buffer, pageCount } = await contractPdf(projectId, id, { forSigning: true })
+  // Place the signer's signature field next to the "Client signature:" line, which sits at
+  // the top margin of the last page (see the forSigning layout above).
+  const fields = [[{ type: 'signature', recipient_id: '1', page: pageCount, x: 170, y: 52, width: 180, height: 26, required: true }]]
   const doc = await esign.createDocument({
     name: `Contract - ${project?.client || clientName} v${ref.version}`,
     fileName: `Contract - ${project?.client || clientName}.pdf`,
     fileBase64: buffer.toString('base64'),
     signerName: clientName,
     signerEmail: to,
+    fields,
   })
   ref.esign = {
     id: doc.id || doc.document_id || '',

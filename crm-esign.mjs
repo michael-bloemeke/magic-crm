@@ -57,18 +57,19 @@ async function sw(pathPart, opts = {}) {
   return data
 }
 
-// Create + send a document for signature. The PDF carries the text tags that place the
-// signer's signature field, so no coordinates/fields are passed. Returns the SignWell doc.
-export async function createDocument({ name, fileName, fileBase64, signerName, signerEmail, subject, message }) {
+// Create + send a document for signature. `fields` is SignWell's array-of-arrays placement
+// (one inner array per recipient) with explicit coordinates; the caller computes the
+// signature field position (SignWell text tags proved unreliable). Returns the SignWell doc.
+export async function createDocument({ name, fileName, fileBase64, signerName, signerEmail, subject, message, fields }) {
   const body = {
     test_mode: isTestMode(),
     draft: false,
-    text_tags: true,
     name,
     subject: subject || 'Please sign your performance agreement',
     message: message || `Hi ${signerName || 'there'}, please review and sign the performance agreement. Thanks!`,
     files: [{ name: fileName || 'contract.pdf', file_base64: fileBase64 }],
     recipients: [{ id: '1', name: signerName || 'Client', email: signerEmail }],
+    fields: fields || [],
   }
   return sw('/api/v1/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 }
