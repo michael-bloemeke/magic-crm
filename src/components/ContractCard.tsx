@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { type Project } from '../pipeline'
 import {
   loadContracts,
-  setContractStatus,
   deleteContract,
   contractPdfUrl,
   loadEsignStatus,
@@ -71,18 +70,6 @@ export function ContractCard({ project }: { project: Project }) {
     refresh()
   }
   const preview = (id: string) => window.open(contractPdfUrl(project.id, id), '_blank')
-  const mark = async (id: string, status: 'draft' | 'sent') => {
-    setBusy(true)
-    setNote(null)
-    try {
-      await setContractStatus(project.id, id, status)
-      refresh()
-    } catch (e) {
-      setNote(String(e instanceof Error ? e.message : e))
-    } finally {
-      setBusy(false)
-    }
-  }
   const remove = async (id: string) => {
     if (!window.confirm('Delete this contract version? This cannot be undone.')) return
     setBusy(true)
@@ -184,15 +171,6 @@ export function ContractCard({ project }: { project: Project }) {
                   <button type="button" onClick={() => preview(c.id)} className="text-brass-bright underline-offset-2 hover:underline">
                     Preview
                   </button>
-                  {c.status !== 'sent' ? (
-                    <button type="button" disabled={busy} onClick={() => mark(c.id, 'sent')} className="text-muted hover:text-parchment disabled:opacity-40">
-                      Mark sent
-                    </button>
-                  ) : (
-                    <button type="button" disabled={busy} onClick={() => mark(c.id, 'draft')} className="text-muted hover:text-parchment disabled:opacity-40">
-                      Mark unsent
-                    </button>
-                  )}
                   {esignCfg?.configured && !e && (
                     <button type="button" disabled={busy} onClick={() => setSignerFor(c.id)} className="text-muted hover:text-parchment disabled:opacity-40">
                       Send for signature
