@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { draftContract, createContract, type ContractDraft, type ContractVersion } from '../api'
 import { type Project } from '../pipeline'
+import { ContractDocStyles, TB, Divider, Dropdown, MenuItem } from './contractEditorShared'
 
 // Generate / new-version dialog for the Performance Services Agreement. The contract opens
 // auto-filled and fully editable (rich text via the browser's built-in editing: headings,
@@ -111,10 +112,28 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
     setMenu(null)
   }
 
+  // As the user fills an unfilled field (replaces its [Label] placeholder), drop the warning.
+  const onEditorInput = () => {
+    const ed = editorRef.current
+    if (!ed) return
+    ed.querySelectorAll('.cf-missing').forEach((el) => {
+      if (!/\[.+\]/.test(el.textContent || '')) el.classList.remove('cf-missing')
+    })
+  }
+
   const generate = async () => {
-    if (!project || !editorRef.current) return
+    const ed = editorRef.current
+    if (!project || !ed) return
     renumber()
-    const html = editorRef.current.innerHTML.trim()
+    const stillMissing = Array.from(ed.querySelectorAll('.cf-missing')).filter((el) => /\[.+\]/.test(el.textContent || ''))
+    if (stillMissing.length) {
+      setError(
+        'Fill in the highlighted fields first: ' +
+          stillMissing.map((el) => (el.textContent || '').replace(/[[\]]/g, '')).join(', '),
+      )
+      return
+    }
+    const html = ed.innerHTML.trim()
     if (!html) return
     setBusy(true)
     setError(null)
@@ -136,25 +155,7 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
         >
-          <style>{`
-            .ct-page ::selection { background: #bcd7fb !important; color: #1f1c17 !important; }
-            .ct-brand { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
-              font-size: 13.5px; letter-spacing: 0.08em; color: #1f1c17; margin: 0 0 6px; }
-            .ct-title { text-align: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
-              font-size: 16.5px; letter-spacing: 0.06em; color: #1f1c17; padding-bottom: 12px;
-              margin: 0 0 14px; border-bottom: 1px solid #1f1c17; }
-            .ct-doc { font-family: Georgia, 'Times New Roman', serif; color: #1f1c17; }
-            .ct-doc p { margin: 0 0 6px; font-size: 12px; line-height: 1.65; }
-            .ct-doc h1 { font-size: 17px; font-weight: 700; margin: 10px 0 5px; }
-            .ct-doc h2 { font-size: 15px; font-weight: 700; margin: 9px 0 4px; }
-            .ct-doc h3 { font-size: 13.5px; font-weight: 700; margin: 8px 0 3px; }
-            .ct-doc ul, .ct-doc ol { margin: 0 0 6px; padding-left: 22px; }
-            .ct-doc li { font-size: 12px; line-height: 1.65; margin-bottom: 2px; }
-            .ct-doc:focus { outline: none; }
-            .ct-sig { font-family: Georgia, 'Times New Roman', serif; color: #1f1c17; font-size: 12px;
-              margin-top: 16px; padding-top: 13px; border-top: 1px solid #1f1c17; }
-            .ct-sig div { margin-bottom: 10px; }
-          `}</style>
+          <ContractDocStyles />
 
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onCancel} aria-hidden />
 
@@ -266,7 +267,7 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
                   {/* Letterhead (logo goes here once Michael has one). */}
                   <div className="ct-brand">{draft?.brand}</div>
                   <div className="ct-title">{draft?.title}</div>
-                  <div ref={editorRef} className="ct-doc" contentEditable suppressContentEditableWarning />
+                  <div ref={editorRef} className="ct-doc" contentEditable suppressContentEditableWarning onInput={onEditorInput} />
                   <div className="ct-sig">
                     {(draft?.signatureLines ?? []).map((line, i) => (
                       <div key={i}>{line}</div>
@@ -299,80 +300,5 @@ export function ContractGenerateModal({ project, onCancel, onCreated }: Props) {
         </motion.div>
       )}
     </AnimatePresence>
-  )
-}
-
-// Toolbar button: act on mousedown (preventDefault) so the editor keeps its selection.
-function TB({ onApply, title, children }: { onApply: () => void; title: string; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onApply()
-      }}
-      className="min-w-[28px] rounded-md border border-transparent px-2 py-1 text-[11.5px] text-muted transition-colors hover:border-line hover:bg-surface-3 hover:text-parchment"
-    >
-      {children}
-    </button>
-  )
-}
-function Divider() {
-  return <span className="mx-0.5 h-4 w-px bg-line" aria-hidden />
-}
-function Dropdown({
-  open,
-  onToggle,
-  label,
-  children,
-  accent,
-  wide,
-}: {
-  open: boolean
-  onToggle: () => void
-  label: ReactNode
-  children: ReactNode
-  accent?: boolean
-  wide?: boolean
-}) {
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onMouseDown={(e) => {
-          e.preventDefault()
-          onToggle()
-        }}
-        className={
-          accent
-            ? 'rounded-md border border-brass-dim/60 px-2 py-1 text-[11.5px] font-medium text-brass-bright hover:border-brass'
-            : 'rounded-md border border-transparent px-2 py-1 text-[11.5px] text-muted transition-colors hover:border-line hover:bg-surface-3 hover:text-parchment'
-        }
-      >
-        {label}
-      </button>
-      {open && (
-        <div
-          className={`absolute left-0 top-[calc(100%+4px)] z-10 max-h-64 overflow-y-auto rounded-lg border border-line-strong bg-surface-2 py-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)] ${wide ? 'w-60' : 'w-44'}`}
-        >
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
-function MenuItem({ onPick, children }: { onPick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onPick()
-      }}
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-parchment hover:bg-surface-3"
-    >
-      {children}
-    </button>
   )
 }

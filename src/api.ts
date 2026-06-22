@@ -610,6 +610,33 @@ export function signedContractPdfUrl(projectId: string, id: string): string {
   return `/api/contracts/signed-pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
 }
 
+// --- Default contract template (Settings) ------------------------------------
+export type ContractTemplateData = {
+  template: string
+  isCustom: boolean
+  brand: string
+  title: string
+  signatureLines: string[]
+  fields: { key: string; label: string }[]
+}
+export async function loadContractTemplate(): Promise<ContractTemplateData> {
+  const res = await fetch('/api/contract-template')
+  if (!res.ok) throw new Error(`Failed to load contract template (${res.status})`)
+  return (await res.json()) as ContractTemplateData
+}
+// Pass '' to reset to the built-in default.
+export async function saveContractTemplate(template: string): Promise<void> {
+  const res = await fetch('/api/contract-template', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template }),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    throw new Error(d.error || `Failed to save contract template (${res.status})`)
+  }
+}
+
 // --- Business files ----------------------------------------------------------
 
 export type FileItem = {
