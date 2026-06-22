@@ -486,6 +486,15 @@ export async function disconnectQuickBooks(): Promise<void> {
 // --- Contracts ---------------------------------------------------------------
 export type ContractStatus = 'draft' | 'sent'
 export type ContractField = { label: string; value: string }
+export type EsignInfo = {
+  id: string
+  status: string
+  signerName: string
+  signerEmail: string
+  testMode: boolean
+  sentAt: string
+  signedAt: string
+}
 export type ContractVersion = {
   id: string
   version: number
@@ -495,7 +504,9 @@ export type ContractVersion = {
   body: string
   createdAt: string
   sentAt: string
+  esign?: EsignInfo
 }
+export type EsignStatus = { configured: boolean; testMode: boolean }
 
 export async function loadContracts(): Promise<Record<string, ContractVersion[]>> {
   const res = await fetch('/api/contracts')
@@ -563,6 +574,40 @@ export async function deleteContract(projectId: string, id: string): Promise<voi
 }
 export function contractPdfUrl(projectId: string, id: string): string {
   return `/api/contracts/pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
+}
+export async function loadEsignStatus(): Promise<EsignStatus> {
+  const res = await fetch('/api/esign')
+  if (!res.ok) throw new Error(`Failed to load e-sign status (${res.status})`)
+  const d = await res.json()
+  return d.status ?? { configured: false, testMode: true }
+}
+export async function sendContractForSignature(
+  projectId: string,
+  id: string,
+  signerName: string,
+  signerEmail: string,
+): Promise<ContractVersion> {
+  const res = await fetch('/api/contracts/send-signature', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, id, signerName, signerEmail }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to send for signature (${res.status})`)
+  return data.contract as ContractVersion
+}
+export async function refreshContractSignature(projectId: string, id: string): Promise<ContractVersion> {
+  const res = await fetch('/api/contracts/refresh-signature', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, id }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to refresh signature status (${res.status})`)
+  return data.contract as ContractVersion
+}
+export function signedContractPdfUrl(projectId: string, id: string): string {
+  return `/api/contracts/signed-pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
 }
 
 // --- Business files ----------------------------------------------------------
