@@ -122,6 +122,9 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body, forma
   if (id) {
     const e = data.emails.find((x) => x.id === id)
     if (!e) throw new Error('email not found')
+    // A sent email is a permanent record: never edit it or revert it to a draft. Return it
+    // unchanged so any stray save is a harmless no-op rather than a status downgrade.
+    if (e.status === 'sent') return clean(e)
     if (kind != null) e.kind = String(kind)
     e.to = toList
     e.subject = String(subject ?? e.subject ?? '')

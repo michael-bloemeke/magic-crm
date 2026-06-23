@@ -27,6 +27,8 @@ anthropic-key.txt
 
 # Uploaded business files (Files page) — local working assets, not source
 crm-files/
+# One-off email attachment uploads — local working data, not source
+crm-email-attachments/
 
 # Local data backups (contain copied client records) — never commit
 migration-backups/

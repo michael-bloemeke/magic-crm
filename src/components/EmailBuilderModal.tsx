@@ -1,7 +1,36 @@
 import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
-import { loadTemplates, saveProjectEmail, sendProjectEmail, type ProjectEmail, type Template } from '../api'
+import {
+  loadTemplates,
+  saveProjectEmail,
+  sendProjectEmail,
+  loadFiles,
+  uploadEmailAttachment,
+  deleteEmailAttachment,
+  type ProjectEmail,
+  type Template,
+  type EmailAttachment,
+  type FileItem,
+} from '../api'
+import { RichTextEditor } from './RichTextEditor'
+
+// Escape plain text and turn newlines into <br> so old text drafts / plain templates render in
+// the rich editor. Used whenever non-HTML content flows into the HTML body.
+function textToHtml(text: string): string {
+  const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
+  return esc.replace(/\n/g, '<br>')
+}
+// True if the HTML body has any actual text/content (ignoring empty tags), for send/dirty checks.
+function htmlHasContent(html: string): boolean {
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() !== ''
+}
+function fmtSize(bytes: number): string {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 // A generic email builder dialog used for every per-project email (post-call,
 // follow-ups, shark, break-up, check-ins, thank-you, and one-off "New email").
@@ -35,15 +64,25 @@ export function EmailBuilderModal({
   const [to, setTo] = useState('')
   const [subject, setSubject] = useState(defaultSubject)
   const [body, setBody] = useState('')
+  const [attachments, setAttachments] = useState<EmailAttachment[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
+  const [files, setFiles] = useState<FileItem[] | null>(null)
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // A sent email is locked: the dialog becomes a read-only receipt of what went out. No
+  // editing, no template/attach, no save, no re-send. "Once it's sent, it's sent."
+  const readOnly = existing?.status === 'sent'
 
   useEffect(() => {
     if (!open) return
     setTo((existing?.to?.length ? existing.to : recipientEmails).join(', '))
     setSubject(existing?.subject || defaultSubject)
-    setBody(existing?.body || '')
+    // Drafts are HTML now; an old text draft is converted so it renders in the rich editor.
+    setBody(existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : '')
+    setAttachments(existing?.attachments ?? [])
+    setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
     loadTemplates()
       .then(setTemplates)
@@ -52,10 +91,13 @@ export function EmailBuilderModal({
   }, [open])
 
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
+  const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
+  const initialBody = existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : ''
   const dirty =
-    body !== (existing?.body || '') ||
+    body !== initialBody ||
     subject !== (existing?.subject || defaultSubject) ||
-    toList().join(',') !== (existing?.to || []).join(',')
+    toList().join(',') !== (existing?.to || []).join(',') ||
+    attachments.map(attachKey).join(',') !== (existing?.attachments ?? []).map(attachKey).join(',')
 
   const persist = async (): Promise<ProjectEmail | null> => {
     try {
@@ -66,6 +108,8 @@ export function EmailBuilderModal({
         to: toList(),
         subject: subject.trim() || defaultSubject || '(no subject)',
         body,
+        format: 'html',
+        attachments,
       })
       onSaved(saved)
       return saved
@@ -85,7 +129,12 @@ export function EmailBuilderModal({
   // Closing keeps the work: save a draft if there's content and it changed.
   const handleClose = async () => {
     if (busy) return
-    if (dirty && body.trim() !== '') await saveAndClose()
+    // A sent email is never re-saved on close (that's what used to flip it back to "draft").
+    if (readOnly) {
+      onClose()
+      return
+    }
+    if (dirty && (htmlHasContent(body) || attachments.length > 0)) await saveAndClose()
     else onClose()
   }
   const closeRef = useRef(handleClose)
@@ -129,7 +178,7 @@ export function EmailBuilderModal({
     const t = templates.find((x) => x.id === id)
     if (!t) return
     if (t.subject) setSubject(t.subject)
-    setBody(t.body)
+    setBody(textToHtml(t.body))
     setStatus(`Inserted "${t.name}".`)
   }
 
@@ -143,11 +192,152 @@ export function EmailBuilderModal({
       return
     }
     if (t.subject) setSubject(t.subject)
-    setBody(t.body)
+    setBody(textToHtml(t.body))
     setStatus(`Drafted from "${t.name}". Live Claude drafting is coming soon.`)
   }
 
-  const canSend = toList().length > 0 && body.trim() !== '' && !busy
+  // --- Attachments -----------------------------------------------------------
+  const openFilePicker = async () => {
+    setAttachMenuOpen(true)
+    if (files == null) {
+      try {
+        setFiles(await loadFiles())
+      } catch {
+        setFiles([])
+      }
+    }
+  }
+  const addFromFiles = (f: FileItem) => {
+    setAttachMenuOpen(false)
+    setAttachments((prev) =>
+      prev.some((a) => a.source === 'files' && a.name === f.name)
+        ? prev
+        : [...prev, { source: 'files', name: f.name, size: f.size }],
+    )
+  }
+  const onUploadChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = Array.from(e.target.files || [])
+    e.target.value = '' // allow re-selecting the same file later
+    setAttachMenuOpen(false)
+    for (const file of list) {
+      setStatus(`Uploading ${file.name}…`)
+      try {
+        const att = await uploadEmailAttachment(file)
+        setAttachments((prev) => [...prev, att])
+        setStatus(null)
+      } catch (err) {
+        setStatus(String(err instanceof Error ? err.message : err))
+      }
+    }
+  }
+  const removeAttachment = (a: EmailAttachment) => {
+    setAttachments((prev) => prev.filter((x) => attachKey(x) !== attachKey(a)))
+    if (a.source === 'upload' && a.id) deleteEmailAttachment(a.id).catch(() => {})
+  }
+
+  const canSend = toList().length > 0 && (htmlHasContent(body) || attachments.length > 0) && !busy
+
+  // Read-only receipt for a sent email: a distinct render with NO editable controls, so a sent
+  // email can never be edited, re-drafted, or re-sent from its block.
+  if (readOnly && existing) {
+    return (
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+            <motion.div
+              className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_90px_-40px_rgba(0,0,0,0.9)]"
+              initial={{ y: 16, opacity: 0, scale: 0.98 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 16, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-line px-6 pb-4 pt-5">
+                <div className="min-w-0">
+                  <h2 className="font-display text-[20px] leading-tight text-parchment">{title}</h2>
+                  <p className="mt-0.5 truncate text-[12.5px] text-muted">{project.client}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                    style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
+                  >
+                    Sent
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close"
+                    className="rounded-lg border border-line p-1.5 text-muted transition-colors hover:border-line-strong hover:text-parchment"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="board-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+                <p className="text-[11.5px] text-faint">
+                  Sent {fmtDate(existing.sentAt)}. This is a record of what went out, and can't be changed.
+                </p>
+                <div>
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">To</span>
+                  <p className="text-[13px] text-parchment">{existing.to.join(', ') || '(no recipients)'}</p>
+                </div>
+                <div>
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject</span>
+                  <p className="text-[13px] text-parchment">{existing.subject || '(no subject)'}</p>
+                </div>
+                <div>
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
+                  <div
+                    className="email-rte rounded-lg border border-line bg-surface-2 px-3 py-3 text-[13px] leading-relaxed text-parchment"
+                    dangerouslySetInnerHTML={{ __html: initialBody }}
+                  />
+                </div>
+                {attachments.length > 0 && (
+                  <div>
+                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Attachments</span>
+                    <ul className="flex flex-wrap gap-1.5">
+                      {attachments.map((a) => (
+                        <li
+                          key={attachKey(a)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-[11.5px] text-parchment"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                          </svg>
+                          <span className="max-w-[16rem] truncate">{a.name}</span>
+                          {a.size ? <span className="text-faint">{fmtSize(a.size)}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-line px-6 py-4">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110"
+                >
+                  Done
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    )
+  }
 
   return (
     <AnimatePresence>
@@ -254,16 +444,89 @@ export function EmailBuilderModal({
                 )}
               </div>
 
-              <label className="block">
+              <div className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
-                <textarea
-                  value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  rows={10}
-                  placeholder="Write a message, pick a template, or hit Generate…"
-                  className="w-full resize-y rounded-lg border border-line bg-surface-2 p-3 text-[13px] leading-relaxed text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
-                />
-              </label>
+                <RichTextEditor value={body} onChange={setBody} placeholder="Write a message, pick a template, or hit Generate…" />
+              </div>
+
+              {/* Attachments: pick from the Files page, or upload a one-off. */}
+              <div className="block">
+                <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Attachments</span>
+                {attachments.length > 0 && (
+                  <ul className="mb-2 flex flex-wrap gap-1.5">
+                    {attachments.map((a) => (
+                      <li
+                        key={attachKey(a)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-1 pl-2.5 pr-1.5 text-[11.5px] text-parchment"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                        </svg>
+                        <span className="max-w-[14rem] truncate">{a.name}</span>
+                        {a.size ? <span className="text-faint">{fmtSize(a.size)}</span> : null}
+                        {a.source === 'upload' && <span className="text-[9px] uppercase tracking-wide text-faint">uploaded</span>}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a)}
+                          aria-label={`Remove ${a.name}`}
+                          className="rounded p-0.5 text-faint transition-colors hover:text-[#e08a6b]"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <path d="M6 6l12 12M18 6L6 18" />
+                          </svg>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="relative inline-block">
+                  <button
+                    type="button"
+                    onClick={() => (attachMenuOpen ? setAttachMenuOpen(false) : openFilePicker())}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-parchment"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                    </svg>
+                    Attach
+                  </button>
+                  {attachMenuOpen && (
+                    <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-surface-2 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[12px] text-parchment hover:bg-surface-3"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4 text-faint" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 16V4M7 9l5-5 5 5M5 20h14" />
+                        </svg>
+                        Upload from this computer…
+                      </button>
+                      <div className="px-3 pb-1 pt-2 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-faint">From your Files</div>
+                      <div className="board-scroll max-h-56 overflow-y-auto pb-1">
+                        {files == null ? (
+                          <p className="px-3 py-2 text-[11.5px] text-faint">Loading…</p>
+                        ) : files.length === 0 ? (
+                          <p className="px-3 py-2 text-[11.5px] text-faint">No files yet. Add some on the Files page.</p>
+                        ) : (
+                          files.map((f) => (
+                            <button
+                              key={f.name}
+                              type="button"
+                              onClick={() => addFromFiles(f)}
+                              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] text-parchment hover:bg-surface-3"
+                            >
+                              <span className="min-w-0 truncate">{f.name}</span>
+                              <span className="shrink-0 text-[10.5px] text-faint">{fmtSize(f.size)}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onUploadChosen} />
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">
