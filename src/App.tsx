@@ -295,6 +295,13 @@ function App() {
   const dueTodayCount = allTasks.filter((t) => !t.done && t.dueDate === today).length
   const upcomingCount = allTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
+  // In the packaged Mac app, show a dock badge for things needing attention: due/overdue tasks
+  // (the same count as the in-app bell) plus unread client mail. New inquiries will add in once
+  // that's wired. No-op in a plain browser (window.crm is only injected by the Electron preload).
+  useEffect(() => {
+    window.crm?.setBadge?.(taskAlerts + inboxUnread)
+  }, [taskAlerts, inboxUnread])
+
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',

@@ -47,6 +47,7 @@ import {
   PORTAL_BASE_URL,
 } from './crm-portal.mjs'
 import { loadQuestionnaire, setQuestionnaire, pullResponse, isBlobConfigured } from './crm-questionnaire.mjs'
+import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus } from './crm-inquiries.mjs'
 import {
   status as qbStatus,
   authUrl as qbAuthUrl,
@@ -587,6 +588,26 @@ export function crmDataPlugin() {
               portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '',
             }),
           )
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- HoneyBook inquiry sync (reads the Notion Activity Log, auto-creates projects). ---
+      server.middlewares.use('/api/inquiries/check', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async () => await importNewInquiries())
+      })
+      server.middlewares.use('/api/inquiries/dismiss', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => dismissInquiry(b.blockId))
+      })
+      server.middlewares.use('/api/inquiries', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ status: inquiriesStatus(), notifications: listInquiryNotifications() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

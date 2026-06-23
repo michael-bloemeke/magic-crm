@@ -28,7 +28,9 @@ export const THEMES: Theme[] = [
   },
 ]
 
-const STORAGE_KEY = 'magic-crm-theme'
+// Bumped to -v2 so the new FISM default takes effect even where an older 'ember' value was
+// already saved (e.g. the first Electron launch before FISM became the default).
+const STORAGE_KEY = 'magic-crm-theme-v2'
 
 export function getTheme(): ThemeId {
   try {
@@ -37,7 +39,7 @@ export function getTheme(): ThemeId {
   } catch {
     // ignore (private mode / no storage)
   }
-  return 'ember'
+  return 'fism' // default scheme (royal navy & gold) when nothing is saved yet
 }
 
 export function applyTheme(id: ThemeId) {
