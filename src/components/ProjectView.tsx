@@ -46,6 +46,7 @@ type Props = {
   onDelete: () => void
   onLogCall: () => void
   onPaymentsChange?: (payments: Payment[]) => void
+  onProjectChanged?: () => void
   contacts: Contact[]
   links: ProjectLinks
   onOpenContact: (c: Contact) => void
@@ -71,6 +72,7 @@ export function ProjectView({
   onDelete,
   onLogCall,
   onPaymentsChange,
+  onProjectChanged,
   contacts,
   links,
   onOpenContact,
@@ -254,6 +256,7 @@ export function ProjectView({
             onToggleTask={onToggleTask}
             onDeleteTask={onDeleteTask}
             onPaymentsChange={onPaymentsChange}
+            onProjectChanged={onProjectChanged}
             onOpenContact={onOpenContact}
             onUnlinkContact={onUnlinkContact}
             onAddContact={onAddContact}

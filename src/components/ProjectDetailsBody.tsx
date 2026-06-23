@@ -9,6 +9,7 @@ import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { EmailBuilderCard } from './EmailBuilderCard'
 import { InvoiceCard } from './InvoiceCard'
 import { ContractCard } from './ContractCard'
+import { QuestionnaireCard } from './QuestionnaireCard'
 import { contactsForProject } from '../contacts'
 import { evalNumberFormula } from '../calc'
 
@@ -28,6 +29,8 @@ type Props = {
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
   onPaymentsChange?: (payments: Payment[]) => void
+  // Called after the questionnaire auto-fills project fields, so the view reloads to show them.
+  onProjectChanged?: () => void
   onOpenContact: (c: Contact) => void
   onUnlinkContact: (c: Contact) => void
   onAddContact: () => void
@@ -48,6 +51,7 @@ export function ProjectDetailsBody({
   onToggleTask,
   onDeleteTask,
   onPaymentsChange,
+  onProjectChanged,
   onOpenContact,
   onUnlinkContact,
   onAddContact,
@@ -201,6 +205,7 @@ export function ProjectDetailsBody({
           <div className="space-y-2">
             <InvoiceCard project={project} />
             <ContractCard project={project} />
+            <QuestionnaireCard key={project.id} project={project} onApplied={onProjectChanged} />
           </div>
         </div>
       </DetailSection>

@@ -142,6 +142,92 @@
           '<p>It may have expired or been turned off. Please reach out to Michael for an updated link.</p></div></div>'
       }
 
+      // One form control for a question, by type.
+      function qControl(q) {
+        const name = 'q_' + esc(q.id)
+        const req = q.required ? ' required' : ''
+        if (q.type === 'textarea') return '<textarea id="' + name + '" name="' + name + '"' + req + '></textarea>'
+        if (q.type === 'select') {
+          const opts = ['<option value="">Select…</option>']
+            .concat((q.options || []).map((o) => '<option value="' + esc(o) + '">' + esc(o) + '</option>'))
+            .join('')
+          return '<select id="' + name + '" name="' + name + '"' + req + '>' + opts + '</select>'
+        }
+        const t = q.type === 'date' ? 'date' : q.type === 'tel' ? 'tel' : q.type === 'number' ? 'number' : 'text'
+        return '<input type="' + t + '" id="' + name + '" name="' + name + '"' + req + ' />'
+      }
+
+      function questionnaireSection(qn) {
+        const fields = (qn.questions || [])
+          .map(
+            (q) =>
+              '<div class="qfield"><label for="q_' + esc(q.id) + '">' + esc(q.label) +
+              (q.required ? ' <span class="req">*</span>' : '') + '</label>' + qControl(q) + '</div>',
+          )
+          .join('')
+        return (
+          '<section class="card">' +
+          '<h2>A few details about your event</h2>' +
+          (qn.intro ? '<p class="message" style="margin-bottom:18px">' + esc(qn.intro) + '</p>' : '') +
+          '<form id="qform" class="qform" novalidate>' +
+          '<input class="qhp" tabindex="-1" autocomplete="off" aria-hidden="true" id="q_hp" />' +
+          fields +
+          '<p class="qnote" id="qmsg"></p>' +
+          '<button type="submit" class="qsubmit" id="qbtn">Send to Michael</button>' +
+          '</form></section>'
+        )
+      }
+
+      // Collect answers, POST them to the submit function, swap in a thank-you on success.
+      function wireQuestionnaire(qn) {
+        const form = document.getElementById('qform')
+        if (!form) return
+        form.addEventListener('submit', function (e) {
+          e.preventDefault()
+          const btn = document.getElementById('qbtn')
+          const msg = document.getElementById('qmsg')
+          msg.className = 'qnote'
+          msg.textContent = ''
+          for (const q of qn.questions) {
+            if (!q.required) continue
+            const el = document.getElementById('q_' + q.id)
+            if (el && !String(el.value || '').trim()) {
+              msg.className = 'qnote qerror'
+              msg.textContent = 'Please answer: ' + q.label
+              el.focus()
+              return
+            }
+          }
+          const answers = qn.questions
+            .map((q) => {
+              const el = document.getElementById('q_' + q.id)
+              return { id: q.id, label: q.label, value: el ? String(el.value || '') : '' }
+            })
+            .filter((a) => a.value.trim() !== '')
+          const hp = document.getElementById('q_hp')
+          btn.disabled = true
+          btn.textContent = 'Sending…'
+          fetch('/api/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token, answers: answers, _hp: hp ? hp.value : '' }),
+          })
+            .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.error || 'failed')))))
+            .then(() => {
+              const sec = form.closest('.card')
+              sec.innerHTML =
+                '<div class="thanks"><h2>Thank you!</h2>' +
+                '<p>Your details are on their way to Michael. He’ll reach out if he needs anything else.</p></div>'
+            })
+            .catch((err) => {
+              msg.className = 'qnote qerror'
+              msg.textContent = 'Sorry, that didn’t send. Please try again. (' + (err && err.message ? err.message : 'error') + ')'
+              btn.disabled = false
+              btn.textContent = 'Send to Michael'
+            })
+        })
+      }
+
       function render(b) {
         const fields = (b.fields || [])
           .map((f) => '<div class="row"><span class="lbl">' + esc(f.label) + '</span><span class="val">' + esc(f.value) + '</span></div>')
@@ -153,6 +239,7 @@
               '<a class="link" href="' + esc(v) + '" target="_blank" rel="noopener noreferrer">' + esc(LINK_LABELS[k] || k) + '</a>',
           )
           .join('')
+        const qn = b.questionnaire && b.questionnaire.enabled ? questionnaireSection(b.questionnaire) : ''
         app.innerHTML =
           '<div class="wrap">' +
           '<header class="hero"><p class="brand">The Award-Winning Magic of Michael Bloemeke</p>' +
@@ -162,8 +249,10 @@
           (b.message ? '<section class="card message">' + esc(b.message) + '</section>' : '') +
           (fields ? '<section class="card"><h2>Event details</h2><div class="rows">' + fields + '</div></section>' : '') +
           (links ? '<section class="card"><h2>Links</h2><div class="links">' + links + '</div></section>' : '') +
+          qn +
           '<footer>Questions? Just reply to Michael’s email.</footer>' +
           '</div>'
+        if (b.questionnaire && b.questionnaire.enabled) wireQuestionnaire(b.questionnaire)
       }
 
       if (!token) {

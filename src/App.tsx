@@ -623,6 +623,7 @@ function App() {
             onDelete={() => setDeleteTarget(fullProject)}
             onLogCall={() => setCallTarget(fullProject)}
             onPaymentsChange={(pmts) => syncPayments(fullProject.id, pmts)}
+            onProjectChanged={reloadProjects}
             contacts={contacts}
             links={links}
             onOpenContact={setContactPane}
@@ -869,6 +870,7 @@ function App() {
         onDelete={() => selected && setDeleteTarget(selected)}
         onLogCall={() => selected && setCallTarget(selected)}
         onPaymentsChange={(pmts) => selected && syncPayments(selected.id, pmts)}
+        onProjectChanged={reloadProjects}
         onOpenContact={setContactPane}
         onUnlinkContact={(c) => selected && unlinkContactFromProject(selected, c)}
         onAddContact={() => selected && setContactPickerProject(selected)}
