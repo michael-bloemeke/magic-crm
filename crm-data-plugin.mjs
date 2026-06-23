@@ -506,6 +506,49 @@ export function crmDataPlugin() {
         }
       })
 
+      // --- Client questionnaire (optional portal add-on). Specific paths before generic. ---
+      // Turn it on/off + edit the intro. Enabling publishes the portal so the link is live and
+      // the bundle carries the questions, then redeploys (~20-40s, same as a portal publish).
+      server.middlewares.use('/api/questionnaire/set', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          const questionnaire = setQuestionnaire(b.projectId, { enabled: b.enabled, intro: b.intro })
+          let portal = loadPortal(b.projectId)
+          if (b.enabled) portal = savePortal({ projectId: b.projectId, patch: { published: true } })
+          writeBundleFile(b.projectId)
+          const deploy = await deployPortal()
+          const token = portal?.token || ''
+          return { questionnaire, portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '', published: !!portal?.published, deploy }
+        })
+      })
+      // Pull the latest submitted answers and auto-fill the mapped event-detail fields.
+      server.middlewares.use('/api/questionnaire/pull', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await pullResponse(b.projectId))
+      })
+      // Current questionnaire state for a project (drives the card).
+      server.middlewares.use('/api/questionnaire', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+          const projectId = url.searchParams.get('projectId') || ''
+          const portal = loadPortal(projectId)
+          const token = portal?.token || ''
+          res.setHeader('Content-Type', 'application/json')
+          res.end(
+            JSON.stringify({
+              questionnaire: loadQuestionnaire(projectId),
+              blobConfigured: isBlobConfigured(),
+              published: !!portal?.published,
+              portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '',
+            }),
+          )
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
       // --- QuickBooks (OAuth connect + invoices). Specific paths before generic. ---
       server.middlewares.use('/api/quickbooks/auth', (req, res, next) => {
         if (req.method !== 'GET') return next()

@@ -434,6 +434,47 @@ export async function loadPortalBundle(projectId: string): Promise<PortalBundle 
   return ((await res.json()).bundle ?? null) as PortalBundle | null
 }
 
+// --- Client questionnaire ----------------------------------------------------
+export type QuestionType = 'text' | 'textarea' | 'date' | 'tel' | 'number' | 'select'
+export type Question = { id: string; label: string; type: QuestionType; required: boolean; options?: string[]; fieldKey?: string }
+export type QuestionnaireAnswer = { id: string; label: string; value: string }
+export type QuestionnaireResponse = { answers: QuestionnaireAnswer[]; submittedAt: string; pulledAt: string; appliedFields: string[] }
+export type Questionnaire = { enabled: boolean; intro: string; questions: Question[]; response: QuestionnaireResponse | null }
+export type QuestionnaireState = { questionnaire: Questionnaire | null; blobConfigured: boolean; published: boolean; portalUrl: string }
+export type QuestionnairePull = { ok: boolean; error?: string; response?: QuestionnaireResponse | null; filledFields?: string[]; fresh?: boolean }
+
+export async function loadQuestionnaire(projectId: string): Promise<QuestionnaireState> {
+  const res = await fetch(`/api/questionnaire?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) throw new Error(`Failed to load questionnaire (${res.status})`)
+  return (await res.json()) as QuestionnaireState
+}
+// Turn the questionnaire on/off (and edit its intro). Enabling publishes the portal and
+// redeploys, so this is slow (~20-40s), like a portal publish.
+export async function setQuestionnaire(
+  projectId: string,
+  patch: { enabled?: boolean; intro?: string },
+): Promise<{ questionnaire: Questionnaire; portalUrl: string; published: boolean; deploy: PortalDeploy }> {
+  const res = await fetch('/api/questionnaire/set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, ...patch }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || `Failed to update questionnaire (${res.status})`)
+  return data as { questionnaire: Questionnaire; portalUrl: string; published: boolean; deploy: PortalDeploy }
+}
+// Poll for the latest submitted answers; auto-fills mapped fields when a new one arrives.
+export async function pullQuestionnaire(projectId: string): Promise<QuestionnairePull> {
+  const res = await fetch('/api/questionnaire/pull', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || `Failed to pull answers (${res.status})`)
+  return data as QuestionnairePull
+}
+
 // --- QuickBooks --------------------------------------------------------------
 export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }
 export type QuickBooksInvoice = {

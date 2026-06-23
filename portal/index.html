@@ -95,6 +95,30 @@
       }
       .link:hover { background: var(--brass); color: #fff; }
       footer { margin-top: 28px; text-align: center; color: var(--faint); font-size: 12.5px; }
+      .qform { display: flex; flex-direction: column; gap: 17px; }
+      .qfield { display: flex; flex-direction: column; gap: 6px; }
+      .qfield label { font-size: 14px; font-weight: 500; color: #34302a; }
+      .qfield .req { color: var(--brass); }
+      .qfield input, .qfield textarea, .qfield select {
+        font-family: inherit; font-size: 15px; color: var(--ink); background: #fff;
+        border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px;
+        width: 100%; outline: none; transition: border-color 0.15s;
+      }
+      .qfield input:focus, .qfield textarea:focus, .qfield select:focus { border-color: var(--brass); }
+      .qfield textarea { resize: vertical; min-height: 84px; }
+      .qsubmit {
+        align-self: flex-start; margin-top: 4px; border: 0; cursor: pointer;
+        background: var(--brass); color: #fff; font-family: inherit; font-weight: 600;
+        font-size: 15px; padding: 12px 26px; border-radius: 999px; transition: filter 0.15s;
+      }
+      .qsubmit:hover { filter: brightness(1.06); }
+      .qsubmit:disabled { opacity: 0.55; cursor: default; }
+      .qnote { font-size: 13px; color: var(--muted); margin: 0; }
+      .qerror { color: #b23b2e; }
+      .qhp { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+      .thanks { text-align: center; padding: 10px 0; }
+      .thanks h2 { margin: 0 0 8px; }
+      .thanks p { color: var(--muted); margin: 0; }
       .center { text-align: center; }
       .center h1 { font-size: clamp(24px, 5vw, 32px); }
       .center p { color: var(--muted); margin: 14px auto 0; max-width: 30rem; }
