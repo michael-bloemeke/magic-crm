@@ -11,18 +11,23 @@ type Props = {
   defaultEmail: string
   testMode: boolean
   busy: boolean
+  // Contract fields left blank on this project. Shown as a warning; sending requires a
+  // confirmation so a half-filled contract can't go out by accident.
+  missingFields?: string[]
   onCancel: () => void
   onSend: (name: string, email: string) => void
 }
 
-export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, onCancel, onSend }: Props) {
+export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, missingFields = [], onCancel, onSend }: Props) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [ack, setAck] = useState(false)
 
   useEffect(() => {
     if (open) {
       setName(defaultName)
       setEmail(defaultEmail)
+      setAck(false)
     }
   }, [open, defaultName, defaultEmail])
 
@@ -32,7 +37,8 @@ export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, o
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
 
-  const valid = email.trim().includes('@')
+  const hasMissing = missingFields.length > 0
+  const valid = email.trim().includes('@') && (!hasMissing || ack)
 
   return (
     <AnimatePresence>
@@ -79,6 +85,24 @@ export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, o
                   placeholder="name@example.com"
                 />
               </label>
+              {hasMissing && (
+                <div className="rounded-lg border border-[#e0a98b]/40 bg-[#e0a98b]/10 px-3 py-2.5">
+                  <p className="text-[11.5px] font-semibold text-[#e0a98b]">These contract fields are blank:</p>
+                  <ul className="mt-1 list-disc pl-4 text-[11.5px] leading-relaxed text-[#e0a98b]">
+                    {missingFields.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+                    Fields you've set as <span className="text-parchment">Client + Required</span> in SignWell will be collected
+                    from the client. Any others will simply be blank on the signed contract.
+                  </p>
+                  <label className="mt-2 flex items-center gap-2 text-[11.5px] text-parchment">
+                    <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="accent-brass" />
+                    Send anyway
+                  </label>
+                </div>
+              )}
               {testMode && (
                 <p className="text-[11px] leading-relaxed text-[#e0a98b]">
                   Test mode: SignWell sends a watermarked, non-binding test document. Flip <span className="text-parchment">testMode</span> to false in signwell-credentials.json for real, binding signatures.

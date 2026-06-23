@@ -61,6 +61,24 @@ export function ContractCard({ project }: { project: Project }) {
 
   const defaultEmail = (project.contactEmails || '').split(/[,;]/)[0].trim()
 
+  // The project fields this contract prefills into SignWell (see sendContractFromTemplate).
+  // Any left blank are flagged before sending: either set them up as Client + Required in
+  // SignWell (the client fills them), or fill them here, or knowingly send anyway.
+  const missingFields = (
+    [
+      ['eventLocation', 'Venue / location'],
+      ['eventDate', 'Event date'],
+      ['showStartTime', 'Show start time'],
+      ['performanceStyle', 'Performance / services'],
+      ['totalFee', 'Booking fee'],
+    ] as const
+  )
+    .filter(([key]) => {
+      const v = project[key]
+      return v == null || String(v).trim() === ''
+    })
+    .map(([, label]) => label)
+
   const send = async (name: string, email: string) => {
     if (!sendTarget) return
     setBusy(true)
@@ -211,6 +229,7 @@ export function ContractCard({ project }: { project: Project }) {
         defaultEmail={defaultEmail}
         testMode={esignCfg?.testMode ?? true}
         busy={busy}
+        missingFields={missingFields}
         onCancel={() => setSendTarget(null)}
         onSend={send}
       />

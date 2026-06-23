@@ -371,6 +371,10 @@ export async function sendContractFromTemplate(projectId, { templateId, template
   const phone0 = String(project.contactPhones || '').split(/[,;]/)[0].trim()
   const clientContact = [project.client, email0, phone0].filter(Boolean).join(', ')
   const todayISO = new Date().toISOString().slice(0, 10)
+  // Only prefill fields we actually have a value for. Sending an empty string would
+  // pre-fill the field as blank; OMITTING it instead leaves the template field in its
+  // natural state, so any field configured in SignWell as the Client's + Required will
+  // force the client to fill it before they can sign (e.g. a venue we don't know yet).
   const templateFields = [
     { api_id: 'client_contact', value: clientContact },
     { api_id: 'contract_date', value: fmtDate(todayISO) },
@@ -379,7 +383,7 @@ export async function sendContractFromTemplate(projectId, { templateId, template
     { api_id: 'show_start_time', value: String(project.showStartTime || '') },
     { api_id: 'services_description', value: String(project.performanceStyle || '') },
     { api_id: 'booking_fee', value: fee },
-  ]
+  ].filter((f) => String(f.value || '').trim() !== '')
   const clientName = String(signerName || project.client || 'Client').trim()
   const recipients = [
     { id: '1', placeholder_name: 'Document Sender', name: SENDER.name, email: SENDER.email },
