@@ -16,7 +16,6 @@ import { ContactsPage } from './components/ContactsPage'
 import { TemplatesPage } from './components/TemplatesPage'
 import { FilesPage } from './components/FilesPage'
 import { RecordsPage } from './components/RecordsPage'
-import { SettingsPage } from './components/SettingsPage'
 import { ArchiveReasonModal } from './components/ArchiveReasonModal'
 import { CompleteProjectModal, type CompletePayload } from './components/CompleteProjectModal'
 import { NewProjectModal } from './components/NewProjectModal'
@@ -96,7 +95,6 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
-  settings: { kicker: 'System', title: 'Settings' },
 }
 
 function App() {
@@ -822,8 +820,6 @@ function App() {
                   onOpenFull={openFull}
                   onOpenSide={openSide}
                 />
-              ) : page === 'settings' ? (
-                <SettingsPage />
               ) : view === 'board' ? (
                 <PipelineBoard
                   pipeline={pipeline}

@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
-import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES } from './crm-contract-template.mjs'
+import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES, fmtDate } from './crm-contract-template.mjs'
 import { loadConfig } from './crm-finance.mjs'
 import * as esign from './crm-esign.mjs'
 
@@ -348,6 +348,67 @@ export async function sendForSignature(projectId, id, { signerName, signerEmail 
     signedAt: '',
   }
   if (ref.status === 'draft') ref.status = 'sent'
+  writeContracts(d)
+  return ref
+}
+
+// The performer (Document Sender) side of the SignWell template, auto-signed.
+const SENDER = { name: 'Michael Bloemeke', email: 'michael@michaelbloemeke.com' }
+
+// Send a contract by summoning a SignWell template and prefilling its fields from the
+// project. Stores a per-project record (with an `esign` block so refresh/signed-PDF reuse
+// the existing polling + download code). templateId/label come from the picker.
+export async function sendContractFromTemplate(projectId, { templateId, templateLabel, signerName, signerEmail } = {}) {
+  if (!esign.isConfigured()) throw new Error('SignWell is not connected.')
+  const to = String(signerEmail || '').trim()
+  if (!to) throw new Error("Enter the client's email address.")
+  if (!templateId) throw new Error('Pick a contract template to send.')
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+
+  const fee = project.totalFee ? '$' + Math.round(Number(project.totalFee)).toLocaleString('en-US') : ''
+  const email0 = String(project.contactEmails || '').split(/[,;]/)[0].trim()
+  const phone0 = String(project.contactPhones || '').split(/[,;]/)[0].trim()
+  const clientContact = [project.client, email0, phone0].filter(Boolean).join(', ')
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const templateFields = [
+    { api_id: 'client_contact', value: clientContact },
+    { api_id: 'contract_date', value: fmtDate(todayISO) },
+    { api_id: 'event_date', value: fmtDate(project.eventDate) },
+    { api_id: 'event_location', value: String(project.eventLocation || '') },
+    { api_id: 'show_start_time', value: String(project.showStartTime || '') },
+    { api_id: 'services_description', value: String(project.performanceStyle || '') },
+    { api_id: 'booking_fee', value: fee },
+  ]
+  const clientName = String(signerName || project.client || 'Client').trim()
+  const recipients = [
+    { id: '1', placeholder_name: 'Document Sender', name: SENDER.name, email: SENDER.email },
+    { id: '2', placeholder_name: 'Client', name: clientName, email: to },
+  ]
+  const doc = await esign.createDocumentFromTemplate({
+    templateId,
+    recipients,
+    templateFields,
+    name: `Contract - ${project.client}`,
+  })
+  const d = readContracts()
+  const list = Array.isArray(d.contracts[projectId]) ? d.contracts[projectId] : []
+  const ref = {
+    id: crypto.randomBytes(8).toString('hex'),
+    templateId,
+    templateLabel: templateLabel || 'Contract',
+    createdAt: new Date().toISOString(),
+    esign: {
+      id: doc.id || '',
+      status: doc.status || 'sent',
+      signerName: clientName,
+      signerEmail: to,
+      testMode: esign.isTestMode(),
+      sentAt: new Date().toISOString(),
+      signedAt: '',
+    },
+  }
+  d.contracts[projectId] = [...list, ref]
   writeContracts(d)
   return ref
 }

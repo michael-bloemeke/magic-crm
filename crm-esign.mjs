@@ -74,6 +74,27 @@ export async function createDocument({ name, fileName, fileBase64, signerName, s
   return sw('/api/v1/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 }
 
+// Create + send a document from a pre-made SignWell template. recipients map to the
+// template's placeholders (by placeholder_name); templateFields prefill by api_id.
+export async function createDocumentFromTemplate({ templateId, recipients, templateFields, name }) {
+  const body = {
+    template_id: templateId,
+    test_mode: isTestMode(),
+    draft: false,
+    name,
+    recipients,
+    template_fields: templateFields || [],
+  }
+  return sw('/api/v1/document_templates/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+
+// List the SignWell templates in the account (for the CRM's contract picker).
+export async function listTemplates() {
+  const d = await sw('/api/v1/document_templates?page=1')
+  const list = d.templates || d.document_templates || []
+  return list.map((t) => ({ id: t.id, name: t.name }))
+}
+
 export async function getDocument(id) {
   return sw(`/api/v1/documents/${encodeURIComponent(id)}`)
 }

@@ -2,34 +2,27 @@ import { useEffect, useState } from 'react'
 import { type Project } from '../pipeline'
 import {
   loadContracts,
-  deleteContract,
-  contractPdfUrl,
   loadEsignStatus,
-  sendContractForSignature,
+  loadContractTemplates,
+  sendContract,
   refreshContractSignature,
   signedContractPdfUrl,
+  deleteContract,
   type ContractVersion,
   type EsignInfo,
   type EsignStatus,
+  type SignwellTemplate,
 } from '../api'
-import { ContractGenerateModal } from './ContractGenerateModal'
 import { SignerModal } from './SignerModal'
 
-// The Booking-section "Contract" card. Generates a Performance Services Agreement
-// (auto-filled, rich-text editable), keeps every version, and can send a version for
-// e-signature via SignWell (then poll status and fetch the signed PDF). He can also just
-// preview/download the PDF to sign manually.
+// The Booking-section "Contract" card. Contracts live as SignWell templates; this card lets
+// Michael pick one and send it for e-signature, prefilled from the project. It then tracks
+// status (Awaiting signature -> Signed) and serves the signed PDF.
 
 function fmtDate(iso: string) {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
-
-const STATUS_STYLE: Record<string, { label: string; color: string }> = {
-  draft: { label: 'Draft', color: 'var(--color-faint)' },
-  sent: { label: 'Sent', color: 'var(--color-umb-booked)' },
-}
-
 function isSigned(e: EsignInfo) {
   const s = (e.status || '').toLowerCase()
   return !!e.signedAt || s === 'completed' || s === 'signed'
@@ -43,35 +36,61 @@ function esignLabel(e: EsignInfo): { label: string; color: string } {
 }
 
 export function ContractCard({ project }: { project: Project }) {
-  const [versions, setVersions] = useState<ContractVersion[] | null>(null)
+  const [contracts, setContracts] = useState<ContractVersion[] | null>(null)
   const [esignCfg, setEsignCfg] = useState<EsignStatus | null>(null)
-  const [genOpen, setGenOpen] = useState(false)
-  const [signerFor, setSignerFor] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<SignwellTemplate[] | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [sendTarget, setSendTarget] = useState<SignwellTemplate | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
   const refresh = () => {
     loadContracts()
-      .then((all) => setVersions(all[project.id] ?? []))
-      .catch(() => setVersions([]))
+      .then((all) => setContracts(all[project.id] ?? []))
+      .catch(() => setContracts([]))
   }
   useEffect(refresh, [project.id])
   useEffect(() => {
     loadEsignStatus()
       .then(setEsignCfg)
       .catch(() => setEsignCfg({ configured: false, testMode: true }))
+    loadContractTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]))
   }, [])
 
   const defaultEmail = (project.contactEmails || '').split(/[,;]/)[0].trim()
 
-  const onCreated = (c: ContractVersion) => {
-    setGenOpen(false)
-    setNote(`Contract v${c.version} generated.`)
-    refresh()
+  const send = async (name: string, email: string) => {
+    if (!sendTarget) return
+    setBusy(true)
+    setNote(null)
+    try {
+      await sendContract(project.id, sendTarget.id, sendTarget.name, name, email)
+      setSendTarget(null)
+      setNote(`Sent to ${email} for signature.`)
+      refresh()
+    } catch (e) {
+      setNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setBusy(false)
+    }
   }
-  const preview = (id: string) => window.open(contractPdfUrl(project.id, id), '_blank')
+  const refreshOne = async (id: string) => {
+    setBusy(true)
+    setNote(null)
+    try {
+      const v = await refreshContractSignature(project.id, id)
+      refresh()
+      setNote(v.esign && isSigned(v.esign) ? 'Signed. The signed PDF is ready.' : 'Status updated. Not signed yet.')
+    } catch (e) {
+      setNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setBusy(false)
+    }
+  }
   const remove = async (id: string) => {
-    if (!window.confirm('Delete this contract version? This cannot be undone.')) return
+    if (!window.confirm('Remove this contract from the project? (It does not delete it in SignWell.)')) return
     setBusy(true)
     setNote(null)
     try {
@@ -83,121 +102,83 @@ export function ContractCard({ project }: { project: Project }) {
       setBusy(false)
     }
   }
-  const sendSign = async (name: string, email: string) => {
-    if (!signerFor) return
-    setBusy(true)
-    setNote(null)
-    try {
-      await sendContractForSignature(project.id, signerFor, name, email)
-      setSignerFor(null)
-      setNote(`Sent to ${email} for signature.`)
-      refresh()
-    } catch (e) {
-      setNote(String(e instanceof Error ? e.message : e))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const refreshSign = async (id: string) => {
-    setBusy(true)
-    setNote(null)
-    try {
-      const v = await refreshContractSignature(project.id, id)
-      refresh()
-      if (v.esign && isSigned(v.esign)) setNote('Signed. The signed PDF is now available.')
-      else setNote('Status updated. Not signed yet.')
-    } catch (e) {
-      setNote(String(e instanceof Error ? e.message : e))
-    } finally {
-      setBusy(false)
-    }
-  }
 
-  const sorted = (versions ?? []).slice().sort((a, b) => b.version - a.version)
-  const hasAny = sorted.length > 0
+  const sorted = (contracts ?? []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+  const ready = esignCfg?.configured && templates && templates.length > 0
 
   return (
     <div className="rounded-xl border border-line bg-surface-2/30 px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] font-medium text-parchment">Contract</p>
-        {hasAny && (
-          <button
-            type="button"
-            onClick={() => setGenOpen(true)}
-            className="rounded-lg border border-line px-2.5 py-1 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
-          >
-            New version
-          </button>
+        {ready && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPickerOpen((o) => !o)}
+              className="rounded-lg border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
+            >
+              Send contract ▾
+            </button>
+            {pickerOpen && (
+              <div className="absolute right-0 top-[calc(100%+4px)] z-10 w-64 overflow-hidden rounded-lg border border-line-strong bg-surface-2 py-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
+                {templates!.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      setPickerOpen(false)
+                      setSendTarget(t)
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-[12px] text-parchment hover:bg-surface-3"
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      {versions == null ? (
+      {contracts == null || templates == null || esignCfg == null ? (
         <p className="mt-1 text-[11.5px] text-faint">Loading…</p>
-      ) : !hasAny ? (
-        <>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
-            Generate a performance agreement, auto-filled from this project. Edit it for the client, then send it for
-            e-signature or download the PDF to sign manually.
-          </p>
-          <button
-            type="button"
-            onClick={() => setGenOpen(true)}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass"
-          >
-            Generate contract
-          </button>
-        </>
+      ) : !esignCfg.configured ? (
+        <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
+          SignWell isn't connected. Add your API key to <span className="text-muted">signwell-credentials.json</span>.
+        </p>
+      ) : templates.length === 0 ? (
+        <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
+          No contract templates found in SignWell. Create one there first (upload the PDF from the Files page and place the
+          fields), then it'll show up here to send.
+        </p>
+      ) : sorted.length === 0 ? (
+        <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
+          Pick a contract above to send it for signature, auto-filled from this project.
+          {esignCfg.testMode ? ' (SignWell is in test mode; flip testMode to false to send real, binding contracts.)' : ''}
+        </p>
       ) : (
         <ul className="mt-2 space-y-2">
           {sorted.map((c) => {
-            const st = STATUS_STYLE[c.status] ?? STATUS_STYLE.draft
             const e = c.esign
+            const el = e ? esignLabel(e) : { label: 'Sent', color: 'var(--color-faint)' }
             return (
               <li key={c.id} className="rounded-lg border border-line bg-surface-2/40 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-semibold text-parchment">v{c.version}</span>
+                    <span className="text-[12px] font-medium text-parchment">{c.templateLabel || 'Contract'}</span>
                     <span
                       className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]"
-                      style={{ color: st.color, backgroundColor: `color-mix(in oklab, ${st.color} 16%, transparent)` }}
+                      style={{ color: el.color, backgroundColor: `color-mix(in oklab, ${el.color} 16%, transparent)` }}
                     >
-                      {st.label}
+                      {el.label}
                     </span>
-                    {c.includeMedia && <span className="text-[10px] text-faint">+ media</span>}
+                    {e?.testMode && <span className="text-[10px] text-faint">test</span>}
                   </div>
                   <span className="text-[10.5px] text-faint">{fmtDate(c.createdAt)}</span>
                 </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                  <button type="button" onClick={() => preview(c.id)} className="text-brass-bright underline-offset-2 hover:underline">
-                    Preview
-                  </button>
-                  {esignCfg?.configured && !e && (
-                    <button type="button" disabled={busy} onClick={() => setSignerFor(c.id)} className="text-muted hover:text-parchment disabled:opacity-40">
-                      Send for signature
-                    </button>
-                  )}
-                  <button type="button" disabled={busy} onClick={() => remove(c.id)} className="text-[#e08a6b] hover:brightness-110 disabled:opacity-40">
-                    Delete
-                  </button>
-                </div>
-
                 {e && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line/60 pt-1.5 text-[11px]">
-                    {(() => {
-                      const el = esignLabel(e)
-                      return (
-                        <span
-                          className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]"
-                          style={{ color: el.color, backgroundColor: `color-mix(in oklab, ${el.color} 16%, transparent)` }}
-                        >
-                          {el.label}
-                        </span>
-                      )
-                    })()}
-                    <span className="text-faint">
-                      {isSigned(e) ? `signed ${fmtDate(e.signedAt)}` : `sent to ${e.signerEmail}`}
-                      {e.testMode ? ' · test' : ''}
-                    </span>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                    <span className="text-faint">{isSigned(e) ? `signed ${fmtDate(e.signedAt)}` : `sent to ${e.signerEmail}`}</span>
                     {isSigned(e) ? (
                       <button
                         type="button"
@@ -207,10 +188,13 @@ export function ContractCard({ project }: { project: Project }) {
                         Signed PDF
                       </button>
                     ) : (
-                      <button type="button" disabled={busy} onClick={() => refreshSign(c.id)} className="text-muted hover:text-parchment disabled:opacity-40">
+                      <button type="button" disabled={busy} onClick={() => refreshOne(c.id)} className="text-muted hover:text-parchment disabled:opacity-40">
                         Refresh status
                       </button>
                     )}
+                    <button type="button" disabled={busy} onClick={() => remove(c.id)} className="text-[#e08a6b] hover:brightness-110 disabled:opacity-40">
+                      Remove
+                    </button>
                   </div>
                 )}
               </li>
@@ -221,15 +205,14 @@ export function ContractCard({ project }: { project: Project }) {
 
       {note && <p className="mt-2 text-[11px] leading-relaxed text-muted">{note}</p>}
 
-      <ContractGenerateModal project={genOpen ? project : null} onCancel={() => setGenOpen(false)} onCreated={onCreated} />
       <SignerModal
-        open={signerFor != null}
+        open={sendTarget != null}
         defaultName={project.client}
         defaultEmail={defaultEmail}
         testMode={esignCfg?.testMode ?? true}
         busy={busy}
-        onCancel={() => setSignerFor(null)}
-        onSend={sendSign}
+        onCancel={() => setSendTarget(null)}
+        onSend={send}
       />
     </div>
   )

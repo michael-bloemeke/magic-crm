@@ -65,8 +65,9 @@ import {
   sendForSignature,
   refreshSignature,
   signedContractPdf,
+  sendContractFromTemplate,
 } from './crm-contracts.mjs'
-import { status as esignStatus } from './crm-esign.mjs'
+import { status as esignStatus, listTemplates as esignListTemplates } from './crm-esign.mjs'
 import {
   defaultTemplateHtml,
   FIELD_DEFS as CONTRACT_FIELD_DEFS,
@@ -608,6 +609,31 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/contracts/refresh-signature', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => ({ contract: await refreshSignature(b.projectId, b.id) }))
+      })
+      // Send a contract by summoning a SignWell template (the current approach).
+      server.middlewares.use('/api/contracts/send', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({
+          contract: await sendContractFromTemplate(b.projectId, {
+            templateId: b.templateId,
+            templateLabel: b.templateLabel,
+            signerName: b.signerName,
+            signerEmail: b.signerEmail,
+          }),
+        }))
+      })
+      // The SignWell templates available to send (for the contract picker).
+      server.middlewares.use('/api/contract-templates', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        esignListTemplates()
+          .then((templates) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ templates }))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
       })
       server.middlewares.use('/api/contracts/signed-pdf', (req, res, next) => {
         if (req.method !== 'GET') return next()

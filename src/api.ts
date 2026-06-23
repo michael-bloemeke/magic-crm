@@ -497,14 +497,18 @@ export type EsignInfo = {
 }
 export type ContractVersion = {
   id: string
-  version: number
-  status: ContractStatus
-  includeMedia: boolean
-  format?: string
-  body: string
   createdAt: string
-  sentAt: string
   esign?: EsignInfo
+  // Current (SignWell-template) records:
+  templateId?: string
+  templateLabel?: string
+  // Legacy (in-CRM generated) fields, kept optional for old records:
+  version?: number
+  status?: ContractStatus
+  includeMedia?: boolean
+  format?: string
+  body?: string
+  sentAt?: string
 }
 export type EsignStatus = { configured: boolean; testMode: boolean }
 
@@ -608,6 +612,29 @@ export async function refreshContractSignature(projectId: string, id: string): P
 }
 export function signedContractPdfUrl(projectId: string, id: string): string {
   return `/api/contracts/signed-pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
+}
+export type SignwellTemplate = { id: string; name: string }
+export async function loadContractTemplates(): Promise<SignwellTemplate[]> {
+  const res = await fetch('/api/contract-templates')
+  if (!res.ok) throw new Error(`Failed to load contract templates (${res.status})`)
+  const d = await res.json()
+  return d.templates ?? []
+}
+export async function sendContract(
+  projectId: string,
+  templateId: string,
+  templateLabel: string,
+  signerName: string,
+  signerEmail: string,
+): Promise<ContractVersion> {
+  const res = await fetch('/api/contracts/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, templateId, templateLabel, signerName, signerEmail }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Failed to send contract (${res.status})`)
+  return data.contract as ContractVersion
 }
 
 // --- Default contract template (Settings) ------------------------------------
