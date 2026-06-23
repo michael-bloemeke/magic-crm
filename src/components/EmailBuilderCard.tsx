@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { type Project } from '../pipeline'
 import { sendProjectEmail, type ProjectEmail } from '../api'
+import { unfilledFields } from '../smartFields'
 import { EmailBuilderModal } from './EmailBuilderModal'
 
 // One email slot in a project section (e.g. "Post-call email", "Follow-up #2",
@@ -17,6 +18,7 @@ export function EmailBuilderCard({
   templateHint,
   email,
   onSaved,
+  onDiscard,
   onDelete,
 }: {
   project: Project
@@ -27,6 +29,8 @@ export function EmailBuilderCard({
   templateHint?: RegExp
   email: ProjectEmail | null
   onSaved: (email: ProjectEmail) => void
+  // Permanently delete a saved draft (from inside the editor's "Discard draft").
+  onDiscard?: (id: string) => void
   // Provided only for removable slots (added follow-ups / check-ins). The button
   // shows only while the email is unsent.
   onDelete?: () => void
@@ -40,6 +44,12 @@ export function EmailBuilderCard({
 
   const sendNow = async () => {
     if (!email) return
+    // If the draft still has unfilled placeholders, open the editor so its warning shows rather
+    // than quietly sending bracketed labels.
+    if (email.format === 'html' && unfilledFields(email.body).length > 0) {
+      setOpen(true)
+      return
+    }
     setBusy(true)
     setNote(null)
     try {

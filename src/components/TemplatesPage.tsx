@@ -52,7 +52,7 @@ export function TemplatesPage() {
     }
     setStatus('Saving…')
     try {
-      const saved = await apiSave({ id: selectedId ?? undefined, name: name.trim(), subject, body })
+      const saved = await apiSave({ id: selectedId ?? undefined, name: name.trim(), subject, body, format: 'html' })
       setTemplates((prev) => {
         const list = prev ?? []
         const exists = list.some((t) => t.id === saved.id)
@@ -163,17 +163,20 @@ export function TemplatesPage() {
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-faint">
               Body
             </label>
-            <textarea
-              ref={bodyRef}
+            <RichTextEditor
               value={body}
-              onChange={(e) => {
-                setBody(e.target.value)
+              onChange={(html) => {
+                setBody(html)
                 setStatus(null)
               }}
-              rows={14}
-              placeholder="Write the template. You can tweak it per client when you use it."
-              className="w-full resize-y rounded-lg border border-line bg-surface-2 p-3 text-[13.5px] leading-relaxed text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
+              smartFields={SMART_FIELDS}
+              placeholder="Write the template. Use Insert field to drop in smart fields…"
             />
+            <p className="mt-1.5 text-[11.5px] leading-relaxed text-faint">
+              Use <span className="font-semibold text-brass-bright">Insert field</span> to add a smart field. It shows as a{' '}
+              <span className="merge-field">[highlighted placeholder]</span> here; when you use this template on a project, it
+              fills in from that project automatically.
+            </p>
           </div>
 
           <div className="flex items-center justify-between gap-3">

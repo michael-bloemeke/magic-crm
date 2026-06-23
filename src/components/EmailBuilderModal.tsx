@@ -14,14 +14,9 @@ import {
   type FileItem,
 } from '../api'
 import { RichTextEditor } from './RichTextEditor'
+import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
 
-// Escape plain text and turn newlines into <br> so old text drafts / plain templates render in
-// the rich editor. Used whenever non-HTML content flows into the HTML body.
-function textToHtml(text: string): string {
-  const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string)
-  return esc.replace(/\n/g, '<br>')
-}
-// True if the HTML body has any actual text/content (ignoring empty tags), for send/dirty checks.
+// True if the HTML body has any actual text/content (ignoring empty tags), for send checks.
 function htmlHasContent(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() !== ''
 }
@@ -49,6 +44,7 @@ export function EmailBuilderModal({
   templateHint,
   onClose,
   onSaved,
+  onDiscard,
 }: {
   open: boolean
   project: Project
@@ -60,6 +56,8 @@ export function EmailBuilderModal({
   templateHint?: RegExp
   onClose: () => void
   onSaved: (email: ProjectEmail) => void
+  // Permanently delete this saved draft (parent removes it + calls deleteProjectEmail).
+  onDiscard?: (id: string) => void
 }) {
   const [to, setTo] = useState('')
   const [subject, setSubject] = useState(defaultSubject)
@@ -70,6 +68,9 @@ export function EmailBuilderModal({
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  // Set once the user has been warned that the email still has unfilled placeholders, so a
+  // second Send click goes through.
+  const [confirmUnfilled, setConfirmUnfilled] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
   // without saving or sending), they were never persisted to an email record, so we delete
@@ -83,8 +84,13 @@ export function EmailBuilderModal({
     if (!open) return
     setTo((existing?.to?.length ? existing.to : recipientEmails).join(', '))
     setSubject(existing?.subject || defaultSubject)
-    // Drafts are HTML now; an old text draft is converted so it renders in the rich editor.
-    setBody(existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : '')
+    // Drafts are HTML now; an old text draft is converted so it renders in the rich editor. Any
+    // placeholders whose project value is now available fill in on open.
+    {
+      const raw = existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : ''
+      setBody(resolveMergeFields(raw, project))
+    }
+    setConfirmUnfilled(false)
     setAttachments(existing?.attachments ?? [])
     sessionUploads.current = new Set()
     setAttachMenuOpen(false)
@@ -98,7 +104,7 @@ export function EmailBuilderModal({
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
   const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
 
-  const persist = async (): Promise<ProjectEmail | null> => {
+  const persist = async (bodyToSave: string = body): Promise<ProjectEmail | null> => {
     try {
       const saved = await saveProjectEmail({
         id: existing?.id,
@@ -106,7 +112,7 @@ export function EmailBuilderModal({
         kind,
         to: toList(),
         subject: subject.trim() || defaultSubject || '(no subject)',
-        body,
+        body: bodyToSave,
         format: 'html',
         attachments,
       })
@@ -123,6 +129,17 @@ export function EmailBuilderModal({
     const saved = await persist()
     setBusy(false)
     if (saved) onClose()
+  }
+
+  // Permanently delete a saved draft (distinct from Cancel, which just keeps it as-is).
+  const discard = () => {
+    if (busy || !existing) return
+    if (!window.confirm('Discard this draft? This permanently deletes it.')) return
+    // Drop any attachments uploaded this session that were never saved into the record.
+    for (const id of sessionUploads.current) deleteEmailAttachment(id).catch(() => {})
+    sessionUploads.current = new Set()
+    onDiscard?.(existing.id)
+    onClose()
   }
 
   // Closing DISCARDS unsaved changes — saving is explicit now (the "Save draft" button), so a
@@ -151,9 +168,21 @@ export function EmailBuilderModal({
   }, [open])
 
   const send = async () => {
+    // Fill any placeholders the project can now resolve; warn (once) about any that remain so a
+    // raw "[Client name]" doesn't go out unnoticed. The stored/sent body has chip markup stripped.
+    const resolved = resolveMergeFields(body, project)
+    const remaining = unfilledFields(resolved)
+    if (remaining.length > 0 && !confirmUnfilled) {
+      setStatus(`Couldn't fill these from the project: ${remaining.join(', ')}. Edit them out, or click Send again to send as-is.`)
+      setConfirmUnfilled(true)
+      return
+    }
     setBusy(true)
     setStatus('Sending…')
-    const saved = await persist()
+    // Persist the resolved body WITH any unfilled chips intact; the server strips chips from the
+    // outgoing email and only rewrites the stored body once the send actually succeeds. So a
+    // demo/failed send never destroys the draft's placeholders.
+    const saved = await persist(resolved)
     if (!saved) {
       setBusy(false)
       return
@@ -178,7 +207,9 @@ export function EmailBuilderModal({
     const t = templates.find((x) => x.id === id)
     if (!t) return
     if (t.subject) setSubject(t.subject)
-    setBody(textToHtml(t.body))
+    const html = t.format === 'html' ? t.body : textToHtml(t.body)
+    setBody(resolveMergeFields(html, project))
+    setConfirmUnfilled(false)
     setStatus(`Inserted "${t.name}".`)
   }
 
@@ -192,7 +223,9 @@ export function EmailBuilderModal({
       return
     }
     if (t.subject) setSubject(t.subject)
-    setBody(textToHtml(t.body))
+    const html = t.format === 'html' ? t.body : textToHtml(t.body)
+    setBody(resolveMergeFields(html, project))
+    setConfirmUnfilled(false)
     setStatus(`Drafted from "${t.name}". Live Claude drafting is coming soon.`)
   }
 
@@ -458,7 +491,16 @@ export function EmailBuilderModal({
 
               <div className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
-                <RichTextEditor value={body} onChange={setBody} placeholder="Write a message, pick a template, or hit Generate…" />
+                <RichTextEditor
+                  value={body}
+                  onChange={(html) => {
+                    setBody(html)
+                    setConfirmUnfilled(false)
+                  }}
+                  smartFields={SMART_FIELDS}
+                  resolveField={(key) => resolveSmartField(key, project)}
+                  placeholder="Write a message, pick a template, or hit Generate…"
+                />
               </div>
 
               {/* Attachments: pick from the Files page, or upload a one-off. */}
@@ -542,7 +584,19 @@ export function EmailBuilderModal({
             </div>
 
             <div className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">
-              <span className="text-[11.5px] text-muted">{status}</span>
+              <div className="flex min-w-0 items-center gap-3">
+                {existing && (
+                  <button
+                    type="button"
+                    onClick={discard}
+                    disabled={busy}
+                    className="shrink-0 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-[#e08a6b] transition-colors hover:brightness-110 disabled:opacity-40"
+                  >
+                    Discard draft
+                  </button>
+                )}
+                <span className="truncate text-[11.5px] text-muted">{status}</span>
+              </div>
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
@@ -566,7 +620,7 @@ export function EmailBuilderModal({
                   disabled={!canSend}
                   className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
                 >
-                  {busy ? 'Working…' : 'Send'}
+                  {busy ? 'Working…' : confirmUnfilled ? 'Send anyway' : 'Send'}
                 </button>
               </div>
             </div>

@@ -9,8 +9,20 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { RECORDS_DIR, appendActivityLog } from './crm-data-core.mjs'
 import { sendEmail } from './crm-comms.mjs'
-import { readAttachment } from './crm-email-attachments.mjs'
+import { readAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
+
+// Strip smart-field placeholder chips down to their plain text, server-side. This is the
+// last line of defense so a styled <span class="merge-field">[Label]</span> can NEVER ship to
+// a client, no matter which front-end path triggered the send (modal Send, the card's Send
+// button, or a future caller). Filled fields are already plain text by send time; only unset
+// placeholders remain, and they go out as the bare bracketed label.
+function stripMergeFields(html) {
+  return String(html || '').replace(
+    /<span\b[^>]*\bclass="[^"]*\bmerge-field\b[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+    (_, inner) => inner,
+  )
+}
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
 
@@ -160,6 +172,13 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body, forma
 
 export function deleteProjectEmail(id) {
   const data = readEmailsFile()
+  const e = data.emails.find((x) => x.id === id)
+  // Clean up any one-off uploaded attachments this email owned, so they don't orphan on disk.
+  if (e) {
+    for (const a of normalizeAttachments(e.attachments)) {
+      if (a.source === 'upload' && a.id) deleteAttachment(a.id)
+    }
+  }
   data.emails = data.emails.filter((x) => x.id !== id)
   writeEmailsFile(data)
   return { ok: true }
@@ -180,21 +199,28 @@ export async function sendProjectEmail({ id } = {}) {
   const to = normalizeTo(e.to)
   if (to.length === 0) throw new Error('add at least one recipient before sending')
 
+  // The body that goes OUT has its placeholder chips stripped to plain text; the stored draft
+  // keeps its chips until the send actually succeeds (so a demo/failed send loses nothing).
+  const isHtml = e.format === 'html'
+  const outgoingBody = isHtml ? stripMergeFields(e.body || '') : e.body || ''
   const r = await sendEmail({
     projectId: e.projectId,
     to: to.join(', '),
     subject: e.subject || 'Thank you!',
-    body: e.body || '',
-    format: e.format === 'html' ? 'html' : 'text',
+    body: outgoingBody,
+    format: isHtml ? 'html' : 'text',
     attachments: resolveAttachments(e.attachments),
     mode: 'send',
   })
 
   if (r && r.demo) {
+    // Nothing was actually sent; leave the draft (and its chips) exactly as they were.
     return { ok: true, demo: true, email: clean(e) }
   }
 
   const now = new Date().toISOString()
+  // Record what actually went out (chips stripped), so the sent receipt matches the email.
+  e.body = outgoingBody
   e.status = 'sent'
   e.sentAt = now
   e.updatedAt = now
