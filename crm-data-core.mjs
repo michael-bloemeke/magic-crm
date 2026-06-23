@@ -1034,7 +1034,7 @@ function templatesMeta() {
     purpose:
       'CRM-owned reusable email templates. Michael defines these in the Templates page and can drop them into the reply composer in Communications.',
     cowork_guidance: 'Safe to read. The CRM manages this file.',
-    template_shape: 'id, name, subject, body, updatedAt (ISO)',
+    template_shape: "id, name, subject, body, format ('html' rich body that may contain smart-field placeholder chips, or 'text'; absent = treat as text), updatedAt (ISO)",
   }
 }
 

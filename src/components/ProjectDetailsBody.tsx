@@ -97,6 +97,11 @@ export function ProjectDetailsBody({
 
   const emailFor = (kind: string) => emails.find((e) => e.kind === kind) ?? null
   const upsertEmail = (e: ProjectEmail) => setEmails((prev) => [...prev.filter((x) => x.id !== e.id), e])
+  // Discard a saved draft: drop it locally and delete it (which also cleans up its uploads).
+  const discardEmail = (id: string) => {
+    setEmails((prev) => prev.filter((x) => x.id !== id))
+    deleteProjectEmail(id).catch(() => {})
+  }
 
   const addSlot = (setSlots: React.Dispatch<React.SetStateAction<number[]>>) =>
     setSlots((s) => [...s, (s.length ? Math.max(...s) : 0) + 1])
@@ -173,25 +178,25 @@ export function ProjectDetailsBody({
       <DetailSection title="Post Call">
         <div className={cardGrid}>
           <EmailBuilderCard
-            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail}
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
             kind="postcall" title="Post-call email" defaultSubject="Magician Information - Please Reply"
             templateHint={/post-call/i} email={emailFor('postcall')}
           />
           {followupSlots.map((n, i) => (
             <EmailBuilderCard
               key={`followup-${n}`}
-              project={project} recipientEmails={recipientEmails} onSaved={upsertEmail}
+              project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
               kind={`followup-${n}`} title={`Follow-up #${i + 1}`} defaultSubject="Checking In"
               templateHint={/follow-up/i} email={emailFor(`followup-${n}`)}
               onDelete={followupSlots.length > 1 ? () => removeSlot('followup', n, setFollowupSlots) : undefined}
             />
           ))}
           <EmailBuilderCard
-            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail}
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
             kind="shark" title="Shark email" defaultSubject="Checking In" email={emailFor('shark')}
           />
           <EmailBuilderCard
-            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail}
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
             kind="breakup" title="Break-up email" defaultSubject="Following Up" email={emailFor('breakup')}
           />
         </div>
@@ -218,7 +223,7 @@ export function ProjectDetailsBody({
           {checkinSlots.map((n, i) => (
             <EmailBuilderCard
               key={`checkin-${n}`}
-              project={project} recipientEmails={recipientEmails} onSaved={upsertEmail}
+              project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
               kind={`checkin-${n}`} title={`Check-in #${i + 1}`} defaultSubject="Checking In"
               templateHint={/check-in/i} email={emailFor(`checkin-${n}`)}
               onDelete={checkinSlots.length > 1 ? () => removeSlot('checkin', n, setCheckinSlots) : undefined}
@@ -252,7 +257,7 @@ export function ProjectDetailsBody({
             <EditableField label="Mileage (round-trip mi)" value={project.mileage == null ? '' : String(project.mileage)} onSave={save('mileage')} format={evalNumberFormula} />
           </div>
           <EmailBuilderCard
-            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail}
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
             kind="thankyou" title="Thank-you email" defaultSubject="Thank you!"
             templateHint={/thank/i} email={emailFor('thankyou')}
           />

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 // A lightweight rich-text editor: a contentEditable surface plus a small Gmail-style toolbar
 // (bold, italic, underline, bullet/numbered lists, link). Emits HTML via onChange. No editor
@@ -30,6 +31,17 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string)
 }
 
+// Normalize a user-entered URL: keep http(s)/mailto/tel as-is, reject other schemes
+// (javascript:, data:, …), and prepend https:// to a bare host so "example.com" opens the real
+// site instead of navigating relative to the app origin. Returns null for empty/rejected input.
+function normalizeUrl(raw: string): string | null {
+  const s = (raw || '').trim()
+  if (!s) return null
+  if (/^(https?:|mailto:|tel:)/i.test(s)) return s
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return null
+  return 'https://' + s
+}
+
 export function RichTextEditor({
   value,
   onChange,
@@ -50,6 +62,10 @@ export function RichTextEditor({
   const ref = useRef<HTMLDivElement>(null)
   const [empty, setEmpty] = useState(true)
   const [fieldMenuOpen, setFieldMenuOpen] = useState(false)
+  // Screen coords for the (portaled) Insert-field menu, so it can't be clipped by the editor's
+  // or the modal's overflow.
+  const [fieldMenuPos, setFieldMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const fieldBtnRef = useRef<HTMLButtonElement>(null)
   // The link the caret currently sits in (drives the Open / Edit / Remove bar).
   const [linkBar, setLinkBar] = useState<{ href: string } | null>(null)
   const activeAnchor = useRef<HTMLAnchorElement | null>(null)
@@ -63,16 +79,23 @@ export function RichTextEditor({
     setEmpty(!el.textContent?.trim())
   }, [value])
 
-  // The <a> ancestor of the current selection, if it's inside this editor; else null.
+  // The <a> ancestor of the current selection, if it's inside this editor; else null. Checks the
+  // range's common ancestor and both endpoints so it works regardless of selection direction or a
+  // selection that straddles a link boundary, not just the drag-start (anchor) node.
   const anchorAtSelection = (): HTMLAnchorElement | null => {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return null
-    let node: Node | null = sel.anchorNode
     const root = ref.current
-    if (!node || !root || !root.contains(node)) return null
-    while (node && node !== root) {
-      if (node instanceof HTMLAnchorElement) return node
-      node = node.parentNode
+    if (!root) return null
+    const range = sel.getRangeAt(0)
+    const candidates = [range.commonAncestorContainer, sel.anchorNode, sel.focusNode, range.startContainer, range.endContainer]
+    for (const start of candidates) {
+      let node: Node | null = start
+      if (!node || !root.contains(node)) continue
+      while (node && node !== root) {
+        if (node instanceof HTMLAnchorElement) return node
+        node = node.parentNode
+      }
     }
     return null
   }
@@ -101,9 +124,8 @@ export function RichTextEditor({
     emit()
   }
   const addLink = () => {
-    const url = window.prompt('Link URL (include https://)')
-    if (!url) return
-    const u = url.trim()
+    const u = normalizeUrl(window.prompt('Link URL (include https://)') || '')
+    if (!u) return
     ref.current?.focus()
     const sel = window.getSelection()
     if (sel && sel.isCollapsed) {
@@ -136,16 +158,17 @@ export function RichTextEditor({
 
   const openLink = () => {
     const a = activeAnchor.current
-    const href = a?.getAttribute('href') || linkBar?.href
+    if (!a) return
+    const href = a.getAttribute('href')
     if (href) window.open(href, '_blank', 'noopener,noreferrer')
   }
   const editLink = () => {
     const a = activeAnchor.current
     if (!a) return
-    const next = window.prompt('Link URL (include https://)', a.getAttribute('href') || '')
-    if (next == null) return
-    a.setAttribute('href', next.trim())
-    setLinkBar({ href: next.trim() })
+    const u = normalizeUrl(window.prompt('Link URL (include https://)', a.getAttribute('href') || '') || '')
+    if (!u) return
+    a.setAttribute('href', u)
+    setLinkBar({ href: u })
     emit()
   }
   const removeLink = () => {
@@ -188,12 +211,21 @@ export function RichTextEditor({
         </button>
 
         {smartFields && smartFields.length > 0 && (
-          <div className="relative ml-auto">
+          <div className="ml-auto">
             <button
+              ref={fieldBtnRef}
               type="button"
               title="Insert a smart field that fills from the project"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setFieldMenuOpen((o) => !o)}
+              onClick={() => {
+                if (fieldMenuOpen) {
+                  setFieldMenuOpen(false)
+                  return
+                }
+                const r = fieldBtnRef.current?.getBoundingClientRect()
+                if (r) setFieldMenuPos({ top: r.bottom + 4, left: Math.min(Math.max(8, r.right - 224), window.innerWidth - 232) })
+                setFieldMenuOpen(true)
+              }}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:bg-surface-3"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -204,24 +236,30 @@ export function RichTextEditor({
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </button>
-            {fieldMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-20" onClick={() => setFieldMenuOpen(false)} aria-hidden />
-                <div className="absolute right-0 top-[calc(100%+4px)] z-30 max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-2 py-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
-                  {smartFields.map((f) => (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => insertField(f.key, f.label)}
-                      className="block w-full px-3 py-1.5 text-left text-[12px] text-parchment hover:bg-surface-3"
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            {fieldMenuOpen &&
+              fieldMenuPos &&
+              createPortal(
+                <>
+                  <div className="fixed inset-0 z-[80]" onClick={() => setFieldMenuOpen(false)} aria-hidden />
+                  <div
+                    className="fixed z-[81] max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-2 py-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]"
+                    style={{ top: fieldMenuPos.top, left: fieldMenuPos.left }}
+                  >
+                    {smartFields.map((f) => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => insertField(f.key, f.label)}
+                        className="block w-full px-3 py-1.5 text-left text-[12px] text-parchment hover:bg-surface-3"
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </>,
+                document.body,
+              )}
           </div>
         )}
       </div>

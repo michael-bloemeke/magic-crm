@@ -129,6 +129,7 @@ export function EmailBuilderCard({
         templateHint={templateHint}
         onClose={() => setOpen(false)}
         onSaved={onSaved}
+        onDiscard={onDiscard}
       />
     </div>
   )
