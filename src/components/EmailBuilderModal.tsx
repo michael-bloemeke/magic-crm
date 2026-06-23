@@ -173,7 +173,7 @@ export function EmailBuilderModal({
     const resolved = resolveMergeFields(body, project)
     const remaining = unfilledFields(resolved)
     if (remaining.length > 0 && !confirmUnfilled) {
-      setStatus(`Couldn't fill these from the project: ${remaining.join(', ')}. Edit them out, or click Send again to send as-is.`)
+      setStatus(`These placeholders still need filling: ${remaining.join(', ')}. Fill them in, or click Send again to send as-is.`)
       setConfirmUnfilled(true)
       return
     }

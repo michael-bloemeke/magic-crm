@@ -222,3 +222,13 @@
   padding: 0 4px;
   white-space: nowrap;
 }
+/* "Write-in" note placeholder (you/AI write this; never autofills). Visually distinct from the
+   yellow data chips: cool blue, dashed underline, italic — reads as "fill this in," not data. */
+.merge-field[data-note] {
+  background: #cfe0ff;
+  color: #1e3a66;
+  font-weight: 600;
+  font-style: italic;
+  text-decoration: underline dashed;
+  white-space: normal;
+}

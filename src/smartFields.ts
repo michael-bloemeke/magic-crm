@@ -100,23 +100,25 @@ export function resolveMergeFields(html: string, project: Project): string {
   return doc.body.innerHTML
 }
 
-// Labels of the placeholders still unfilled in the HTML (deduped) — for the pre-send warning.
+// Labels of ALL placeholders still unfilled in the HTML (deduped) — for the pre-send warning.
+// Covers both kinds: a data field whose project value is unset, and a write-in note. The label
+// is the chip's own bracketed text (so notes read as their instruction).
 export function unfilledFields(html: string): string[] {
   if (!html || html.indexOf('merge-field') === -1) return []
   const doc = parseBody(html)
   const labels: string[] = []
-  doc.querySelectorAll('span.merge-field[data-field]').forEach((el) => {
-    labels.push(smartFieldLabel(el.getAttribute('data-field') || ''))
+  doc.querySelectorAll('span.merge-field').forEach((el) => {
+    labels.push((el.textContent || '').replace(/^\s*\[|\]\s*$/g, '').trim())
   })
-  return [...new Set(labels)]
+  return [...new Set(labels.filter(Boolean))]
 }
 
-// For sending: drop the chip markup, leaving the bracketed label as plain text, so no styled
-// placeholder span ever goes out. (Filled fields are already plain text by this point.)
+// For sending: drop ALL chip markup (data + note), leaving the bracketed label as plain text, so
+// no styled placeholder span ever goes out. (Filled fields are already plain text by this point.)
 export function stripForSend(html: string): string {
   if (!html || html.indexOf('merge-field') === -1) return html
   const doc = parseBody(html)
-  doc.querySelectorAll('span.merge-field[data-field]').forEach((el) => {
+  doc.querySelectorAll('span.merge-field').forEach((el) => {
     el.replaceWith(doc.createTextNode(el.textContent || ''))
   })
   return doc.body.innerHTML

@@ -156,6 +156,21 @@ export function RichTextEditor({
     emit()
   }
 
+  // Insert a "write-in" note placeholder: a visible reminder of what to write here. Never
+  // autofills; flagged before sending; stripped from the actual email.
+  const insertNote = () => {
+    setFieldMenuOpen(false)
+    const text = window.prompt('What goes here? A short note to yourself (it stays highlighted until you fill it in).')
+    if (!text || !text.trim()) return
+    ref.current?.focus()
+    document.execCommand(
+      'insertHTML',
+      false,
+      `<span class="merge-field" data-note="true" contenteditable="false">[${escapeHtml(text.trim())}]</span>&nbsp;`,
+    )
+    emit()
+  }
+
   const openLink = () => {
     const a = activeAnchor.current
     if (!a) return
@@ -256,6 +271,15 @@ export function RichTextEditor({
                         {f.label}
                       </button>
                     ))}
+                    <div className="my-1 border-t border-line" />
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={insertNote}
+                      className="block w-full px-3 py-1.5 text-left text-[12px] italic text-[#7aa2e3] hover:bg-surface-3"
+                    >
+                      Write-in note…
+                    </button>
                   </div>
                 </>,
                 document.body,
