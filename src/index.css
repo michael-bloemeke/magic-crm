@@ -186,8 +186,12 @@
   scrollbar-color: rgba(201, 169, 97, 0.3) transparent;
 }
 
-/* Rich-text email editor: restore list markers + link styling that Tailwind's reset strips,
-   scoped to the contentEditable surface so it doesn't affect the rest of the app. */
+/* Rich-text email editor + read-only receipt (both carry .email-rte): restore list markers +
+   link styling that Tailwind's reset strips, and break long unbroken tokens (e.g. a pasted URL)
+   so they can't overflow the surface horizontally. Scoped by class, applies to both surfaces. */
+.email-rte {
+  overflow-wrap: anywhere;
+}
 .email-rte ul {
   list-style: disc;
   padding-left: 1.5rem;

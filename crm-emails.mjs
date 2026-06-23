@@ -111,8 +111,9 @@ export function loadEmails(projectId) {
 }
 
 // Upsert a draft. With an id, update it; otherwise create a new one. Saving always
-// leaves the record as a draft (sending is a separate call). A previously sent email
-// edited and re-saved drops back to draft so it can be re-sent intentionally.
+// leaves the record as a draft (sending is a separate call). A previously sent email is a
+// permanent record: it is returned unchanged (any save is a no-op), never edited or reverted
+// to a draft.
 export function saveProjectEmail({ id, projectId, kind, to, subject, body, format, attachments } = {}) {
   if (!projectId && !id) throw new Error('projectId is required')
   const data = readEmailsFile()
@@ -171,6 +172,11 @@ export async function sendProjectEmail({ id } = {}) {
   const data = readEmailsFile()
   const e = data.emails.find((x) => x.id === id)
   if (!e) throw new Error('email not found')
+  // Already sent? No-op. A sent email is a permanent record; never re-send or re-stamp it.
+  // Guards against a double-click race or a stray duplicate POST (the UI never reaches here
+  // twice, but the data layer enforces it regardless). Safe for the normal flow: the first
+  // send saves the record as a draft, then flips it to sent below, so this never fires then.
+  if (e.status === 'sent') return { ok: true, demo: false, email: clean(e) }
   const to = normalizeTo(e.to)
   if (to.length === 0) throw new Error('add at least one recipient before sending')
 

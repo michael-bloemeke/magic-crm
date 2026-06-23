@@ -297,16 +297,24 @@ export function EmailBuilderModal({
                 </div>
                 <div>
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
-                  <div
-                    className="email-rte rounded-lg border border-line bg-surface-2 px-3 py-3 text-[13px] leading-relaxed text-parchment"
-                    dangerouslySetInnerHTML={{ __html: initialBody }}
-                  />
+                  {existing.format === 'html' ? (
+                    <div
+                      className="email-rte rounded-lg border border-line bg-surface-2 px-3 py-3 text-[13px] leading-relaxed text-parchment"
+                      dangerouslySetInnerHTML={{ __html: existing.body }}
+                    />
+                  ) : (
+                    // A legacy email sent as plain text: show it verbatim (whitespace preserved)
+                    // rather than HTML-converted, so the receipt matches what actually went out.
+                    <div className="rounded-lg border border-line bg-surface-2 px-3 py-3 text-[13px] leading-relaxed text-parchment whitespace-pre-wrap break-words">
+                      {existing.body}
+                    </div>
+                  )}
                 </div>
-                {attachments.length > 0 && (
+                {existing.attachments.length > 0 && (
                   <div>
                     <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Attachments</span>
                     <ul className="flex flex-wrap gap-1.5">
-                      {attachments.map((a) => (
+                      {existing.attachments.map((a) => (
                         <li
                           key={attachKey(a)}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-[11.5px] text-parchment"
