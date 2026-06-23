@@ -12,6 +12,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
+import { questionnaireForBundle } from './crm-questionnaire.mjs'
 
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
 
@@ -143,6 +144,9 @@ export function buildBundle(projectId) {
     message: String(settings.message || ''),
     fields,
     links: settings.links && typeof settings.links === 'object' ? settings.links : {},
+    // Optional client questionnaire (just the questions + intro; never any answers). Null
+    // when Michael hasn't turned it on for this project.
+    questionnaire: questionnaireForBundle(projectId),
     expiresAt: settings.expiresAt || null,
     publishedAt: settings.lastPublishedAt || null,
   }

@@ -1,0 +1,10 @@
+{
+  "name": "magic-crm-portal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Static client portal + questionnaire submit function, deployed to Vercel.",
+  "dependencies": {
+    "@vercel/blob": "^0.27.3"
+  }
+}

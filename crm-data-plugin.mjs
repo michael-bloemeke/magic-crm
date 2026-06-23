@@ -37,6 +37,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead } from './crm-c
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import {
   loadPortals,
+  loadPortal,
   savePortal,
   unpublishPortal,
   buildBundle,
@@ -45,6 +46,7 @@ import {
   SHAREABLE_FIELDS,
   PORTAL_BASE_URL,
 } from './crm-portal.mjs'
+import { loadQuestionnaire, setQuestionnaire, pullResponse, isBlobConfigured } from './crm-questionnaire.mjs'
 import {
   status as qbStatus,
   authUrl as qbAuthUrl,
