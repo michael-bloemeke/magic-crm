@@ -1057,7 +1057,7 @@ export function loadTemplates() {
   return readTemplatesFile().templates
 }
 
-export function saveTemplate({ id, name, subject, body }) {
+export function saveTemplate({ id, name, subject, body, format }) {
   const data = readTemplatesFile()
   const now = new Date().toISOString()
   if (id) {
@@ -1066,6 +1066,7 @@ export function saveTemplate({ id, name, subject, body }) {
     t.name = String(name ?? t.name)
     t.subject = String(subject ?? t.subject)
     t.body = String(body ?? t.body)
+    if (format != null) t.format = format === 'html' ? 'html' : 'text'
     t.updatedAt = now
     writeTemplatesFile(data)
     return t
@@ -1075,6 +1076,7 @@ export function saveTemplate({ id, name, subject, body }) {
     name: String(name || 'Untitled template'),
     subject: String(subject || ''),
     body: String(body || ''),
+    format: format === 'html' ? 'html' : 'text',
     updatedAt: now,
   }
   data.templates.push(t)

@@ -71,6 +71,10 @@ export function EmailBuilderModal({
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
+  // without saving or sending), they were never persisted to an email record, so we delete
+  // them from the server to avoid orphaned files. Saving/sending references them instead.
+  const sessionUploads = useRef<Set<string>>(new Set())
   // A sent email is locked: the dialog becomes a read-only receipt of what went out. No
   // editing, no template/attach, no save, no re-send. "Once it's sent, it's sent."
   const readOnly = existing?.status === 'sent'
@@ -82,6 +86,7 @@ export function EmailBuilderModal({
     // Drafts are HTML now; an old text draft is converted so it renders in the rich editor.
     setBody(existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : '')
     setAttachments(existing?.attachments ?? [])
+    sessionUploads.current = new Set()
     setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
     loadTemplates()
@@ -92,12 +97,6 @@ export function EmailBuilderModal({
 
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
   const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
-  const initialBody = existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : ''
-  const dirty =
-    body !== initialBody ||
-    subject !== (existing?.subject || defaultSubject) ||
-    toList().join(',') !== (existing?.to || []).join(',') ||
-    attachments.map(attachKey).join(',') !== (existing?.attachments ?? []).map(attachKey).join(',')
 
   const persist = async (): Promise<ProjectEmail | null> => {
     try {
@@ -126,16 +125,17 @@ export function EmailBuilderModal({
     if (saved) onClose()
   }
 
-  // Closing keeps the work: save a draft if there's content and it changed.
-  const handleClose = async () => {
+  // Closing DISCARDS unsaved changes — saving is explicit now (the "Save draft" button), so a
+  // block never silently accumulates a draft just because the dialog was opened and closed. Any
+  // one-off attachments uploaded this session but never saved/sent are cleaned up so they don't
+  // orphan on the server. (Save draft / Send call onClose directly and keep their uploads.)
+  const handleClose = () => {
     if (busy) return
-    // A sent email is never re-saved on close (that's what used to flip it back to "draft").
-    if (readOnly) {
-      onClose()
-      return
+    if (!readOnly && sessionUploads.current.size > 0) {
+      for (const id of sessionUploads.current) deleteEmailAttachment(id).catch(() => {})
+      sessionUploads.current = new Set()
     }
-    if (dirty && (htmlHasContent(body) || attachments.length > 0)) await saveAndClose()
-    else onClose()
+    onClose()
   }
   const closeRef = useRef(handleClose)
   useEffect(() => {
@@ -223,6 +223,7 @@ export function EmailBuilderModal({
       setStatus(`Uploading ${file.name}…`)
       try {
         const att = await uploadEmailAttachment(file)
+        if (att.id) sessionUploads.current.add(att.id)
         setAttachments((prev) => [...prev, att])
         setStatus(null)
       } catch (err) {
@@ -232,7 +233,10 @@ export function EmailBuilderModal({
   }
   const removeAttachment = (a: EmailAttachment) => {
     setAttachments((prev) => prev.filter((x) => attachKey(x) !== attachKey(a)))
-    if (a.source === 'upload' && a.id) deleteEmailAttachment(a.id).catch(() => {})
+    if (a.source === 'upload' && a.id) {
+      sessionUploads.current.delete(a.id)
+      deleteEmailAttachment(a.id).catch(() => {})
+    }
   }
 
   const canSend = toList().length > 0 && (htmlHasContent(body) || attachments.length > 0) && !busy
@@ -540,6 +544,14 @@ export function EmailBuilderModal({
             <div className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">
               <span className="text-[11.5px] text-muted">{status}</span>
               <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={busy}
+                  className="rounded-lg px-3 py-2 text-[12.5px] font-medium text-faint transition-colors hover:text-parchment disabled:opacity-40"
+                >
+                  Cancel
+                </button>
                 <button
                   type="button"
                   onClick={saveAndClose}

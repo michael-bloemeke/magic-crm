@@ -281,6 +281,9 @@ export type Template = {
   name: string
   subject: string
   body: string
+  // 'html' = the body is rich HTML (may contain smart-field placeholder chips); 'text' = a
+  // legacy plain-text template. Absent is treated as 'text'.
+  format?: 'html' | 'text'
   updatedAt: string
 }
 
@@ -296,6 +299,7 @@ export async function saveTemplate(input: {
   name: string
   subject: string
   body: string
+  format?: 'html' | 'text'
 }): Promise<Template> {
   const res = await fetch('/api/templates/save', {
     method: 'POST',

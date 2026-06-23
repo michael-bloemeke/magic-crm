@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   deleteTemplate as apiDelete,
@@ -6,6 +6,8 @@ import {
   saveTemplate as apiSave,
   type Template,
 } from '../api'
+import { RichTextEditor } from './RichTextEditor'
+import { SMART_FIELDS, textToHtml } from '../smartFields'
 
 // Define reusable email templates. They can later be dropped into the reply
 // composer in a project's Communications tab.
@@ -17,7 +19,6 @@ export function TemplatesPage() {
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [status, setStatus] = useState<string | null>(null)
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     loadTemplates()
@@ -31,7 +32,8 @@ export function TemplatesPage() {
     setSelectedId(t.id)
     setName(t.name)
     setSubject(t.subject)
-    setBody(t.body)
+    // Legacy text templates are converted so they render in the rich editor; new ones are HTML.
+    setBody(t.format === 'html' ? t.body : textToHtml(t.body))
     setStatus(null)
   }
 
@@ -41,7 +43,6 @@ export function TemplatesPage() {
     setSubject('')
     setBody('')
     setStatus(null)
-    setTimeout(() => bodyRef.current?.focus(), 0)
   }
 
   const save = async () => {

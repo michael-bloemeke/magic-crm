@@ -209,3 +209,16 @@
 .email-rte:empty::before {
   content: '';
 }
+
+/* Smart-field placeholder chip (unfilled merge field). Made deliberately loud — bold,
+   underlined, yellow highlight — so an unfilled placeholder is impossible to miss before
+   sending. Atomic in the editor via contenteditable="false". */
+.merge-field {
+  background: #fde68a;
+  color: #3a2f12;
+  font-weight: 700;
+  text-decoration: underline;
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
