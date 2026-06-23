@@ -311,6 +311,14 @@ export async function deleteTemplate(id: string): Promise<void> {
 }
 
 // --- Composed per-project emails (thank-you, etc.) ---------------------------
+// An attachment is either a document picked from the Files page (source 'files', referenced
+// by name) or a one-off uploaded while composing (source 'upload', referenced by id).
+export type EmailAttachment = {
+  source: 'files' | 'upload'
+  name: string
+  id?: string
+  size?: number
+}
 export type ProjectEmail = {
   id: string
   projectId: string
@@ -318,6 +326,8 @@ export type ProjectEmail = {
   to: string[]
   subject: string
   body: string
+  format: 'html' | 'text'
+  attachments: EmailAttachment[]
   status: 'draft' | 'sent'
   createdAt: string
   updatedAt: string
@@ -337,6 +347,8 @@ export async function saveProjectEmail(input: {
   to: string[]
   subject: string
   body: string
+  format?: 'html' | 'text'
+  attachments?: EmailAttachment[]
 }): Promise<ProjectEmail> {
   const res = await fetch('/api/emails/save', {
     method: 'POST',
@@ -345,6 +357,21 @@ export async function saveProjectEmail(input: {
   })
   if (!res.ok) throw new Error(`Failed to save email (${res.status})`)
   return (await res.json()).email as ProjectEmail
+}
+
+// Upload a one-off attachment (kept out of the Files page). Returns its stored ref.
+export async function uploadEmailAttachment(file: File): Promise<EmailAttachment> {
+  const res = await fetch(`/api/email-attachments/upload?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || `Failed to upload attachment (${res.status})`)
+  return { source: 'upload', ...(data.attachment as { id: string; name: string; size: number }) }
+}
+export async function deleteEmailAttachment(id: string): Promise<void> {
+  await postJson('/api/email-attachments/delete', { id })
 }
 
 export async function sendProjectEmail(id: string): Promise<{ ok: boolean; demo: boolean; email: ProjectEmail }> {

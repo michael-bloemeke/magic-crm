@@ -79,6 +79,7 @@ import {
 } from './crm-contract-template.mjs'
 import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
+import { saveAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
 import {
   loadLinks,
@@ -111,6 +112,9 @@ import {
 
 // Read a JSON request body, then run a handler (sync or async) that returns a
 // response object.
+// Gmail rejects messages over ~25 MB (attachments are base64-inflated), so cap uploads there.
+const MAX_EMAIL_ATTACHMENT = 25 * 1024 * 1024
+
 function withbody(req, res, handler) {
   let body = ''
   req.on('data', (c) => (body += c))
@@ -446,6 +450,46 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/emails/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, (b) => deleteProjectEmail(b.id))
+      })
+      // One-off email attachment uploads (kept out of the Files page). Raw body = file bytes.
+      server.middlewares.use('/api/email-attachments/upload', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        const name = url.searchParams.get('name') || 'attachment.bin'
+        const chunks = []
+        let size = 0
+        let aborted = false
+        req.on('data', (c) => {
+          size += c.length
+          if (size > MAX_EMAIL_ATTACHMENT) {
+            aborted = true
+            res.statusCode = 413
+            res.end(JSON.stringify({ error: 'Attachment too large (25 MB max)' }))
+            req.destroy()
+            return
+          }
+          chunks.push(c)
+        })
+        req.on('error', () => {
+          if (!aborted) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: 'Upload failed' }))
+          }
+        })
+        req.on('end', () => {
+          if (aborted) return
+          try {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ attachment: saveAttachment(name, Buffer.concat(chunks)) }))
+          } catch (e) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          }
+        })
+      })
+      server.middlewares.use('/api/email-attachments/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => deleteAttachment(b.id))
       })
       server.middlewares.use('/api/emails', (req, res, next) => {
         if (req.method !== 'GET') return next()

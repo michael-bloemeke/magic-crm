@@ -9,6 +9,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { RECORDS_DIR, appendActivityLog } from './crm-data-core.mjs'
 import { sendEmail } from './crm-comms.mjs'
+import { readAttachment } from './crm-email-attachments.mjs'
+import { readFile as readBusinessFile } from './crm-files.mjs'
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
 
@@ -19,8 +21,36 @@ function meta() {
     purpose:
       'CRM-owned per-project composed emails (e.g. the post-gig thank-you). A saved draft lives here, NOT in Gmail drafts; sending goes out through Gmail and flips status to sent.',
     cowork_guidance: 'Safe to read. The CRM manages this file. Do NOT delete or overwrite.',
-    shape: 'id, projectId (client_name slug), kind, to[], subject, body, status (draft|sent), createdAt, updatedAt, sentAt (all ISO)',
+    shape:
+      'id, projectId (client_name slug), kind, to[], subject, body, format (html|text), attachments[{source(files|upload),name,id?,size?}], status (draft|sent), createdAt, updatedAt, sentAt (all ISO)',
   }
+}
+
+// Keep only well-formed attachment refs. `files` = a Files-page document (read from crm-files
+// at send); `upload` = a one-off in the email-attachment store (read by id).
+function normalizeAttachments(list) {
+  if (!Array.isArray(list)) return []
+  return list
+    .map((a) => {
+      const source = a && a.source === 'upload' ? 'upload' : 'files'
+      const ref = { source, name: String(a?.name || '').trim(), size: Number(a?.size) || 0 }
+      if (source === 'upload') ref.id = String(a?.id || '')
+      return ref
+    })
+    .filter((a) => a.name && (a.source !== 'upload' || a.id))
+}
+
+// Turn stored attachment refs into the bytes the Gmail layer needs. A ref whose file is gone
+// (deleted upload, removed Files-page doc) is skipped rather than failing the whole send.
+function resolveAttachments(list) {
+  const out = []
+  for (const a of normalizeAttachments(list)) {
+    const f = a.source === 'upload' ? readAttachment(a.id) : readBusinessFile(a.name)
+    if (f && f.buffer) {
+      out.push({ filename: f.name || a.name, contentType: f.contentType || 'application/octet-stream', contentBase64: f.buffer.toString('base64') })
+    }
+  }
+  return out
 }
 
 function readEmailsFile() {
@@ -51,6 +81,8 @@ function clean(e) {
     to: Array.isArray(e.to) ? e.to.filter(Boolean) : [],
     subject: String(e.subject || ''),
     body: String(e.body || ''),
+    format: e.format === 'html' ? 'html' : 'text',
+    attachments: normalizeAttachments(e.attachments),
     status: e.status === 'sent' ? 'sent' : 'draft',
     createdAt: e.createdAt || '',
     updatedAt: e.updatedAt || '',
@@ -81,7 +113,7 @@ export function loadEmails(projectId) {
 // Upsert a draft. With an id, update it; otherwise create a new one. Saving always
 // leaves the record as a draft (sending is a separate call). A previously sent email
 // edited and re-saved drops back to draft so it can be re-sent intentionally.
-export function saveProjectEmail({ id, projectId, kind, to, subject, body } = {}) {
+export function saveProjectEmail({ id, projectId, kind, to, subject, body, format, attachments } = {}) {
   if (!projectId && !id) throw new Error('projectId is required')
   const data = readEmailsFile()
   const now = new Date().toISOString()
@@ -94,6 +126,8 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body } = {}
     e.to = toList
     e.subject = String(subject ?? e.subject ?? '')
     e.body = String(body ?? e.body ?? '')
+    if (format != null) e.format = format === 'html' ? 'html' : 'text'
+    if (attachments != null) e.attachments = normalizeAttachments(attachments)
     e.status = 'draft'
     e.sentAt = ''
     e.updatedAt = now
@@ -108,6 +142,8 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body } = {}
     to: toList,
     subject: String(subject || ''),
     body: String(body || ''),
+    format: format === 'html' ? 'html' : 'text',
+    attachments: normalizeAttachments(attachments),
     status: 'draft',
     createdAt: now,
     updatedAt: now,
@@ -140,6 +176,8 @@ export async function sendProjectEmail({ id } = {}) {
     to: to.join(', '),
     subject: e.subject || 'Thank you!',
     body: e.body || '',
+    format: e.format === 'html' ? 'html' : 'text',
+    attachments: resolveAttachments(e.attachments),
     mode: 'send',
   })
 

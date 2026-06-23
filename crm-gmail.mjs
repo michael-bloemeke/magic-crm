@@ -7,6 +7,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { google } from 'googleapis'
 import { loadAll } from './crm-data-core.mjs'
@@ -336,22 +337,80 @@ export async function inboxSearch(contactEmails, cap = 100) {
 
 // ---- Sending ----------------------------------------------------------------
 
-function makeRaw({ from, to, subject, body }) {
-  const lines = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    '',
-    body,
-  ]
-  return Buffer.from(lines.join('\r\n'), 'utf8').toString('base64url')
+// A unique MIME boundary string.
+function boundary(tag) {
+  return `=_${tag}_${crypto.randomBytes(12).toString('hex')}`
+}
+// base64, wrapped at 76 chars per line (RFC 2045) so long bodies/attachments are valid.
+function b64wrap(buf) {
+  return (Buffer.isBuffer(buf) ? buf : Buffer.from(String(buf), 'utf8')).toString('base64').replace(/(.{76})/g, '$1\r\n')
+}
+function encodeText(s) {
+  return b64wrap(Buffer.from(String(s ?? ''), 'utf8'))
 }
 
-export async function sendMessage({ to, subject, body, threadId }) {
+// Build a raw RFC-822 message. Plain text by default; if `html` is given it goes out as a
+// multipart/alternative (plain + html); if `attachments` are present everything is wrapped in
+// a multipart/mixed. attachments: [{ filename, contentType, contentBase64 }].
+function makeRaw({ from, to, subject, body, html, attachments }) {
+  const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && a.contentBase64)
+  const hasHtml = !!(html && String(html).trim())
+  const plain = body != null && body !== '' ? String(body) : hasHtml ? htmlToText(String(html)) : ''
+  const headers = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0']
+
+  // The message content: a single text/plain part, or a multipart/alternative (plain + html).
+  let contentHeader
+  let contentBody
+  if (hasHtml) {
+    const alt = boundary('alt')
+    contentHeader = `Content-Type: multipart/alternative; boundary="${alt}"`
+    contentBody = [
+      `--${alt}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      encodeText(plain),
+      '',
+      `--${alt}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      encodeText(String(html)),
+      '',
+      `--${alt}--`,
+    ].join('\r\n')
+  } else {
+    contentHeader = 'Content-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64'
+    contentBody = encodeText(plain)
+  }
+
+  let msg
+  if (atts.length === 0) {
+    msg = [...headers, contentHeader, '', contentBody].join('\r\n')
+  } else {
+    const mixed = boundary('mix')
+    const parts = [`${contentHeader}\r\n\r\n${contentBody}`]
+    for (const a of atts) {
+      const fn = String(a.filename || 'attachment').replace(/["\r\n]/g, '_')
+      parts.push(
+        [
+          `Content-Type: ${a.contentType || 'application/octet-stream'}; name="${fn}"`,
+          'Content-Transfer-Encoding: base64',
+          `Content-Disposition: attachment; filename="${fn}"`,
+          '',
+          b64wrap(Buffer.from(String(a.contentBase64), 'base64')),
+        ].join('\r\n'),
+      )
+    }
+    const mixedBody = parts.map((p) => `--${mixed}\r\n${p}`).join('\r\n') + `\r\n--${mixed}--`
+    msg = [...headers, `Content-Type: multipart/mixed; boundary="${mixed}"`, '', mixedBody].join('\r\n')
+  }
+  return Buffer.from(msg, 'utf8').toString('base64url')
+}
+
+export async function sendMessage({ to, subject, body, html, attachments, threadId }) {
   const from = await myEmail()
-  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body })
+  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments })
   const res = await api().users.messages.send({
     userId: 'me',
     requestBody: threadId ? { raw, threadId } : { raw },
@@ -378,9 +437,9 @@ export function hasModifyScope() {
   return !!(t && typeof t.scope === 'string' && t.scope.includes('gmail.modify'))
 }
 
-export async function createDraft({ to, subject, body, threadId }) {
+export async function createDraft({ to, subject, body, html, attachments, threadId }) {
   const from = await myEmail()
-  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body })
+  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments })
   const res = await api().users.drafts.create({
     userId: 'me',
     requestBody: { message: threadId ? { raw, threadId } : { raw } },

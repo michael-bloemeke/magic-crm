@@ -215,16 +215,25 @@ export async function markRead({ threadId }) {
   }
 }
 
-export async function sendEmail({ projectId, threadId, to, subject, body, mode }) {
+export async function sendEmail({ projectId, threadId, to, subject, body, format, attachments, mode }) {
   if (gmailConnected()) {
     const p = getProject(projectId)
-    let subj = subject || `Re: ${p?.client || 'your event'}`
-    if (!/^re:/i.test(subj)) subj = subj // leave caller's subject as-is
+    const subj = subject || `Re: ${p?.client || 'your event'}`
+    // An HTML email carries the rich body as `html`; the Gmail layer derives a plain-text
+    // fallback. A plain email keeps using `body`. Attachments pass straight through.
+    const isHtml = format === 'html'
+    const payload = {
+      to,
+      subject: subj,
+      threadId,
+      attachments: Array.isArray(attachments) ? attachments : [],
+      ...(isHtml ? { html: body, body: '' } : { body }),
+    }
     if (mode === 'draft') {
-      const r = await createDraft({ to, subject: subj, body, threadId })
+      const r = await createDraft(payload)
       return { ok: true, demo: false, mode: 'draft', id: r.id }
     }
-    const r = await sendMessage({ to, subject: subj, body, threadId })
+    const r = await sendMessage(payload)
     // Replying clears the unread flag (best-effort; needs the modify scope).
     if (threadId) {
       try {
