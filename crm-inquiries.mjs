@@ -87,6 +87,51 @@ function describe(inq) {
   return lines.join('\n\n')
 }
 
+// "2026-06-24T19:31:05.883Z" -> "June 24, 2026 at 3:31 PM" in the machine's local time.
+function fmtSubmitted(iso) {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return String(iso || '')
+  return d.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+// Email Michael a copy of a fresh inquiry. Best-effort: returns false (never throws) if Gmail
+// isn't connected or the send fails, so a notification problem never blocks the CRM import.
+async function notifyByEmail(inq, projectId) {
+  try {
+    if (!gmailConnected()) return false
+    const name = String(inq.name || '').trim()
+    const email = String(inq.email || '').trim()
+    const rows = [
+      ['Name', name],
+      ['Email', email],
+      ['Phone', String(inq.phone || '').trim()],
+      ['Event date', String(inq.eventDate || '').trim()],
+      ['Event time', String(inq.eventTime || '').trim()],
+      ['Venue / location', String(inq.venue || '').trim()],
+      ['Guests', String(inq.guests || '').trim()],
+      ['Guest ages', String(inq.ages || '').trim()],
+      ['Show type(s)', String(inq.showTypes || '').trim()],
+      ['Heard about Michael via', String(inq.source || '').trim()],
+    ].filter(([, v]) => v)
+    const lines = ['A new inquiry just came in through the website contact form.', '']
+    for (const [label, value] of rows) lines.push(`${label}: ${value}`)
+    const message = String(inq.message || '').trim()
+    if (message) lines.push('', 'Message:', message)
+    lines.push('', `Submitted: ${fmtSubmitted(inq.submittedAt)}`)
+    lines.push(
+      '',
+      projectId
+        ? 'It has been added to your CRM as a new project in the Inquiry stage.'
+        : 'Note: the CRM could not auto-create a project for this one (most likely a duplicate name). It is in your inquiries list.',
+    )
+    await sendMessage({ to: NOTIFY_TO, subject: `New website inquiry: ${name || email || 'someone'}`, body: lines.join('\n') })
+    return true
+  } catch (e) {
+    console.warn('[crm-inquiries] email notify failed:', e?.message || e)
+    return false
+  }
+}
+
 // Poll the relay and import any inquiries not seen before: create a project (Inquiry stage),
 // fill the mapped fields, and raise a notification. Returns { ok, created, importedCount }.
 export async function importNewInquiries() {
@@ -139,7 +184,8 @@ export async function importNewInquiries() {
       // Most likely a duplicate project name; keep the notification so Michael sees it.
       note = String(e?.message || e)
     }
-    store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note }
+    const emailed = await notifyByEmail(inq, projectId)
+    store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note, emailed }
     created.push({ id: inq.id, ...store.inquiries[inq.id] })
   }
 
