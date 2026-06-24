@@ -12,10 +12,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, createProject, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
+import { sendMessage, isConnected as gmailConnected } from './crm-gmail.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CRED_FILE = path.join(HERE, 'portal-credentials.json')
 const STORE_FILE = path.join(RECORDS_DIR, 'crm-inquiries.json')
+const NOTIFY_TO = 'michael@michaelbloemeke.com' // new-inquiry alerts go to Michael's business inbox
 
 function blobBaseUrl() {
   try {
