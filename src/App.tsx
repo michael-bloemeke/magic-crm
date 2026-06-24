@@ -49,6 +49,10 @@ import {
   loadProjects,
   loadTasks,
   loadUnreadByProject,
+  loadInquiries,
+  checkInquiries,
+  dismissInquiry,
+  type InquiryNotification,
   saveStage,
   loadStructure,
   saveStructure as apiSaveStructure,
@@ -115,6 +119,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [unread, setUnread] = useState<Record<string, number>>({})
+  const [inquiries, setInquiries] = useState<InquiryNotification[]>([])
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
   const [completeTarget, setCompleteTarget] = useState<Project | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -295,12 +300,12 @@ function App() {
   const dueTodayCount = allTasks.filter((t) => !t.done && t.dueDate === today).length
   const upcomingCount = allTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
-  // In the packaged Mac app, show a dock badge for things needing attention: due/overdue tasks
-  // (the same count as the in-app bell) plus unread client mail. New inquiries will add in once
-  // that's wired. No-op in a plain browser (window.crm is only injected by the Electron preload).
+  // In the packaged Mac app, show a dock badge for things needing attention: new HoneyBook
+  // inquiries + due/overdue tasks (same count as the in-app bell) + unread client mail. No-op in
+  // a plain browser (window.crm is only injected by the Electron preload).
   useEffect(() => {
-    window.crm?.setBadge?.(taskAlerts + inboxUnread)
-  }, [taskAlerts, inboxUnread])
+    window.crm?.setBadge?.(inquiries.length + taskAlerts + inboxUnread)
+  }, [inquiries.length, taskAlerts, inboxUnread])
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -382,6 +387,35 @@ function App() {
       })
       .catch(() => {})
   }
+
+  // Poll Notion for new HoneyBook inquiries: import any new ones (server-side), refresh the
+  // in-app notification list, and reload projects when some were created so they show up in the
+  // pipeline. Quietly does nothing if the Notion sync isn't configured.
+  useEffect(() => {
+    let alive = true
+    const run = async () => {
+      try {
+        const r = await checkInquiries()
+        if (r?.importedCount && r.importedCount > 0) reloadProjects()
+        const d = await loadInquiries()
+        if (alive) setInquiries(d.notifications)
+      } catch {
+        // not configured / offline — ignore
+      }
+    }
+    run()
+    const timer = setInterval(run, 5 * 60 * 1000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
+
+  const dismissInquiryNotif = (blockId: string) => {
+    setInquiries((prev) => prev.filter((i) => i.blockId !== blockId))
+    dismissInquiry(blockId).catch(() => {})
+  }
+
   const applyPatch = (id: string, patch: Partial<Project>) => {
     const apply = (p: Project) => (p.id === id ? { ...p, ...patch } : p)
     setProjects((prev) => (prev ? prev.map(apply) : prev))
@@ -589,6 +623,8 @@ function App() {
     <Notifications
       tasks={allTasks}
       projects={allProjects}
+      inquiries={inquiries}
+      onDismissInquiry={dismissInquiryNotif}
       onToggle={toggleTask}
       onDelete={deleteTask}
       onOpenProject={openFull}

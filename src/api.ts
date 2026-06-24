@@ -1065,3 +1065,35 @@ export async function sendEmail(input: {
   if (!res.ok) throw new Error(`Failed to send (${res.status})`)
   return (await res.json()) as { ok: boolean; demo: boolean; mode: string }
 }
+
+// --- HoneyBook inquiry sync (Notion Activity Log -> auto-created projects) ----
+export type InquiryNotification = {
+  blockId: string
+  name: string
+  email: string
+  eventDate: string
+  projectId: string | null
+  importedAt: string
+  dismissed: boolean
+  note?: string
+}
+export type InquiryStatus = { configured: boolean; baselined: boolean; unread: number }
+
+export async function loadInquiries(): Promise<{ status: InquiryStatus; notifications: InquiryNotification[] }> {
+  const res = await fetch('/api/inquiries')
+  if (!res.ok) throw new Error(`Failed to load inquiries (${res.status})`)
+  const d = await res.json()
+  return { status: d.status ?? { configured: false, baselined: false, unread: 0 }, notifications: d.notifications ?? [] }
+}
+// Poll Notion for new inquiries and import them server-side. Returns how many projects it made.
+export async function checkInquiries(): Promise<{ ok: boolean; importedCount?: number; error?: string }> {
+  const res = await fetch('/api/inquiries/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  return (await res.json()) as { ok: boolean; importedCount?: number; error?: string }
+}
+export async function dismissInquiry(blockId: string): Promise<void> {
+  await postJson('/api/inquiries/dismiss', { blockId })
+}

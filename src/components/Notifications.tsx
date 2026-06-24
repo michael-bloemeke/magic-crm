@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
-import type { Task } from '../api'
+import type { Task, InquiryNotification } from '../api'
 import { TaskRow } from './TaskRow'
 
 type Props = {
   tasks: Task[]
   projects: Project[]
+  inquiries: InquiryNotification[]
+  onDismissInquiry: (blockId: string) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onOpenProject: (project: Project) => void
 }
 
-export function Notifications({ tasks, projects, onToggle, onDelete, onOpenProject }: Props) {
+export function Notifications({ tasks, projects, inquiries, onDismissInquiry, onToggle, onDelete, onOpenProject }: Props) {
   const [open, setOpen] = useState(false)
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
@@ -21,7 +23,7 @@ export function Notifications({ tasks, projects, onToggle, onDelete, onOpenProje
     .filter((t) => !t.done && t.dueDate && t.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const dueToday = tasks.filter((t) => !t.done && t.dueDate === today)
-  const count = overdue.length + dueToday.length
+  const count = inquiries.length + overdue.length + dueToday.length
 
   const openProject = (projectId: string) => {
     const p = byId.get(projectId)
@@ -86,6 +88,45 @@ export function Notifications({ tasks, projects, onToggle, onDelete, onOpenProje
                 </p>
               ) : (
                 <div className="space-y-3">
+                  {inquiries.length > 0 && (
+                    <section>
+                      <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brass">
+                        New inquiries · {inquiries.length}
+                      </p>
+                      <div className="space-y-1.5">
+                        {inquiries.map((i) => (
+                          <div key={i.blockId} className="rounded-lg border border-line bg-surface-2/50 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="min-w-0 truncate text-[12.5px] font-medium text-parchment">
+                                {i.name || i.email || 'New inquiry'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => onDismissInquiry(i.blockId)}
+                                className="shrink-0 text-[11px] text-faint transition-colors hover:text-parchment"
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-faint">
+                              {i.eventDate && <span>Event {i.eventDate}</span>}
+                              {i.projectId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openProject(i.projectId as string)}
+                                  className="text-brass-bright underline-offset-2 hover:underline"
+                                >
+                                  View project
+                                </button>
+                              ) : (
+                                <span className="text-[#e08a6b]">Needs review (possible duplicate)</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                   {overdue.length > 0 && (
                     <section>
                       <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#e08a6b' }}>
