@@ -1,16 +1,12 @@
-// HoneyBook inquiry importer (CRM-owned). TEMPORARY bridge until the website's own contact form
-// replaces HoneyBook. Zapier appends each new HoneyBook inquiry as a text block to the Notion
-// "HoneyBook Activity Log" page; this module reads that page via the Notion API, parses the
-// "New Inquiry" blocks, and auto-creates a project (in the Inquiry stage) for any not yet seen.
+// Website inquiry importer (CRM-owned). The contact form on Michael's website POSTs each
+// submission to a small serverless relay (portal/api/inquiry.js on the Vercel "portal" project),
+// which appends it to a single public Blob file (inquiries.json). This module polls that file,
+// creates a project (Inquiry stage) for any submission it hasn't imported yet, and raises an
+// in-CRM notification that stays until dismissed.
 //
-// Two safeguards:
-//  - Dedup by Notion BLOCK ID, so an inquiry is never imported twice.
-//  - BASELINE on first run: the existing backlog is recorded as "already seen" WITHOUT creating
-//    projects, so only inquiries that arrive AFTER setup import. (Otherwise the first poll would
-//    resurrect every historical inquiry as a new project.)
-//
-// Each genuine import also raises an in-CRM notification that stays until dismissed.
-// Credentials live in notion-credentials.json (gitignored): { token, activityLogPageId }.
+// Dedup is by the relay-assigned inquiry id, so a submission is never imported twice. Reads are
+// the public Blob URL (no token needed); only the relay writes, using its own server-side token.
+// The Blob base URL lives in portal-credentials.json (shared with the questionnaire sync).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,20 +14,18 @@ import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, createProject, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const CRED_FILE = path.join(HERE, 'notion-credentials.json')
+const CRED_FILE = path.join(HERE, 'portal-credentials.json')
 const STORE_FILE = path.join(RECORDS_DIR, 'crm-inquiries.json')
-const NOTION_VERSION = '2022-06-28'
 
-function creds() {
+function blobBaseUrl() {
   try {
-    return JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'))
+    return String(JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')).blobBaseUrl || '').replace(/\/+$/, '')
   } catch {
-    return null
+    return ''
   }
 }
 export function isConfigured() {
-  const c = creds()
-  return !!(c && c.token && c.activityLogPageId && !String(c.token).startsWith('PASTE'))
+  return !!blobBaseUrl()
 }
 
 // --- store -----------------------------------------------------------------
@@ -42,8 +36,7 @@ function readStore() {
   } catch {
     d = null
   }
-  if (!d || typeof d.inquiries !== 'object' || d.inquiries === null) d = { inquiries: {}, baselinedAt: '' }
-  if (typeof d.baselinedAt !== 'string') d.baselinedAt = ''
+  if (!d || typeof d.inquiries !== 'object' || d.inquiries === null) d = { inquiries: {} }
   return d
 }
 function writeStore(d) {
@@ -51,147 +44,105 @@ function writeStore(d) {
     file: 'crm-inquiries.json',
     owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
     purpose:
-      'HoneyBook inquiries imported from the Notion Activity Log (Zapier-fed), keyed by Notion block id, each with an in-CRM notification state. Baseline marks the pre-setup backlog as seen so only new inquiries import.',
+      "Website contact-form inquiries imported from the Blob relay, keyed by the relay's inquiry id, each with an in-CRM notification state.",
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
-    shape: 'inquiries[blockId] = { name, email, eventDate, projectId, importedAt, dismissed, baseline?, note? }; baselinedAt (ISO)',
+    shape: 'inquiries[id] = { name, email, eventDate, projectId, importedAt, dismissed, note? }',
   }
   fs.writeFileSync(STORE_FILE, JSON.stringify(d, null, 2) + '\n')
 }
 
-// --- parsing ---------------------------------------------------------------
-// Drop markdown link wrappers ([text](url) -> text) and collapse whitespace.
-function tidy(s) {
-  return String(s || '')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-// "05/06/2026" -> "2026-05-06"; blank/unrecognized -> ''.
-function toISO(mdy) {
-  const m = String(mdy || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/)
-  if (!m) return ''
-  return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
+// "05/06/2026" or "2026-05-06" -> ISO "2026-05-06"; anything else -> '' (kept in the description).
+function toISO(raw) {
+  const s = String(raw || '').trim()
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
+  return ''
 }
 
-const LABELS = ['Name', 'Email', 'Phone', 'Date', 'Location', 'Description']
-function getField(text, label) {
-  if (label === 'Description') {
-    const m = text.match(/Description\s*:\s*([\s\S]*)$/i)
-    return m ? tidy(m[1]) : ''
-  }
-  const others = LABELS.filter((l) => l !== label).join('|')
-  const re = new RegExp(`${label}\\s*:\\s*([\\s\\S]*?)(?=(?:${others})\\s*:|$)`, 'i')
-  const m = text.match(re)
-  return m ? tidy(m[1]) : ''
+// Fetch the relay's inquiry list (public, always-fresh). Returns [] if not set up or empty.
+async function fetchInquiries() {
+  const base = blobBaseUrl()
+  if (!base) return []
+  const res = await fetch(`${base}/inquiries.json`, { cache: 'no-store' })
+  if (res.status === 404) return []
+  if (!res.ok) throw new Error(`Inquiry store returned ${res.status}.`)
+  const d = await res.json()
+  return Array.isArray(d) ? d : Array.isArray(d?.inquiries) ? d.inquiries : []
 }
 
-// Parse a "New Inquiry" block into fields, or null if the block isn't a New Inquiry.
-export function parseInquiry(text) {
-  if (!/New Inquiry\s*:/i.test(String(text || ''))) return null
-  const name = getField(text, 'Name')
-  const email = getField(text, 'Email')
-  if (!name && !email) return null
-  return {
-    name,
-    email,
-    phone: getField(text, 'Phone'),
-    eventDate: toISO(getField(text, 'Date')),
-    location: getField(text, 'Location'),
-    description: getField(text, 'Description'),
-  }
+// Build a human-readable description from everything the form captured, so nothing is lost even
+// for fields the project doesn't have a dedicated slot for.
+function describe(inq) {
+  const lines = []
+  if (inq.message) lines.push(String(inq.message).trim())
+  const extras = []
+  if (inq.eventDate && !toISO(inq.eventDate)) extras.push(`Date: ${inq.eventDate}`)
+  if (inq.eventTime) extras.push(`Time: ${inq.eventTime}`)
+  if (inq.source) extras.push(`Heard about Michael via: ${inq.source}`)
+  if (extras.length) lines.push(extras.join(' · '))
+  return lines.join('\n\n')
 }
 
-// --- Notion fetch ----------------------------------------------------------
-function blockText(b) {
-  const body = b && b.type ? b[b.type] : null
-  const rt = body && Array.isArray(body.rich_text) ? body.rich_text : null
-  return rt ? rt.map((x) => x.plain_text || '').join('') : ''
-}
-
-async function fetchBlocks() {
-  const c = creds()
-  const pageId = String(c.activityLogPageId).replace(/-/g, '')
-  const out = []
-  let cursor
-  do {
-    const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`)
-    url.searchParams.set('page_size', '100')
-    if (cursor) url.searchParams.set('start_cursor', cursor)
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${c.token}`, 'Notion-Version': NOTION_VERSION },
-    })
-    if (!res.ok) {
-      const t = await res.text()
-      throw new Error(`Notion API ${res.status}: ${t.slice(0, 200)}`)
-    }
-    const d = await res.json()
-    for (const b of d.results || []) out.push(b)
-    cursor = d.has_more ? d.next_cursor : null
-  } while (cursor)
-  return out
-}
-
-// --- import + notifications ------------------------------------------------
-// Find every New Inquiry block; on first run, record them all as a baseline (no projects). After
-// that, create a project for each new one and raise a notification. Dedup by block id.
+// Poll the relay and import any inquiries not seen before: create a project (Inquiry stage),
+// fill the mapped fields, and raise a notification. Returns { ok, created, importedCount }.
 export async function importNewInquiries() {
-  if (!isConfigured()) return { ok: false, error: "Inquiry sync isn't set up yet (add notion-credentials.json)." }
-  let blocks
+  if (!isConfigured()) return { ok: false, error: "Inquiry sync isn't set up yet (missing blobBaseUrl)." }
+  let list
   try {
-    blocks = await fetchBlocks()
+    list = await fetchInquiries()
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }
   }
   const store = readStore()
-  const firstRun = !store.baselinedAt
   const now = new Date().toISOString()
   const created = []
-  let baselined = 0
 
-  for (const b of blocks) {
-    const inq = parseInquiry(blockText(b))
-    if (!inq) continue
-    if (store.inquiries[b.id]) continue
-
-    if (firstRun) {
-      // Pre-setup backlog: mark as seen, don't create a project or notify.
-      store.inquiries[b.id] = { name: inq.name, email: inq.email, eventDate: inq.eventDate, projectId: null, importedAt: now, dismissed: true, baseline: true }
-      baselined++
-      continue
-    }
-
+  for (const inq of list) {
+    if (!inq || !inq.id || store.inquiries[inq.id]) continue
+    const name = String(inq.name || '').trim()
+    const email = String(inq.email || '').trim()
     let projectId = null
     let note = ''
     try {
       const proj = createProject({
-        clientName: inq.name || inq.email || 'New inquiry',
-        contactNames: inq.name,
-        contactEmails: inq.email,
-        contactPhones: inq.phone,
-        eventDate: inq.eventDate,
-        eventLocation: inq.location,
+        clientName: name || email || 'Website inquiry',
+        contactNames: name,
+        contactEmails: email,
+        contactPhones: String(inq.phone || ''),
+        eventDate: toISO(inq.eventDate),
+        eventLocation: String(inq.venue || ''),
       })
       projectId = proj.id
-      if (inq.description) {
+      // Fields createProject doesn't take directly; set them after (best-effort).
+      const extra = {
+        eventStartTime: String(inq.eventTime || ''),
+        numberOfGuests: String(inq.guests || ''),
+        ageOfGuests: String(inq.ages || ''),
+        bookingSource: String(inq.source || ''),
+        performanceStyle: String(inq.showTypes || ''),
+        eventDescription: describe(inq),
+      }
+      for (const [field, value] of Object.entries(extra)) {
+        if (!value) continue
         try {
-          updateProjectField({ id: proj.id, field: 'eventDescription', value: inq.description })
+          updateProjectField({ id: proj.id, field, value })
         } catch {
-          // description is best-effort
+          // skip a field that won't take; the inquiry is still imported
         }
       }
-      appendActivityLog(proj.id, `New inquiry imported from HoneyBook${inq.eventDate ? ` (event ${inq.eventDate})` : ''}.`)
+      appendActivityLog(proj.id, 'New inquiry from the website contact form.')
     } catch (e) {
-      // Most likely a name collision with an existing project; keep the notification so Michael
-      // sees it and can handle the duplicate, but don't retry it.
+      // Most likely a duplicate project name; keep the notification so Michael sees it.
       note = String(e?.message || e)
     }
-    store.inquiries[b.id] = { name: inq.name, email: inq.email, eventDate: inq.eventDate, projectId, importedAt: now, dismissed: false, note }
-    created.push({ blockId: b.id, ...store.inquiries[b.id] })
+    store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note }
+    created.push({ id: inq.id, ...store.inquiries[inq.id] })
   }
 
-  if (firstRun) store.baselinedAt = now
   writeStore(store)
-  return { ok: true, firstRun, baselined, created, importedCount: created.filter((c) => c.projectId).length }
+  return { ok: true, created, importedCount: created.filter((c) => c.projectId).length }
 }
 
 // Undismissed inquiry notifications, newest first.
@@ -199,20 +150,19 @@ export function listNotifications() {
   const store = readStore()
   return Object.entries(store.inquiries)
     .filter(([, v]) => v && !v.dismissed)
-    .map(([blockId, v]) => ({ blockId, ...v }))
+    .map(([id, v]) => ({ blockId: id, ...v }))
     .sort((a, b) => (b.importedAt || '').localeCompare(a.importedAt || ''))
 }
 
-export function dismissNotification(blockId) {
+export function dismissNotification(id) {
   const store = readStore()
-  if (store.inquiries[blockId]) {
-    store.inquiries[blockId].dismissed = true
+  if (store.inquiries[id]) {
+    store.inquiries[id].dismissed = true
     writeStore(store)
   }
   return { ok: true }
 }
 
 export function status() {
-  const store = readStore()
-  return { configured: isConfigured(), baselined: !!store.baselinedAt, unread: listNotifications().length }
+  return { configured: isConfigured(), unread: listNotifications().length }
 }
