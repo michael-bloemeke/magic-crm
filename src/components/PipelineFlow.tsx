@@ -35,6 +35,14 @@ function clampPos(x: number, y: number, w: number, h: number): Pos {
   }
 }
 
+// Generous bounds for dragging in edit mode. The scrollable "world" grows to fit, so a node can
+// sit well beyond the current viewport and still be reached by scrolling.
+const MAX_W = 4000
+const MAX_H = 2600
+function clampDrag(x: number, y: number): Pos {
+  return { x: clamp(snap(x), 8, MAX_W), y: clamp(snap(y), 8, MAX_H) }
+}
+
 // Default arrangement: one umbrella per row, each row centered horizontally.
 function computeDefault(rows: string[][], w: number, h: number): Record<string, Pos> {
   const pad = 36
@@ -70,6 +78,9 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
   const [hoverTarget, setHoverTarget] = useState<string | null>(null)
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [tempLine, setTempLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  // When false (the default), nodes are locked: clicking a node just selects its stage. Editing
+  // (drag to move, drag-to-link, click-to-remove-link) is only enabled via the Edit button.
+  const [editing, setEditing] = useState(false)
 
   const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
   const linkFromRef = useRef<string | null>(null)
@@ -105,6 +116,18 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
   const rowsRef = useRef(rows)
   rowsRef.current = rows
 
+  // Size of the scrollable canvas surface: big enough to contain the furthest node (so every
+  // node is reachable by scrolling), and at least the viewport via minWidth/minHeight in the DOM.
+  const world = useMemo(() => {
+    let w = 0
+    let h = 0
+    for (const id in positions) {
+      w = Math.max(w, positions[id].x + NODE)
+      h = Math.max(h, positions[id].y + NODE)
+    }
+    return { w: w + 40, h: h + 40 }
+  }, [positions])
+
   // Seed positions from the server layout (or the default), once the canvas has
   // a real size. Retrying on a too-small measurement avoids the nodes collapsing
   // into a corner before the layout has settled.
@@ -130,8 +153,9 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
         const saved = layout
         const merged: Record<string, Pos> = {}
         stageNodes.forEach((n) => {
-          const p = saved.positions[n.id] ?? def[n.id]
-          merged[n.id] = clampPos(p.x, p.y, width, height)
+          // Saved coordinates are used verbatim so the layout is identical at any window size; a
+          // node with no saved position yet falls back to its default slot.
+          merged[n.id] = saved.positions[n.id] ?? def[n.id]
         })
         setPositions(merged)
         setEdges(Array.isArray(saved.edges) ? saved.edges : [])
@@ -157,25 +181,15 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
     return () => clearTimeout(t)
   }, [positions, edges, ready])
 
-  // Keep nodes inside the canvas when the window resizes.
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el || !ready) return
-    const ro = new ResizeObserver(() => {
-      const { width, height } = el.getBoundingClientRect()
-      setPositions((prev) => {
-        const next: Record<string, Pos> = {}
-        for (const id in prev) next[id] = clampPos(prev[id].x, prev[id].y, width, height)
-        return next
-      })
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [ready])
+  // Node positions are LOCKED: they don't reflow when the window resizes. They only change when
+  // Michael drags them in Edit mode. (Previously a ResizeObserver re-clamped every node on resize,
+  // which shifted the whole layout.)
 
+  // Pointer position in WORLD coordinates (the canvas can scroll, so add its scroll offset).
   const localPoint = (e: PointerEvent | React.PointerEvent) => {
-    const rect = containerRef.current!.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    const el = containerRef.current!
+    const rect = el.getBoundingClientRect()
+    return { x: e.clientX - rect.left + el.scrollLeft, y: e.clientY - rect.top + el.scrollTop }
   }
 
   // ---- Drag to move ----
@@ -193,10 +207,11 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
 
       const move = (ev: PointerEvent) => {
         const d = dragRef.current
-        if (!d || !containerRef.current) return
+        const el = containerRef.current
+        if (!d || !el) return
         if (Math.abs(ev.clientX - startX) > 4 || Math.abs(ev.clientY - startY) > 4) moved = true
-        const rect = containerRef.current.getBoundingClientRect()
-        const np = clampPos(ev.clientX - rect.left - d.dx, ev.clientY - rect.top - d.dy, rect.width, rect.height)
+        const rect = el.getBoundingClientRect()
+        const np = clampDrag(ev.clientX - rect.left + el.scrollLeft - d.dx, ev.clientY - rect.top + el.scrollTop - d.dy)
         setPositions((prev) => ({ ...prev, [d.id]: np }))
       }
       const up = () => {
@@ -225,9 +240,10 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
       setTempLine({ x1: start.x, y1: start.y, x2: p.x, y2: p.y })
 
       const move = (ev: PointerEvent) => {
-        if (!containerRef.current) return
-        const rect = containerRef.current.getBoundingClientRect()
-        setTempLine((prev) => (prev ? { ...prev, x2: ev.clientX - rect.left, y2: ev.clientY - rect.top } : prev))
+        const cont = containerRef.current
+        if (!cont) return
+        const rect = cont.getBoundingClientRect()
+        setTempLine((prev) => (prev ? { ...prev, x2: ev.clientX - rect.left + cont.scrollLeft, y2: ev.clientY - rect.top + cont.scrollTop } : prev))
         const el = document.elementFromPoint(ev.clientX, ev.clientY)
         const node = el?.closest('[data-node-id]') as HTMLElement | null
         const toId = node?.getAttribute('data-node-id') ?? null
@@ -322,22 +338,39 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
       {/* Toolbar */}
       <div className="mb-3 flex items-center justify-between">
         <p className="text-[12px] text-faint">
-          Drag a node to move it. Drag from its dot to link. Click a link to remove it.
+          {editing
+            ? 'Editing: drag a node to move it, drag from its dot to link, click a link to remove it.'
+            : 'Click a stage to see its projects. Layout is locked. Click Edit layout to rearrange.'}
         </p>
         <div className="flex items-center gap-2">
+          {editing && (
+            <>
+              <button
+                type="button"
+                onClick={resetPositions}
+                className="rounded-lg border border-line px-3 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
+              >
+                Reset positions
+              </button>
+              <button
+                type="button"
+                onClick={() => setEdges([])}
+                className="rounded-lg border border-line px-3 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
+              >
+                Clear links
+              </button>
+            </>
+          )}
           <button
             type="button"
-            onClick={resetPositions}
-            className="rounded-lg border border-line px-3 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
+            onClick={() => setEditing((v) => !v)}
+            className={
+              editing
+                ? 'rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass'
+                : 'rounded-lg border border-line px-3 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment'
+            }
           >
-            Reset positions
-          </button>
-          <button
-            type="button"
-            onClick={() => setEdges([])}
-            className="rounded-lg border border-line px-3 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
-          >
-            Clear links
+            {editing ? 'Done' : 'Edit layout'}
           </button>
         </div>
       </div>
@@ -350,13 +383,21 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
           // dot grid, or an edge) deselects the current stage.
           if (!(e.target as HTMLElement).closest('[data-node-id]')) setSelectedStageId(null)
         }}
-        className="relative flex-1 overflow-hidden rounded-2xl border border-line bg-surface/30"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle, rgba(233,218,192,0.05) 1px, transparent 1px)',
-          backgroundSize: '26px 26px',
-        }}
+        className="relative flex-1 overflow-auto rounded-2xl border border-line bg-surface/30"
       >
+        {/* The scrollable "world": at least the viewport, growing to fit the furthest node. Node
+            positions stay locked; when the window is small you scroll (any direction) to see all. */}
+        <div
+          className="relative"
+          style={{
+            width: world.w,
+            height: world.h,
+            minWidth: '100%',
+            minHeight: '100%',
+            backgroundImage: 'radial-gradient(circle, rgba(233,218,192,0.05) 1px, transparent 1px)',
+            backgroundSize: '26px 26px',
+          }}
+        >
         {/* Edges (behind nodes); only the strokes are clickable */}
         <svg className="absolute inset-0 h-full w-full" style={{ pointerEvents: 'none' }}>
           <defs>
@@ -385,10 +426,10 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
                     fill="none"
                     stroke="transparent"
                     strokeWidth={16}
-                    style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
-                    onClick={() => removeEdge(edge.id)}
+                    style={{ pointerEvents: editing ? 'stroke' : 'none', cursor: editing ? 'pointer' : 'default' }}
+                    onClick={editing ? () => removeEdge(edge.id) : undefined}
                   >
-                    <title>Click to remove link</title>
+                    {editing && <title>Click to remove link</title>}
                   </path>
                   <path
                     d={d}
@@ -417,7 +458,8 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
               <div
                 key={node.id}
                 data-node-id={node.id}
-                onPointerDown={(e) => startDrag(e, node.id)}
+                onPointerDown={editing ? (e) => startDrag(e, node.id) : undefined}
+                onClick={editing ? undefined : () => setSelectedStageId(node.id)}
                 className="absolute select-none touch-none"
                 style={{ left: pos.x, top: pos.y, width: NODE, zIndex: isDragging ? 30 : 10 }}
               >
@@ -431,7 +473,7 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
                   style={{
                     width: NODE,
                     height: NODE,
-                    cursor: isDragging ? 'grabbing' : 'grab',
+                    cursor: editing ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
                     borderColor:
                       isTarget || isSelected
                         ? node.accent
@@ -474,14 +516,16 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
                     {node.name}
                   </span>
 
-                  {/* link handle */}
-                  <span
-                    onPointerDown={(e) => startLink(e, node.id)}
-                    title="Drag to link to another stage"
-                    className="absolute -right-1.5 top-1/2 flex h-4 w-4 -translate-y-1/2 cursor-crosshair items-center justify-center rounded-full border border-line-strong bg-surface-3 transition-transform hover:scale-125"
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-brass" />
-                  </span>
+                  {/* link handle (only while editing) */}
+                  {editing && (
+                    <span
+                      onPointerDown={(e) => startLink(e, node.id)}
+                      title="Drag to link to another stage"
+                      className="absolute -right-1.5 top-1/2 flex h-4 w-4 -translate-y-1/2 cursor-crosshair items-center justify-center rounded-full border border-line-strong bg-surface-3 transition-transform hover:scale-125"
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-brass" />
+                    </span>
+                  )}
                 </div>
               </div>
             )
@@ -502,6 +546,7 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
             />
           </svg>
         )}
+        </div>
       </div>
       </motion.div>
 
