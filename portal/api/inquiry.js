@@ -48,6 +48,7 @@ export default async function handler(req, res) {
     const inquiry = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
       submittedAt: new Date().toISOString(),
+      formLocation: str(b?.formLocation, 40), // which website form this came from: 'homepage' | 'contactpage'
       name: str(b?.name, 200),
       email: str(b?.email, 200),
       phone: str(b?.phone, 60),

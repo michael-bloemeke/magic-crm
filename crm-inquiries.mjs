@@ -113,7 +113,9 @@ async function notifyByEmail(inq, projectId) {
       ['Show type(s)', String(inq.showTypes || '').trim()],
       ['Heard about Michael via', String(inq.source || '').trim()],
     ].filter(([, v]) => v)
+    const formLocation = String(inq.formLocation || '').trim()
     const lines = ['A new inquiry just came in through the website contact form.', '']
+    if (formLocation) lines.push(`Sent from: ${formLocation}`)
     for (const [label, value] of rows) lines.push(`${label}: ${value}`)
     const message = String(inq.message || '').trim()
     if (message) lines.push('', 'Message:', message)
@@ -124,7 +126,8 @@ async function notifyByEmail(inq, projectId) {
         ? 'It has been added to your CRM as a new project in the Inquiry stage.'
         : 'Note: the CRM could not auto-create a project for this one (most likely a duplicate name). It is in your inquiries list.',
     )
-    await sendMessage({ to: NOTIFY_TO, subject: `New website inquiry: ${name || email || 'someone'}`, body: lines.join('\n') })
+    const subject = `New website inquiry${formLocation ? ` (${formLocation})` : ''}: ${name || email || 'someone'}`
+    await sendMessage({ to: NOTIFY_TO, subject, body: lines.join('\n') })
     return true
   } catch (e) {
     console.warn('[crm-inquiries] email notify failed:', e?.message || e)
@@ -132,9 +135,25 @@ async function notifyByEmail(inq, projectId) {
   }
 }
 
+// Coalescing guard: importing runs in the single dev-server process, but several frontends (the
+// app window plus any open browser tab) each poll on their own timer. Without this, two near-
+// simultaneous polls would both see the same inquiry as "new" and each create a project + send an
+// email (the duplicate-email bug). While one import is in flight, concurrent callers share its
+// promise, so the work (and the email) happens exactly once per inquiry.
+let inFlight = null
+export async function importNewInquiries() {
+  if (inFlight) return inFlight
+  inFlight = runImport()
+  try {
+    return await inFlight
+  } finally {
+    inFlight = null
+  }
+}
+
 // Poll the relay and import any inquiries not seen before: create a project (Inquiry stage),
 // fill the mapped fields, and raise a notification. Returns { ok, created, importedCount }.
-export async function importNewInquiries() {
+async function runImport() {
   if (!isConfigured()) return { ok: false, error: "Inquiry sync isn't set up yet (missing blobBaseUrl)." }
   let list
   try {
@@ -179,7 +198,8 @@ export async function importNewInquiries() {
           // skip a field that won't take; the inquiry is still imported
         }
       }
-      appendActivityLog(proj.id, 'New inquiry from the website contact form.')
+      const formLabel = String(inq.formLocation || '').trim()
+      appendActivityLog(proj.id, `New inquiry from the website contact form${formLabel ? ` (${formLabel})` : ''}.`)
     } catch (e) {
       // Most likely a duplicate project name; keep the notification so Michael sees it.
       note = String(e?.message || e)
