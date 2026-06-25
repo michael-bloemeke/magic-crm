@@ -46,7 +46,15 @@ import {
   SHAREABLE_FIELDS,
   PORTAL_BASE_URL,
 } from './crm-portal.mjs'
-import { loadQuestionnaire, setQuestionnaire, pullResponse, isBlobConfigured } from './crm-questionnaire.mjs'
+import {
+  loadQuestionnaire,
+  loadQuestionnaires,
+  setQuestionnaire,
+  pullResponse,
+  isBlobConfigured,
+  loadUnseenSubmissions,
+  markSubmissionSeen,
+} from './crm-questionnaire.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus } from './crm-inquiries.mjs'
 import {
   status as qbStatus,
@@ -566,22 +574,63 @@ export function crmDataPlugin() {
           return { questionnaire, portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '', published: !!portal?.published, deploy }
         })
       })
-      // Pull the latest submitted answers and auto-fill the mapped event-detail fields. When a NEW
-      // submission arrives, also rebuild + redeploy the portal so its Event details reflect what the
-      // client just entered (the gate's whole point: submit, then see your event page filled in).
+      // Pull a project's latest submission, auto-fill its mapped fields, and (on a fresh one)
+      // rebuild + redeploy the portal so its Event details reflect what the client just entered.
+      const pullAndRepublish = async (projectId) => {
+        const result = await pullResponse(projectId)
+        if (result?.fresh) {
+          try {
+            writeBundleFile(projectId)
+            result.deploy = await deployPortal()
+          } catch (e) {
+            result.deploy = { ok: false, error: String(e?.message || e) }
+          }
+        }
+        return result
+      }
+      // Attach the project's display name to each unseen submission for the notification list.
+      const submissionsWithNames = () => {
+        const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))
+        return loadUnseenSubmissions().map((s) => ({ ...s, projectName: byId.get(s.projectId) || s.projectId }))
+      }
+
       server.middlewares.use('/api/questionnaire/pull', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          const result = await pullResponse(b.projectId)
-          if (result?.fresh) {
-            try {
-              writeBundleFile(b.projectId)
-              result.deploy = await deployPortal()
-            } catch (e) {
-              result.deploy = { ok: false, error: String(e?.message || e) }
-            }
+        withbody(req, res, async (b) => await pullAndRepublish(b.projectId))
+      })
+      // Background sweep used by the app's notification poll: pull every active-but-unanswered
+      // questionnaire (the gate is one-time, so a project that already has a response has nothing
+      // new), republishing any that just came in. Returns the current unseen submissions.
+      server.middlewares.use('/api/questionnaire/check', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async () => {
+          const qs = loadQuestionnaires()
+          let fresh = 0
+          for (const [projectId, q] of Object.entries(qs)) {
+            if (!q || !q.enabled || q.response) continue
+            const r = await pullAndRepublish(projectId)
+            if (r?.fresh) fresh++
           }
-          return result
+          return { fresh, submissions: submissionsWithNames() }
+        })
+      })
+      // The current unseen submissions (cheap; does not pull).
+      server.middlewares.use('/api/questionnaire/submissions', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ submissions: submissionsWithNames() }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+      // Acknowledge a submission (clears its notification). Returns the remaining unseen ones.
+      server.middlewares.use('/api/questionnaire/seen', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => {
+          markSubmissionSeen(b.projectId)
+          return { submissions: submissionsWithNames() }
         })
       })
       // Current questionnaire state for a project (drives the card).

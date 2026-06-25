@@ -15,10 +15,12 @@ export function QuestionnaireCard({ project, onApplied }: { project: Project; on
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [showAnswers, setShowAnswers] = useState(false)
   const polling = useRef(false)
 
   const enabled = !!state?.questionnaire?.enabled
   const submitted = !!state?.questionnaire?.response
+  const response = state?.questionnaire?.response || null
 
   const refresh = () => loadQuestionnaire(project.id).then(setState).catch(() => setState(null))
 
@@ -194,9 +196,30 @@ export function QuestionnaireCard({ project, onApplied }: { project: Project; on
           )}
 
           {submitted && (
-            <p className="text-[11.5px] leading-relaxed text-faint">
-              The client completed the questionnaire. Their answers are in the event details above.
-            </p>
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11.5px] leading-relaxed text-faint">
+                  Completed. Answers are in the event details above.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAnswers((v) => !v)}
+                  className="shrink-0 text-[11px] text-muted transition-colors hover:text-parchment"
+                >
+                  {showAnswers ? 'Hide answers' : 'Show answers'}
+                </button>
+              </div>
+              {showAnswers && (
+                <dl className="mt-2 space-y-1.5 rounded-lg border border-line bg-surface-2/40 px-3 py-2">
+                  {(response?.answers ?? []).map((a) => (
+                    <div key={a.id}>
+                      <dt className="text-[10.5px] text-faint">{a.label}</dt>
+                      <dd className="whitespace-pre-line text-[12px] text-parchment">{a.value || '(blank)'}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -52,7 +52,7 @@ function meta() {
       'Per-project client questionnaire: the question set, whether it is turned on, and the latest submitted answers. Answers auto-fill mapped event-detail fields. Optional portal add-on; nothing depends on it.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
     shape:
-      'questionnaires[projectId] = { enabled, intro, questions[ {id,label,type,required,options?,fieldKey?} ], response?: { answers[{id,label,value}], submittedAt, pulledAt, appliedFields[] } }',
+      'questionnaires[projectId] = { enabled, intro, questions[ {id,label,type,required,options?,fieldKey?} ], response?: { answers[{id,label,value}], submittedAt, pulledAt, appliedFields[], seen } }',
   }
 }
 
@@ -208,9 +208,36 @@ export async function pullResponse(projectId) {
     submittedAt: incoming.submittedAt,
     pulledAt: new Date().toISOString(),
     appliedFields: filled,
+    seen: false,
   }
   writeFile(d)
   if (filled.length) appendActivityLog(projectId, `Client filled the questionnaire. Auto-filled: ${filled.join(', ')}.`)
   else appendActivityLog(projectId, 'Client filled the questionnaire.')
   return { ok: true, response: q.response, filledFields: filled, fresh: true }
+}
+
+// Submissions the client has sent that Michael hasn't acknowledged yet. Only responses recorded as
+// fresh going forward carry `seen: false`; older ones (no flag) are ignored, so enabling this never
+// resurfaces historical/test submissions. Each entry is { projectId, submittedAt }.
+export function loadUnseenSubmissions() {
+  const qs = readFile().questionnaires
+  const out = []
+  for (const [projectId, q] of Object.entries(qs)) {
+    if (q && q.response && q.response.seen === false) {
+      out.push({ projectId, submittedAt: q.response.submittedAt || '' })
+    }
+  }
+  return out
+}
+
+// Mark a project's submission as acknowledged (clears its notification). Returns the remaining
+// unseen submissions.
+export function markSubmissionSeen(projectId) {
+  const d = readFile()
+  const q = d.questionnaires[projectId]
+  if (q && q.response && q.response.seen === false) {
+    q.response.seen = true
+    writeFile(d)
+  }
+  return loadUnseenSubmissions()
 }

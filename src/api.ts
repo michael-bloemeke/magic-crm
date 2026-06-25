@@ -506,6 +506,32 @@ export async function pullQuestionnaire(projectId: string): Promise<Questionnair
   return data as QuestionnairePull
 }
 
+// A client questionnaire submission Michael hasn't acknowledged yet (drives the bell notification).
+export type QuestionnaireSubmission = { projectId: string; projectName: string; submittedAt: string }
+// The current unseen submissions (cheap; does not pull from the cloud).
+export async function loadQuestionnaireSubmissions(): Promise<QuestionnaireSubmission[]> {
+  const res = await fetch('/api/questionnaire/submissions')
+  if (!res.ok) return []
+  return ((await res.json()).submissions ?? []) as QuestionnaireSubmission[]
+}
+// Background sweep: pulls any newly-submitted questionnaires (auto-filling fields + republishing
+// the portal) and returns the current unseen submissions. `fresh` = how many newly arrived.
+export async function checkQuestionnaireSubmissions(): Promise<{ fresh: number; submissions: QuestionnaireSubmission[] }> {
+  const res = await fetch('/api/questionnaire/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  if (!res.ok) return { fresh: 0, submissions: [] }
+  return (await res.json()) as { fresh: number; submissions: QuestionnaireSubmission[] }
+}
+// Acknowledge a submission (clears its notification). Returns the remaining unseen ones.
+export async function markQuestionnaireSeen(projectId: string): Promise<QuestionnaireSubmission[]> {
+  const res = await fetch('/api/questionnaire/seen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  if (!res.ok) return []
+  return ((await res.json()).submissions ?? []) as QuestionnaireSubmission[]
+}
+
 // --- QuickBooks --------------------------------------------------------------
 export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }
 export type QuickBooksInvoice = {

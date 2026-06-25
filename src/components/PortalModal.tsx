@@ -178,7 +178,22 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
               )}
 
               <div>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">What to share</p>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">What to share</p>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setShared(new Set(fieldsDef.map((f) => f.id)))}
+                      className="text-muted transition-colors hover:text-parchment"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-faint">·</span>
+                    <button type="button" onClick={() => setShared(new Set())} className="text-muted transition-colors hover:text-parchment">
+                      Clear
+                    </button>
+                  </div>
+                </div>
                 <div className="space-y-1.5">
                   {fieldsDef.map((f) => {
                     const val = fieldValue(f.id)
