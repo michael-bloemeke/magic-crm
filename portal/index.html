@@ -142,6 +142,15 @@
           '<p>It may have expired or been turned off. Please reach out to Michael for an updated link.</p></div></div>'
       }
 
+      function hero(b) {
+        return (
+          '<header class="hero"><p class="brand">The Award-Winning Magic of Michael Bloemeke</p>' +
+          '<h1>' + esc(b.projectName || 'Your Event') + '</h1>' +
+          (b.eventType ? '<p class="etype">' + esc(b.eventType) + '</p>' : '') +
+          '</header>'
+        )
+      }
+
       // One form control for a question, by type.
       function qControl(q) {
         const name = 'q_' + esc(q.id)
@@ -157,7 +166,9 @@
         return '<input type="' + t + '" id="' + name + '" name="' + name + '"' + req + ' />'
       }
 
-      function questionnaireSection(qn) {
+      // The questionnaire GATE: a full page the client must complete once before the portal opens.
+      function renderGate(b) {
+        const qn = b.questionnaire
         const fields = (qn.questions || [])
           .map(
             (q) =>
@@ -165,7 +176,9 @@
               (q.required ? ' <span class="req">*</span>' : '') + '</label>' + qControl(q) + '</div>',
           )
           .join('')
-        return (
+        app.innerHTML =
+          '<div class="wrap">' +
+          hero(b) +
           '<section class="card">' +
           '<h2>A few details about your event</h2>' +
           (qn.intro ? '<p class="message" style="margin-bottom:18px">' + esc(qn.intro) + '</p>' : '') +
@@ -174,12 +187,16 @@
           fields +
           '<p class="qnote" id="qmsg"></p>' +
           '<button type="submit" class="qsubmit" id="qbtn">Send to Michael</button>' +
-          '</form></section>'
-        )
+          '</form></section>' +
+          '<footer>Questions? Just reply to Michael’s email.</footer>' +
+          '</div>'
+        wireGate(b)
       }
 
-      // Collect answers, POST them to the submit function, swap in a thank-you on success.
-      function wireQuestionnaire(qn) {
+      // Collect answers, POST them, then open the portal. The submission is stored server-side, so a
+      // refresh or a return visit skips the gate and goes straight to the portal (one-time only).
+      function wireGate(b) {
+        const qn = b.questionnaire
         const form = document.getElementById('qform')
         if (!form) return
         form.addEventListener('submit', function (e) {
@@ -214,10 +231,7 @@
           })
             .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.error || 'failed')))))
             .then(() => {
-              const sec = form.closest('.card')
-              sec.innerHTML =
-                '<div class="thanks"><h2>Thank you!</h2>' +
-                '<p>Your details are on their way to Michael. He’ll reach out if he needs anything else.</p></div>'
+              renderPortal(b, true)
             })
             .catch((err) => {
               msg.className = 'qnote qerror'
@@ -228,7 +242,8 @@
         })
       }
 
-      function render(b) {
+      // The portal proper: the curated event details, message, and links. No questionnaire here.
+      function renderPortal(b, justSubmitted) {
         const fields = (b.fields || [])
           .map((f) => '<div class="row"><span class="lbl">' + esc(f.label) + '</span><span class="val">' + esc(f.value) + '</span></div>')
           .join('')
@@ -239,20 +254,34 @@
               '<a class="link" href="' + esc(v) + '" target="_blank" rel="noopener noreferrer">' + esc(LINK_LABELS[k] || k) + '</a>',
           )
           .join('')
-        const qn = b.questionnaire && b.questionnaire.enabled ? questionnaireSection(b.questionnaire) : ''
         app.innerHTML =
           '<div class="wrap">' +
-          '<header class="hero"><p class="brand">The Award-Winning Magic of Michael Bloemeke</p>' +
-          '<h1>' + esc(b.projectName || 'Your Event') + '</h1>' +
-          (b.eventType ? '<p class="etype">' + esc(b.eventType) + '</p>' : '') +
-          '</header>' +
+          hero(b) +
+          (justSubmitted
+            ? '<section class="card"><div class="thanks"><h2>Thank you!</h2>' +
+              '<p>Your details are in. Here is everything for your event.</p></div></section>'
+            : '') +
           (b.message ? '<section class="card message">' + esc(b.message) + '</section>' : '') +
           (fields ? '<section class="card"><h2>Event details</h2><div class="rows">' + fields + '</div></section>' : '') +
           (links ? '<section class="card"><h2>Links</h2><div class="links">' + links + '</div></section>' : '') +
-          qn +
           '<footer>Questions? Just reply to Michael’s email.</footer>' +
           '</div>'
-        if (b.questionnaire && b.questionnaire.enabled) wireQuestionnaire(b.questionnaire)
+      }
+
+      // Decide what to show. If a questionnaire is active, it GATES the portal until the client has
+      // submitted it (checked server-side, so it is one-time and survives refreshes/return visits).
+      function boot(b) {
+        if (b.questionnaire && b.questionnaire.enabled) {
+          fetch('/api/status?token=' + encodeURIComponent(token), { cache: 'no-store' })
+            .then((r) => (r.ok ? r.json() : { submitted: false }))
+            .then((s) => {
+              if (s && s.submitted) renderPortal(b, false)
+              else renderGate(b)
+            })
+            .catch(() => renderGate(b))
+        } else {
+          renderPortal(b, false)
+        }
       }
 
       if (!token) {
@@ -260,7 +289,7 @@
       } else {
         fetch('/data/' + encodeURIComponent(token) + '.json', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error('not found'))))
-          .then(render)
+          .then(boot)
           .catch(invalid)
       }
     </script>
