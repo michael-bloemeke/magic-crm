@@ -566,10 +566,23 @@ export function crmDataPlugin() {
           return { questionnaire, portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '', published: !!portal?.published, deploy }
         })
       })
-      // Pull the latest submitted answers and auto-fill the mapped event-detail fields.
+      // Pull the latest submitted answers and auto-fill the mapped event-detail fields. When a NEW
+      // submission arrives, also rebuild + redeploy the portal so its Event details reflect what the
+      // client just entered (the gate's whole point: submit, then see your event page filled in).
       server.middlewares.use('/api/questionnaire/pull', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await pullResponse(b.projectId))
+        withbody(req, res, async (b) => {
+          const result = await pullResponse(b.projectId)
+          if (result?.fresh) {
+            try {
+              writeBundleFile(b.projectId)
+              result.deploy = await deployPortal()
+            } catch (e) {
+              result.deploy = { ok: false, error: String(e?.message || e) }
+            }
+          }
+          return result
+        })
       })
       // Current questionnaire state for a project (drives the card).
       server.middlewares.use('/api/questionnaire', (req, res, next) => {

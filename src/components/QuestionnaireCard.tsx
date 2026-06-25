@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type Project } from '../pipeline'
 import { loadQuestionnaire, setQuestionnaire, pullQuestionnaire, type QuestionnaireState } from '../api'
 
@@ -6,35 +6,61 @@ import { loadQuestionnaire, setQuestionnaire, pullQuestionnaire, type Questionna
 // client's portal: until they submit it, the portal link shows only the questionnaire; once they
 // submit, their answers auto-fill the event-detail fields and the link opens the portal for good.
 // This card is intentionally minimal: a status pill and a single Activate/Deactivate button. The
-// answers themselves appear in the Event details section, so they are not duplicated here.
+// answers themselves appear in the Event details section, so they are not duplicated here. While a
+// questionnaire is active, the card polls for the client's submission (and a fresh one auto-fills
+// the fields here and republishes the portal so it shows the new details).
 
 export function QuestionnaireCard({ project, onApplied }: { project: Project; onApplied?: () => void }) {
   const [state, setState] = useState<QuestionnaireState | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const polling = useRef(false)
+
+  const enabled = !!state?.questionnaire?.enabled
+  const submitted = !!state?.questionnaire?.response
 
   const refresh = () => loadQuestionnaire(project.id).then(setState).catch(() => setState(null))
 
-  // Load state, then quietly poll for a submission. A fresh one auto-fills the event-detail fields
-  // (and marks the questionnaire submitted here), so reload the project to surface the new values.
+  // Check the blob for the client's submission. A fresh one auto-fills the event-detail fields and
+  // (server-side) republishes the portal, so reload local state + the project to surface it. The
+  // `polling` guard prevents the interval from stacking calls while a slow one (a deploy) runs.
+  const poll = async (manual = false) => {
+    if (polling.current) return
+    polling.current = true
+    if (manual) {
+      setBusy(true)
+      setNote(null)
+    }
+    try {
+      const p = await pullQuestionnaire(project.id)
+      if (p.ok && p.fresh) {
+        await refresh()
+        onApplied?.()
+        if (manual) {
+          if (p.deploy && p.deploy.ok === false)
+            setNote('Answers are in. The portal refresh hit a problem; you can re-publish it from the Portal panel.')
+          else setNote('Answers are in and the portal was updated.')
+        }
+      } else if (manual) {
+        setNote(p.ok ? (p.response ? 'No new answers since last check.' : 'No answers yet.') : p.error || 'Could not check for answers.')
+      }
+    } catch (e) {
+      if (manual) setNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      polling.current = false
+      if (manual) setBusy(false)
+    }
+  }
+
+  // Load state on open, then pull once if it's active and not yet submitted.
   useEffect(() => {
     let alive = true
     loadQuestionnaire(project.id)
       .then((s) => {
         if (!alive) return
         setState(s)
-        if (s.questionnaire?.enabled && !s.questionnaire.response) {
-          pullQuestionnaire(project.id)
-            .then((p) => {
-              if (!alive) return
-              if (p.ok && p.fresh) {
-                refresh()
-                onApplied?.()
-              }
-            })
-            .catch(() => {})
-        }
+        if (s.questionnaire?.enabled && !s.questionnaire.response) poll()
       })
       .catch(() => alive && setState(null))
     return () => {
@@ -43,14 +69,22 @@ export function QuestionnaireCard({ project, onApplied }: { project: Project; on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
 
-  const toggle = async (enabled: boolean) => {
+  // While active and waiting, keep checking so a submission lands without reopening the project.
+  useEffect(() => {
+    if (!enabled || submitted) return
+    const t = setInterval(() => poll(), 15000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, submitted, project.id])
+
+  const toggle = async (next: boolean) => {
     setBusy(true)
-    setNote(enabled ? 'Activating and publishing to the portal… (this takes ~30s)' : 'Deactivating…')
+    setNote(next ? 'Activating and publishing to the portal… (this takes ~30s)' : 'Deactivating…')
     try {
-      const r = await setQuestionnaire(project.id, { enabled })
+      const r = await setQuestionnaire(project.id, { enabled: next })
       await refresh()
       if (!r.deploy?.ok) setNote(`Saved, but the portal deploy reported a problem: ${r.deploy?.error || 'unknown'}`)
-      else setNote(enabled ? 'Live. Copy the link below and send it to the client.' : 'Questionnaire turned off.')
+      else setNote(next ? 'Live. Copy the link below and send it to the client.' : 'Questionnaire turned off.')
     } catch (e) {
       setNote(String(e instanceof Error ? e.message : e))
     } finally {
@@ -69,9 +103,6 @@ export function QuestionnaireCard({ project, onApplied }: { project: Project; on
     }
   }
 
-  const q = state?.questionnaire
-  const enabled = !!q?.enabled
-  const submitted = !!q?.response
   const statusLabel = submitted ? 'Submitted' : enabled ? 'Active, not submitted' : 'Not active'
   const pillStyle = submitted
     ? { color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }
@@ -131,20 +162,35 @@ export function QuestionnaireCard({ project, onApplied }: { project: Project; on
             </p>
           )}
 
-          {/* The client's gate link, while active and not yet submitted */}
-          {enabled && !submitted && state.portalUrl && (
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate rounded-lg border border-line bg-surface-2/60 px-2.5 py-1.5 text-[11px] text-muted">
-                {state.portalUrl}
-              </span>
-              <button
-                type="button"
-                onClick={copyLink}
-                className="shrink-0 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-semibold text-parchment hover:border-brass"
-              >
-                {copied ? 'Copied' : 'Copy link'}
-              </button>
-            </div>
+          {/* The client's gate link + manual check, while active and not yet submitted */}
+          {enabled && !submitted && (
+            <>
+              {state.portalUrl && (
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate rounded-lg border border-line bg-surface-2/60 px-2.5 py-1.5 text-[11px] text-muted">
+                    {state.portalUrl}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={copyLink}
+                    className="shrink-0 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-semibold text-parchment hover:border-brass"
+                  >
+                    {copied ? 'Copied' : 'Copy link'}
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] text-faint">Waiting for the client to submit. Checks automatically.</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => poll(true)}
+                  className="text-[11px] text-muted hover:text-parchment disabled:opacity-40"
+                >
+                  {busy ? 'Checking…' : 'Check now'}
+                </button>
+              </div>
+            </>
           )}
 
           {submitted && (

@@ -472,7 +472,7 @@ export type QuestionnaireAnswer = { id: string; label: string; value: string }
 export type QuestionnaireResponse = { answers: QuestionnaireAnswer[]; submittedAt: string; pulledAt: string; appliedFields: string[] }
 export type Questionnaire = { enabled: boolean; intro: string; questions: Question[]; response: QuestionnaireResponse | null }
 export type QuestionnaireState = { questionnaire: Questionnaire | null; blobConfigured: boolean; published: boolean; portalUrl: string }
-export type QuestionnairePull = { ok: boolean; error?: string; response?: QuestionnaireResponse | null; filledFields?: string[]; fresh?: boolean }
+export type QuestionnairePull = { ok: boolean; error?: string; response?: QuestionnaireResponse | null; filledFields?: string[]; fresh?: boolean; deploy?: PortalDeploy }
 
 export async function loadQuestionnaire(projectId: string): Promise<QuestionnaireState> {
   const res = await fetch(`/api/questionnaire?projectId=${encodeURIComponent(projectId)}`)
