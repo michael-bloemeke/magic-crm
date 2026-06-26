@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
-import { loadFiles, loadPortals, publishPortal, unpublishPortal, type FileItem, type ShareableField } from '../api'
+import { loadFiles, loadPortals, loadProjectEmails, publishPortal, unpublishPortal, type FileItem, type ProjectEmail, type ShareableField } from '../api'
+import { EmailBuilderModal } from './EmailBuilderModal'
 
 // The "Client portal" panel for a project. Michael ticks which client-safe fields
 // to share, writes a personal note, optionally adds a couple of links, then
 // Publishes. Publishing writes the curated bundle and pushes it live to Vercel
 // (~30s), giving a secret link to share. Only whitelisted fields can be shared;
 // the panel shows exactly what the client will see.
+// A short invite email whose body carries a real button (not just a link) to the portal page.
+const portalInviteBody = (url: string) =>
+  '<p>Hi there,</p>' +
+  '<p>Here is your event page with all the details in one place. Take a look any time.</p>' +
+  '<p><a href="' + url + '" style="display:inline-block;background:#c79a4b;color:#1a1407;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;font-family:Arial,Helvetica,sans-serif">View your event page</a></p>' +
+  '<p>Thanks!<br>Michael</p>'
+
 export function PortalModal({ open, project, onClose }: { open: boolean; project: Project; onClose: () => void }) {
   const [fieldsDef, setFieldsDef] = useState<ShareableField[]>([])
   const [baseUrl, setBaseUrl] = useState('')
@@ -21,6 +29,8 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
   const [reviews, setReviews] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  const [inviteEmail, setInviteEmail] = useState<ProjectEmail | null>(null)
+  const [emailOpen, setEmailOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -43,6 +53,10 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
     loadFiles()
       .then(setFiles)
       .catch(() => setFiles([]))
+    loadProjectEmails()
+      .then((all) => setInviteEmail(all.find((e) => e.projectId === project.id && e.kind === 'portal-invite') || null))
+      .catch(() => setInviteEmail(null))
+    setEmailOpen(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -125,7 +139,8 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
   }
 
   return (
-    <AnimatePresence>
+    <>
+      <AnimatePresence>
       {open && (
         <motion.div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
@@ -186,6 +201,13 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
                     <a href={link} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment">
                       Open
                     </a>
+                    <button
+                      type="button"
+                      onClick={() => setEmailOpen(true)}
+                      className="shrink-0 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass"
+                    >
+                      {inviteEmail?.status === 'sent' ? 'Email sent' : 'Write email'}
+                    </button>
                   </div>
                   <p className="mt-1.5 text-[11px] text-faint">Anyone with this link can view the page. There's no login, so only share it with the client.</p>
                 </div>
@@ -328,5 +350,21 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
         </motion.div>
       )}
     </AnimatePresence>
+      <EmailBuilderModal
+        open={open && emailOpen}
+        project={project}
+        recipientEmails={(project.contactEmails || '').split(/[,;]/).map((s) => s.trim()).filter(Boolean)}
+        existing={inviteEmail}
+        kind="portal-invite"
+        title="Portal invite"
+        defaultSubject="Your event page"
+        defaultBody={portalInviteBody(link)}
+        onClose={() => setEmailOpen(false)}
+        onSaved={(e) => {
+          setInviteEmail(e)
+          setEmailOpen(false)
+        }}
+      />
+    </>
   )
 }

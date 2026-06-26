@@ -240,7 +240,15 @@ export function ProjectDetailsBody({
             <RecipientsCard project={project} contacts={linkedContacts} recipient={recipient} onChange={changeRecipient} />
             <InvoiceCard project={project} billToName={billToName} billToEmail={billToEmail} />
             <ContractCard project={project} signerName={signerName} signerEmail={signerEmail} />
-            <QuestionnaireCard key={project.id} project={project} onApplied={onProjectChanged} />
+            <QuestionnaireCard
+              key={project.id}
+              project={project}
+              onApplied={onProjectChanged}
+              recipientEmails={recipientEmails}
+              inviteEmail={emailFor('questionnaire-invite')}
+              onEmailSaved={upsertEmail}
+              onEmailDiscard={discardEmail}
+            />
           </div>
         </div>
       </DetailSection>

@@ -54,6 +54,8 @@ import {
   isBlobConfigured,
   loadUnseenSubmissions,
   markSubmissionSeen,
+  loadTemplate as loadQuestionnaireTemplate,
+  saveTemplate as saveQuestionnaireTemplate,
 } from './crm-questionnaire.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus } from './crm-inquiries.mjs'
@@ -647,6 +649,22 @@ export function crmDataPlugin() {
           const projectId = url.searchParams.get('projectId') || ''
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ recipient: loadRecipient(projectId) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Global questionnaire template (Settings editor) ---
+      server.middlewares.use('/api/questionnaire-template/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ template: saveQuestionnaireTemplate(b) }))
+      })
+      server.middlewares.use('/api/questionnaire-template', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ template: loadQuestionnaireTemplate() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

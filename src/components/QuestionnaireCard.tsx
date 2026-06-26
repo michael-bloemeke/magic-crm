@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { type Project } from '../pipeline'
-import { loadQuestionnaire, setQuestionnaire, pullQuestionnaire, type QuestionnaireState } from '../api'
+import { loadQuestionnaire, setQuestionnaire, pullQuestionnaire, type ProjectEmail, type QuestionnaireState } from '../api'
+import { EmailBuilderCard } from './EmailBuilderCard'
+
+// A short invite email whose body carries a real button (not just a link) to the questionnaire.
+const questionnaireInviteBody = (url: string) =>
+  '<p>Hi there,</p>' +
+  '<p>I am looking forward to your event. When you get a chance, please share a few quick details so I can tailor the perfect performance.</p>' +
+  '<p><a href="' + url + '" style="display:inline-block;background:#c79a4b;color:#1a1407;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;font-family:Arial,Helvetica,sans-serif">Fill out your event details</a></p>' +
+  '<p>Thanks!<br>Michael</p>'
 
 // The Booking-section "Questionnaire" card. Flip it on to put a ONE-TIME questionnaire GATE on the
 // client's portal: until they submit it, the portal link shows only the questionnaire; once they
@@ -10,7 +18,21 @@ import { loadQuestionnaire, setQuestionnaire, pullQuestionnaire, type Questionna
 // questionnaire is active, the card polls for the client's submission (and a fresh one auto-fills
 // the fields here and republishes the portal so it shows the new details).
 
-export function QuestionnaireCard({ project, onApplied }: { project: Project; onApplied?: () => void }) {
+export function QuestionnaireCard({
+  project,
+  onApplied,
+  recipientEmails,
+  inviteEmail,
+  onEmailSaved,
+  onEmailDiscard,
+}: {
+  project: Project
+  onApplied?: () => void
+  recipientEmails?: string[]
+  inviteEmail?: ProjectEmail | null
+  onEmailSaved?: (email: ProjectEmail) => void
+  onEmailDiscard?: (id: string) => void
+}) {
   const [state, setState] = useState<QuestionnaireState | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -192,6 +214,20 @@ export function QuestionnaireCard({ project, onApplied }: { project: Project; on
                   {busy ? 'Checking…' : 'Check now'}
                 </button>
               </div>
+              {/* Invite email: composes a message with a button straight to the questionnaire. */}
+              {state.portalUrl && onEmailSaved && (
+                <EmailBuilderCard
+                  project={project}
+                  recipientEmails={recipientEmails || []}
+                  kind="questionnaire-invite"
+                  title="Invite email"
+                  defaultSubject="A few details for your event"
+                  defaultBody={questionnaireInviteBody(state.portalUrl)}
+                  email={inviteEmail || null}
+                  onSaved={onEmailSaved}
+                  onDiscard={onEmailDiscard}
+                />
+              )}
             </>
           )}
 

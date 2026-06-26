@@ -15,6 +15,7 @@ export function EmailBuilderCard({
   kind,
   title,
   defaultSubject,
+  defaultBody,
   templateHint,
   email,
   onSaved,
@@ -26,6 +27,7 @@ export function EmailBuilderCard({
   kind: string
   title: string
   defaultSubject: string
+  defaultBody?: string
   templateHint?: RegExp
   email: ProjectEmail | null
   onSaved: (email: ProjectEmail) => void
@@ -126,6 +128,7 @@ export function EmailBuilderCard({
         kind={kind}
         title={title}
         defaultSubject={defaultSubject}
+        defaultBody={defaultBody}
         templateHint={templateHint}
         onClose={() => setOpen(false)}
         onSaved={onSaved}

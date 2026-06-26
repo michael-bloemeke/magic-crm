@@ -52,7 +52,7 @@ function meta() {
       'Per-project client questionnaire: the question set, whether it is turned on, and the latest submitted answers. Answers auto-fill mapped event-detail fields. Optional portal add-on; nothing depends on it.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
     shape:
-      'questionnaires[projectId] = { enabled, intro, questions[ {id,label,type,required,options?,fieldKey?} ], response?: { answers[{id,label,value}], submittedAt, pulledAt, appliedFields[], seen } }',
+      'questionnaires[projectId] = { enabled, response?: { answers[{id,label,value}], submittedAt, pulledAt, appliedFields[], seen } }. Plus a GLOBAL template = { intro, questions[ {id,label,type,required,options?,fieldKey?} ] } edited on the Settings page and used by every project.',
   }
 }
 
@@ -69,6 +69,40 @@ function readFile() {
 function writeFile(d) {
   d._meta = meta()
   fs.writeFileSync(QUESTIONNAIRE_FILE, JSON.stringify(d, null, 2) + '\n')
+}
+
+const QUESTION_TYPES = ['text', 'textarea', 'date', 'tel', 'number', 'select']
+
+// The GLOBAL questionnaire template (intro + questions), edited on the Settings page and used by
+// EVERY project's questionnaire. Seeds from the built-in defaults until Michael customizes it.
+export function loadTemplate() {
+  const d = readFile()
+  const t = d.template && typeof d.template === 'object' ? d.template : null
+  const intro = t && typeof t.intro === 'string' ? t.intro : DEFAULT_INTRO
+  const questions =
+    t && Array.isArray(t.questions) && t.questions.length ? t.questions : DEFAULT_QUESTIONS.map((x) => ({ ...x }))
+  return { intro, questions }
+}
+export function saveTemplate({ intro, questions } = {}) {
+  const d = readFile()
+  const clean = Array.isArray(questions)
+    ? questions
+        .filter((q) => q && String(q.id || '').trim() && String(q.label || '').trim())
+        .map((q) => ({
+          id: String(q.id).trim(),
+          label: String(q.label).trim(),
+          type: QUESTION_TYPES.includes(q.type) ? q.type : 'text',
+          required: !!q.required,
+          ...(Array.isArray(q.options) && q.options.length ? { options: q.options.map((o) => String(o)).filter(Boolean) } : {}),
+          ...(q.fieldKey ? { fieldKey: String(q.fieldKey) } : {}),
+        }))
+    : []
+  d.template = {
+    intro: intro != null ? String(intro) : DEFAULT_INTRO,
+    questions: clean.length ? clean : DEFAULT_QUESTIONS.map((x) => ({ ...x })),
+  }
+  writeFile(d)
+  return loadTemplate()
 }
 
 // The portal token for a project (read directly to avoid a circular import with crm-portal).
@@ -129,10 +163,11 @@ export function setQuestionnaire(projectId, { enabled, intro } = {}) {
 export function questionnaireForBundle(projectId) {
   const q = loadQuestionnaire(projectId)
   if (!q || !q.enabled) return null
+  const t = loadTemplate()
   return {
     enabled: true,
-    intro: String(q.intro || ''),
-    questions: (q.questions || []).map((x) => ({
+    intro: String(t.intro || ''),
+    questions: (t.questions || []).map((x) => ({
       id: x.id,
       label: x.label,
       type: x.type || 'text',
@@ -202,7 +237,7 @@ export async function pullResponse(projectId) {
     return { ok: true, response: q.response, filledFields: [], fresh: false }
   }
 
-  const filled = applyAnswers(projectId, q.questions, incoming.answers)
+  const filled = applyAnswers(projectId, loadTemplate().questions, incoming.answers)
   q.response = {
     answers: incoming.answers,
     submittedAt: incoming.submittedAt,

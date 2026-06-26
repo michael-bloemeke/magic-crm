@@ -549,6 +549,23 @@ export async function saveRecipient(projectId: string, patch: Partial<DocRecipie
   return (await res.json()).recipient as DocRecipient
 }
 
+// --- Global questionnaire template (Settings editor) -------------------------
+export type QuestionnaireTemplate = { intro: string; questions: Question[] }
+export async function loadQuestionnaireTemplate(): Promise<QuestionnaireTemplate> {
+  const res = await fetch('/api/questionnaire-template')
+  if (!res.ok) throw new Error(`Failed to load questionnaire template (${res.status})`)
+  return ((await res.json()).template ?? { intro: '', questions: [] }) as QuestionnaireTemplate
+}
+export async function saveQuestionnaireTemplate(t: QuestionnaireTemplate): Promise<QuestionnaireTemplate> {
+  const res = await fetch('/api/questionnaire-template/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(t),
+  })
+  if (!res.ok) throw new Error(`Failed to save questionnaire template (${res.status})`)
+  return (await res.json()).template as QuestionnaireTemplate
+}
+
 // --- QuickBooks --------------------------------------------------------------
 export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }
 export type QuickBooksInvoice = {
@@ -814,7 +831,14 @@ export function fileRawUrl(name: string): string {
 
 // --- Editable settings -------------------------------------------------------
 
-export type AppConfig = { incomeGoals: number[]; monthlyGoal: number; archiveReasons: string[]; contactTags: string[] }
+export type AppConfig = {
+  incomeGoals: number[]
+  monthlyGoal: number
+  archiveReasons: string[]
+  contactTags: string[]
+  eventFieldLabels: Record<string, string>
+  eventFieldHidden: string[]
+}
 
 export async function loadConfig(): Promise<AppConfig> {
   const res = await fetch('/api/config')

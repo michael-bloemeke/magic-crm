@@ -41,6 +41,7 @@ export function EmailBuilderModal({
   kind,
   title,
   defaultSubject,
+  defaultBody,
   templateHint,
   onClose,
   onSaved,
@@ -53,6 +54,7 @@ export function EmailBuilderModal({
   kind: string
   title: string
   defaultSubject: string
+  defaultBody?: string
   templateHint?: RegExp
   onClose: () => void
   onSaved: (email: ProjectEmail) => void
@@ -87,7 +89,11 @@ export function EmailBuilderModal({
     // Drafts are HTML now; an old text draft is converted so it renders in the rich editor. Any
     // placeholders whose project value is now available fill in on open.
     {
-      const raw = existing?.body ? (existing.format === 'html' ? existing.body : textToHtml(existing.body)) : ''
+      const raw = existing?.body
+        ? existing.format === 'html'
+          ? existing.body
+          : textToHtml(existing.body)
+        : defaultBody || ''
       setBody(resolveMergeFields(raw, project))
     }
     setConfirmUnfilled(false)

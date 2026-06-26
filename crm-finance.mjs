@@ -92,7 +92,17 @@ export function loadConfig() {
   const contactTags = Array.isArray(d.contactTags) ? uniqStrings(d.contactTags) : []
   const monthlyGoal = num(d.monthlyGoal) > 0 ? num(d.monthlyGoal) : DEFAULT_MONTHLY_GOAL
   const contractTemplate = typeof d.contractTemplate === 'string' ? d.contractTemplate : ''
-  return { incomeGoals: [...goals].sort((a, b) => a - b), monthlyGoal, archiveReasons: reasons, contactTags, contractTemplate }
+  const eventFieldLabels = d.eventFieldLabels && typeof d.eventFieldLabels === 'object' ? d.eventFieldLabels : {}
+  const eventFieldHidden = Array.isArray(d.eventFieldHidden) ? d.eventFieldHidden.map((s) => String(s)) : []
+  return {
+    incomeGoals: [...goals].sort((a, b) => a - b),
+    monthlyGoal,
+    archiveReasons: reasons,
+    contactTags,
+    contractTemplate,
+    eventFieldLabels,
+    eventFieldHidden,
+  }
 }
 export function saveConfig(patch) {
   const cur = readJson(CONFIG_FILE, {})
@@ -113,10 +123,16 @@ export function saveConfig(patch) {
     // Empty string clears it (falls back to the built-in default contract).
     cur.contractTemplate = String(patch.contractTemplate)
   }
+  if (patch.eventFieldLabels != null && typeof patch.eventFieldLabels === 'object') {
+    cur.eventFieldLabels = patch.eventFieldLabels
+  }
+  if (patch.eventFieldHidden != null) {
+    cur.eventFieldHidden = (patch.eventFieldHidden || []).map((s) => String(s))
+  }
   cur._meta = metaBlock(
     'crm-config.json',
-    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, the reusable contact-tag library, and the editable default contract template HTML (Settings page; empty = built-in default).',
-    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings), contractTemplate (HTML string)',
+    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, the reusable contact-tag library, the editable default contract template HTML, and event-field label overrides + hidden event fields (Settings page).',
+    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings), contractTemplate (HTML string), eventFieldLabels {fieldId:label}, eventFieldHidden[] (field ids hidden from Event details)',
   )
   writeJson(CONFIG_FILE, cur)
   return loadConfig()
