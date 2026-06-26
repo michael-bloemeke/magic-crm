@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
-import { loadPortals, publishPortal, unpublishPortal, type ShareableField } from '../api'
+import { loadFiles, loadPortals, publishPortal, unpublishPortal, type FileItem, type ShareableField } from '../api'
 
 // The "Client portal" panel for a project. Michael ticks which client-safe fields
 // to share, writes a personal note, optionally adds a couple of links, then
@@ -14,6 +14,8 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
   const [token, setToken] = useState('')
   const [published, setPublished] = useState(false)
   const [shared, setShared] = useState<Set<string>>(new Set())
+  const [assets, setAssets] = useState<Set<string>>(new Set())
+  const [files, setFiles] = useState<FileItem[] | null>(null)
   const [message, setMessage] = useState('')
   const [video, setVideo] = useState('')
   const [reviews, setReviews] = useState('')
@@ -32,11 +34,15 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
         setToken(s?.token || '')
         setPublished(!!s?.published)
         setShared(new Set(s?.sharedFields || []))
+        setAssets(new Set(s?.assetIds || []))
         setMessage(s?.message || '')
         setVideo(s?.links?.video || '')
         setReviews(s?.links?.reviews || '')
       })
       .catch(() => setStatus('Could not load portal settings.'))
+    loadFiles()
+      .then(setFiles)
+      .catch(() => setFiles([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -56,6 +62,13 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
       else n.add(id)
       return n
     })
+  const toggleAsset = (name: string) =>
+    setAssets((s) => {
+      const n = new Set(s)
+      if (n.has(name)) n.delete(name)
+      else n.add(name)
+      return n
+    })
 
   const fieldValue = (id: string) => {
     const v = (project as unknown as Record<string, unknown>)[id]
@@ -65,6 +78,7 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
 
   const buildPatch = () => ({
     sharedFields: [...shared],
+    assetIds: [...assets],
     message,
     links: {
       ...(video.trim() ? { video: video.trim() } : {}),
@@ -228,6 +242,49 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-faint">
                   Only these client-safe fields can ever be shared. Pricing, notes, the activity log, mileage, and tips can never appear on the portal.
+                </p>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Files for the client</p>
+                {files == null ? (
+                  <p className="text-[11.5px] text-faint">Loading…</p>
+                ) : files.length === 0 ? (
+                  <p className="text-[11.5px] leading-relaxed text-faint">
+                    No files yet. Add documents on the Files page, then pick them here.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {files.map((f) => {
+                      const on = assets.has(f.name)
+                      return (
+                        <button
+                          key={f.name}
+                          type="button"
+                          onClick={() => toggleAsset(f.name)}
+                          className={[
+                            'flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors',
+                            on ? 'border-brass-dim/50 bg-surface-3/40' : 'border-line bg-surface-2/40',
+                          ].join(' ')}
+                        >
+                          <span
+                            className={[
+                              'flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors',
+                              on ? 'border-brass bg-brass text-canvas' : 'border-line-strong text-transparent',
+                            ].join(' ')}
+                          >
+                            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M20 6L9 17l-5-5" />
+                            </svg>
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-parchment">{f.name}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <p className="mt-2 text-[11px] leading-relaxed text-faint">
+                  Selected files are published with the page so the client can preview or download them.
                 </p>
               </div>
 

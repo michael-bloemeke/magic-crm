@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { questionnaireForBundle } from './crm-questionnaire.mjs'
+import { readFile as readBusinessFile } from './crm-files.mjs'
 
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
 
@@ -21,6 +22,9 @@ const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
 // Vercel. The production alias is stable across deploys, so client links never change.
 const PORTAL_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'portal')
 const PORTAL_DATA_DIR = path.join(PORTAL_DIR, 'data')
+// Selected business files are copied here per token so the static portal can serve them at
+// /files/<token>/<name> (behind the secret link; robots.txt disallows the whole site).
+const PORTAL_FILES_DIR = path.join(PORTAL_DIR, 'files')
 export const PORTAL_BASE_URL = 'https://portal-liard-phi.vercel.app'
 
 // The ONLY project fields a portal may expose. `id` matches the normalized Project
@@ -143,12 +147,18 @@ export function buildBundle(projectId) {
     fields.push({ label: f.label, value: String(v) })
   }
 
+  // Files Michael chose to share (from the Files page). The actual bytes are copied into the
+  // deploy by writeBundleFile; here we just list name + the URL the portal will fetch.
+  const assetNames = Array.isArray(settings.assetIds) ? settings.assetIds.map(String) : []
+  const files = assetNames.map((name) => ({ name, url: `/files/${settings.token}/${encodeURIComponent(name)}` }))
+
   return {
     token: settings.token,
     projectName: String(project.client || ''),
     eventType: String(project.eventType || ''),
     message: String(settings.message || ''),
     fields,
+    files,
     links: settings.links && typeof settings.links === 'object' ? settings.links : {},
     // Optional client questionnaire (just the questions + intro; never any answers). Null
     // when Michael hasn't turned it on for this project.
@@ -175,11 +185,24 @@ export function writeBundleFile(projectId) {
   const settings = loadPortal(projectId)
   if (!settings) return { ok: false, error: 'no portal settings' }
   const file = path.join(PORTAL_DATA_DIR, `${settings.token}.json`)
+  const filesDir = path.join(PORTAL_FILES_DIR, settings.token)
   const bundle = buildBundle(projectId)
   try {
     fs.mkdirSync(PORTAL_DATA_DIR, { recursive: true })
-    if (bundle) fs.writeFileSync(file, JSON.stringify(bundle, null, 2) + '\n')
-    else if (fs.existsSync(file)) fs.unlinkSync(file)
+    // Rewrite this token's shared files from scratch each publish (so removed ones go away).
+    fs.rmSync(filesDir, { recursive: true, force: true })
+    if (bundle) {
+      fs.writeFileSync(file, JSON.stringify(bundle, null, 2) + '\n')
+      if (Array.isArray(bundle.files) && bundle.files.length) {
+        fs.mkdirSync(filesDir, { recursive: true })
+        for (const f of bundle.files) {
+          const src = readBusinessFile(f.name)
+          if (src && src.buffer) fs.writeFileSync(path.join(filesDir, src.name), src.buffer)
+        }
+      }
+    } else if (fs.existsSync(file)) {
+      fs.unlinkSync(file)
+    }
     return { ok: true, token: settings.token, live: !!bundle }
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }
