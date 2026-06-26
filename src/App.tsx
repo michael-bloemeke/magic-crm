@@ -53,6 +53,10 @@ import {
   checkInquiries,
   dismissInquiry,
   type InquiryNotification,
+  loadQuestionnaireSubmissions,
+  checkQuestionnaireSubmissions,
+  markQuestionnaireSeen,
+  type QuestionnaireSubmission,
   saveStage,
   loadStructure,
   saveStructure as apiSaveStructure,
@@ -120,6 +124,7 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [inquiries, setInquiries] = useState<InquiryNotification[]>([])
+  const [submissions, setSubmissions] = useState<QuestionnaireSubmission[]>([])
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
   const [completeTarget, setCompleteTarget] = useState<Project | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -416,6 +421,37 @@ function App() {
     dismissInquiry(blockId).catch(() => {})
   }
 
+  // Notify when a client submits their questionnaire. A background sweep pulls any new submissions
+  // (auto-filling fields + republishing the portal), and the unseen ones surface in the bell.
+  useEffect(() => {
+    let alive = true
+    const run = async () => {
+      try {
+        const r = await checkQuestionnaireSubmissions()
+        if (!alive) return
+        setSubmissions(r.submissions)
+        if (r.fresh > 0) reloadProjects()
+      } catch {
+        // offline or not configured, ignore
+      }
+    }
+    loadQuestionnaireSubmissions()
+      .then((s) => alive && setSubmissions(s))
+      .catch(() => {})
+    run()
+    const timer = setInterval(run, 2 * 60 * 1000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const dismissSubmissionNotif = (projectId: string) => {
+    setSubmissions((prev) => prev.filter((s) => s.projectId !== projectId))
+    markQuestionnaireSeen(projectId).catch(() => {})
+  }
+
   const applyPatch = (id: string, patch: Partial<Project>) => {
     const apply = (p: Project) => (p.id === id ? { ...p, ...patch } : p)
     setProjects((prev) => (prev ? prev.map(apply) : prev))
@@ -625,6 +661,8 @@ function App() {
       projects={allProjects}
       inquiries={inquiries}
       onDismissInquiry={dismissInquiryNotif}
+      submissions={submissions}
+      onDismissSubmission={dismissSubmissionNotif}
       onToggle={toggleTask}
       onDelete={deleteTask}
       onOpenProject={openFull}
