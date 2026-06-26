@@ -214,8 +214,10 @@ export async function createInvoiceForProject(projectId, opts = {}) {
     throw new Error('Enter an invoice amount (or set a Quote on the project first).')
   }
   amount = Math.round(amount * 100) / 100
-  const email = String(project.contactEmails || '').split(/[,;]/)[0].trim() || ''
-  const customer = await ensureCustomer(project.client, email)
+  const email =
+    String(opts.email || '').trim() || String(project.contactEmails || '').split(/[,;]/)[0].trim() || ''
+  const customerName = String(opts.customerName || '').trim() || project.client
+  const customer = await ensureCustomer(customerName, email)
   const item = await ensureServiceItem('Magic Performance')
   const description = `${project.eventType || 'Magic performance'}${project.eventDate ? ` on ${project.eventDate}` : ''}`
   const lines = [

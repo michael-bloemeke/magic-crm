@@ -532,6 +532,23 @@ export async function markQuestionnaireSeen(projectId: string): Promise<Question
   return ((await res.json()).submissions ?? []) as QuestionnaireSubmission[]
 }
 
+// --- Document recipients (contract signer + invoice bill-to) -----------------
+export type DocRecipient = { signerId: string; billToId: string; billToName: string }
+export async function loadRecipient(projectId: string): Promise<DocRecipient | null> {
+  const res = await fetch(`/api/recipients?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) return null
+  return ((await res.json()).recipient ?? null) as DocRecipient | null
+}
+export async function saveRecipient(projectId: string, patch: Partial<DocRecipient>): Promise<DocRecipient> {
+  const res = await fetch('/api/recipients/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, ...patch }),
+  })
+  if (!res.ok) throw new Error(`Failed to save recipients (${res.status})`)
+  return (await res.json()).recipient as DocRecipient
+}
+
 // --- QuickBooks --------------------------------------------------------------
 export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }
 export type QuickBooksInvoice = {
@@ -546,7 +563,7 @@ export type QuickBooksInvoice = {
   createdAt: string
   sentAt: string
 }
-export type InvoiceOptions = { amount?: number; dueDate?: string; processingFeePercent?: number }
+export type InvoiceOptions = { amount?: number; dueDate?: string; processingFeePercent?: number; customerName?: string; email?: string }
 
 export async function loadQuickBooks(): Promise<{ status: QuickBooksStatus; invoices: Record<string, QuickBooksInvoice> }> {
   const res = await fetch('/api/quickbooks')

@@ -55,6 +55,7 @@ import {
   loadUnseenSubmissions,
   markSubmissionSeen,
 } from './crm-questionnaire.mjs'
+import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus } from './crm-inquiries.mjs'
 import {
   status as qbStatus,
@@ -633,6 +634,24 @@ export function crmDataPlugin() {
           return { submissions: submissionsWithNames() }
         })
       })
+
+      // --- Document recipients (contract signer + invoice bill-to) ---
+      server.middlewares.use('/api/recipients/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ recipient: saveRecipient(b.projectId, b) }))
+      })
+      server.middlewares.use('/api/recipients', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+          const projectId = url.searchParams.get('projectId') || ''
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ recipient: loadRecipient(projectId) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
       // Current questionnaire state for a project (drives the card).
       server.middlewares.use('/api/questionnaire', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -732,6 +751,8 @@ export function crmDataPlugin() {
             amount: b.amount,
             dueDate: b.dueDate,
             processingFeePercent: b.processingFeePercent,
+            customerName: b.customerName,
+            email: b.email,
           }),
         }))
       })
