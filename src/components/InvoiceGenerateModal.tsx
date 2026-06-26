@@ -19,11 +19,13 @@ function money(n: number) {
 type Props = {
   project: Project | null
   mode: 'create' | 'regenerate'
+  billToName?: string
+  billToEmail?: string
   onCancel: () => void
   onCreated: (invoice: QuickBooksInvoice) => void
 }
 
-export function InvoiceGenerateModal({ project, mode, onCancel, onCreated }: Props) {
+export function InvoiceGenerateModal({ project, mode, billToName, billToEmail, onCancel, onCreated }: Props) {
   const [amount, setAmount] = useState('')
   const [dueDate, setDueDate] = useState(todayISO())
   const [addFee, setAddFee] = useState(true)
@@ -64,6 +66,8 @@ export function InvoiceGenerateModal({ project, mode, onCancel, onCreated }: Pro
         amount: amt,
         dueDate,
         processingFeePercent: addFee && !Number.isNaN(pct) && pct > 0 ? pct : 0,
+        customerName: billToName,
+        email: billToEmail,
       })
       onCreated(inv)
     } catch (e) {
@@ -96,8 +100,8 @@ export function InvoiceGenerateModal({ project, mode, onCancel, onCreated }: Pro
                 {mode === 'regenerate' ? 'Regenerate invoice' : 'Generate invoice'}
               </h2>
               <p className="mt-1 text-[12.5px] text-muted">
-                For <span className="text-parchment">{project.client}</span>. Defaults to the full quote; lower the amount
-                for a partial invoice (e.g. a 50% deposit).
+                Bill to <span className="text-parchment">{billToName || project.client}</span>. Defaults to the full quote;
+                lower the amount for a partial invoice (e.g. a 50% deposit).
               </p>
             </div>
 

@@ -9,120 +9,141 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --bg: #f4f1ea;
-        --card: #fffdf8;
-        --ink: #241f17;
-        --muted: #6f685a;
-        --faint: #9a9282;
-        --line: #e7e1d4;
-        --brass: #b0832f;
+        --bg: #14110b;
+        --bg-2: #1a1610;
+        --card: #211c14;
+        --card-2: #262017;
+        --ink: #f2ecdf;
+        --muted: #b8ad97;
+        --faint: #8c826f;
+        --line: rgba(214, 193, 150, 0.14);
+        --line-strong: rgba(214, 193, 150, 0.26);
+        --brass: #c79a4b;
+        --brass-bright: #e6c074;
+        --brass-soft: rgba(199, 154, 75, 0.13);
       }
       * { box-sizing: border-box; }
+      html { background: var(--bg); }
       body {
         margin: 0;
-        background: var(--bg);
         color: var(--ink);
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
         -webkit-font-smoothing: antialiased;
-        line-height: 1.5;
+        line-height: 1.55;
+        background:
+          radial-gradient(1100px 520px at 50% -10%, rgba(199, 154, 75, 0.12), transparent 60%),
+          var(--bg);
+        min-height: 100vh;
       }
-      .wrap { max-width: 640px; margin: 0 auto; padding: 56px 22px 72px; }
-      .hero { text-align: center; margin-bottom: 30px; }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 64px 24px 84px; }
+      .hero { text-align: center; margin-bottom: 26px; }
       .brand {
-        margin: 0 0 14px;
-        font-size: 11px;
-        letter-spacing: 0.22em;
+        margin: 0 0 16px;
+        font-size: 10.5px;
+        letter-spacing: 0.32em;
         text-transform: uppercase;
-        color: var(--brass);
+        color: var(--brass-bright);
         font-weight: 600;
       }
       h1 {
         font-family: 'Fraunces', Georgia, serif;
         font-weight: 600;
-        font-size: clamp(30px, 6vw, 44px);
-        line-height: 1.08;
+        font-size: clamp(34px, 6.5vw, 52px);
+        line-height: 1.04;
         margin: 0;
+        letter-spacing: -0.01em;
       }
       .etype {
-        margin: 12px 0 0;
-        font-size: 13px;
-        letter-spacing: 0.12em;
+        margin: 14px 0 0;
+        font-size: 12px;
+        letter-spacing: 0.18em;
         text-transform: uppercase;
         color: var(--faint);
       }
+      .rule { width: 54px; height: 2px; margin: 22px auto 0; background: linear-gradient(90deg, transparent, var(--brass), transparent); }
       .card {
-        background: var(--card);
+        background: linear-gradient(180deg, var(--card-2), var(--card));
         border: 1px solid var(--line);
-        border-radius: 18px;
+        border-radius: 16px;
         padding: 22px 24px;
         margin-top: 16px;
-        box-shadow: 0 20px 50px -38px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 24px 60px -44px rgba(0, 0, 0, 0.9);
       }
       .card h2 {
         font-family: 'Fraunces', Georgia, serif;
         font-weight: 600;
-        font-size: 17px;
-        margin: 0 0 14px;
-      }
-      .message { font-size: 16px; line-height: 1.65; color: #34302a; white-space: pre-line; }
-      .rows { display: flex; flex-direction: column; }
-      .row {
-        display: flex;
-        justify-content: space-between;
-        gap: 18px;
-        padding: 11px 0;
-        border-bottom: 1px solid var(--line);
-      }
-      .row:last-child { border-bottom: 0; }
-      .lbl { color: var(--muted); font-size: 13px; }
-      .val { text-align: right; font-weight: 500; }
-      .links { display: flex; flex-wrap: wrap; gap: 10px; }
-      .link {
-        display: inline-block;
-        padding: 9px 15px;
-        border: 1px solid var(--brass);
-        border-radius: 999px;
-        color: var(--brass);
-        text-decoration: none;
         font-size: 13px;
-        font-weight: 600;
-        transition: background 0.15s, color 0.15s;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--brass-bright);
+        margin: 0 0 16px;
       }
-      .link:hover { background: var(--brass); color: #fff; }
-      footer { margin-top: 28px; text-align: center; color: var(--faint); font-size: 12.5px; }
-      .qform { display: flex; flex-direction: column; gap: 17px; }
-      .qfield { display: flex; flex-direction: column; gap: 6px; }
-      .qfield label { font-size: 14px; font-weight: 500; color: #34302a; }
-      .qfield .req { color: var(--brass); }
+      .message { font-size: 16.5px; line-height: 1.7; color: var(--ink); white-space: pre-line; }
+      /* Event facts: two columns to keep it from running long. */
+      .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 28px; }
+      @media (max-width: 520px) { .facts { grid-template-columns: 1fr; } }
+      .fact { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .fact .lbl { color: var(--faint); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+      .fact .val { color: var(--ink); font-size: 15px; font-weight: 500; word-break: break-word; }
+      .files { display: flex; flex-direction: column; gap: 8px; }
+      .file {
+        display: flex; align-items: center; justify-content: space-between; gap: 14px;
+        border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--bg-2);
+      }
+      .file .fname { font-size: 14px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .file .facts-actions { display: flex; gap: 8px; shrink: 0; }
+      .links { display: flex; flex-wrap: wrap; gap: 10px; }
+      .btn {
+        display: inline-block; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+        text-decoration: none; cursor: pointer; border: 1px solid var(--brass); color: var(--brass-bright);
+        background: var(--brass-soft); transition: background 0.15s, color 0.15s, border-color 0.15s;
+      }
+      .btn:hover { background: var(--brass); color: #1a1407; }
+      .btn-sm { padding: 7px 13px; font-size: 12px; }
+      .btn-solid { background: var(--brass); color: #1a1407; border-color: var(--brass); }
+      .btn-solid:hover { filter: brightness(1.07); }
+      .btn-ghost { background: transparent; border-color: var(--line-strong); color: var(--muted); }
+      .btn-ghost:hover { border-color: var(--brass); color: var(--brass-bright); background: transparent; }
+      footer { margin-top: 30px; text-align: center; color: var(--faint); font-size: 12.5px; }
+      /* Questionnaire form */
+      .qform { display: flex; flex-direction: column; gap: 18px; }
+      .qfield { display: flex; flex-direction: column; gap: 7px; }
+      .qfield label { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+      .qfield .req { color: var(--brass-bright); }
       .qfield input, .qfield textarea, .qfield select {
-        font-family: inherit; font-size: 15px; color: var(--ink); background: #fff;
-        border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px;
-        width: 100%; outline: none; transition: border-color 0.15s;
+        font-family: inherit; font-size: 15px; color: var(--ink); background: var(--bg-2);
+        border: 1px solid var(--line-strong); border-radius: 11px; padding: 12px 14px;
+        width: 100%; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
       }
-      .qfield input:focus, .qfield textarea:focus, .qfield select:focus { border-color: var(--brass); }
-      .qfield textarea { resize: vertical; min-height: 84px; }
+      .qfield input::placeholder, .qfield textarea::placeholder { color: var(--faint); }
+      .qfield input:focus, .qfield textarea:focus, .qfield select:focus {
+        border-color: var(--brass); box-shadow: 0 0 0 3px var(--brass-soft);
+      }
+      .qfield textarea { resize: vertical; min-height: 90px; }
+      .qfield select option { background: var(--card); color: var(--ink); }
       .qsubmit {
         align-self: flex-start; margin-top: 4px; border: 0; cursor: pointer;
-        background: var(--brass); color: #fff; font-family: inherit; font-weight: 600;
-        font-size: 15px; padding: 12px 26px; border-radius: 999px; transition: filter 0.15s;
+        background: var(--brass); color: #1a1407; font-family: inherit; font-weight: 600;
+        font-size: 15px; padding: 13px 30px; border-radius: 999px; transition: filter 0.15s;
       }
-      .qsubmit:hover { filter: brightness(1.06); }
+      .qsubmit:hover { filter: brightness(1.07); }
       .qsubmit:disabled { opacity: 0.55; cursor: default; }
       .qnote { font-size: 13px; color: var(--muted); margin: 0; }
-      .qerror { color: #b23b2e; }
+      .qerror { color: #e89a7c; }
       .qhp { position: absolute !important; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-      .thanks { text-align: center; padding: 10px 0; }
-      .thanks h2 { margin: 0 0 8px; }
-      .thanks p { color: var(--muted); margin: 0; }
+      .thanks { text-align: center; padding: 14px 4px; }
+      .thanks h2 { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 26px; color: var(--ink); margin: 0 0 10px; text-transform: none; letter-spacing: 0; }
+      .thanks p { color: var(--muted); margin: 0 auto; max-width: 30rem; font-size: 15px; }
+      .thanks .btn { margin-top: 22px; }
       .center { text-align: center; }
-      .center h1 { font-size: clamp(24px, 5vw, 32px); }
+      .center h1 { font-size: clamp(26px, 5vw, 34px); }
       .center p { color: var(--muted); margin: 14px auto 0; max-width: 30rem; }
-      .loading { padding: 80px 0; text-align: center; color: var(--faint); }
+      .loading { padding: 96px 0; text-align: center; color: var(--faint); }
     </style>
   </head>
   <body>
@@ -147,7 +168,7 @@
           '<header class="hero"><p class="brand">The Award-Winning Magic of Michael Bloemeke</p>' +
           '<h1>' + esc(b.projectName || 'Your Event') + '</h1>' +
           (b.eventType ? '<p class="etype">' + esc(b.eventType) + '</p>' : '') +
-          '</header>'
+          '<div class="rule"></div></header>'
         )
       }
 
@@ -166,7 +187,7 @@
         return '<input type="' + t + '" id="' + name + '" name="' + name + '"' + req + ' />'
       }
 
-      // The questionnaire GATE: a full page the client must complete once before the portal opens.
+      // The questionnaire GATE: a full page the client completes once before the portal opens.
       function renderGate(b) {
         const qn = b.questionnaire
         const fields = (qn.questions || [])
@@ -181,7 +202,7 @@
           hero(b) +
           '<section class="card">' +
           '<h2>A few details about your event</h2>' +
-          (qn.intro ? '<p class="message" style="margin-bottom:18px">' + esc(qn.intro) + '</p>' : '') +
+          (qn.intro ? '<p class="message" style="margin-bottom:20px">' + esc(qn.intro) + '</p>' : '') +
           '<form id="qform" class="qform" novalidate>' +
           '<input class="qhp" tabindex="-1" autocomplete="off" aria-hidden="true" id="q_hp" />' +
           fields +
@@ -193,8 +214,8 @@
         wireGate(b)
       }
 
-      // Collect answers, POST them, then open the portal. The submission is stored server-side, so a
-      // refresh or a return visit skips the gate and goes straight to the portal (one-time only).
+      // Collect answers, POST them, then show a thank-you page. The submission is stored server-side,
+      // so a refresh or a return visit goes straight to the portal (the questionnaire is one-time).
       function wireGate(b) {
         const qn = b.questionnaire
         const form = document.getElementById('qform')
@@ -231,7 +252,7 @@
           })
             .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.error || 'failed')))))
             .then(() => {
-              renderPortal(b, true)
+              renderThankYou(b)
             })
             .catch((err) => {
               msg.className = 'qnote qerror'
@@ -242,16 +263,44 @@
         })
       }
 
-      // The portal proper: the curated event details, message, and links. No questionnaire here.
+      // Shown immediately after a successful submission: a clean confirmation, with a button to view
+      // the event page when ready (a refresh later opens it directly).
+      function renderThankYou(b) {
+        app.innerHTML =
+          '<div class="wrap">' +
+          hero(b) +
+          '<section class="card"><div class="thanks">' +
+          '<h2>Thank you!</h2>' +
+          '<p>Your details are on their way to Michael. He’ll be in touch if he needs anything else.</p>' +
+          '<button type="button" class="btn" id="toPortal">View your event page</button>' +
+          '</div></section>' +
+          '<footer>Questions? Just reply to Michael’s email.</footer>' +
+          '</div>'
+        const toPortal = document.getElementById('toPortal')
+        if (toPortal) toPortal.addEventListener('click', () => renderPortal(b, false))
+      }
+
+      // The portal proper: curated event details, message, files, and links. No questionnaire here.
       function renderPortal(b, justSubmitted) {
-        const fields = (b.fields || [])
-          .map((f) => '<div class="row"><span class="lbl">' + esc(f.label) + '</span><span class="val">' + esc(f.value) + '</span></div>')
+        const facts = (b.fields || [])
+          .map((f) => '<div class="fact"><span class="lbl">' + esc(f.label) + '</span><span class="val">' + esc(f.value) + '</span></div>')
+          .join('')
+        const files = (b.files || [])
+          .filter((f) => f && f.url)
+          .map(
+            (f) =>
+              '<div class="file"><span class="fname">' + esc(f.name || 'File') + '</span>' +
+              '<span class="facts-actions">' +
+              '<a class="btn btn-sm btn-ghost" href="' + esc(f.url) + '" target="_blank" rel="noopener noreferrer">Preview</a>' +
+              '<a class="btn btn-sm btn-ghost" href="' + esc(f.url) + '" download>Download</a>' +
+              '</span></div>',
+          )
           .join('')
         const links = Object.entries(b.links || {})
           .filter(([, v]) => v)
           .map(
             ([k, v]) =>
-              '<a class="link" href="' + esc(v) + '" target="_blank" rel="noopener noreferrer">' + esc(LINK_LABELS[k] || k) + '</a>',
+              '<a class="btn btn-sm btn-ghost" href="' + esc(v) + '" target="_blank" rel="noopener noreferrer">' + esc(LINK_LABELS[k] || k) + '</a>',
           )
           .join('')
         app.innerHTML =
@@ -261,8 +310,9 @@
             ? '<section class="card"><div class="thanks"><h2>Thank you!</h2>' +
               '<p>Your details are in. Here is everything for your event.</p></div></section>'
             : '') +
-          (b.message ? '<section class="card message">' + esc(b.message) + '</section>' : '') +
-          (fields ? '<section class="card"><h2>Event details</h2><div class="rows">' + fields + '</div></section>' : '') +
+          (b.message ? '<section class="card"><p class="message">' + esc(b.message) + '</p></section>' : '') +
+          (facts ? '<section class="card"><h2>Event details</h2><div class="facts">' + facts + '</div></section>' : '') +
+          (files ? '<section class="card"><h2>Files</h2><div class="files">' + files + '</div></section>' : '') +
           (links ? '<section class="card"><h2>Links</h2><div class="links">' + links + '</div></section>' : '') +
           '<footer>Questions? Just reply to Michael’s email.</footer>' +
           '</div>'

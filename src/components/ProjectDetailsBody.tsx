@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project } from '../pipeline'
-import { deleteProjectEmail, loadProjectEmails, TIP_METHODS, type Contact, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { deleteProjectEmail, loadProjectEmails, loadRecipient, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
@@ -10,6 +10,7 @@ import { EmailBuilderCard } from './EmailBuilderCard'
 import { InvoiceCard } from './InvoiceCard'
 import { ContractCard } from './ContractCard'
 import { QuestionnaireCard } from './QuestionnaireCard'
+import { RecipientsCard } from './RecipientsCard'
 import { contactsForProject } from '../contacts'
 import { evalNumberFormula } from '../calc'
 
@@ -115,6 +116,34 @@ export function ProjectDetailsBody({
     setSlots((s) => s.filter((x) => x !== n))
   }
 
+  // Document recipients (contract signer + invoice bill-to), defaulting to the first linked contact.
+  const [recipient, setRecipient] = useState<DocRecipient | null>(null)
+  useEffect(() => {
+    let live = true
+    loadRecipient(project.id)
+      .then((r) => live && setRecipient(r))
+      .catch(() => live && setRecipient(null))
+    return () => {
+      live = false
+    }
+  }, [project.id])
+  const changeRecipient = (patch: Partial<DocRecipient>) => {
+    setRecipient((prev) => ({
+      signerId: prev?.signerId || '',
+      billToId: prev?.billToId || '',
+      billToName: prev?.billToName || '',
+      ...patch,
+    }))
+    saveRecipient(project.id, patch).catch(() => {})
+  }
+  const signerContact = linkedContacts.find((c) => c.id === recipient?.signerId) || linkedContacts[0] || null
+  const billToContact = linkedContacts.find((c) => c.id === recipient?.billToId) || linkedContacts[0] || null
+  const firstProjectEmail = (project.contactEmails || '').split(/[,;]/)[0].trim()
+  const signerName = signerContact?.name || project.client
+  const signerEmail = signerContact?.emails?.[0] || firstProjectEmail
+  const billToEmail = billToContact?.emails?.[0] || firstProjectEmail
+  const billToName = (recipient?.billToName || '').trim() || billToContact?.name || project.client
+
   return (
     <div className="space-y-6">
       {/* Top: contacts, tasks, conversations — left as-is, no section rule. */}
@@ -208,8 +237,9 @@ export function ProjectDetailsBody({
         <div className={splitGrid}>
           <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
           <div className="space-y-2">
-            <InvoiceCard project={project} />
-            <ContractCard project={project} />
+            <RecipientsCard project={project} contacts={linkedContacts} recipient={recipient} onChange={changeRecipient} />
+            <InvoiceCard project={project} billToName={billToName} billToEmail={billToEmail} />
+            <ContractCard project={project} signerName={signerName} signerEmail={signerEmail} />
             <QuestionnaireCard key={project.id} project={project} onApplied={onProjectChanged} />
           </div>
         </div>
@@ -218,8 +248,6 @@ export function ProjectDetailsBody({
       {/* Booked: the show paperwork once it's locked in, plus the check-in emails. */}
       <DetailSection title="Booked">
         <div className={cardGrid}>
-          <ComingSoon title="Rider" desc="Generate or attach the technical / hospitality rider." />
-          <ComingSoon title="Intro" desc="Generate or attach the emcee introduction." />
           {checkinSlots.map((n, i) => (
             <EmailBuilderCard
               key={`checkin-${n}`}
@@ -311,21 +339,6 @@ function AddEmailButton({ label, onClick }: { label: string; onClick: () => void
       </svg>
       {label}
     </button>
-  )
-}
-
-// A placeholder card for a feature that's wired up but not built yet.
-function ComingSoon({ title, desc }: { title: string; desc: string }) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-dashed border-line bg-surface-2/30 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium text-muted">{title}</p>
-        <p className="mt-0.5 text-[11.5px] leading-relaxed text-faint">{desc}</p>
-      </div>
-      <span className="mt-0.5 shrink-0 rounded-full border border-line px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.12em] text-faint">
-        Coming soon
-      </span>
-    </div>
   )
 }
 

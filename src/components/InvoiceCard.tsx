@@ -29,7 +29,7 @@ function fmtDay(ymd: string) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-export function InvoiceCard({ project }: { project: Project }) {
+export function InvoiceCard({ project, billToName, billToEmail }: { project: Project; billToName?: string; billToEmail?: string }) {
   const [status, setStatus] = useState<QuickBooksStatus | null>(null)
   const [invoice, setInvoice] = useState<QuickBooksInvoice | null>(null)
   const [busy, setBusy] = useState(false)
@@ -61,7 +61,7 @@ export function InvoiceCard({ project }: { project: Project }) {
     setBusy(true)
     setNote(null)
     try {
-      setInvoice(await sendQbInvoice(project.id))
+      setInvoice(await sendQbInvoice(project.id, billToEmail))
       setNote('Invoice emailed to the client.')
     } catch (e) {
       setNote(String(e instanceof Error ? e.message : e))
@@ -167,6 +167,8 @@ export function InvoiceCard({ project }: { project: Project }) {
       <InvoiceGenerateModal
         project={genOpen ? project : null}
         mode={invoice ? 'regenerate' : 'create'}
+        billToName={billToName}
+        billToEmail={billToEmail}
         onCancel={() => setGenOpen(false)}
         onCreated={onCreated}
       />

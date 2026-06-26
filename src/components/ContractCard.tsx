@@ -35,7 +35,7 @@ function esignLabel(e: EsignInfo): { label: string; color: string } {
   return { label: 'Awaiting signature', color: 'var(--color-brass)' }
 }
 
-export function ContractCard({ project }: { project: Project }) {
+export function ContractCard({ project, signerName, signerEmail }: { project: Project; signerName?: string; signerEmail?: string }) {
   const [contracts, setContracts] = useState<ContractVersion[] | null>(null)
   const [esignCfg, setEsignCfg] = useState<EsignStatus | null>(null)
   const [templates, setTemplates] = useState<SignwellTemplate[] | null>(null)
@@ -225,8 +225,8 @@ export function ContractCard({ project }: { project: Project }) {
 
       <SignerModal
         open={sendTarget != null}
-        defaultName={project.client}
-        defaultEmail={defaultEmail}
+        defaultName={signerName || project.client}
+        defaultEmail={signerEmail || defaultEmail}
         testMode={esignCfg?.testMode ?? true}
         busy={busy}
         missingFields={missingFields}

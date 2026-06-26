@@ -28,6 +28,7 @@ export const PORTAL_BASE_URL = 'https://portal-liard-phi.vercel.app'
 // to make it shareable; nothing else can be.
 export const SHAREABLE_FIELDS = [
   { id: 'eventSummary', label: 'About the event' },
+  { id: 'eventType', label: 'Event type' },
   { id: 'eventDate', label: 'Event date' },
   { id: 'eventStartTime', label: 'Event start' },
   { id: 'showStartTime', label: 'Show start' },
@@ -36,6 +37,11 @@ export const SHAREABLE_FIELDS = [
   { id: 'indoorsOrOutdoors', label: 'Indoors / Outdoors' },
   { id: 'performanceStyle', label: 'Performance' },
   { id: 'numberOfGuests', label: 'Guest count' },
+  { id: 'ageOfGuests', label: 'Guest ages' },
+  { id: 'av', label: 'A/V notes' },
+  { id: 'vips', label: 'VIPs / guests of honor' },
+  { id: 'eventDescription', label: 'Event description' },
+  { id: 'bookingSource', label: 'Booking source' },
 ]
 const SHAREABLE_IDS = new Set(SHAREABLE_FIELDS.map((f) => f.id))
 
