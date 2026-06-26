@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project } from '../pipeline'
-import { deleteProjectEmail, loadProjectEmails, loadRecipient, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { deleteProjectEmail, loadConfig, loadProjectEmails, loadRecipient, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
@@ -61,6 +61,19 @@ export function ProjectDetailsBody({
 }: Props) {
   const save = (field: string) => (value: string) => onSaveField(field, value)
   const linkedContacts = contactsForProject(project, contacts, links)
+  // Event-field label overrides + hidden fields, edited on the Settings page.
+  const [eventLabels, setEventLabels] = useState<Record<string, string>>({})
+  const [eventHidden, setEventHidden] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    loadConfig()
+      .then((c) => {
+        setEventLabels(c.eventFieldLabels || {})
+        setEventHidden(new Set(c.eventFieldHidden || []))
+      })
+      .catch(() => {})
+  }, [])
+  const lbl = (id: string, def: string) => eventLabels[id] || def
+  const shown = (id: string) => !eventHidden.has(id)
   const recipientEmails = Array.from(
     new Set(linkedContacts.flatMap((c) => c.emails || []).map((e) => e.trim()).filter(Boolean)),
   )
@@ -183,23 +196,25 @@ export function ProjectDetailsBody({
       {/* Event details: the blurb up top (the most immediate detail), then the
           structured fields grouped when / scope / where / show / source. */}
       <DetailSection title="Event details">
-        <div className="mb-5">
-          <EditableField label="Description" placeholder="A sentence or two about the event…" value={project.eventSummary} onSave={save('eventSummary')} multiline />
-        </div>
+        {shown('eventSummary') && (
+          <div className="mb-5">
+            <EditableField label={lbl('eventSummary', 'Description')} placeholder="A sentence or two about the event…" value={project.eventSummary} onSave={save('eventSummary')} multiline />
+          </div>
+        )}
         <div className={fieldGrid}>
-          <EditableField label="Event date" type="date" value={project.eventDate} onSave={save('eventDate')} />
-          <EditableField label="Event start" value={project.eventStartTime} onSave={save('eventStartTime')} />
-          <EditableField label="Show start" value={project.showStartTime} onSave={save('showStartTime')} />
-          <EditableField label="Quote" prefix="$" value={project.totalFee == null ? '' : String(project.totalFee)} onSave={save('totalFee')} />
-          <EditableField label="Guest Count" multiline value={project.numberOfGuests} onSave={save('numberOfGuests')} />
-          <EditableField label="Guest ages" multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} />
-          <EditableField label="Location" multiline value={project.eventLocation} onSave={save('eventLocation')} />
-          <EditableField label="Venue type" multiline value={project.venueType} onSave={save('venueType')} />
-          <EditableField label="Indoors / Outdoors" multiline value={project.indoorsOrOutdoors} onSave={save('indoorsOrOutdoors')} />
-          <EditableField label="Performance" multiline value={project.performanceStyle} onSave={save('performanceStyle')} />
-          <EditableField label="AV" multiline value={project.av} onSave={save('av')} />
-          <EditableField label="VIPs" multiline value={project.vips} onSave={save('vips')} />
-          <EditableField label="Booking source" multiline value={project.bookingSource} onSave={save('bookingSource')} />
+          {shown('eventDate') && <EditableField label={lbl('eventDate', 'Event date')} type="date" value={project.eventDate} onSave={save('eventDate')} />}
+          {shown('eventStartTime') && <EditableField label={lbl('eventStartTime', 'Event start')} value={project.eventStartTime} onSave={save('eventStartTime')} />}
+          {shown('showStartTime') && <EditableField label={lbl('showStartTime', 'Show start')} value={project.showStartTime} onSave={save('showStartTime')} />}
+          {shown('totalFee') && <EditableField label={lbl('totalFee', 'Quote')} prefix="$" value={project.totalFee == null ? '' : String(project.totalFee)} onSave={save('totalFee')} />}
+          {shown('numberOfGuests') && <EditableField label={lbl('numberOfGuests', 'Guest Count')} multiline value={project.numberOfGuests} onSave={save('numberOfGuests')} />}
+          {shown('ageOfGuests') && <EditableField label={lbl('ageOfGuests', 'Guest ages')} multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} />}
+          {shown('eventLocation') && <EditableField label={lbl('eventLocation', 'Location')} multiline value={project.eventLocation} onSave={save('eventLocation')} />}
+          {shown('venueType') && <EditableField label={lbl('venueType', 'Venue type')} multiline value={project.venueType} onSave={save('venueType')} />}
+          {shown('indoorsOrOutdoors') && <EditableField label={lbl('indoorsOrOutdoors', 'Indoors / Outdoors')} multiline value={project.indoorsOrOutdoors} onSave={save('indoorsOrOutdoors')} />}
+          {shown('performanceStyle') && <EditableField label={lbl('performanceStyle', 'Performance')} multiline value={project.performanceStyle} onSave={save('performanceStyle')} />}
+          {shown('av') && <EditableField label={lbl('av', 'AV')} multiline value={project.av} onSave={save('av')} />}
+          {shown('vips') && <EditableField label={lbl('vips', 'VIPs')} multiline value={project.vips} onSave={save('vips')} />}
+          {shown('bookingSource') && <EditableField label={lbl('bookingSource', 'Booking source')} multiline value={project.bookingSource} onSave={save('bookingSource')} />}
         </div>
       </DetailSection>
 

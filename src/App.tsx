@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { Sidebar, type Page } from './components/Sidebar'
+import { SettingsPage } from './components/SettingsPage'
 import { PipelineBoard } from './components/PipelineBoard'
 import { PipelineFlow } from './components/PipelineFlow'
 import { ProjectDetail } from './components/ProjectDetail'
@@ -103,6 +104,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
+  settings: { kicker: 'System', title: 'Settings' },
 }
 
 function App() {
@@ -893,6 +895,8 @@ function App() {
                 <TemplatesPage />
               ) : page === 'files' ? (
                 <FilesPage />
+              ) : page === 'settings' ? (
+                <SettingsPage />
               ) : page === 'archive' ? (
                 <RecordsPage variant="archive" projects={archivedProjects} onOpenFull={openFull} onOpenSide={openSide} />
               ) : page === 'completed' ? (
