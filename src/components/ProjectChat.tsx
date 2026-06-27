@@ -33,7 +33,7 @@ export function ProjectChat({
   useEffect(() => {
     if (!open) return
     claudeStatus()
-      .then((s) => setAvail(s.available))
+      .then((s) => setAvail(s.configured))
       .catch(() => setAvail(false))
   }, [open])
   useEffect(() => {
@@ -128,7 +128,12 @@ export function ProjectChat({
             </div>
 
             <div className="border-t border-line px-5 py-4">
-              {!avail && <p className="mb-2 text-[11px] text-[#e08a6b]">Claude Code was not detected on this machine.</p>}
+              {!avail && (
+                <p className="mb-2 text-[11px] leading-relaxed text-[#e08a6b]">
+                  Claude is not set up yet. In Terminal run "claude setup-token", paste the token into
+                  magic-crm/claude-credentials.json, then restart the CRM.
+                </p>
+              )}
               <div className="flex items-end gap-2">
                 <textarea
                   value={input}

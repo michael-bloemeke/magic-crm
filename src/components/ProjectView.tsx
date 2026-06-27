@@ -21,6 +21,7 @@ import { EmailBuilderModal } from './EmailBuilderModal'
 import { PortalModal } from './PortalModal'
 import { ProjectActions } from './ProjectActions'
 import { EditableTitle } from './EditableTitle'
+import { ProjectChat } from './ProjectChat'
 import { contactsForProject } from '../contacts'
 
 // A prominent, readable event date for the header (e.g. "Friday, June 20, 2026").
@@ -92,6 +93,7 @@ export function ProjectView({
   const [notesOpen, setNotesOpen] = useState(false)
   const [writeOpen, setWriteOpen] = useState(false)
   const [portalOpen, setPortalOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
 
   // Recipient emails for the one-off "Write email" composer: every email on the
   // project's linked contacts.
@@ -184,6 +186,17 @@ export function ProjectView({
             {headerRight}
             <button
               type="button"
+              onClick={() => setChatOpen(true)}
+              title="Ask Claude about this project"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" />
+              </svg>
+              Ask Claude
+            </button>
+            <button
+              type="button"
               onClick={() => setNotesOpen(true)}
               title="Description, notes & activity log"
               className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[12.5px] font-semibold text-muted transition-colors hover:border-brass-dim hover:text-brass-bright"
@@ -269,6 +282,8 @@ export function ProjectView({
       <NotesDrawer project={project} open={notesOpen} onClose={() => setNotesOpen(false)} onSaveField={onSaveField} />
 
       <PortalModal project={project} open={portalOpen} onClose={() => setPortalOpen(false)} />
+
+      <ProjectChat open={chatOpen} project={project} onClose={() => setChatOpen(false)} onProjectChanged={onProjectChanged} />
 
       <EmailBuilderModal
         open={writeOpen}

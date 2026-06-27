@@ -85,6 +85,7 @@ import {
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import {
   isClaudeAvailable,
+  isClaudeConfigured,
   draftEmail as claudeDraftEmail,
   completeTemplate as claudeCompleteTemplate,
   draftReply as claudeDraftReply,
@@ -801,7 +802,7 @@ export function crmDataPlugin() {
         if (req.method !== 'GET') return next()
         try {
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ available: isClaudeAvailable() }))
+          res.end(JSON.stringify({ available: isClaudeAvailable(), configured: isClaudeConfigured() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

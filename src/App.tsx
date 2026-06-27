@@ -312,12 +312,15 @@ function App() {
   const dueTodayCount = allTasks.filter((t) => !t.done && t.dueDate === today).length
   const upcomingCount = allTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
-  // The dock badge mirrors the in-app bell EXACTLY: status updates + questionnaire submissions +
-  // new inquiries + overdue + due-today. Same inputs the bell totals, so the two never disagree, and
-  // it updates the moment any of those state values change. No-op in a plain browser.
+  // The dock badge is the in-app bell total PLUS unread client mail: status updates + questionnaire
+  // submissions + new inquiries + overdue + due-today + unread emails. It is deliberately a superset
+  // of the bell (the bell does not list mail, since the Inbox is its own surface). Updates the moment
+  // any of those change. No-op in a plain browser.
   useEffect(() => {
-    window.crm?.setBadge?.(statusNotifs.length + submissions.length + inquiries.length + overdueCount + dueTodayCount)
-  }, [statusNotifs.length, submissions.length, inquiries.length, overdueCount, dueTodayCount])
+    window.crm?.setBadge?.(
+      statusNotifs.length + submissions.length + inquiries.length + overdueCount + dueTodayCount + inboxUnread,
+    )
+  }, [statusNotifs.length, submissions.length, inquiries.length, overdueCount, dueTodayCount, inboxUnread])
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',

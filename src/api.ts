@@ -598,13 +598,13 @@ export async function markStatusNotificationSeen(id: string): Promise<StatusNoti
 }
 
 // --- Claude drafting (headless Claude Code) ----------------------------------
-export async function claudeStatus(): Promise<{ available: boolean }> {
+export async function claudeStatus(): Promise<{ available: boolean; configured: boolean }> {
   try {
     const res = await fetch('/api/claude')
-    if (!res.ok) return { available: false }
-    return (await res.json()) as { available: boolean }
+    if (!res.ok) return { available: false, configured: false }
+    return (await res.json()) as { available: boolean; configured: boolean }
   } catch {
-    return { available: false }
+    return { available: false, configured: false }
   }
 }
 // Draft a fresh email in Michael's voice from an instruction. Reads project + voice + recordings.

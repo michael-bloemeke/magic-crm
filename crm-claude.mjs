@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 
 const CLAUDE_BIN = path.join(os.homedir(), '.local', 'bin', 'claude')
@@ -15,6 +16,19 @@ const CLAUDE_BIN = path.join(os.homedir(), '.local', 'bin', 'claude')
 // the business folder, which holds CLAUDE.md, voice.md, templates/, and "Plaud recordings/".
 const BUSINESS_DIR = path.dirname(RECORDS_DIR)
 const MEMORY_DIR = path.join(os.homedir(), '.claude', 'projects', '-Users-michaelbloemeke', 'memory')
+// The standalone CLI is not signed in the way the app/IDE is, so headless calls need an explicit
+// long-lived token. Michael runs `claude setup-token` once (uses his subscription) and pastes it
+// here. Gitignored, not backed up. Env var wins if set.
+const CRED_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'claude-credentials.json')
+function authToken() {
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return String(process.env.CLAUDE_CODE_OAUTH_TOKEN).trim()
+  try {
+    const c = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'))
+    return String(c.oauthToken || c.token || '').trim()
+  } catch {
+    return ''
+  }
+}
 
 export function isClaudeAvailable() {
   try {
@@ -22,6 +36,10 @@ export function isClaudeAvailable() {
   } catch {
     return false
   }
+}
+// Usable = the CLI is present AND a token is configured (env var or claude-credentials.json).
+export function isClaudeConfigured() {
+  return isClaudeAvailable() && !!authToken()
 }
 
 const SYSTEM_PROMPT =
@@ -59,7 +77,9 @@ function runClaude(prompt, opts = {}) {
     let out = ''
     let errOut = ''
     let done = false
-    const child = spawn(CLAUDE_BIN, args, { cwd: BUSINESS_DIR })
+    const token = authToken()
+    const env = token ? { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token } : process.env
+    const child = spawn(CLAUDE_BIN, args, { cwd: BUSINESS_DIR, env })
     const timer = setTimeout(() => {
       if (done) return
       done = true
@@ -85,8 +105,21 @@ function runClaude(prompt, opts = {}) {
     child.on('error', (e) => finish(() => reject(new Error(String(e?.message || e)))))
     child.on('close', (code) => {
       const cleaned = cleanup(out)
-      if (cleaned) finish(() => resolve(cleaned))
-      else finish(() => reject(new Error(String(errOut || `Claude exited with code ${code} and no output.`).trim().slice(0, 600))))
+      // A "Not logged in" message comes back on STDOUT, so guard against resolving it as a reply.
+      const authErr = /not logged in|please run \/login|setup-token|unauthorized|invalid api key|\b401\b/i
+      if (cleaned && !authErr.test(cleaned)) {
+        finish(() => resolve(cleaned))
+      } else if (authErr.test(cleaned) || authErr.test(errOut)) {
+        finish(() =>
+          reject(
+            new Error(
+              'Claude is not authenticated for the app. In Terminal run "claude setup-token" (it uses your subscription), then paste the token into magic-crm/claude-credentials.json as {"oauthToken":"..."} and restart the CRM.',
+            ),
+          ),
+        )
+      } else {
+        finish(() => reject(new Error(String(errOut || `Claude exited with code ${code} and no output.`).trim().slice(0, 600))))
+      }
     })
     try {
       child.stdin.write(prompt)

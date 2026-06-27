@@ -112,7 +112,7 @@ export function EmailBuilderModal({
       .catch(() => setTemplates([]))
     setClaudeInstruction('')
     claudeStatus()
-      .then((s) => setClaudeAvail(s.available))
+      .then((s) => setClaudeAvail(s.configured))
       .catch(() => setClaudeAvail(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -567,6 +567,12 @@ export function EmailBuilderModal({
                     Claude reads this project, your voice and rules, and this client's recordings. Review before sending.
                   </p>
                 </div>
+              )}
+              {!claudeAvail && (
+                <p className="rounded-lg border border-line bg-surface-3/30 px-2.5 py-2 text-[11px] leading-relaxed text-faint">
+                  Claude is not set up yet. In Terminal run <span className="text-muted">claude setup-token</span>, paste the token
+                  into magic-crm/claude-credentials.json, then restart the CRM.
+                </p>
               )}
 
               <div className="block">
