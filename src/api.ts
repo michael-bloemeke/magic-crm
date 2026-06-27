@@ -84,7 +84,7 @@ export async function loadTasks(): Promise<Task[]> {
 }
 
 export async function addTask(input: {
-  projectId: string
+  projectId?: string
   title: string
   dueDate: string
 }): Promise<Task> {
@@ -595,6 +595,31 @@ export async function markStatusNotificationSeen(id: string): Promise<StatusNoti
   })
   if (!res.ok) return []
   return ((await res.json()).notifications ?? []) as StatusNotification[]
+}
+
+// --- Claude drafting (headless Claude Code) ----------------------------------
+export async function claudeStatus(): Promise<{ available: boolean }> {
+  try {
+    const res = await fetch('/api/claude')
+    if (!res.ok) return { available: false }
+    return (await res.json()) as { available: boolean }
+  } catch {
+    return { available: false }
+  }
+}
+// Draft a fresh email in Michael's voice from an instruction. Reads project + voice + recordings.
+export async function claudeDraftEmail(input: { projectId: string; label?: string; instruction?: string }): Promise<string> {
+  const res = await fetch('/api/claude/draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data.error) throw new Error(data.error || `Claude draft failed (${res.status})`)
+  return String(data.draft || '')
+}
+// Complete a smart-field template for this client.
+export async function claudeCompleteTemplate(input: { projectId: string; body: string }): Promise<string> {
+  const res = await fetch('/api/claude/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data.error) throw new Error(data.error || `Claude template completion failed (${res.status})`)
+  return String(data.draft || '')
 }
 
 // --- QuickBooks --------------------------------------------------------------

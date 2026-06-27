@@ -41,10 +41,10 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, su
     <TaskRow
       key={t.id}
       task={t}
-      projectName={byId.get(t.projectId)?.client ?? 'Unknown project'}
+      projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
       onToggle={(done) => onToggle(t.id, done)}
       onDelete={() => onDelete(t.id)}
-      onOpenProject={() => openProject(t.projectId)}
+      onOpenProject={t.projectId ? () => openProject(t.projectId) : undefined}
     />
   )
 

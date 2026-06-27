@@ -905,6 +905,7 @@ function App() {
                 <TasksPage
                   tasks={allTasks}
                   projects={allProjects}
+                  onAdd={(title, dueDate) => addTaskFor('', title, dueDate)}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
                   onOpenProject={openFull}

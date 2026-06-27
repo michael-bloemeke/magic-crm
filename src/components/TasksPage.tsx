@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
 import type { Task } from '../api'
@@ -7,6 +7,7 @@ import { TaskRow } from './TaskRow'
 type Props = {
   tasks: Task[]
   projects: Project[]
+  onAdd: (title: string, dueDate: string) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
   onOpenProject: (project: Project) => void
@@ -14,9 +15,18 @@ type Props = {
 
 const byDueAsc = (a: Task, b: Task) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')
 
-export function TasksPage({ tasks, projects, onToggle, onDelete, onOpenProject }: Props) {
+export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onOpenProject }: Props) {
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const today = todayISO()
+  const [newTitle, setNewTitle] = useState('')
+  const [newDue, setNewDue] = useState('')
+  const submitNew = () => {
+    const t = newTitle.trim()
+    if (!t) return
+    onAdd(t, newDue)
+    setNewTitle('')
+    setNewDue('')
+  }
 
   const active = tasks.filter((t) => !t.done)
   const overdue = active.filter((t) => t.dueDate && t.dueDate < today).sort(byDueAsc)
@@ -53,10 +63,10 @@ export function TasksPage({ tasks, projects, onToggle, onDelete, onOpenProject }
             <TaskRow
               key={t.id}
               task={t}
-              projectName={byId.get(t.projectId)?.client ?? 'Unknown project'}
+              projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
               onToggle={(done) => onToggle(t.id, done)}
               onDelete={() => onDelete(t.id)}
-              onOpenProject={() => open(t.projectId)}
+              onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
             />
           ))}
         </div>
@@ -74,12 +84,37 @@ export function TasksPage({ tasks, projects, onToggle, onDelete, onOpenProject }
         transition={{ duration: 0.4 }}
         className="max-w-3xl"
       >
+        <div className="mb-7 flex flex-wrap items-center gap-2">
+          <input
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitNew()
+            }}
+            placeholder="Add a task (not tied to a project)…"
+            className="min-w-[14rem] flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
+          />
+          <input
+            type="date"
+            value={newDue}
+            onChange={(e) => setNewDue(e.target.value)}
+            className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={submitNew}
+            disabled={!newTitle.trim()}
+            className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+          >
+            Add task
+          </button>
+        </div>
         {isEmpty ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="flex flex-col items-center justify-center py-20 text-center">
             <p className="font-display text-[20px] text-parchment">No tasks yet</p>
             <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-muted">
-              Open any project and add tasks with due dates. They’ll show up here, grouped by when
-              they’re due.
+              Add one above, or open any project to add project tasks. They’ll show up here, grouped by
+              when they’re due.
             </p>
           </div>
         ) : (
@@ -101,10 +136,10 @@ export function TasksPage({ tasks, projects, onToggle, onDelete, onOpenProject }
                     <TaskRow
                       key={t.id}
                       task={t}
-                      projectName={byId.get(t.projectId)?.client ?? 'Unknown project'}
+                      projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
                       onToggle={(done) => onToggle(t.id, done)}
                       onDelete={() => onDelete(t.id)}
-                      onOpenProject={() => open(t.projectId)}
+                      onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
                     />
                   ))}
                 </div>

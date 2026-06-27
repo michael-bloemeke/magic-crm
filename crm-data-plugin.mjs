@@ -83,6 +83,7 @@ import {
   sendContractFromTemplate,
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
+import { isClaudeAvailable, draftEmail as claudeDraftEmail, completeTemplate as claudeCompleteTemplate } from './crm-claude.mjs'
 import { status as esignStatus, listTemplates as esignListTemplates } from './crm-esign.mjs'
 import {
   defaultTemplateHtml,
@@ -743,6 +744,38 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ notifications: withNotifNames(loadUnseenNotifications()) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Claude drafting (headless Claude Code; reads voice/CLAUDE.md/recordings) ---
+      server.middlewares.use('/api/claude/draft', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          try {
+            return { draft: await claudeDraftEmail({ projectId: b.projectId, label: b.label, instruction: b.instruction }) }
+          } catch (e) {
+            return { error: String(e?.message || e) }
+          }
+        })
+      })
+      server.middlewares.use('/api/claude/complete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          try {
+            return { draft: await claudeCompleteTemplate({ projectId: b.projectId, body: b.body }) }
+          } catch (e) {
+            return { error: String(e?.message || e) }
+          }
+        })
+      })
+      server.middlewares.use('/api/claude', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ available: isClaudeAvailable() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
