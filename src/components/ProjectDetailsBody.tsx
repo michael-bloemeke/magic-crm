@@ -247,12 +247,18 @@ export function ProjectDetailsBody({
         <AddEmailButton label="Add follow-up" onClick={() => addSlot(setFollowupSlots)} />
       </DetailSection>
 
-      {/* Booking: the money in (kept to a column), plus the paperwork generators. */}
+      {/* Booking. Two balanced columns so the section doesn't waste vertical space: the left holds
+          the financial/recipient inputs (payments + who the documents go to), the right holds the
+          document actions (invoice, contract, questionnaire). Recipients is the tall card, so it
+          anchors the left while the three shorter action cards stack on the right. In narrow view
+          splitGrid collapses to a single stack, preserving the original top-to-bottom order. */}
       <DetailSection title="Booking">
         <div className={splitGrid}>
-          <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
           <div className="space-y-2">
+            <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
             <RecipientsCard project={project} contacts={linkedContacts} recipient={recipient} onChange={changeRecipient} />
+          </div>
+          <div className="space-y-2">
             <InvoiceCard project={project} billToName={billToName} billToEmail={billToEmail} />
             <ContractCard project={project} signerName={signerName} signerEmail={signerEmail} />
             <QuestionnaireCard

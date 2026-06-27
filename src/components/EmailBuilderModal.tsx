@@ -11,6 +11,7 @@ import {
   claudeStatus,
   claudeDraftEmail,
   claudeCompleteTemplate,
+  loadConfig,
   type ProjectEmail,
   type Template,
   type EmailAttachment,
@@ -79,6 +80,9 @@ export function EmailBuilderModal({
   const [claudeAvail, setClaudeAvail] = useState(false)
   const [claudeBusy, setClaudeBusy] = useState(false)
   const [claudeInstruction, setClaudeInstruction] = useState('')
+  // The signature appended to outgoing mail (configured in Settings). Shown as a read-only preview
+  // under the editor so the compose view matches what actually gets sent.
+  const [sig, setSig] = useState<{ enabled: boolean; html: string }>({ enabled: false, html: '' })
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
   // without saving or sending), they were never persisted to an email record, so we delete
@@ -114,6 +118,9 @@ export function EmailBuilderModal({
     claudeStatus()
       .then((s) => setClaudeAvail(s.configured))
       .catch(() => setClaudeAvail(false))
+    loadConfig()
+      .then((c) => setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' }))
+      .catch(() => setSig({ enabled: false, html: '' }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -587,6 +594,17 @@ export function EmailBuilderModal({
                   resolveField={(key) => resolveSmartField(key, project)}
                   placeholder="Write a message, pick a template, or hit Generate…"
                 />
+                {sig.enabled && htmlHasContent(sig.html) && (
+                  <div className="mt-2">
+                    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+                      Signature (added automatically)
+                    </span>
+                    <div
+                      className="email-rte rounded-lg border border-dashed border-line px-3 py-3"
+                      dangerouslySetInnerHTML={{ __html: sig.html }}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Attachments: pick from the Files page, or upload a one-off. */}

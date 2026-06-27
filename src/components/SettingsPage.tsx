@@ -8,9 +8,11 @@ import {
   type QuestionType,
 } from '../api'
 import { EVENT_FIELDS, MAPPABLE_FIELDS } from '../eventFields'
+import { RichTextEditor } from './RichTextEditor'
 
-// The Settings page. Two sections for now: the global questionnaire editor (the question set every
-// project's questionnaire uses) and event-field overrides (rename or hide fields in Event details).
+// The Settings page. Sections: the global questionnaire editor (the question set every project's
+// questionnaire uses), event-field overrides (rename or hide fields in Event details), and the
+// email signature appended below the body on every send.
 
 const TYPES: { value: QuestionType; label: string }[] = [
   { value: 'text', label: 'Short text' },
@@ -36,6 +38,11 @@ export function SettingsPage() {
   const [fBusy, setFBusy] = useState(false)
   const [fNote, setFNote] = useState<string | null>(null)
 
+  const [sigEnabled, setSigEnabled] = useState(false)
+  const [sigHtml, setSigHtml] = useState('')
+  const [sigBusy, setSigBusy] = useState(false)
+  const [sigNote, setSigNote] = useState<string | null>(null)
+
   useEffect(() => {
     loadQuestionnaireTemplate()
       .then((t) => {
@@ -47,6 +54,8 @@ export function SettingsPage() {
       .then((c) => {
         setLabels(c.eventFieldLabels || {})
         setHidden(new Set(c.eventFieldHidden || []))
+        setSigEnabled(!!c.signatureEnabled)
+        setSigHtml(c.signatureHtml || '')
       })
       .catch(() => {})
   }, [])
@@ -103,6 +112,20 @@ export function SettingsPage() {
       setFNote(String(e instanceof Error ? e.message : e))
     } finally {
       setFBusy(false)
+    }
+  }
+
+  // --- Email signature ---
+  const saveSignature = async () => {
+    setSigBusy(true)
+    setSigNote(null)
+    try {
+      await saveConfig({ signatureEnabled: sigEnabled, signatureHtml: sigHtml })
+      setSigNote(sigEnabled ? 'Saved. Your signature will be added to emails you send.' : 'Saved. Signature is off.')
+    } catch (e) {
+      setSigNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setSigBusy(false)
     }
   }
 
@@ -248,6 +271,50 @@ export function SettingsPage() {
             The label box shows the default as a placeholder. Type to rename, or leave it blank to keep the default.
           </p>
           {fNote && <p className="mt-2 text-[11.5px] text-muted">{fNote}</p>}
+        </section>
+
+        {/* Email signature */}
+        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-[17px] text-parchment">Email signature</h2>
+              <p className="mt-0.5 text-[12px] text-muted">
+                Added below your message on every email you send from a project. Add text, a logo, or a graphic with your contact info.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={saveSignature}
+              disabled={sigBusy}
+              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+            >
+              {sigBusy ? 'Saving…' : 'Save signature'}
+            </button>
+          </div>
+
+          <label className="mt-4 flex cursor-pointer items-center gap-2.5 text-[13px] text-parchment">
+            <input
+              type="checkbox"
+              checked={sigEnabled}
+              onChange={(e) => setSigEnabled(e.target.checked)}
+              className="h-4 w-4 accent-[#c79a4b]"
+            />
+            <span>Append my signature to outgoing emails</span>
+          </label>
+
+          <div className="mt-3">
+            <RichTextEditor
+              value={sigHtml}
+              onChange={setSigHtml}
+              allowImage
+              placeholder="Your name, title, phone, website… and a logo via the image button."
+            />
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-faint">
+            Use the image button to drop in a logo or a graphic with your contact info. You still type "Thanks!" in each email
+            yourself; this block goes underneath. The preview above matches what the recipient sees.
+          </p>
+          {sigNote && <p className="mt-2 text-[11.5px] text-muted">{sigNote}</p>}
         </section>
       </div>
     </div>

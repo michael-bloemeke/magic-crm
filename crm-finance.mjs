@@ -94,6 +94,14 @@ export function loadConfig() {
   const contractTemplate = typeof d.contractTemplate === 'string' ? d.contractTemplate : ''
   const eventFieldLabels = d.eventFieldLabels && typeof d.eventFieldLabels === 'object' ? d.eventFieldLabels : {}
   const eventFieldHidden = Array.isArray(d.eventFieldHidden) ? d.eventFieldHidden.map((s) => String(s)) : []
+  // Built-in event fields the user "deleted" (only the display-only ones are deletable). They vanish
+  // from Event details, the Settings list, and the portal options; the underlying record value is
+  // untouched, so a delete is reversible (restore in Settings).
+  const eventFieldDeleted = Array.isArray(d.eventFieldDeleted) ? d.eventFieldDeleted.map((s) => String(s)) : []
+  // User-defined custom event fields (definitions only; values live in crm-custom-fields.json).
+  const customFields = Array.isArray(d.customFields)
+    ? d.customFields.filter((f) => f && f.id).map((f) => ({ id: String(f.id), label: String(f.label || '') }))
+    : []
   // Email signature: rich HTML appended below the body on send (can embed a logo via a data: <img>,
   // which the send layer converts to an inline cid: image). Off by default until set up.
   const signatureEnabled = !!d.signatureEnabled
@@ -106,6 +114,8 @@ export function loadConfig() {
     contractTemplate,
     eventFieldLabels,
     eventFieldHidden,
+    eventFieldDeleted,
+    customFields,
     signatureEnabled,
     signatureHtml,
   }
@@ -135,6 +145,14 @@ export function saveConfig(patch) {
   if (patch.eventFieldHidden != null) {
     cur.eventFieldHidden = (patch.eventFieldHidden || []).map((s) => String(s))
   }
+  if (patch.eventFieldDeleted != null) {
+    cur.eventFieldDeleted = (patch.eventFieldDeleted || []).map((s) => String(s))
+  }
+  if (patch.customFields != null) {
+    cur.customFields = (patch.customFields || [])
+      .filter((f) => f && f.id && String(f.label || '').trim())
+      .map((f) => ({ id: String(f.id), label: String(f.label).trim() }))
+  }
   if (patch.signatureEnabled != null) {
     cur.signatureEnabled = !!patch.signatureEnabled
   }
@@ -143,8 +161,8 @@ export function saveConfig(patch) {
   }
   cur._meta = metaBlock(
     'crm-config.json',
-    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, the reusable contact-tag library, the editable default contract template HTML, event-field label overrides + hidden event fields, and the email signature (Settings page).',
-    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings), contractTemplate (HTML string), eventFieldLabels {fieldId:label}, eventFieldHidden[] (field ids hidden from Event details), signatureEnabled (bool), signatureHtml (HTML string, may embed a data: logo)',
+    'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, the reusable contact-tag library, the editable default contract template HTML, event-field label overrides + hidden + deleted event fields, user-defined custom event fields, and the email signature (Settings page).',
+    'incomeGoals[] (numbers), monthlyGoal (number), archiveReasons[] (strings), contactTags[] (strings), contractTemplate (HTML string), eventFieldLabels {fieldId:label}, eventFieldHidden[] (field ids hidden from Event details), eventFieldDeleted[] (deleted display-only built-in field ids), customFields[] ({id,label} user-defined fields; values in crm-custom-fields.json), signatureEnabled (bool), signatureHtml (HTML string, may embed a data: logo)',
   )
   writeJson(CONFIG_FILE, cur)
   return loadConfig()

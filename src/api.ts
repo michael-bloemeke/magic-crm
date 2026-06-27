@@ -910,6 +910,9 @@ export type AppConfig = {
   contactTags: string[]
   eventFieldLabels: Record<string, string>
   eventFieldHidden: string[]
+  // Email signature appended below the body on send. signatureHtml may embed a logo as a data: <img>.
+  signatureEnabled: boolean
+  signatureHtml: string
 }
 
 export async function loadConfig(): Promise<AppConfig> {

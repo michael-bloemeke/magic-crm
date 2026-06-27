@@ -58,6 +58,7 @@ import {
   saveTemplate as saveQuestionnaireTemplate,
 } from './crm-questionnaire.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
+import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus } from './crm-inquiries.mjs'
 import {
   status as qbStatus,
@@ -659,6 +660,24 @@ export function crmDataPlugin() {
           const projectId = url.searchParams.get('projectId') || ''
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ recipient: loadRecipient(projectId) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Per-project values for user-defined custom event fields ---
+      server.middlewares.use('/api/custom-values/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => setCustomValue(b))
+      })
+      server.middlewares.use('/api/custom-values', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+          const projectId = url.searchParams.get('projectId') || ''
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ values: loadCustomValues(projectId) }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

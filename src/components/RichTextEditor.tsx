@@ -48,6 +48,7 @@ export function RichTextEditor({
   placeholder = 'Write your message…',
   smartFields,
   resolveField,
+  allowImage = false,
 }: {
   value: string
   onChange: (html: string) => void
@@ -58,8 +59,12 @@ export function RichTextEditor({
   // value, the field is inserted as plain text; otherwise a visible placeholder chip is dropped
   // in. Omit entirely (e.g. the template builder) to always insert placeholders.
   resolveField?: (key: string) => string
+  // When true, a toolbar "Insert image" button appears (used by the signature editor). The picked
+  // file is inlined as a data: <img>; the send layer converts it to an inline cid: image.
+  allowImage?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const imgInputRef = useRef<HTMLInputElement>(null)
   const [empty, setEmpty] = useState(true)
   const [fieldMenuOpen, setFieldMenuOpen] = useState(false)
   // Screen coords for the (portaled) Insert-field menu, so it can't be clipped by the editor's
@@ -136,6 +141,24 @@ export function RichTextEditor({
     }
     emit()
     refreshLink()
+  }
+
+  // Insert a picked image inlined as a data: URL (sized so it can't blow out the layout). Used for
+  // a signature logo; the send layer rewrites data: images to inline cid: attachments.
+  const insertImage = (file: File) => {
+    if (!file || !file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const url = String(reader.result || '')
+      if (!url.startsWith('data:image/')) return
+      const raw = window.prompt('Image width in pixels (blank = fit to width, max 600):', '300')
+      const widthStyle =
+        raw && /^\d+$/.test(raw.trim()) ? `width:${Math.min(600, parseInt(raw.trim(), 10))}px;max-width:100%` : 'max-width:100%'
+      ref.current?.focus()
+      document.execCommand('insertHTML', false, `<img src="${url}" alt="" style="${widthStyle};height:auto;border:0" />`)
+      emit()
+    }
+    reader.readAsDataURL(file)
   }
 
   // Insert a smart field: the resolved value (plain text) if the project has it, else a visible
@@ -224,6 +247,32 @@ export function RichTextEditor({
         >
           {ICON(<><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" /></>)}
         </button>
+
+        {allowImage && (
+          <>
+            <input
+              ref={imgInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) insertImage(f)
+                e.currentTarget.value = ''
+              }}
+            />
+            <button
+              type="button"
+              title="Insert image"
+              aria-label="Insert image"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => imgInputRef.current?.click()}
+              className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-3 hover:text-parchment"
+            >
+              {ICON(<><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></>)}
+            </button>
+          </>
+        )}
 
         {smartFields && smartFields.length > 0 && (
           <div className="ml-auto">
