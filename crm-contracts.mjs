@@ -409,6 +409,7 @@ export async function sendContractFromTemplate(projectId, { templateId, template
       signerEmail: to,
       testMode: esign.isTestMode(),
       sentAt: new Date().toISOString(),
+      viewedAt: '',
       signedAt: '',
     },
   }
@@ -424,6 +425,9 @@ export async function refreshSignature(projectId, id) {
   const doc = await esign.getDocument(ref.esign.id)
   const st = String(doc.status || '').toLowerCase()
   ref.esign.status = doc.status || ref.esign.status
+  // "Viewed" (or any later state) means the client has opened it at least once.
+  const viewed = ['viewed', 'pending', 'in progress', 'completed', 'signed'].includes(st)
+  if (viewed && !ref.esign.viewedAt) ref.esign.viewedAt = new Date().toISOString()
   const done = st === 'completed' || st === 'signed' || doc.completed === true
   if (done && !ref.esign.signedAt) ref.esign.signedAt = new Date().toISOString()
   writeContracts(d)

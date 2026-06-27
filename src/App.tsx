@@ -58,6 +58,10 @@ import {
   checkQuestionnaireSubmissions,
   markQuestionnaireSeen,
   type QuestionnaireSubmission,
+  loadStatusNotifications,
+  checkStatusNotifications,
+  markStatusNotificationSeen,
+  type StatusNotification,
   saveStage,
   loadStructure,
   saveStructure as apiSaveStructure,
@@ -127,6 +131,7 @@ function App() {
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [inquiries, setInquiries] = useState<InquiryNotification[]>([])
   const [submissions, setSubmissions] = useState<QuestionnaireSubmission[]>([])
+  const [statusNotifs, setStatusNotifs] = useState<StatusNotification[]>([])
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
   const [completeTarget, setCompleteTarget] = useState<Project | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
@@ -454,6 +459,35 @@ function App() {
     markQuestionnaireSeen(projectId).catch(() => {})
   }
 
+  // Poll for status-change notifications (invoice paid, contract viewed/signed). The sweep runs on
+  // the server (polls QuickBooks + SignWell); here we just refresh the bell list on a timer.
+  useEffect(() => {
+    let alive = true
+    const run = async () => {
+      try {
+        const list = await checkStatusNotifications()
+        if (alive) setStatusNotifs(list)
+      } catch {
+        // offline or not configured, ignore
+      }
+    }
+    loadStatusNotifications()
+      .then((l) => alive && setStatusNotifs(l))
+      .catch(() => {})
+    run()
+    const timer = setInterval(run, 3 * 60 * 1000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const dismissStatusNotif = (id: string) => {
+    setStatusNotifs((prev) => prev.filter((n) => n.id !== id))
+    markStatusNotificationSeen(id).catch(() => {})
+  }
+
   const applyPatch = (id: string, patch: Partial<Project>) => {
     const apply = (p: Project) => (p.id === id ? { ...p, ...patch } : p)
     setProjects((prev) => (prev ? prev.map(apply) : prev))
@@ -665,6 +699,8 @@ function App() {
       onDismissInquiry={dismissInquiryNotif}
       submissions={submissions}
       onDismissSubmission={dismissSubmissionNotif}
+      statusNotifications={statusNotifs}
+      onDismissStatus={dismissStatusNotif}
       onToggle={toggleTask}
       onDelete={deleteTask}
       onOpenProject={openFull}

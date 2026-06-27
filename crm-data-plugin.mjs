@@ -67,6 +67,7 @@ import {
   loadInvoices as qbLoadInvoices,
   createInvoiceForProject as qbCreateInvoice,
   sendInvoiceForProject as qbSendInvoice,
+  refreshInvoiceStatus as qbRefreshInvoice,
   invoicePdfForProject as qbInvoicePdf,
 } from './crm-quickbooks.mjs'
 import {
@@ -81,6 +82,7 @@ import {
   signedContractPdf,
   sendContractFromTemplate,
 } from './crm-contracts.mjs'
+import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { status as esignStatus, listTemplates as esignListTemplates } from './crm-esign.mjs'
 import {
   defaultTemplateHtml,
@@ -665,6 +667,82 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ template: loadQuestionnaireTemplate() }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Status-change notifications (invoice paid, contract viewed, contract signed) ---
+      const NOTIF_LABELS = {
+        'invoice-paid': 'Invoice paid',
+        'contract-viewed': 'Contract viewed',
+        'contract-signed': 'Contract signed',
+      }
+      const withNotifNames = (events) => {
+        const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))
+        return events.map((e) => ({ ...e, projectName: byId.get(e.projectId) || e.projectId, label: NOTIF_LABELS[e.kind] || e.kind }))
+      }
+      // Poll SignWell + QuickBooks for status transitions and record any NEWLY detected ones (only a
+      // transition that happens during this sweep fires, so pre-existing signed/paid states do not
+      // spam). Each item is wrapped in try/catch so one unreachable service does not break the sweep.
+      const sweepStatusNotifications = async () => {
+        const active = new Set(loadAll().projects.filter((p) => p.bucket === 'active').map((p) => p.id))
+        let contracts = {}
+        try {
+          contracts = loadContracts()
+        } catch {
+          contracts = {}
+        }
+        for (const [projectId, versions] of Object.entries(contracts)) {
+          if (!active.has(projectId)) continue
+          for (const v of versions || []) {
+            const e = v && v.esign
+            if (!e || !e.id || e.signedAt) continue
+            const stLower = String(e.status || '').toLowerCase()
+            if (['declined', 'expired', 'bounced', 'canceled', 'cancelled', 'error'].includes(stLower)) continue
+            const had = { viewed: !!e.viewedAt, signed: !!e.signedAt }
+            try {
+              const ref = await refreshSignature(projectId, v.id)
+              const ne = (ref && ref.esign) || {}
+              if (!had.viewed && ne.viewedAt) addNotification(projectId, 'contract-viewed', v.id)
+              if (!had.signed && ne.signedAt) addNotification(projectId, 'contract-signed', v.id)
+            } catch {
+              /* SignWell unreachable / not configured for this one; skip */
+            }
+          }
+        }
+        let invoices = {}
+        try {
+          invoices = qbLoadInvoices()
+        } catch {
+          invoices = {}
+        }
+        for (const [projectId, ref] of Object.entries(invoices)) {
+          if (!active.has(projectId) || !ref || !ref.invoiceId || ref.paidAt) continue
+          try {
+            const updated = await qbRefreshInvoice(projectId)
+            if (updated && updated.paidAt) addNotification(projectId, 'invoice-paid', ref.invoiceId)
+          } catch {
+            /* QuickBooks unreachable / not connected; skip */
+          }
+        }
+        return withNotifNames(loadUnseenNotifications())
+      }
+
+      server.middlewares.use('/api/notifications/check', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async () => ({ notifications: await sweepStatusNotifications() }))
+      })
+      server.middlewares.use('/api/notifications/seen', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ notifications: withNotifNames(markNotificationSeen(b.id)) }))
+      })
+      server.middlewares.use('/api/notifications', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ notifications: withNotifNames(loadUnseenNotifications()) }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

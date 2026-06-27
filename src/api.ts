@@ -566,6 +566,37 @@ export async function saveQuestionnaireTemplate(t: QuestionnaireTemplate): Promi
   return (await res.json()).template as QuestionnaireTemplate
 }
 
+// --- Status-change notifications (invoice paid, contract viewed, contract signed) ----
+export type StatusNotification = {
+  id: string
+  projectId: string
+  projectName: string
+  kind: string
+  label: string
+  createdAt: string
+  seen: boolean
+}
+export async function loadStatusNotifications(): Promise<StatusNotification[]> {
+  const res = await fetch('/api/notifications')
+  if (!res.ok) return []
+  return ((await res.json()).notifications ?? []) as StatusNotification[]
+}
+// Runs the server-side sweep (polls QuickBooks + SignWell) and returns the current unseen list.
+export async function checkStatusNotifications(): Promise<StatusNotification[]> {
+  const res = await fetch('/api/notifications/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  if (!res.ok) return []
+  return ((await res.json()).notifications ?? []) as StatusNotification[]
+}
+export async function markStatusNotificationSeen(id: string): Promise<StatusNotification[]> {
+  const res = await fetch('/api/notifications/seen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+  if (!res.ok) return []
+  return ((await res.json()).notifications ?? []) as StatusNotification[]
+}
+
 // --- QuickBooks --------------------------------------------------------------
 export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }
 export type QuickBooksInvoice = {
@@ -625,6 +656,7 @@ export type EsignInfo = {
   signerEmail: string
   testMode: boolean
   sentAt: string
+  viewedAt?: string
   signedAt: string
 }
 export type ContractVersion = {

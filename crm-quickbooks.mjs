@@ -193,12 +193,29 @@ function writeInvoices(d) {
     purpose:
       'Per-project reference to the QuickBooks invoice generated from the CRM (the invoice itself lives in QuickBooks; this just links projectId -> invoice id/number/total/status so the project page can show it).',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',
-    shape: 'invoices[projectId] = { invoiceId, docNumber, total, amount, processingFee, dueDate, customer, email, createdAt, sentAt }',
+    shape: 'invoices[projectId] = { invoiceId, docNumber, total, amount, processingFee, dueDate, customer, email, createdAt, sentAt, balance, paidAt }',
   }
   fs.writeFileSync(INVOICES_FILE, JSON.stringify(d, null, 2) + '\n')
 }
 export function loadInvoices() {
   return readInvoices().invoices
+}
+
+// Re-fetch the live invoice from QuickBooks and update its stored Balance + paid state. A Balance of
+// 0 means paid in full. Stamps paidAt once when it first reaches 0. Returns the updated ref (or null
+// if the project has no invoice).
+export async function refreshInvoiceStatus(projectId) {
+  const d = readInvoices()
+  const ref = d.invoices[projectId]
+  if (!ref || !ref.invoiceId) return null
+  const data = await qb(`/invoice/${encodeURIComponent(ref.invoiceId)}`)
+  const inv = data?.Invoice
+  if (!inv) return ref
+  ref.balance = Number(inv.Balance != null ? inv.Balance : ref.balance || 0)
+  if (ref.balance === 0 && !ref.paidAt) ref.paidAt = new Date().toISOString()
+  d.invoices[projectId] = ref
+  writeInvoices(d)
+  return ref
 }
 
 // opts: { amount, dueDate (YYYY-MM-DD), processingFeePercent }. Amount defaults to
