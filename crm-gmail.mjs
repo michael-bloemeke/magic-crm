@@ -408,8 +408,16 @@ function makeRaw({ from, to, subject, body, html, attachments }) {
   return Buffer.from(msg, 'utf8').toString('base64url')
 }
 
+// Recipients see this display name on outgoing mail. The API send sets the From header explicitly,
+// which overrides the Gmail account's send-as name, and a bare-address From makes clients show just
+// the local-part (e.g. "michael"). So we always send a proper "Name <email>" From.
+const SENDER_NAME = 'Michael Bloemeke'
+async function fromHeader() {
+  return `"${SENDER_NAME}" <${await myEmail()}>`
+}
+
 export async function sendMessage({ to, subject, body, html, attachments, threadId }) {
-  const from = await myEmail()
+  const from = await fromHeader()
   const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments })
   const res = await api().users.messages.send({
     userId: 'me',
@@ -438,7 +446,7 @@ export function hasModifyScope() {
 }
 
 export async function createDraft({ to, subject, body, html, attachments, threadId }) {
-  const from = await myEmail()
+  const from = await fromHeader()
   const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments })
   const res = await api().users.drafts.create({
     userId: 'me',
