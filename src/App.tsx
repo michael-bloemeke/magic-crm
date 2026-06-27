@@ -111,6 +111,14 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   settings: { kicker: 'System', title: 'Settings' },
 }
 
+type NavSnap = {
+  page: Page
+  view: View
+  fullProjectId: string | null
+  selectedId: string | null
+  contactPaneId: string | null
+}
+
 function App() {
   // Remember which screen Michael is on so a page refresh lands him back where he
   // was instead of bouncing to Home.
@@ -201,6 +209,11 @@ function App() {
     return { top: el?.scrollTop ?? 0, left: el?.scrollLeft ?? 0 }
   }
 
+  // Navigation history for the global Back button. Snapshots are tiny (ids + page), capped at 50.
+  const [history, setHistory] = useState<NavSnap[]>([])
+  const lastNav = useRef<NavSnap | null>(null)
+  const restoringBack = useRef(false)
+
   // Open a project: full page (primary) or the side pane.
   const openFull = (p: Project) => {
     if (!fullProject) {
@@ -220,15 +233,49 @@ function App() {
     const p = (projects ?? []).find((x) => x.id === id)
     if (p) openFull(p)
   }
+  // Back: pop the last recorded location and restore it (page/view/open-project/open-contact),
+  // walking back through the whole session. Null-safe so a deleted project/contact just clears.
   const goBack = () => {
-    const b = backRef.current
-    setFullProject(null)
-    if (b) {
-      setPage(b.page)
-      setView(b.view)
-      restoreRef.current = { top: b.top, left: b.left }
-    }
+    setHistory((h) => {
+      if (h.length === 0) return h
+      const prev = h[h.length - 1]
+      restoringBack.current = true
+      setPage(prev.page)
+      setView(prev.view)
+      setFullProject(prev.fullProjectId ? (projects ?? []).find((p) => p.id === prev.fullProjectId) ?? null : null)
+      setSelected(prev.selectedId ? (projects ?? []).find((p) => p.id === prev.selectedId) ?? null : null)
+      setContactPane(prev.contactPaneId ? contacts.find((c) => c.id === prev.contactPaneId) ?? null : null)
+      return h.slice(0, -1)
+    })
   }
+
+  // Record the location we are leaving whenever the nav state changes (skipped while going Back).
+  useEffect(() => {
+    const snap: NavSnap = {
+      page,
+      view,
+      fullProjectId: fullProject?.id ?? null,
+      selectedId: selected?.id ?? null,
+      contactPaneId: contactPane?.id ?? null,
+    }
+    const prev = lastNav.current
+    lastNav.current = snap
+    if (restoringBack.current) {
+      restoringBack.current = false
+      return
+    }
+    if (
+      prev &&
+      (prev.page !== snap.page ||
+        prev.view !== snap.view ||
+        prev.fullProjectId !== snap.fullProjectId ||
+        prev.selectedId !== snap.selectedId ||
+        prev.contactPaneId !== snap.contactPaneId)
+    ) {
+      setHistory((h) => [...h.slice(-49), prev])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, view, fullProject, selected, contactPane])
 
   // After returning from a project view, restore the previous scroll position.
   useEffect(() => {
@@ -393,6 +440,32 @@ function App() {
   // the project leaves the pipeline immediately, then a reload syncs the records.
   // The reload also re-syncs any open pane from the canonical record (so a moved
   // or edited project shows the server's fields, e.g. the new activity-log line).
+  // Universal refresh: re-pull every data set the app reads on load, without a full reload.
+  const refreshAll = () => {
+    loadProjects().then(setProjects).catch(() => {})
+    loadTasks().then(setTasks).catch(() => {})
+    loadUnreadByProject().then(setUnread).catch(() => {})
+    loadConfig()
+      .then((c) => {
+        setArchiveReasons(c.archiveReasons)
+        setTagLibrary(c.contactTags ?? [])
+      })
+      .catch(() => {})
+    loadPayments().then(setPayments).catch(() => {})
+    loadContacts().then(setContacts).catch(() => {})
+    loadLinks().then(setLinks).catch(() => {})
+    loadStructure().then(setStructure).catch(() => {})
+    loadStatusNotifications()
+      .then(setStatusNotifs)
+      .catch(() => {})
+    loadQuestionnaireSubmissions()
+      .then(setSubmissions)
+      .catch(() => {})
+    loadInquiries()
+      .then((d) => setInquiries(d.notifications))
+      .catch(() => {})
+  }
+
   const reloadProjects = () => {
     loadProjects()
       .then((fresh) => {
@@ -710,6 +783,33 @@ function App() {
     />
   )
 
+  const refreshBtn = (
+    <button
+      type="button"
+      onClick={refreshAll}
+      title="Refresh all data"
+      aria-label="Refresh"
+      className="flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface/60 text-muted transition-colors hover:border-line-strong hover:text-parchment"
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
+      </svg>
+    </button>
+  )
+  const backBtn = history.length > 0 && (
+    <button
+      type="button"
+      onClick={goBack}
+      title="Back"
+      aria-label="Back"
+      className="flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface/60 text-muted transition-colors hover:border-line-strong hover:text-parchment"
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 6l-6 6 6 6" />
+      </svg>
+    </button>
+  )
+
   const meta = PAGE_META[page]
 
   return (
@@ -753,7 +853,12 @@ function App() {
             onAddContact={() => setContactPickerProject(fullProject)}
             onThreadRead={(count) => clearProjectUnread(fullProject.id, count)}
             onBack={goBack}
-            headerRight={notifications}
+            headerRight={
+              <>
+                {refreshBtn}
+                {notifications}
+              </>
+            }
             categories={structure.umbrellas}
           />
         ) : (
@@ -829,6 +934,8 @@ function App() {
                   </div>
                 )}
 
+                {backBtn}
+                {refreshBtn}
                 {notifications}
 
                 {page === 'pipeline' && (

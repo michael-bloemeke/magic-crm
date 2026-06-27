@@ -24,6 +24,23 @@ function stripMergeFields(html) {
   )
 }
 
+// Tighten the vertical spacing of an outgoing HTML email. Our draft HTML (Claude-drafted or typed
+// in the rich editor) uses an empty <p><br></p> for a blank line, and email clients also render
+// every <p> with a full 1em top+bottom margin. Stacked, a single blank line balloons to ~50px in
+// Gmail. This swaps each blank-line paragraph for a short half-height spacer and gives real
+// paragraphs a controlled, smaller bottom margin, so a blank line is about half its old size.
+// Purely presentational: no text is changed. Only touches <p> tags with no style of their own.
+const PARA_STYLE = 'margin:0 0 12px 0'
+const BLANK_SPACER = '<div style="margin:0;line-height:12px;font-size:1px">&nbsp;</div>'
+function tightenEmailHtml(html) {
+  let s = String(html || '')
+  if (!s) return s
+  s = s.replace(/>\s+</g, '><') // drop insignificant whitespace the editor/Claude leaves between blocks
+  s = s.replace(/<(p|div)\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi, BLANK_SPACER) // blank line -> short spacer
+  s = s.replace(/<p(?![^>]*\bstyle=)([^>]*)>/gi, `<p$1 style="${PARA_STYLE}">`) // controlled margin on real paragraphs
+  return s
+}
+
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
 
 function meta() {
@@ -202,7 +219,7 @@ export async function sendProjectEmail({ id } = {}) {
   // The body that goes OUT has its placeholder chips stripped to plain text; the stored draft
   // keeps its chips until the send actually succeeds (so a demo/failed send loses nothing).
   const isHtml = e.format === 'html'
-  const outgoingBody = isHtml ? stripMergeFields(e.body || '') : e.body || ''
+  const outgoingBody = isHtml ? tightenEmailHtml(stripMergeFields(e.body || '')) : e.body || ''
   const r = await sendEmail({
     projectId: e.projectId,
     to: to.join(', '),

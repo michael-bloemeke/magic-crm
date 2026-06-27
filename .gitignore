@@ -23,6 +23,7 @@ quickbooks-credentials.json
 quickbooks-token.json
 signwell-credentials.json
 portal-credentials.json
+claude-credentials.json
 anthropic-key.txt
 
 # Uploaded business files (Files page) — local working assets, not source
@@ -33,8 +34,9 @@ crm-email-attachments/
 # Local data backups (contain copied client records) — never commit
 migration-backups/
 
-# Published portal bundles (generated on Publish, deployed to Vercel; regenerable)
+# Published portal bundles + shared files (generated on Publish, deployed to Vercel; regenerable)
 portal/data/*.json
+portal/files/
 
 # Editor directories and files
 .vscode/*
