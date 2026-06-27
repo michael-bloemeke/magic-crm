@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project } from '../pipeline'
-import { deleteProjectEmail, loadConfig, loadProjectEmails, loadRecipient, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { deleteProjectEmail, loadConfig, loadCustomValues, loadProjectEmails, loadRecipient, saveCustomValue, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { type CustomField } from '../eventFields'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
@@ -61,19 +62,40 @@ export function ProjectDetailsBody({
 }: Props) {
   const save = (field: string) => (value: string) => onSaveField(field, value)
   const linkedContacts = contactsForProject(project, contacts, links)
-  // Event-field label overrides + hidden fields, edited on the Settings page.
+  // Event-field label overrides + hidden/deleted fields + custom fields, edited on the Settings page.
   const [eventLabels, setEventLabels] = useState<Record<string, string>>({})
   const [eventHidden, setEventHidden] = useState<Set<string>>(new Set())
+  const [eventDeleted, setEventDeleted] = useState<Set<string>>(new Set())
+  const [customFields, setCustomFields] = useState<CustomField[]>([])
   useEffect(() => {
     loadConfig()
       .then((c) => {
         setEventLabels(c.eventFieldLabels || {})
         setEventHidden(new Set(c.eventFieldHidden || []))
+        setEventDeleted(new Set(c.eventFieldDeleted || []))
+        setCustomFields(c.customFields || [])
       })
       .catch(() => {})
   }, [])
   const lbl = (id: string, def: string) => eventLabels[id] || def
-  const shown = (id: string) => !eventHidden.has(id)
+  // A field shows unless it's hidden or (for the display-only built-ins) deleted in Settings.
+  const shown = (id: string) => !eventHidden.has(id) && !eventDeleted.has(id)
+
+  // Per-project values for the custom fields, loaded once per project and edited inline.
+  const [customVals, setCustomVals] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let live = true
+    loadCustomValues(project.id)
+      .then((v) => live && setCustomVals(v))
+      .catch(() => live && setCustomVals({}))
+    return () => {
+      live = false
+    }
+  }, [project.id])
+  const saveCustom = (fieldId: string) => (value: string) => {
+    setCustomVals((v) => ({ ...v, [fieldId]: value }))
+    saveCustomValue(project.id, fieldId, value).catch(() => {})
+  }
   const recipientEmails = Array.from(
     new Set(linkedContacts.flatMap((c) => c.emails || []).map((e) => e.trim()).filter(Boolean)),
   )
@@ -215,6 +237,10 @@ export function ProjectDetailsBody({
           {shown('av') && <EditableField label={lbl('av', 'AV')} multiline value={project.av} onSave={save('av')} />}
           {shown('vips') && <EditableField label={lbl('vips', 'VIPs')} multiline value={project.vips} onSave={save('vips')} />}
           {shown('bookingSource') && <EditableField label={lbl('bookingSource', 'Booking source')} multiline value={project.bookingSource} onSave={save('bookingSource')} />}
+          {/* User-defined custom fields (added in Settings). Values are stored CRM-side per project. */}
+          {customFields.map((f) => (
+            <EditableField key={f.id} label={f.label} multiline value={customVals[f.id] || ''} onSave={saveCustom(f.id)} />
+          ))}
         </div>
       </DetailSection>
 

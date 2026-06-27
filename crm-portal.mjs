@@ -14,6 +14,7 @@ import { execFile } from 'node:child_process'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { questionnaireForBundle } from './crm-questionnaire.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
+import { loadConfig } from './crm-finance.mjs'
 
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
 
@@ -139,9 +140,12 @@ export function buildBundle(projectId) {
   if (!project) return null
 
   const shared = new Set((settings.sharedFields || []).filter((id) => SHAREABLE_IDS.has(id)))
+  // A built-in deleted in Settings is treated as gone: never include it, even if a portal published
+  // earlier had it toggled on (its record value lingers but shouldn't surface).
+  const del = new Set(loadConfig().eventFieldDeleted || [])
   const fields = []
   for (const f of SHAREABLE_FIELDS) {
-    if (!shared.has(f.id)) continue
+    if (!shared.has(f.id) || del.has(f.id)) continue
     const v = project[f.id]
     if (v == null || String(v).trim() === '') continue
     fields.push({ label: f.label, value: String(v) })

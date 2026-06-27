@@ -7,7 +7,7 @@ import {
   type Question,
   type QuestionType,
 } from '../api'
-import { EVENT_FIELDS, MAPPABLE_FIELDS } from '../eventFields'
+import { EVENT_FIELDS, MAPPABLE_FIELDS, ESSENTIAL_FIELD_IDS, makeCustomFieldId, type CustomField } from '../eventFields'
 import { RichTextEditor } from './RichTextEditor'
 
 // The Settings page. Sections: the global questionnaire editor (the question set every project's
@@ -35,6 +35,9 @@ export function SettingsPage() {
 
   const [labels, setLabels] = useState<Record<string, string>>({})
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [deleted, setDeleted] = useState<Set<string>>(new Set())
+  const [customFields, setCustomFields] = useState<CustomField[]>([])
+  const [newCustomLabel, setNewCustomLabel] = useState('')
   const [fBusy, setFBusy] = useState(false)
   const [fNote, setFNote] = useState<string | null>(null)
 
@@ -54,6 +57,8 @@ export function SettingsPage() {
       .then((c) => {
         setLabels(c.eventFieldLabels || {})
         setHidden(new Set(c.eventFieldHidden || []))
+        setDeleted(new Set(c.eventFieldDeleted || []))
+        setCustomFields(c.customFields || [])
         setSigEnabled(!!c.signatureEnabled)
         setSigHtml(c.signatureHtml || '')
       })
@@ -99,14 +104,45 @@ export function SettingsPage() {
       else n.add(id)
       return n
     })
+  // Delete / restore a display-only built-in (essential ones can't be deleted, enforced in the UI).
+  const deleteBuiltin = (id: string) => setDeleted((s) => new Set(s).add(id))
+  const restoreBuiltin = (id: string) =>
+    setDeleted((s) => {
+      const n = new Set(s)
+      n.delete(id)
+      return n
+    })
+  // Custom fields.
+  const addCustom = () => {
+    const label = newCustomLabel.trim()
+    if (!label) return
+    setCustomFields((cf) => [...cf, { id: makeCustomFieldId(), label }])
+    setNewCustomLabel('')
+  }
+  const renameCustom = (id: string, label: string) => setCustomFields((cf) => cf.map((f) => (f.id === id ? { ...f, label } : f)))
+  const removeCustom = (id: string) => setCustomFields((cf) => cf.filter((f) => f.id !== id))
+
+  // Questionnaire field-mapping validity: a question can map to a built-in (minus deleted) or a
+  // contact field. If its fieldKey points at something no longer offered, it's a broken link.
+  const validMappable = MAPPABLE_FIELDS.filter((f) => !deleted.has(f.id))
+  const validKeys = new Set(validMappable.map((f) => f.id))
+  const isBrokenKey = (k?: string) => !!k && !validKeys.has(k)
+
   const saveFields = async () => {
     setFBusy(true)
     setFNote(null)
     try {
       const cleanLabels: Record<string, string> = {}
       for (const [k, v] of Object.entries(labels)) if (String(v).trim()) cleanLabels[k] = String(v).trim()
-      await saveConfig({ eventFieldLabels: cleanLabels, eventFieldHidden: [...hidden] })
+      const cleanCustom = customFields.filter((f) => f.label.trim()).map((f) => ({ id: f.id, label: f.label.trim() }))
+      await saveConfig({
+        eventFieldLabels: cleanLabels,
+        eventFieldHidden: [...hidden],
+        eventFieldDeleted: [...deleted],
+        customFields: cleanCustom,
+      })
       setLabels(cleanLabels)
+      setCustomFields(cleanCustom)
       setFNote('Saved. Open a project to see the changes.')
     } catch (e) {
       setFNote(String(e instanceof Error ? e.message : e))
@@ -185,13 +221,13 @@ export function SettingsPage() {
                     ))}
                   </select>
                   <select
-                    value={q.fieldKey || ''}
+                    value={isBrokenKey(q.fieldKey) ? '' : q.fieldKey || ''}
                     onChange={(e) => updateQ(i, { fieldKey: e.target.value || undefined })}
                     className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
                     title="Auto-fill this project field with the answer"
                   >
                     <option value="">Fills: nothing</option>
-                    {MAPPABLE_FIELDS.map((f) => (
+                    {validMappable.map((f) => (
                       <option key={f.id} value={f.id}>Fills: {f.label}</option>
                     ))}
                   </select>
@@ -199,6 +235,17 @@ export function SettingsPage() {
                     <input type="checkbox" checked={!!q.required} onChange={(e) => updateQ(i, { required: e.target.checked })} className="accent-brass" />
                     Required
                   </label>
+                  {isBrokenKey(q.fieldKey) && (
+                    <span className="flex items-center gap-1.5 text-[11.5px] text-[#e0a06b]">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                      </svg>
+                      Linked to a deleted field.
+                      <button type="button" onClick={() => updateQ(i, { fieldKey: undefined })} className="underline hover:text-parchment">
+                        Clear
+                      </button>
+                    </span>
+                  )}
                   {q.type === 'select' && (
                     <input
                       value={(q.options || []).join(', ')}
@@ -228,7 +275,7 @@ export function SettingsPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Event detail fields</h2>
-              <p className="mt-0.5 text-[12px] text-muted">Rename a field or hide one you do not use. Affects every project's Event details.</p>
+              <p className="mt-0.5 text-[12px] text-muted">Rename, hide, delete, or add fields. Affects every project's Event details.</p>
             </div>
             <button
               type="button"
@@ -240,11 +287,13 @@ export function SettingsPage() {
             </button>
           </div>
 
+          {/* Built-in fields (deleted display-only ones drop to the Removed list below). */}
           <div className="mt-4 space-y-1.5">
-            {EVENT_FIELDS.map((f) => {
+            {EVENT_FIELDS.filter((f) => !deleted.has(f.id)).map((f) => {
               const isShown = !hidden.has(f.id)
+              const essential = ESSENTIAL_FIELD_IDS.has(f.id)
               return (
-                <div key={f.id} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+                <div key={f.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2">
                   <input
                     value={labels[f.id] ?? ''}
                     onChange={(e) => setLabels((l) => ({ ...l, [f.id]: e.target.value }))}
@@ -263,12 +312,109 @@ export function SettingsPage() {
                   >
                     {isShown ? 'Shown' : 'Hidden'}
                   </button>
+                  {essential ? (
+                    <span
+                      title="Used by contracts, templates, or the inquiry import, so it can't be deleted. Hide it instead."
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line px-2 py-1.5 text-[11px] text-faint"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                      </svg>
+                      Core
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => deleteBuiltin(f.id)}
+                      title="Delete this field (reversible: it moves to Removed below)"
+                      aria-label="Delete field"
+                      className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b]"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               )
             })}
           </div>
+
+          {/* Custom fields you add (global, shown in every project's Event details). */}
+          <div className="mt-5">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Your custom fields</span>
+            <div className="space-y-1.5">
+              {customFields.map((f) => (
+                <div key={f.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2">
+                  <input
+                    value={f.label}
+                    onChange={(e) => renameCustom(f.id, e.target.value)}
+                    placeholder="Field name"
+                    className={inputCls + ' flex-1'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeCustom(f.id)}
+                    title="Delete this custom field"
+                    aria-label="Delete custom field"
+                    className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b]"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              {customFields.length === 0 && <p className="text-[11.5px] text-faint">No custom fields yet. Add one below.</p>}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={newCustomLabel}
+                onChange={(e) => setNewCustomLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addCustom()
+                  }
+                }}
+                placeholder="New field name (e.g. Parking instructions)"
+                className={inputCls + ' flex-1'}
+              />
+              <button
+                type="button"
+                onClick={addCustom}
+                disabled={!newCustomLabel.trim()}
+                className="shrink-0 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-2 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+              >
+                Add field
+              </button>
+            </div>
+          </div>
+
+          {/* Removed built-ins, with one-click restore. */}
+          {EVENT_FIELDS.some((f) => deleted.has(f.id)) && (
+            <div className="mt-5">
+              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Removed</span>
+              <div className="space-y-1.5">
+                {EVENT_FIELDS.filter((f) => deleted.has(f.id)).map((f) => (
+                  <div key={f.id} className="flex items-center gap-2 rounded-lg border border-dashed border-line bg-surface/50 px-3 py-2">
+                    <span className="flex-1 text-[12.5px] text-faint line-through">{labels[f.id] || f.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => restoreBuiltin(f.id)}
+                      className="shrink-0 rounded-lg border border-line px-2.5 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-parchment"
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <p className="mt-3 text-[11px] leading-relaxed text-faint">
-            The label box shows the default as a placeholder. Type to rename, or leave it blank to keep the default.
+            Rename in the box (blank keeps the default). "Core" fields feed contracts, templates, and imports, so they can be
+            hidden but not deleted. Custom fields appear in every project's Event details. Click Save fields to apply.
           </p>
           {fNote && <p className="mt-2 text-[11.5px] text-muted">{fNote}</p>}
         </section>

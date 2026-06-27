@@ -910,9 +910,28 @@ export type AppConfig = {
   contactTags: string[]
   eventFieldLabels: Record<string, string>
   eventFieldHidden: string[]
+  // Display-only built-in event fields the user deleted (hidden everywhere; reversible).
+  eventFieldDeleted: string[]
+  // User-defined custom event fields (definitions; values via load/saveCustomValue).
+  customFields: { id: string; label: string }[]
   // Email signature appended below the body on send. signatureHtml may embed a logo as a data: <img>.
   signatureEnabled: boolean
   signatureHtml: string
+}
+
+// Per-project values for the custom event fields, keyed by custom field id.
+export async function loadCustomValues(projectId: string): Promise<Record<string, string>> {
+  const res = await fetch(`/api/custom-values?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) return {}
+  return ((await res.json()).values ?? {}) as Record<string, string>
+}
+export async function saveCustomValue(projectId: string, fieldId: string, value: string): Promise<void> {
+  const res = await fetch('/api/custom-values/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, fieldId, value }),
+  })
+  if (!res.ok) throw new Error(`Failed to save field (${res.status})`)
 }
 
 export async function loadConfig(): Promise<AppConfig> {

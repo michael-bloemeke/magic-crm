@@ -25,3 +25,24 @@ export const MAPPABLE_FIELDS: { id: string; label: string }[] = [
   { id: 'contactPhones', label: 'Contact phone' },
   { id: 'contactEmails', label: 'Contact email' },
 ]
+
+// Built-in fields that other features read by key (contracts, email/contract templates, the
+// HoneyBook inquiry import). These can be renamed or hidden but NOT deleted, so those features
+// never silently lose a value. The remaining built-ins (Description, AV, VIPs, Booking source) are
+// display-only and may be deleted from Settings. Custom fields are always deletable.
+export const ESSENTIAL_FIELD_IDS = new Set<string>([
+  'eventDate',
+  'eventStartTime',
+  'showStartTime',
+  'totalFee',
+  'numberOfGuests',
+  'ageOfGuests',
+  'eventLocation',
+  'venueType',
+  'indoorsOrOutdoors',
+  'performanceStyle',
+])
+
+// A user-defined custom event field (definition; its per-project value lives server-side).
+export type CustomField = { id: string; label: string }
+export const makeCustomFieldId = () => 'custom_' + Math.random().toString(36).slice(2, 9)

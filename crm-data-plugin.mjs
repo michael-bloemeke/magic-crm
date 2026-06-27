@@ -565,8 +565,11 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/portal', (req, res, next) => {
         if (req.method !== 'GET') return next()
         try {
+          // Hide any built-in field the user deleted in Settings, so it can't be shared on the portal.
+          const del = new Set(loadConfig().eventFieldDeleted || [])
+          const shareableFields = SHAREABLE_FIELDS.filter((f) => !del.has(f.id))
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ portals: loadPortals(), shareableFields: SHAREABLE_FIELDS, baseUrl: PORTAL_BASE_URL }))
+          res.end(JSON.stringify({ portals: loadPortals(), shareableFields, baseUrl: PORTAL_BASE_URL }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
