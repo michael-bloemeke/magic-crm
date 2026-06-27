@@ -350,46 +350,74 @@ function encodeText(s) {
 }
 
 // Build a raw RFC-822 message. Plain text by default; if `html` is given it goes out as a
-// multipart/alternative (plain + html); if `attachments` are present everything is wrapped in
-// a multipart/mixed. attachments: [{ filename, contentType, contentBase64 }].
-function makeRaw({ from, to, subject, body, html, attachments }) {
+// multipart/alternative (plain + html); if `inlineImages` are present (e.g. a signature logo the
+// html references via cid:) the alternative is wrapped in a multipart/related; if `attachments`
+// are present everything is wrapped in a multipart/mixed.
+//   attachments:  [{ filename, contentType, contentBase64 }]
+//   inlineImages: [{ cid, contentType, contentBase64, filename? }]  (cid referenced as src="cid:..")
+function makeRaw({ from, to, subject, body, html, attachments, inlineImages }) {
   const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && a.contentBase64)
+  const inlines = (Array.isArray(inlineImages) ? inlineImages : []).filter((a) => a && a.contentBase64 && a.cid)
   const hasHtml = !!(html && String(html).trim())
   const plain = body != null && body !== '' ? String(body) : hasHtml ? htmlToText(String(html)) : ''
   const headers = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0']
 
-  // The message content: a single text/plain part, or a multipart/alternative (plain + html).
-  let contentHeader
-  let contentBody
+  // The core content: a single text/plain part, or a multipart/alternative (plain + html).
+  // Tracked as { header, body } so it can be nested inside related/mixed wrappers below.
+  let content
   if (hasHtml) {
     const alt = boundary('alt')
-    contentHeader = `Content-Type: multipart/alternative; boundary="${alt}"`
-    contentBody = [
-      `--${alt}`,
-      'Content-Type: text/plain; charset="UTF-8"',
-      'Content-Transfer-Encoding: base64',
-      '',
-      encodeText(plain),
-      '',
-      `--${alt}`,
-      'Content-Type: text/html; charset="UTF-8"',
-      'Content-Transfer-Encoding: base64',
-      '',
-      encodeText(String(html)),
-      '',
-      `--${alt}--`,
-    ].join('\r\n')
+    content = {
+      header: `Content-Type: multipart/alternative; boundary="${alt}"`,
+      body: [
+        `--${alt}`,
+        'Content-Type: text/plain; charset="UTF-8"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        encodeText(plain),
+        '',
+        `--${alt}`,
+        'Content-Type: text/html; charset="UTF-8"',
+        'Content-Transfer-Encoding: base64',
+        '',
+        encodeText(String(html)),
+        '',
+        `--${alt}--`,
+      ].join('\r\n'),
+    }
   } else {
-    contentHeader = 'Content-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64'
-    contentBody = encodeText(plain)
+    content = {
+      header: 'Content-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64',
+      body: encodeText(plain),
+    }
+  }
+
+  // Inline images (referenced by the html as src="cid:..") wrap the content in multipart/related.
+  if (inlines.length > 0 && hasHtml) {
+    const rel = boundary('rel')
+    const imgParts = inlines.map((a) => {
+      const fn = String(a.filename || a.cid || 'image').replace(/["\r\n]/g, '_')
+      return [
+        `Content-Type: ${a.contentType || 'application/octet-stream'}; name="${fn}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-ID: <${a.cid}>`,
+        `Content-Disposition: inline; filename="${fn}"`,
+        '',
+        b64wrap(Buffer.from(String(a.contentBase64), 'base64')),
+      ].join('\r\n')
+    })
+    const relBody =
+      [`--${rel}\r\n${content.header}\r\n\r\n${content.body}`, ...imgParts.map((p) => `--${rel}\r\n${p}`)].join('\r\n') +
+      `\r\n--${rel}--`
+    content = { header: `Content-Type: multipart/related; boundary="${rel}"`, body: relBody }
   }
 
   let msg
   if (atts.length === 0) {
-    msg = [...headers, contentHeader, '', contentBody].join('\r\n')
+    msg = [...headers, content.header, '', content.body].join('\r\n')
   } else {
     const mixed = boundary('mix')
-    const parts = [`${contentHeader}\r\n\r\n${contentBody}`]
+    const parts = [`${content.header}\r\n\r\n${content.body}`]
     for (const a of atts) {
       const fn = String(a.filename || 'attachment').replace(/["\r\n]/g, '_')
       parts.push(
@@ -416,9 +444,9 @@ async function fromHeader() {
   return `"${SENDER_NAME}" <${await myEmail()}>`
 }
 
-export async function sendMessage({ to, subject, body, html, attachments, threadId }) {
+export async function sendMessage({ to, subject, body, html, attachments, inlineImages, threadId }) {
   const from = await fromHeader()
-  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments })
+  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments, inlineImages })
   const res = await api().users.messages.send({
     userId: 'me',
     requestBody: threadId ? { raw, threadId } : { raw },
@@ -445,9 +473,9 @@ export function hasModifyScope() {
   return !!(t && typeof t.scope === 'string' && t.scope.includes('gmail.modify'))
 }
 
-export async function createDraft({ to, subject, body, html, attachments, threadId }) {
+export async function createDraft({ to, subject, body, html, attachments, inlineImages, threadId }) {
   const from = await fromHeader()
-  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments })
+  const raw = makeRaw({ from, to, subject: subject || '(no subject)', body, html, attachments, inlineImages })
   const res = await api().users.drafts.create({
     userId: 'me',
     requestBody: { message: threadId ? { raw, threadId } : { raw } },

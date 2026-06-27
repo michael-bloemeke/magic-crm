@@ -11,6 +11,7 @@ import { RECORDS_DIR, appendActivityLog } from './crm-data-core.mjs'
 import { sendEmail } from './crm-comms.mjs'
 import { readAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
+import { loadConfig } from './crm-finance.mjs'
 
 // Strip smart-field placeholder chips down to their plain text, server-side. This is the
 // last line of defense so a styled <span class="merge-field">[Label]</span> can NEVER ship to
@@ -48,11 +49,41 @@ function tightenEmailHtml(html) {
   s = s.replace(/<a(?![^>]*\bstyle=)([^>]*)>/gi, `<a$1 style="${LINK_STYLE}">`) // Gmail-blue links, matching the editor
   return s
 }
-// Wrap a composed body in the Gmail-like base font so editor, receipt, and delivered email agree.
-function renderEmailHtml(html) {
-  const inner = tightenEmailHtml(String(html || ''))
-  if (!inner) return inner
-  return `<div style="${EMAIL_BASE_STYLE}">${inner}</div>`
+// Pull every `data:` image out of HTML into a cid: inline attachment, rewriting the src to cid:.
+// Gmail strips data: images from RECEIVED mail, so a signature logo must ride along as an inline
+// attachment referenced by Content-ID. Returns the rewritten html plus the images to attach.
+function extractInlineImages(html) {
+  const images = []
+  let n = 0
+  const out = String(html || '').replace(
+    /(<img\b[^>]*\bsrc=")data:([^;"]+);base64,([^"]+)(")/gi,
+    (_m, pre, contentType, contentBase64, post) => {
+      const cid = `sig${n++}@magic-crm`
+      const ext = (contentType.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
+      images.push({ cid, contentType, contentBase64, filename: `signature-${n}.${ext}` })
+      return `${pre}cid:${cid}${post}`
+    },
+  )
+  return { html: out, images }
+}
+
+// Build the signature block (tightened, same styling as the body), or '' if disabled/empty.
+function signatureInner() {
+  const cfg = loadConfig()
+  if (!cfg || !cfg.signatureEnabled) return ''
+  const sig = tightenEmailHtml(String(cfg.signatureHtml || ''))
+  return sig ? `<div style="margin-top:16px">${sig}</div>` : ''
+}
+
+// Turn a composed body into what actually ships and what we store as the receipt. Both are wrapped
+// in the Gmail-like base font (so editor, receipt, and delivered email agree) and carry the
+// signature. They differ only in images: the receipt keeps data: URIs (so the in-app sent view
+// renders the logo), while the send version uses cid: + inlineImages (so the recipient's Gmail does).
+function composeOutgoing(bodyHtml) {
+  const inner = tightenEmailHtml(String(bodyHtml || '')) + signatureInner()
+  const wrap = (h) => (h ? `<div style="${EMAIL_BASE_STYLE}">${h}</div>` : h)
+  const { html: cidInner, images } = extractInlineImages(inner)
+  return { sendHtml: wrap(cidInner), receiptHtml: wrap(inner), inlineImages: images }
 }
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
@@ -231,16 +262,19 @@ export async function sendProjectEmail({ id } = {}) {
   if (to.length === 0) throw new Error('add at least one recipient before sending')
 
   // The body that goes OUT has its placeholder chips stripped to plain text; the stored draft
-  // keeps its chips until the send actually succeeds (so a demo/failed send loses nothing).
+  // keeps its chips until the send actually succeeds (so a demo/failed send loses nothing). For
+  // HTML, composeOutgoing wraps it in the Gmail base style, appends the signature, and splits into
+  // a send version (cid: logo + inlineImages) and a receipt version (data: logo, renders in-app).
   const isHtml = e.format === 'html'
-  const outgoingBody = isHtml ? tightenEmailHtml(stripMergeFields(e.body || '')) : e.body || ''
+  const composed = isHtml ? composeOutgoing(stripMergeFields(e.body || '')) : null
   const r = await sendEmail({
     projectId: e.projectId,
     to: to.join(', '),
     subject: e.subject || 'Thank you!',
-    body: outgoingBody,
+    body: isHtml ? composed.sendHtml : e.body || '',
     format: isHtml ? 'html' : 'text',
     attachments: resolveAttachments(e.attachments),
+    inlineImages: isHtml ? composed.inlineImages : [],
     mode: 'send',
   })
 
@@ -250,8 +284,9 @@ export async function sendProjectEmail({ id } = {}) {
   }
 
   const now = new Date().toISOString()
-  // Record what actually went out (chips stripped), so the sent receipt matches the email.
-  e.body = outgoingBody
+  // Record what actually went out (chips stripped, signature appended), so the sent receipt matches
+  // the email. The receipt keeps data: images so the in-app view still renders the logo.
+  e.body = isHtml ? composed.receiptHtml : e.body || ''
   e.status = 'sent'
   e.sentAt = now
   e.updatedAt = now

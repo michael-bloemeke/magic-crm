@@ -215,18 +215,20 @@ export async function markRead({ threadId }) {
   }
 }
 
-export async function sendEmail({ projectId, threadId, to, subject, body, format, attachments, mode }) {
+export async function sendEmail({ projectId, threadId, to, subject, body, format, attachments, inlineImages, mode }) {
   if (gmailConnected()) {
     const p = getProject(projectId)
     const subj = subject || `Re: ${p?.client || 'your event'}`
     // An HTML email carries the rich body as `html`; the Gmail layer derives a plain-text
-    // fallback. A plain email keeps using `body`. Attachments pass straight through.
+    // fallback. A plain email keeps using `body`. Attachments pass straight through. inlineImages
+    // (e.g. a signature logo the html references via cid:) ride along for the multipart/related part.
     const isHtml = format === 'html'
     const payload = {
       to,
       subject: subj,
       threadId,
       attachments: Array.isArray(attachments) ? attachments : [],
+      inlineImages: Array.isArray(inlineImages) ? inlineImages : [],
       ...(isHtml ? { html: body, body: '' } : { body }),
     }
     if (mode === 'draft') {
