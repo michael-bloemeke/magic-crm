@@ -382,7 +382,7 @@ export function EmailBuilderModal({
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
                   {existing.format === 'html' ? (
                     <div
-                      className="email-rte rounded-lg border border-line bg-surface-2 px-3 py-3 text-[13px] leading-relaxed text-parchment"
+                      className="email-rte rounded-lg border border-line px-3 py-3"
                       dangerouslySetInnerHTML={{ __html: existing.body }}
                     />
                   ) : (

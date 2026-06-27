@@ -24,21 +24,35 @@ function stripMergeFields(html) {
   )
 }
 
-// Tighten the vertical spacing of an outgoing HTML email. Our draft HTML (Claude-drafted or typed
-// in the rich editor) uses an empty <p><br></p> for a blank line, and email clients also render
-// every <p> with a full 1em top+bottom margin. Stacked, a single blank line balloons to ~50px in
-// Gmail. This swaps each blank-line paragraph for a short half-height spacer and gives real
-// paragraphs a controlled, smaller bottom margin, so a blank line is about half its old size.
-// Purely presentational: no text is changed. Only touches <p> tags with no style of their own.
+// Make an outgoing HTML email render like Gmail, and match the compose box / sent receipt exactly
+// (which carry the .email-rte class with these same values in src/index.css). Three jobs:
+//   1. tightenEmailHtml: normalize spacing. Our draft HTML (Claude-drafted or typed in the rich
+//      editor) uses an empty <p><br></p> for a blank line, and email clients render every <p> with
+//      a full 1em top+bottom margin, so stacked a blank line balloons to ~50px. We swap each
+//      blank-line paragraph for a short half-height spacer, give real paragraphs a controlled
+//      smaller bottom margin, and inline Gmail's blue link color so links match the editor.
+//   2. EMAIL_BASE_STYLE: a base font wrapper so the recipient's client doesn't fall back to its own
+//      font (Gmail otherwise renders an unstyled message in a serif). Arial / 14px / 1.5 / #222.
+//   3. renderEmailHtml: wrap the tightened body in that base style.
+// Purely presentational: no text is changed. Only touches <p>/<a> tags with no style of their own.
 const PARA_STYLE = 'margin:0 0 12px 0'
 const BLANK_SPACER = '<div style="margin:0;line-height:12px;font-size:1px">&nbsp;</div>'
+const LINK_STYLE = 'color:#1155cc;text-decoration:underline'
+const EMAIL_BASE_STYLE = 'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222'
 function tightenEmailHtml(html) {
   let s = String(html || '')
   if (!s) return s
   s = s.replace(/>\s+</g, '><') // drop insignificant whitespace the editor/Claude leaves between blocks
   s = s.replace(/<(p|div)\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi, BLANK_SPACER) // blank line -> short spacer
   s = s.replace(/<p(?![^>]*\bstyle=)([^>]*)>/gi, `<p$1 style="${PARA_STYLE}">`) // controlled margin on real paragraphs
+  s = s.replace(/<a(?![^>]*\bstyle=)([^>]*)>/gi, `<a$1 style="${LINK_STYLE}">`) // Gmail-blue links, matching the editor
   return s
+}
+// Wrap a composed body in the Gmail-like base font so editor, receipt, and delivered email agree.
+function renderEmailHtml(html) {
+  const inner = tightenEmailHtml(String(html || ''))
+  if (!inner) return inner
+  return `<div style="${EMAIL_BASE_STYLE}">${inner}</div>`
 }
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')

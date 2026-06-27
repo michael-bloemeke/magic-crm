@@ -313,7 +313,7 @@ export function RichTextEditor({
 
       <div className="relative">
         {empty && (
-          <span className="pointer-events-none absolute left-3 top-3 text-[13px] text-faint">{placeholder}</span>
+          <span className="pointer-events-none absolute left-3 top-3 text-[14px] text-[#9aa0a6]">{placeholder}</span>
         )}
         <div
           ref={ref}
@@ -324,7 +324,7 @@ export function RichTextEditor({
           onKeyUp={refreshLink}
           role="textbox"
           aria-multiline="true"
-          className="email-rte min-h-[180px] w-full px-3 py-3 text-[13px] leading-relaxed text-parchment outline-none"
+          className="email-rte min-h-[180px] w-full px-3 py-3 outline-none"
         />
       </div>
     </div>
