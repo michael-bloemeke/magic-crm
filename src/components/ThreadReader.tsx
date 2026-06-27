@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  draftReply,
+  claudeDraftReply,
   markThreadRead as apiMarkThreadRead,
   sendEmail,
   type EmailThread,
@@ -68,12 +68,16 @@ export function ThreadReader({
 
   const doDraft = async () => {
     setDrafting(true)
-    setStatus(null)
+    setStatus('Drafting with Claude. This can take up to a minute.')
     try {
-      const { draft } = await draftReply(project.id, thread.id)
+      const threadText = thread.messages
+        .map((m) => `${m.from === ME ? 'Michael' : m.fromName || 'Client'}: ${m.body}`)
+        .join('\n\n')
+      const draft = await claudeDraftReply({ projectId: project.id, threadText })
       setReply(draft)
-    } catch {
-      setStatus('Could not draft right now.')
+      setStatus('Drafted with Claude. Review before sending.')
+    } catch (e) {
+      setStatus(String(e instanceof Error ? e.message : e))
     } finally {
       setDrafting(false)
     }

@@ -621,6 +621,21 @@ export async function claudeCompleteTemplate(input: { projectId: string; body: s
   if (!res.ok || data.error) throw new Error(data.error || `Claude template completion failed (${res.status})`)
   return String(data.draft || '')
 }
+// Draft a reply to a specific email thread (plain text), thread- and project-aware.
+export async function claudeDraftReply(input: { projectId: string; threadText: string }): Promise<string> {
+  const res = await fetch('/api/claude/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data.error) throw new Error(data.error || `Claude reply failed (${res.status})`)
+  return String(data.draft || '')
+}
+// A per-project chat message (read + write; can do real work like editing the activity log).
+export type ClaudeChatMessage = { role: 'user' | 'assistant'; text: string }
+export async function claudeChat(input: { projectId: string; message: string; history: ClaudeChatMessage[] }): Promise<string> {
+  const res = await fetch('/api/claude/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data.error) throw new Error(data.error || `Claude chat failed (${res.status})`)
+  return String(data.reply || '')
+}
 
 // --- QuickBooks --------------------------------------------------------------
 export type QuickBooksStatus = { configured: boolean; connected: boolean; environment: string }

@@ -312,12 +312,12 @@ function App() {
   const dueTodayCount = allTasks.filter((t) => !t.done && t.dueDate === today).length
   const upcomingCount = allTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
-  // In the packaged Mac app, show a dock badge for things needing attention: new HoneyBook
-  // inquiries + due/overdue tasks (same count as the in-app bell) + unread client mail. No-op in
-  // a plain browser (window.crm is only injected by the Electron preload).
+  // The dock badge mirrors the in-app bell EXACTLY: status updates + questionnaire submissions +
+  // new inquiries + overdue + due-today. Same inputs the bell totals, so the two never disagree, and
+  // it updates the moment any of those state values change. No-op in a plain browser.
   useEffect(() => {
-    window.crm?.setBadge?.(inquiries.length + taskAlerts + inboxUnread)
-  }, [inquiries.length, taskAlerts, inboxUnread])
+    window.crm?.setBadge?.(statusNotifs.length + submissions.length + inquiries.length + overdueCount + dueTodayCount)
+  }, [statusNotifs.length, submissions.length, inquiries.length, overdueCount, dueTodayCount])
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',

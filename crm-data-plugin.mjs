@@ -83,7 +83,13 @@ import {
   sendContractFromTemplate,
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
-import { isClaudeAvailable, draftEmail as claudeDraftEmail, completeTemplate as claudeCompleteTemplate } from './crm-claude.mjs'
+import {
+  isClaudeAvailable,
+  draftEmail as claudeDraftEmail,
+  completeTemplate as claudeCompleteTemplate,
+  draftReply as claudeDraftReply,
+  chat as claudeChat,
+} from './crm-claude.mjs'
 import { status as esignStatus, listTemplates as esignListTemplates } from './crm-esign.mjs'
 import {
   defaultTemplateHtml,
@@ -766,6 +772,26 @@ export function crmDataPlugin() {
         withbody(req, res, async (b) => {
           try {
             return { draft: await claudeCompleteTemplate({ projectId: b.projectId, body: b.body }) }
+          } catch (e) {
+            return { error: String(e?.message || e) }
+          }
+        })
+      })
+      server.middlewares.use('/api/claude/reply', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          try {
+            return { draft: await claudeDraftReply({ projectId: b.projectId, threadText: b.threadText }) }
+          } catch (e) {
+            return { error: String(e?.message || e) }
+          }
+        })
+      })
+      server.middlewares.use('/api/claude/chat', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          try {
+            return { reply: await claudeChat({ projectId: b.projectId, message: b.message, history: b.history }) }
           } catch (e) {
             return { error: String(e?.message || e) }
           }

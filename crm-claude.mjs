@@ -35,7 +35,10 @@ function cleanup(text) {
   return t
 }
 
-function runClaude(prompt) {
+function runClaude(prompt, opts = {}) {
+  const { systemPrompt = SYSTEM_PROMPT, allowWrite = false } = opts
+  // Read-only by default. The project chat passes allowWrite so it can edit data (e.g. activity log).
+  const tools = allowWrite ? ['Read', 'Glob', 'Grep', 'Edit', 'Write'] : ['Read', 'Glob', 'Grep']
   return new Promise((resolve, reject) => {
     // The prompt is delivered via STDIN (the reliable headless path). Passing it as a positional
     // argument makes Claude Code wait on stdin and warn "no stdin data received", so we pipe it.
@@ -44,16 +47,14 @@ function runClaude(prompt) {
       '--output-format',
       'text',
       '--permission-mode',
-      'default',
+      allowWrite ? 'acceptEdits' : 'default',
       '--no-session-persistence',
       '--add-dir',
       MEMORY_DIR,
       '--allowedTools',
-      'Read',
-      'Glob',
-      'Grep',
+      ...tools,
       '--append-system-prompt',
-      SYSTEM_PROMPT,
+      systemPrompt,
     ]
     let out = ''
     let errOut = ''
@@ -147,4 +148,50 @@ export async function completeTemplate({ projectId, body }) {
     String(body || ''),
   ].join('\n')
   return runClaude(prompt)
+}
+
+const REPLY_SYSTEM_PROMPT =
+  "You are drafting Michael Bloemeke's reply to a client email for his magic business. Use his voice and follow every rule in CLAUDE.md and voice.md in this folder. NEVER use em-dashes or en-dashes. Output ONLY the reply body as PLAIN TEXT (no HTML, no subject line, no preamble). Address what the client actually said and close the way Michael would."
+
+// Draft a reply to a specific email thread (used by the thread reader). Plain text, thread-aware.
+export async function draftReply({ projectId, threadText }) {
+  const { text, client } = projectContext(projectId)
+  const prompt = [
+    "Draft Michael's reply to the most recent message in this client email thread. Reply in his voice, address what they said, and keep it concise.",
+    '',
+    text,
+    '',
+    readHint(client),
+    '',
+    'EMAIL THREAD (oldest first):',
+    String(threadText || '').slice(0, 12000),
+  ].join('\n')
+  return runClaude(prompt, { systemPrompt: REPLY_SYSTEM_PROMPT })
+}
+
+const CHAT_SYSTEM_PROMPT =
+  "You are Claude, working inside Michael Bloemeke's magic-business CRM to help with ONE specific project (given below) unless he says otherwise. You can read AND edit his files in this folder. Follow the data conventions and rules in CLAUDE.md and magic-crm.md, especially the activity_log line format ('Month Day, Year: what happened', newest on top) and which files are safe to edit. NEVER use em-dashes or en-dashes. When you change a file, do it carefully and tell him in one short sentence what you changed (note he may need to refresh the CRM to see it). Reply in plain text, concise."
+
+// A per-project chat with read + write access (so it can do real work like appending to the
+// activity log). History is passed in for continuity since each call is a fresh headless run.
+export async function chat({ projectId, message, history }) {
+  const { text, client } = projectContext(projectId)
+  const convo = Array.isArray(history)
+    ? history
+        .slice(-12)
+        .map((m) => `${m.role === 'assistant' ? 'Claude' : 'Michael'}: ${m.text}`)
+        .join('\n')
+    : ''
+  const prompt = [
+    'You are helping with THIS project (default scope unless I say otherwise):',
+    '',
+    text,
+    '',
+    readHint(client),
+    convo ? `\nConversation so far:\n${convo}\n` : '',
+    `Michael: ${String(message || '')}`,
+    '',
+    'Do what I asked. If it changes data (like the activity log), follow the conventions in CLAUDE.md / magic-crm.md and edit the right file. Then reply with a short plain-text message about what you did or found.',
+  ].join('\n')
+  return runClaude(prompt, { systemPrompt: CHAT_SYSTEM_PROMPT, allowWrite: true })
 }
