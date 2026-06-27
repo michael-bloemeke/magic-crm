@@ -4,7 +4,7 @@
 // the templates, Project Records, and the Plaud recordings) to write on-voice, fully-customized
 // emails. Tools are limited to read-only (Read/Glob/Grep) so it can never edit or run anything.
 
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -37,9 +37,8 @@ function cleanup(text) {
 
 function runClaude(prompt) {
   return new Promise((resolve, reject) => {
-    // Flag order matters: each variadic flag (--add-dir, --allowedTools) is followed by another
-    // "--" flag, and the positional prompt comes after the single-value --append-system-prompt, so
-    // nothing swallows the prompt.
+    // The prompt is delivered via STDIN (the reliable headless path). Passing it as a positional
+    // argument makes Claude Code wait on stdin and warn "no stdin data received", so we pipe it.
     const args = [
       '--print',
       '--output-format',
@@ -55,19 +54,45 @@ function runClaude(prompt) {
       'Grep',
       '--append-system-prompt',
       SYSTEM_PROMPT,
-      prompt,
     ]
-    execFile(
-      CLAUDE_BIN,
-      args,
-      { cwd: BUSINESS_DIR, timeout: 180000, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) return reject(new Error(String(stderr || err.message || 'Claude Code failed').trim().slice(0, 600)))
-        const out = cleanup(stdout)
-        if (!out) return reject(new Error('Claude returned an empty draft.'))
-        resolve(out)
-      },
-    )
+    let out = ''
+    let errOut = ''
+    let done = false
+    const child = spawn(CLAUDE_BIN, args, { cwd: BUSINESS_DIR })
+    const timer = setTimeout(() => {
+      if (done) return
+      done = true
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+      reject(new Error('Claude timed out after 180 seconds.'))
+    }, 180000)
+    const finish = (fn) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      fn()
+    }
+    child.stdout.on('data', (d) => {
+      out += d.toString()
+    })
+    child.stderr.on('data', (d) => {
+      errOut += d.toString()
+    })
+    child.on('error', (e) => finish(() => reject(new Error(String(e?.message || e)))))
+    child.on('close', (code) => {
+      const cleaned = cleanup(out)
+      if (cleaned) finish(() => resolve(cleaned))
+      else finish(() => reject(new Error(String(errOut || `Claude exited with code ${code} and no output.`).trim().slice(0, 600))))
+    })
+    try {
+      child.stdin.write(prompt)
+      child.stdin.end()
+    } catch (e) {
+      finish(() => reject(new Error(String(e?.message || e))))
+    }
   })
 }
 

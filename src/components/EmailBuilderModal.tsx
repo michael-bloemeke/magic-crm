@@ -8,6 +8,9 @@ import {
   loadFiles,
   uploadEmailAttachment,
   deleteEmailAttachment,
+  claudeStatus,
+  claudeDraftEmail,
+  claudeCompleteTemplate,
   type ProjectEmail,
   type Template,
   type EmailAttachment,
@@ -73,6 +76,9 @@ export function EmailBuilderModal({
   // Set once the user has been warned that the email still has unfilled placeholders, so a
   // second Send click goes through.
   const [confirmUnfilled, setConfirmUnfilled] = useState(false)
+  const [claudeAvail, setClaudeAvail] = useState(false)
+  const [claudeBusy, setClaudeBusy] = useState(false)
+  const [claudeInstruction, setClaudeInstruction] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
   // without saving or sending), they were never persisted to an email record, so we delete
@@ -104,6 +110,10 @@ export function EmailBuilderModal({
     loadTemplates()
       .then(setTemplates)
       .catch(() => setTemplates([]))
+    setClaudeInstruction('')
+    claudeStatus()
+      .then((s) => setClaudeAvail(s.available))
+      .catch(() => setClaudeAvail(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -233,6 +243,36 @@ export function EmailBuilderModal({
     setBody(resolveMergeFields(html, project))
     setConfirmUnfilled(false)
     setStatus(`Drafted from "${t.name}". Live Claude drafting is coming soon.`)
+  }
+
+  // --- Claude drafting (headless Claude Code) --------------------------------
+  const doClaudeDraft = async () => {
+    setClaudeBusy(true)
+    setStatus('Drafting with Claude. This can take up to a minute.')
+    try {
+      const html = await claudeDraftEmail({ projectId: project.id, label: title, instruction: claudeInstruction })
+      setBody(html)
+      setConfirmUnfilled(false)
+      setStatus('Drafted with Claude. Review it before sending.')
+    } catch (e) {
+      setStatus(String(e instanceof Error ? e.message : e))
+    } finally {
+      setClaudeBusy(false)
+    }
+  }
+  const doClaudeComplete = async () => {
+    setClaudeBusy(true)
+    setStatus('Completing the template with Claude. This can take up to a minute.')
+    try {
+      const html = await claudeCompleteTemplate({ projectId: project.id, body })
+      setBody(html)
+      setConfirmUnfilled(false)
+      setStatus('Template completed by Claude. Review it before sending.')
+    } catch (e) {
+      setStatus(String(e instanceof Error ? e.message : e))
+    } finally {
+      setClaudeBusy(false)
+    }
   }
 
   // --- Attachments -----------------------------------------------------------
@@ -494,6 +534,40 @@ export function EmailBuilderModal({
                   </button>
                 )}
               </div>
+
+              {claudeAvail && (
+                <div className="rounded-lg border border-brass-dim/40 bg-surface-3/40 p-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={claudeInstruction}
+                      onChange={(e) => setClaudeInstruction(e.target.value)}
+                      placeholder="Tell Claude what this email should say (optional)…"
+                      className="min-w-[12rem] flex-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={doClaudeDraft}
+                      disabled={claudeBusy}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+                    >
+                      {claudeBusy ? 'Working…' : 'Draft with Claude'}
+                    </button>
+                    {htmlHasContent(body) && (
+                      <button
+                        type="button"
+                        onClick={doClaudeComplete}
+                        disabled={claudeBusy}
+                        className="rounded-lg border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-parchment disabled:opacity-40"
+                      >
+                        Complete template with Claude
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-[10.5px] leading-relaxed text-faint">
+                    Claude reads this project, your voice and rules, and this client's recordings. Review before sending.
+                  </p>
+                </div>
+              )}
 
               <div className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
