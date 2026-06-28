@@ -45,6 +45,11 @@ export function loadCustomValues(projectId) {
   return read().values[projectId] || {}
 }
 
+// The whole map { projectId: { fieldId: value } }, for the read-only phone snapshot.
+export function loadAllCustomValues() {
+  return read().values
+}
+
 // Set (or clear) one project's value for one custom field. Empty value drops the key.
 export function setCustomValue({ projectId, fieldId, value } = {}) {
   if (!projectId) throw new Error('projectId is required')

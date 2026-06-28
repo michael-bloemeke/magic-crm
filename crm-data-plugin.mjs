@@ -85,6 +85,7 @@ import {
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
+import { buildSnapshot } from './crm-snapshot.mjs'
 import {
   isClaudeAvailable,
   isClaudeConfigured,
@@ -808,6 +809,18 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ push: pushPublic(getPushConfig()) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Read-only snapshot for the phone app (served locally for dev; synced to cloud later) ---
+      server.middlewares.use('/api/snapshot', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(buildSnapshot()))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
