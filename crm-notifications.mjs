@@ -6,6 +6,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR } from './crm-data-core.mjs'
+import { pushNotification } from './crm-push.mjs'
 
 const FILE = path.join(RECORDS_DIR, 'crm-notifications.json')
 
@@ -49,6 +50,8 @@ export function addNotification(projectId, kind, sourceId) {
   const ev = { id: newId(), projectId, kind, sourceId: String(sourceId), createdAt: new Date().toISOString(), seen: false }
   d.events.push(ev)
   write(d)
+  // Mirror every new bell event to the phone's lock screen (best-effort; off until set up in Settings).
+  pushNotification(ev).catch(() => {})
   return ev
 }
 export function markNotificationSeen(id) {

@@ -84,6 +84,7 @@ import {
   sendContractFromTemplate,
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
+import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
 import {
   isClaudeAvailable,
   isClaudeConfigured,
@@ -706,6 +707,7 @@ export function crmDataPlugin() {
         'invoice-paid': 'Invoice paid',
         'contract-viewed': 'Contract viewed',
         'contract-signed': 'Contract signed',
+        'task-due': 'Task due',
       }
       const withNotifNames = (events) => {
         const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))
@@ -755,6 +757,18 @@ export function crmDataPlugin() {
             /* QuickBooks unreachable / not connected; skip */
           }
         }
+        // Tasks that have come due (or are overdue) and aren't done: fire once each (deduped by id).
+        // Time-based, so this catches a task the moment a sweep runs on/after its due date.
+        try {
+          const now = new Date()
+          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+          for (const t of loadTasks()) {
+            if (t.done || !t.dueDate) continue
+            if (t.dueDate <= today && active.has(t.projectId)) addNotification(t.projectId, 'task-due', t.id)
+          }
+        } catch {
+          /* tasks unreadable; skip */
+        }
         return withNotifNames(loadUnseenNotifications())
       }
 
@@ -771,6 +785,29 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ notifications: withNotifNames(loadUnseenNotifications()) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Phone push (ntfy) config + test ---
+      const pushPublic = (c) => ({ enabled: !!c.enabled, topic: c.topic, server: c.server, subscribeUrl: subscribeUrl(c) })
+      server.middlewares.use('/api/push/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ push: pushPublic(setPushConfig(b)) }))
+      })
+      server.middlewares.use('/api/push/test', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async () => ({
+          result: await sendPush({ title: 'Magic CRM', message: 'Test alert. Notifications are working.', tags: ['sparkles'] }, { force: true }),
+        }))
+      })
+      server.middlewares.use('/api/push', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ push: pushPublic(getPushConfig()) }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

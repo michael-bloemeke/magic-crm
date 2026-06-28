@@ -19,7 +19,12 @@ const { spawn } = require('child_process')
 
 const PORT = 5199
 const BASE_URL = `http://localhost:${PORT}`
-const ROOT = path.join(__dirname, '..')
+// In dev the repo is one level up from electron/. Once packaged into Magic CRM.app, __dirname is
+// inside the app bundle, so point at the real repo on disk (the data API + node_modules live there).
+// Override with MAGIC_CRM_ROOT if the repo ever moves.
+const ROOT = app.isPackaged
+  ? process.env.MAGIC_CRM_ROOT || path.join(os.homedir(), 'Desktop', 'Claude', 'magic-crm')
+  : path.join(__dirname, '..')
 const NODE22_BIN = path.join(os.homedir(), '.local', 'node22', 'bin')
 
 let serverProc = null

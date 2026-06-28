@@ -4,6 +4,10 @@ import {
   saveQuestionnaireTemplate,
   loadConfig,
   saveConfig,
+  loadPush,
+  savePush,
+  testPush,
+  type PushConfig,
   type Question,
   type QuestionType,
 } from '../api'
@@ -46,6 +50,10 @@ export function SettingsPage() {
   const [sigBusy, setSigBusy] = useState(false)
   const [sigNote, setSigNote] = useState<string | null>(null)
 
+  const [push, setPush] = useState<PushConfig | null>(null)
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushNote, setPushNote] = useState<string | null>(null)
+
   useEffect(() => {
     loadQuestionnaireTemplate()
       .then((t) => {
@@ -63,7 +71,36 @@ export function SettingsPage() {
         setSigHtml(c.signatureHtml || '')
       })
       .catch(() => {})
+    loadPush()
+      .then(setPush)
+      .catch(() => {})
   }, [])
+
+  // --- Phone notifications (ntfy push) ---
+  const togglePush = async (enabled: boolean) => {
+    setPushBusy(true)
+    setPushNote(null)
+    try {
+      setPush(await savePush({ enabled }))
+      setPushNote(enabled ? 'On. New alerts will go to your phone.' : 'Off.')
+    } catch (e) {
+      setPushNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setPushBusy(false)
+    }
+  }
+  const sendTestPush = async () => {
+    setPushBusy(true)
+    setPushNote('Sending…')
+    try {
+      const r = await testPush()
+      setPushNote(r.ok ? 'Test sent. Check your phone (it may take a few seconds).' : `Could not send: ${r.error || 'unknown error'}`)
+    } catch (e) {
+      setPushNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setPushBusy(false)
+    }
+  }
 
   // --- Questionnaire editor ---
   const updateQ = (i: number, patch: Partial<Question>) =>
@@ -465,6 +502,61 @@ export function SettingsPage() {
             yourself; this block goes underneath. The preview above matches what the recipient sees.
           </p>
           {sigNote && <p className="mt-2 text-[11.5px] text-muted">{sigNote}</p>}
+        </section>
+
+        {/* Phone notifications (ntfy lock-screen push) */}
+        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-[17px] text-parchment">Phone notifications</h2>
+              <p className="mt-0.5 text-[12px] text-muted">
+                Get a lock-screen alert on your iPhone when a contract is viewed or signed, an invoice is paid, or a task is due.
+              </p>
+            </div>
+            <label className="flex shrink-0 cursor-pointer items-center gap-2.5 text-[13px] text-parchment">
+              <input
+                type="checkbox"
+                checked={!!push?.enabled}
+                disabled={pushBusy || !push}
+                onChange={(e) => togglePush(e.target.checked)}
+                className="h-4 w-4 accent-[#c79a4b]"
+              />
+              <span>{push?.enabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+
+          <div className="mt-4 space-y-3 text-[12.5px] text-muted">
+            <div>
+              <p className="font-semibold text-parchment">One-time setup on your iPhone:</p>
+              <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                <li>Install the free <span className="text-parchment">ntfy</span> app from the App Store.</li>
+                <li>In ntfy, tap + to subscribe to a topic, and paste the topic below.</li>
+                <li>Allow notifications when prompted, then flip this toggle On.</li>
+              </ol>
+            </div>
+            {push && (
+              <div className="rounded-lg border border-line bg-surface px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Your private topic</p>
+                <p className="mt-1 break-all font-mono text-[12px] text-parchment">{push.topic}</p>
+                <p className="mt-1 break-all text-[11px] text-faint">Subscribe link: {push.subscribeUrl}</p>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={sendTestPush}
+                disabled={pushBusy || !push}
+                className="rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+              >
+                Send test alert
+              </button>
+              {pushNote && <span className="text-[11.5px] text-muted">{pushNote}</span>}
+            </div>
+            <p className="text-[11px] leading-relaxed text-faint">
+              Keep this topic private: anyone who knows it can read your alerts. Alerts include client names but never dollar
+              amounts. Your Mac must be running to send live "something happened" alerts; due-task alerts fire while the app is open.
+            </p>
+          </div>
         </section>
       </div>
     </div>

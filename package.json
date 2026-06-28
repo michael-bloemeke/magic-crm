@@ -3,12 +3,26 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "app": "electron electron/main.cjs"
+    "app": "electron electron/main.cjs",
+    "dist": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.michaelbloemeke.magic-crm",
+    "productName": "Magic CRM",
+    "directories": { "output": "release" },
+    "files": ["electron/**/*", "package.json"],
+    "mac": {
+      "target": ["dir"],
+      "category": "public.app-category.productivity",
+      "icon": "electron/icon.png",
+      "identity": null
+    }
   },
   "dependencies": {
     "googleapis": "^173.0.0",
@@ -35,6 +49,7 @@
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "electron-builder": "^25.1.8"
   }
 }

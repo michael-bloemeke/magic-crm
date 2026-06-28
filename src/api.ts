@@ -949,6 +949,28 @@ export async function saveConfig(patch: Partial<AppConfig>): Promise<AppConfig> 
   return (await res.json()) as AppConfig
 }
 
+// --- Phone push (ntfy) -------------------------------------------------------
+export type PushConfig = { enabled: boolean; topic: string; server: string; subscribeUrl: string }
+export async function loadPush(): Promise<PushConfig> {
+  const res = await fetch('/api/push')
+  if (!res.ok) throw new Error(`Failed to load push settings (${res.status})`)
+  return (await res.json()).push as PushConfig
+}
+export async function savePush(patch: { enabled?: boolean; regenerateTopic?: boolean; server?: string }): Promise<PushConfig> {
+  const res = await fetch('/api/push/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(`Failed to save push settings (${res.status})`)
+  return (await res.json()).push as PushConfig
+}
+export async function testPush(): Promise<{ ok: boolean; status?: number; error?: string; skipped?: boolean }> {
+  const res = await fetch('/api/push/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  if (!res.ok) throw new Error(`Failed to send test (${res.status})`)
+  return (await res.json()).result
+}
+
 // --- Finance -----------------------------------------------------------------
 
 // One project's contribution to a figure (drives the breakdown popovers).
