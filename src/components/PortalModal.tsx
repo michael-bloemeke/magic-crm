@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
-import { loadFiles, loadPortals, loadProjectEmails, publishPortal, unpublishPortal, type FileItem, type ProjectEmail, type ShareableField } from '../api'
+import { loadCustomValues, loadFiles, loadPortals, loadProjectEmails, publishPortal, unpublishPortal, type FileItem, type ProjectEmail, type ShareableField } from '../api'
 import { EmailBuilderModal } from './EmailBuilderModal'
 
 // The "Client portal" panel for a project. Michael ticks which client-safe fields
@@ -18,6 +18,7 @@ const portalInviteBody = (url: string) =>
 
 export function PortalModal({ open, project, onClose }: { open: boolean; project: Project; onClose: () => void }) {
   const [fieldsDef, setFieldsDef] = useState<ShareableField[]>([])
+  const [customVals, setCustomVals] = useState<Record<string, string>>({})
   const [baseUrl, setBaseUrl] = useState('')
   const [token, setToken] = useState('')
   const [published, setPublished] = useState(false)
@@ -50,6 +51,9 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
         setReviews(s?.links?.reviews || '')
       })
       .catch(() => setStatus('Could not load portal settings.'))
+    loadCustomValues(project.id)
+      .then(setCustomVals)
+      .catch(() => setCustomVals({}))
     loadFiles()
       .then(setFiles)
       .catch(() => setFiles([]))
@@ -85,6 +89,8 @@ export function PortalModal({ open, project, onClose }: { open: boolean; project
     })
 
   const fieldValue = (id: string) => {
+    // Custom fields live in the CRM custom-values store; built-ins are on the project record.
+    if (id in customVals) return customVals[id]
     const v = (project as unknown as Record<string, unknown>)[id]
     return v == null ? '' : String(v)
   }

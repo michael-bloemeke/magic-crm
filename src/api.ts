@@ -404,7 +404,7 @@ export type PortalSettings = {
   expiresAt?: string
   lastPublishedAt?: string
 }
-export type ShareableField = { id: string; label: string }
+export type ShareableField = { id: string; label: string; custom?: boolean }
 export type PortalBundle = {
   token: string
   projectName: string

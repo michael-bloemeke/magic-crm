@@ -110,7 +110,9 @@ export function EmailBuilderModal({
           ? existing.body
           : textToHtml(existing.body)
         : defaultBody || ''
-      setBody(resolveMergeFields(raw, project, customVals))
+      // Resolve built-in merge fields now; custom-field chips fill in once this project's custom
+      // values load below (avoids using a previous project's stale values).
+      setBody(resolveMergeFields(raw, project))
     }
     setConfirmUnfilled(false)
     setAttachments(existing?.attachments ?? [])
