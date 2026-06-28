@@ -8,6 +8,7 @@
 // crm-data-core functions over IPC instead.
 
 import { exec } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -824,6 +825,29 @@ export function crmDataPlugin() {
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Local preview of the mobile PWA at /m/ (the real phone app deploys to the cloud later) ---
+      const MOBILE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'mobile')
+      const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' }
+      server.middlewares.use('/m', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          const u = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+          let rel = u.pathname.replace(/^\/m\/?/, '').replace(/\.\.+/g, '')
+          if (!rel) rel = 'index.html'
+          const file = path.join(MOBILE_DIR, rel)
+          if (!file.startsWith(MOBILE_DIR) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+            res.statusCode = 404
+            res.end('Not found')
+            return
+          }
+          res.setHeader('Content-Type', MIME[path.extname(file).toLowerCase()] || 'application/octet-stream')
+          res.end(fs.readFileSync(file))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(String(e?.message || e))
         }
       })
 

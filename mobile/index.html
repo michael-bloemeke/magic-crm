@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Magic CRM" />
+    <meta name="theme-color" content="#17130f" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <title>Magic CRM</title>
+    <style>
+      :root {
+        --bg: #17130f;
+        --surface: #1c1813;
+        --surface2: #221d16;
+        --line: #322a20;
+        --line-strong: #45392b;
+        --parchment: #efe9dd;
+        --muted: #b6a98f;
+        --faint: #8a7d66;
+        --brass: #c79a4b;
+        --brass-bright: #e6c590;
+        --green: #6fae7a;
+        --red: #e08a6b;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bot: env(safe-area-inset-bottom, 0px);
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--parchment); }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Hanken Grotesk', system-ui, sans-serif;
+        font-size: 15px;
+        line-height: 1.45;
+        overscroll-behavior-y: none;
+      }
+      button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+      a { color: var(--brass-bright); }
+      .hidden { display: none !important; }
+
+      /* App shell */
+      #app { min-height: 100vh; padding-bottom: calc(64px + var(--safe-bot)); }
+      header.topbar {
+        position: sticky; top: 0; z-index: 10;
+        padding: calc(10px + var(--safe-top)) 16px 10px;
+        background: color-mix(in oklab, var(--bg) 86%, transparent);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--line);
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      }
+      .topbar h1 { font-size: 17px; margin: 0; letter-spacing: 0.2px; }
+      .topbar .sub { font-size: 11px; color: var(--faint); margin-top: 1px; }
+      .iconbtn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); }
+      .iconbtn:active { background: var(--surface2); }
+
+      main { padding: 12px 14px 20px; }
+      .section-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint); margin: 18px 4px 8px; display: flex; align-items: center; gap: 8px; }
+      .section-label:first-child { margin-top: 4px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); flex: none; }
+
+      /* Cards */
+      .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; margin-bottom: 9px; display: block; width: 100%; text-align: left; }
+      .card:active { border-color: var(--line-strong); background: var(--surface2); }
+      .card .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+      .card .name { font-size: 15.5px; font-weight: 600; color: var(--parchment); }
+      .card .fee { font-size: 13.5px; color: var(--brass-bright); font-variant-numeric: tabular-nums; flex: none; }
+      .card .meta { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+      .pill { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--muted); margin-top: 7px; }
+      .pill.overdue { color: var(--red); border-color: color-mix(in oklab, var(--red) 50%, var(--line)); }
+      .pill.due { color: var(--brass-bright); border-color: color-mix(in oklab, var(--brass) 50%, var(--line)); }
+
+      .search { width: 100%; padding: 10px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--parchment); font-size: 14.5px; margin-bottom: 4px; }
+      .search::placeholder { color: var(--faint); }
+      .empty { color: var(--faint); font-size: 13px; text-align: center; padding: 30px 10px; }
+
+      /* Detail */
+      .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; margin-bottom: 6px; }
+      .detail-head { padding: 4px 4px 10px; }
+      .detail-head .client { font-size: 22px; font-weight: 600; }
+      .detail-head .line { color: var(--muted); font-size: 13.5px; margin-top: 4px; }
+      .kv { display: grid; grid-template-columns: 1fr; gap: 0; }
+      .kv .item { padding: 11px 0; border-bottom: 1px solid var(--line); }
+      .kv .k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); }
+      .kv .v { font-size: 15px; color: var(--parchment); margin-top: 3px; white-space: pre-wrap; word-break: break-word; }
+      .contact { display: flex; gap: 10px; margin-top: 8px; }
+      .contact a { flex: 1; text-align: center; padding: 9px; border: 1px solid var(--line); border-radius: 10px; color: var(--brass-bright); font-size: 13.5px; text-decoration: none; }
+      .log { font-size: 13px; color: var(--muted); padding: 7px 0; border-bottom: 1px solid var(--line); }
+
+      /* Money */
+      .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 10px; }
+      .stat .big { font-size: 28px; font-weight: 700; color: var(--parchment); font-variant-numeric: tabular-nums; }
+      .stat .cap { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.12em; }
+      .bar { height: 8px; border-radius: 99px; background: var(--surface2); overflow: hidden; margin-top: 10px; }
+      .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--brass-bright)); }
+
+      /* Bottom nav */
+      nav.tabbar {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+        display: flex; padding: 6px 8px calc(6px + var(--safe-bot));
+        background: color-mix(in oklab, var(--bg) 92%, transparent);
+        backdrop-filter: blur(14px); border-top: 1px solid var(--line);
+      }
+      nav.tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; color: var(--faint); font-size: 10.5px; border-radius: 10px; }
+      nav.tabbar button.active { color: var(--brass-bright); }
+      nav.tabbar svg { width: 22px; height: 22px; }
+
+      /* Lock screen */
+      #lock { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: grid; place-items: center; padding: 24px; }
+      #lock .box { width: 100%; max-width: 320px; text-align: center; }
+      #lock h2 { font-size: 20px; margin: 0 0 4px; }
+      #lock p { color: var(--faint); font-size: 13px; margin: 0 0 22px; }
+      #lock input { width: 100%; text-align: center; letter-spacing: 8px; font-size: 22px; padding: 14px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--parchment); }
+      #lock .err { color: var(--red); font-size: 12.5px; margin-top: 12px; min-height: 16px; }
+      .spinner { color: var(--faint); text-align: center; padding: 40px; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div id="lock" class="hidden">
+      <div class="box">
+        <h2>Magic CRM</h2>
+        <p>Enter your passcode</p>
+        <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••" />
+        <div class="err" id="pinerr"></div>
+      </div>
+    </div>
+
+    <div id="app">
+      <header class="topbar">
+        <div>
+          <h1>Magic CRM</h1>
+          <div class="sub" id="updated">Loading…</div>
+        </div>
+        <button class="iconbtn" id="refresh" aria-label="Refresh">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+        </button>
+      </header>
+      <main id="view"><div class="spinner">Loading…</div></main>
+    </div>
+
+    <nav class="tabbar">
+      <button data-tab="pipeline" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>
+        Pipeline
+      </button>
+      <button data-tab="tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Tasks
+      </button>
+      <button data-tab="money">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Money
+      </button>
+    </nav>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
