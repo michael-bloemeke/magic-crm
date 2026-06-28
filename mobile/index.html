@@ -6,24 +6,25 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Magic CRM" />
-    <meta name="theme-color" content="#17130f" />
+    <meta name="theme-color" content="#0a0d14" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Magic CRM</title>
     <style>
+      /* FISM theme (royal navy + medal gold), matching the desktop CRM's default. */
       :root {
-        --bg: #17130f;
-        --surface: #1c1813;
-        --surface2: #221d16;
-        --line: #322a20;
-        --line-strong: #45392b;
-        --parchment: #efe9dd;
-        --muted: #b6a98f;
-        --faint: #8a7d66;
-        --brass: #c79a4b;
-        --brass-bright: #e6c590;
-        --green: #6fae7a;
-        --red: #e08a6b;
+        --bg: #0a0d14;
+        --surface: #0e1220;
+        --surface2: #141a2b;
+        --line: rgba(200, 214, 255, 0.08);
+        --line-strong: rgba(200, 214, 255, 0.16);
+        --parchment: #f1f3f9;
+        --muted: #a7adc0;
+        --faint: #6a7187;
+        --brass: #cda85f;
+        --brass-bright: #ecc879;
+        --green: #5fcf8f;
+        --red: #e8866b;
         --safe-top: env(safe-area-inset-top, 0px);
         --safe-bot: env(safe-area-inset-bottom, 0px);
       }
@@ -34,6 +35,10 @@
         font-size: 15px;
         line-height: 1.45;
         overscroll-behavior-y: none;
+        background-image:
+          radial-gradient(120% 80% at 50% -10%, rgba(201, 169, 97, 0.1) 0%, rgba(201, 169, 97, 0.03) 32%, transparent 60%),
+          radial-gradient(90% 60% at 85% 0%, rgba(40, 70, 140, 0.2) 0%, transparent 55%);
+        background-attachment: fixed;
       }
       button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
       a { color: var(--brass-bright); }
