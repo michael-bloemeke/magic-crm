@@ -49,7 +49,10 @@ function fmtEventDate(iso: string): string {
 }
 
 // The value for a field on a project, or '' if it isn't set. `myName` is always available.
-export function resolveSmartField(key: string, project: Project): string {
+// `custom` maps user-defined custom field ids (e.g. "custom_ab12cd3") to their value for this
+// project; those ids never match a built-in case, so checking it first is safe.
+export function resolveSmartField(key: string, project: Project, custom?: Record<string, string>): string {
+  if (custom && key in custom) return (custom[key] || '').trim()
   switch (key) {
     case 'clientName':
       return (project.client || '').trim()
@@ -89,12 +92,12 @@ function parseBody(html: string): Document {
 }
 
 // Fill every placeholder whose project value IS set (replace the chip with the value text);
-// leave the rest as chips. Returns the new HTML.
-export function resolveMergeFields(html: string, project: Project): string {
+// leave the rest as chips. `custom` carries this project's custom-field values. Returns the new HTML.
+export function resolveMergeFields(html: string, project: Project, custom?: Record<string, string>): string {
   if (!html || html.indexOf('merge-field') === -1) return html
   const doc = parseBody(html)
   doc.querySelectorAll('span.merge-field[data-field]').forEach((el) => {
-    const val = resolveSmartField(el.getAttribute('data-field') || '', project)
+    const val = resolveSmartField(el.getAttribute('data-field') || '', project, custom)
     if (val && val.trim()) el.replaceWith(doc.createTextNode(val))
   })
   return doc.body.innerHTML

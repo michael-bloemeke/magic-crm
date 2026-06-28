@@ -12,6 +12,7 @@ import {
   claudeDraftEmail,
   claudeCompleteTemplate,
   loadConfig,
+  loadCustomValues,
   type ProjectEmail,
   type Template,
   type EmailAttachment,
@@ -83,6 +84,11 @@ export function EmailBuilderModal({
   // The signature appended to outgoing mail (configured in Settings). Shown as a read-only preview
   // under the editor so the compose view matches what actually gets sent.
   const [sig, setSig] = useState<{ enabled: boolean; html: string }>({ enabled: false, html: '' })
+  // Custom event fields (definitions for the merge-field dropdown) + this project's values (so a
+  // custom merge field resolves to its value, like the built-in smart fields).
+  const [customFields, setCustomFields] = useState<{ id: string; label: string }[]>([])
+  const [customVals, setCustomVals] = useState<Record<string, string>>({})
+  const smartFieldList = [...SMART_FIELDS, ...customFields.map((f) => ({ key: f.id, label: f.label }))]
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
   // without saving or sending), they were never persisted to an email record, so we delete
@@ -104,7 +110,7 @@ export function EmailBuilderModal({
           ? existing.body
           : textToHtml(existing.body)
         : defaultBody || ''
-      setBody(resolveMergeFields(raw, project))
+      setBody(resolveMergeFields(raw, project, customVals))
     }
     setConfirmUnfilled(false)
     setAttachments(existing?.attachments ?? [])
@@ -119,8 +125,18 @@ export function EmailBuilderModal({
       .then((s) => setClaudeAvail(s.configured))
       .catch(() => setClaudeAvail(false))
     loadConfig()
-      .then((c) => setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' }))
+      .then((c) => {
+        setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' })
+        setCustomFields(c.customFields || [])
+      })
       .catch(() => setSig({ enabled: false, html: '' }))
+    loadCustomValues(project.id)
+      .then((cv) => {
+        setCustomVals(cv)
+        // Fill any custom-field chips now that this project's values are known.
+        setBody((b) => resolveMergeFields(b, project, cv))
+      })
+      .catch(() => setCustomVals({}))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -193,7 +209,7 @@ export function EmailBuilderModal({
   const send = async () => {
     // Fill any placeholders the project can now resolve; warn (once) about any that remain so a
     // raw "[Client name]" doesn't go out unnoticed. The stored/sent body has chip markup stripped.
-    const resolved = resolveMergeFields(body, project)
+    const resolved = resolveMergeFields(body, project, customVals)
     const remaining = unfilledFields(resolved)
     if (remaining.length > 0 && !confirmUnfilled) {
       setStatus(`These placeholders still need filling: ${remaining.join(', ')}. Fill them in, or click Send again to send as-is.`)
@@ -231,7 +247,7 @@ export function EmailBuilderModal({
     if (!t) return
     if (t.subject) setSubject(t.subject)
     const html = t.format === 'html' ? t.body : textToHtml(t.body)
-    setBody(resolveMergeFields(html, project))
+    setBody(resolveMergeFields(html, project, customVals))
     setConfirmUnfilled(false)
     setStatus(`Inserted "${t.name}".`)
   }
@@ -247,7 +263,7 @@ export function EmailBuilderModal({
     }
     if (t.subject) setSubject(t.subject)
     const html = t.format === 'html' ? t.body : textToHtml(t.body)
-    setBody(resolveMergeFields(html, project))
+    setBody(resolveMergeFields(html, project, customVals))
     setConfirmUnfilled(false)
     setStatus(`Drafted from "${t.name}". Live Claude drafting is coming soon.`)
   }
@@ -590,8 +606,8 @@ export function EmailBuilderModal({
                     setBody(html)
                     setConfirmUnfilled(false)
                   }}
-                  smartFields={SMART_FIELDS}
-                  resolveField={(key) => resolveSmartField(key, project)}
+                  smartFields={smartFieldList}
+                  resolveField={(key) => resolveSmartField(key, project, customVals)}
                   placeholder="Write a message, pick a template, or hit Generate…"
                 />
                 {sig.enabled && htmlHasContent(sig.html) && (

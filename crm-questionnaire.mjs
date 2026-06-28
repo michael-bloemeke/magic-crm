@@ -16,6 +16,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
+import { loadConfig } from './crm-finance.mjs'
+import { setCustomValue } from './crm-custom-fields.mjs'
 
 const QUESTIONNAIRE_FILE = path.join(RECORDS_DIR, 'crm-questionnaire.json')
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
@@ -177,19 +179,23 @@ export function questionnaireForBundle(projectId) {
   }
 }
 
-// Write each mapped answer into its project field. Returns the labels of the fields filled.
+// Write each mapped answer into its target field. A question can map to a built-in project field
+// (written to the record) or to a user-defined custom field (written to the CRM custom-values
+// store). Returns the labels of the fields filled.
 function applyAnswers(projectId, questions, answers) {
   const valueById = Object.fromEntries((answers || []).map((a) => [a.id, a.value]))
+  const customIds = new Set((loadConfig().customFields || []).map((f) => f.id))
   const filled = []
   for (const q of questions || []) {
     if (!q.fieldKey) continue
     const v = valueById[q.id]
     if (v == null || String(v).trim() === '') continue
     try {
-      updateProjectField({ id: projectId, field: q.fieldKey, value: String(v) })
+      if (customIds.has(q.fieldKey)) setCustomValue({ projectId, fieldId: q.fieldKey, value: String(v) })
+      else updateProjectField({ id: projectId, field: q.fieldKey, value: String(v) })
       filled.push(q.label)
     } catch {
-      // A field that isn't editable (or a project not found) just gets skipped; the raw
+      // A field that no longer exists (or a project not found) just gets skipped; the raw
       // answer is still stored and visible, so nothing is lost.
     }
   }

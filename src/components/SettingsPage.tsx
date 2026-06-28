@@ -122,9 +122,13 @@ export function SettingsPage() {
   const renameCustom = (id: string, label: string) => setCustomFields((cf) => cf.map((f) => (f.id === id ? { ...f, label } : f)))
   const removeCustom = (id: string) => setCustomFields((cf) => cf.filter((f) => f.id !== id))
 
-  // Questionnaire field-mapping validity: a question can map to a built-in (minus deleted) or a
-  // contact field. If its fieldKey points at something no longer offered, it's a broken link.
-  const validMappable = MAPPABLE_FIELDS.filter((f) => !deleted.has(f.id))
+  // Questionnaire field-mapping validity: a question can map to a built-in (minus deleted), a
+  // contact field, or a custom field. If its fieldKey points at something no longer offered (a
+  // deleted built-in or a removed custom field), it's a broken link.
+  const validMappable = [
+    ...MAPPABLE_FIELDS.filter((f) => !deleted.has(f.id)),
+    ...customFields.filter((f) => f.label.trim()).map((f) => ({ id: f.id, label: f.label })),
+  ]
   const validKeys = new Set(validMappable.map((f) => f.id))
   const isBrokenKey = (k?: string) => !!k && !validKeys.has(k)
 

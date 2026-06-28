@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import {
   deleteTemplate as apiDelete,
+  loadConfig,
   loadTemplates,
   saveTemplate as apiSave,
   type Template,
@@ -19,11 +20,18 @@ export function TemplatesPage() {
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [status, setStatus] = useState<string | null>(null)
+  // Custom event fields are insertable as merge-field placeholders too (resolved when the template
+  // is used in a project email).
+  const [customFields, setCustomFields] = useState<{ id: string; label: string }[]>([])
+  const smartFieldList = [...SMART_FIELDS, ...customFields.map((f) => ({ key: f.id, label: f.label }))]
 
   useEffect(() => {
     loadTemplates()
       .then((t) => setTemplates(t))
       .catch(() => setTemplates([]))
+    loadConfig()
+      .then((c) => setCustomFields(c.customFields || []))
+      .catch(() => {})
   }, [])
 
   const selected = templates?.find((t) => t.id === selectedId) ?? null
@@ -169,7 +177,7 @@ export function TemplatesPage() {
                 setBody(html)
                 setStatus(null)
               }}
-              smartFields={SMART_FIELDS}
+              smartFields={smartFieldList}
               placeholder="Write the template. Use Insert field to drop in smart fields…"
             />
             <p className="mt-1.5 text-[11.5px] leading-relaxed text-faint">

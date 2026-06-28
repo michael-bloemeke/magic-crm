@@ -15,6 +15,7 @@ import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { questionnaireForBundle } from './crm-questionnaire.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
 import { loadConfig } from './crm-finance.mjs'
+import { loadCustomValues } from './crm-custom-fields.mjs'
 
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
 
@@ -49,6 +50,18 @@ export const SHAREABLE_FIELDS = [
   { id: 'bookingSource', label: 'Booking source' },
 ]
 const SHAREABLE_IDS = new Set(SHAREABLE_FIELDS.map((f) => f.id))
+
+// The fields a portal may share RIGHT NOW: the built-in whitelist minus any the user deleted in
+// Settings, plus their custom fields (which are theirs to share). Each entry is { id, label, custom? }.
+// Single source of truth for the share-options list, the save whitelist, and bundle building, so all
+// three stay in lockstep as fields are added/removed.
+export function currentShareableFields() {
+  const cfg = loadConfig()
+  const del = new Set(cfg.eventFieldDeleted || [])
+  const builtins = SHAREABLE_FIELDS.filter((f) => !del.has(f.id))
+  const custom = (cfg.customFields || []).map((f) => ({ id: f.id, label: f.label, custom: true }))
+  return [...builtins, ...custom]
+}
 
 function meta() {
   return {
@@ -104,7 +117,10 @@ export function savePortal({ projectId, patch = {} } = {}) {
   const data = readPortalFile()
   const cur = data.portals[projectId] || defaults()
   const next = { ...cur }
-  if (Array.isArray(patch.sharedFields)) next.sharedFields = patch.sharedFields.filter((id) => SHAREABLE_IDS.has(id))
+  if (Array.isArray(patch.sharedFields)) {
+    const valid = new Set(currentShareableFields().map((f) => f.id))
+    next.sharedFields = patch.sharedFields.filter((id) => valid.has(id))
+  }
   if (Array.isArray(patch.assetIds)) next.assetIds = patch.assetIds.map(String)
   if (patch.links && typeof patch.links === 'object') next.links = patch.links
   if (patch.message != null) next.message = String(patch.message)
@@ -139,14 +155,16 @@ export function buildBundle(projectId) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   if (!project) return null
 
-  const shared = new Set((settings.sharedFields || []).filter((id) => SHAREABLE_IDS.has(id)))
-  // A built-in deleted in Settings is treated as gone: never include it, even if a portal published
-  // earlier had it toggled on (its record value lingers but shouldn't surface).
-  const del = new Set(loadConfig().eventFieldDeleted || [])
+  // Only currently-shareable fields (built-ins minus deleted, plus custom fields), intersected with
+  // what this portal has toggled on. A field deleted after publishing simply drops out. Built-in
+  // values come from the project record; custom values come from the CRM custom-values store.
+  const shareable = currentShareableFields()
+  const shared = new Set(settings.sharedFields || [])
+  const customVals = loadCustomValues(projectId)
   const fields = []
-  for (const f of SHAREABLE_FIELDS) {
-    if (!shared.has(f.id) || del.has(f.id)) continue
-    const v = project[f.id]
+  for (const f of shareable) {
+    if (!shared.has(f.id)) continue
+    const v = f.custom ? customVals[f.id] : project[f.id]
     if (v == null || String(v).trim() === '') continue
     fields.push({ label: f.label, value: String(v) })
   }

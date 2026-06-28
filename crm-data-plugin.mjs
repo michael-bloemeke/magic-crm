@@ -43,7 +43,7 @@ import {
   buildBundle,
   writeBundleFile,
   deployPortal,
-  SHAREABLE_FIELDS,
+  currentShareableFields,
   PORTAL_BASE_URL,
 } from './crm-portal.mjs'
 import {
@@ -565,11 +565,9 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/portal', (req, res, next) => {
         if (req.method !== 'GET') return next()
         try {
-          // Hide any built-in field the user deleted in Settings, so it can't be shared on the portal.
-          const del = new Set(loadConfig().eventFieldDeleted || [])
-          const shareableFields = SHAREABLE_FIELDS.filter((f) => !del.has(f.id))
+          // Built-ins minus deleted, plus custom fields: what may be shared on the portal right now.
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ portals: loadPortals(), shareableFields, baseUrl: PORTAL_BASE_URL }))
+          res.end(JSON.stringify({ portals: loadPortals(), shareableFields: currentShareableFields(), baseUrl: PORTAL_BASE_URL }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
