@@ -48,6 +48,16 @@ const newId = () => 'q' + Math.random().toString(36).slice(2, 9)
 const inputCls =
   'w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none'
 
+// Settings tabs, so the page isn't one long scroll. Each maps to one section below.
+const SETTINGS_TABS = [
+  { id: 'questionnaire', label: 'Questionnaire' },
+  { id: 'fields', label: 'Event fields' },
+  { id: 'highlighting', label: 'Highlighting' },
+  { id: 'email', label: 'Email' },
+  { id: 'notifications', label: 'Notifications' },
+] as const
+type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
+
 export function SettingsPage() {
   const [intro, setIntro] = useState('')
   const [questions, setQuestions] = useState<Question[]>([])
@@ -75,6 +85,10 @@ export function SettingsPage() {
   const [highlights, setHighlights] = useState<Record<string, string>>({})
   const [hlBusy, setHlBusy] = useState(false)
   const [hlNote, setHlNote] = useState<string | null>(null)
+
+  const [tab, setTab] = useState<SettingsTab>('questionnaire')
+  // A section stays mounted (so unsaved edits survive a tab switch) but hides when its tab is off.
+  const sectionCls = (id: SettingsTab) => 'rounded-2xl border border-line bg-surface-2/30 p-5' + (tab === id ? '' : ' hidden')
 
   useEffect(() => {
     loadQuestionnaireTemplate()
@@ -249,9 +263,25 @@ export function SettingsPage() {
 
   return (
     <div className="board-scroll min-h-0 flex-1 overflow-y-auto px-8 pb-20 pt-2">
-      <div className="mx-auto max-w-3xl space-y-8">
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div className="flex flex-wrap gap-1.5">
+          {SETTINGS_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={[
+                'rounded-lg px-3.5 py-1.5 text-[12.5px] font-medium transition-colors',
+                tab === t.id ? 'bg-brass text-[#231a0c]' : 'border border-line text-muted hover:border-line-strong hover:text-parchment',
+              ].join(' ')}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         {/* Questionnaire editor */}
-        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+        <section className={sectionCls('questionnaire')}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Client questionnaire</h2>
@@ -353,7 +383,7 @@ export function SettingsPage() {
         </section>
 
         {/* Event fields */}
-        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+        <section className={sectionCls('fields')}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Event detail fields</h2>
@@ -502,7 +532,7 @@ export function SettingsPage() {
         </section>
 
         {/* Email signature */}
-        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+        <section className={sectionCls('email')}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Email signature</h2>
@@ -546,7 +576,7 @@ export function SettingsPage() {
         </section>
 
         {/* Phone notifications (ntfy lock-screen push) */}
-        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+        <section className={sectionCls('notifications')}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Phone notifications</h2>
@@ -601,7 +631,7 @@ export function SettingsPage() {
         </section>
 
         {/* Stage highlighting: which project-page section lights up + expands per pipeline category */}
-        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+        <section className={sectionCls('highlighting')}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Stage highlighting</h2>

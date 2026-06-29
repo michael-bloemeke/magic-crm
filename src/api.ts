@@ -107,6 +107,16 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
   if (!res.ok) throw new Error(`Failed to update task (${res.status})`)
 }
 
+// Rename a task and/or change its due date.
+export async function editTask(id: string, patch: { title?: string; dueDate?: string }): Promise<void> {
+  const res = await fetch('/api/tasks/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, ...patch }),
+  })
+  if (!res.ok) throw new Error(`Failed to update task (${res.status})`)
+}
+
 export async function removeTask(id: string): Promise<void> {
   const res = await fetch('/api/tasks/delete', {
     method: 'POST',

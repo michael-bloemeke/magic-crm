@@ -30,6 +30,7 @@ type Props = {
   onAddTask: (title: string, dueDate: string) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
+  onEditTask: (id: string, patch: { title: string; dueDate: string }) => void
   onPaymentsChange?: (payments: Payment[]) => void
   // Called after the questionnaire auto-fills project fields, so the view reloads to show them.
   onProjectChanged?: () => void

@@ -658,11 +658,13 @@ export function addTask({ projectId, title, dueDate }) {
   return task
 }
 
-export function updateTask({ id, done }) {
+export function updateTask({ id, done, title, dueDate }) {
   const data = readTasksFile()
   const task = data.tasks.find((x) => x.id === id)
   if (!task) throw new Error('task not found')
   if (typeof done === 'boolean') task.done = done
+  if (title != null) task.title = String(title)
+  if (dueDate != null) task.dueDate = String(dueDate)
   data._meta = tasksMeta()
   writeTasksFile(data)
   return task
