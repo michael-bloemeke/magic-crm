@@ -156,7 +156,8 @@ export function RichTextEditor({
   // sentence that wraps. Browsers otherwise make plain Enter open a new paragraph/div with extra
   // spacing, so a hard return looked taller than a soft wrap. Lists keep the native Enter (new item).
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    // nativeEvent.isComposing = mid-IME composition (e.g. accents); let those Enters commit normally.
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (selectionInList()) return
       e.preventDefault()
       document.execCommand('insertLineBreak')

@@ -48,6 +48,7 @@ export function EmailBuilderModal({
   defaultSubject,
   defaultBody,
   templateHint,
+  autosave = false,
   onClose,
   onSaved,
   onDiscard,
@@ -61,6 +62,10 @@ export function EmailBuilderModal({
   defaultSubject: string
   defaultBody?: string
   templateHint?: RegExp
+  // When true (the top "New email" composer), anything written auto-saves to drafts and the manual
+  // "Save draft" button is hidden. Closing keeps the draft (it's already saved). The section cards
+  // leave this off and keep the explicit Save-draft button.
+  autosave?: boolean
   onClose: () => void
   onSaved: (email: ProjectEmail) => void
   // Permanently delete this saved draft (parent removes it + calls deleteProjectEmail).
@@ -94,6 +99,9 @@ export function EmailBuilderModal({
   // without saving or sending), they were never persisted to an email record, so we delete
   // them from the server to avoid orphaned files. Saving/sending references them instead.
   const sessionUploads = useRef<Set<string>>(new Set())
+  // In autosave mode the first save (existing === null) creates a record; this holds its id so the
+  // following autosaves update the same draft instead of spawning duplicates.
+  const savedIdRef = useRef<string | undefined>(existing?.id)
   // A sent email is locked: the dialog becomes a read-only receipt of what went out. No
   // editing, no template/attach, no save, no re-send. "Once it's sent, it's sent."
   const readOnly = existing?.status === 'sent'
@@ -117,6 +125,7 @@ export function EmailBuilderModal({
     setConfirmUnfilled(false)
     setAttachments(existing?.attachments ?? [])
     sessionUploads.current = new Set()
+    savedIdRef.current = existing?.id
     setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
     loadTemplates()
@@ -148,7 +157,7 @@ export function EmailBuilderModal({
   const persist = async (bodyToSave: string = body): Promise<ProjectEmail | null> => {
     try {
       const saved = await saveProjectEmail({
-        id: existing?.id,
+        id: existing?.id ?? savedIdRef.current,
         projectId: project.id,
         kind,
         to: toList(),
@@ -157,6 +166,7 @@ export function EmailBuilderModal({
         format: 'html',
         attachments,
       })
+      savedIdRef.current = saved.id
       onSaved(saved)
       return saved
     } catch {
@@ -164,6 +174,18 @@ export function EmailBuilderModal({
       return null
     }
   }
+
+  // Autosave (debounced): the top "New email" composer persists whatever's written without a Save
+  // button, so a started email shows in the conversations list as a draft and survives a close.
+  useEffect(() => {
+    if (!open || !autosave || readOnly) return
+    if (!htmlHasContent(body) && attachments.length === 0) return
+    const t = setTimeout(() => {
+      void persist()
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [body, subject, to, attachments, autosave, open])
 
   const saveAndClose = async () => {
     setBusy(true)
@@ -189,6 +211,13 @@ export function EmailBuilderModal({
   // orphan on the server. (Save draft / Send call onClose directly and keep their uploads.)
   const handleClose = () => {
     if (busy) return
+    // Autosave mode keeps the draft (and its uploads): flush a final save for any edits the debounce
+    // hasn't caught yet, then close without discarding anything.
+    if (autosave) {
+      if (!readOnly && (htmlHasContent(body) || attachments.length > 0)) void persist()
+      onClose()
+      return
+    }
     if (!readOnly && sessionUploads.current.size > 0) {
       for (const id of sessionUploads.current) deleteEmailAttachment(id).catch(() => {})
       sessionUploads.current = new Set()
@@ -726,16 +755,18 @@ export function EmailBuilderModal({
                   disabled={busy}
                   className="rounded-lg px-3 py-2 text-[12.5px] font-medium text-faint transition-colors hover:text-parchment disabled:opacity-40"
                 >
-                  Cancel
+                  {autosave ? 'Close' : 'Cancel'}
                 </button>
-                <button
-                  type="button"
-                  onClick={saveAndClose}
-                  disabled={busy}
-                  className="rounded-lg border border-line px-3.5 py-2 text-[12.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
-                >
-                  Save draft
-                </button>
+                {!autosave && (
+                  <button
+                    type="button"
+                    onClick={saveAndClose}
+                    disabled={busy}
+                    className="rounded-lg border border-line px-3.5 py-2 text-[12.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
+                  >
+                    Save draft
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={send}

@@ -4,9 +4,14 @@ import { formatFee, type CategoryDef, type Project } from '../pipeline'
 import {
   loadThreads,
   loadTemplates,
+  loadProjectEmails,
+  deleteProjectEmail,
+  starThread,
+  starMessage,
   type CommsData,
   type Contact,
   type Payment,
+  type ProjectEmail,
   type ProjectLinks,
   type Task,
   type Template,
@@ -94,8 +99,13 @@ export function ProjectView({
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [notesOpen, setNotesOpen] = useState(false)
   const [writeOpen, setWriteOpen] = useState(false)
+  // The custom (new-thread) draft being edited in the composer, or null when writing a fresh email.
+  const [editingDraft, setEditingDraft] = useState<ProjectEmail | null>(null)
   const [portalOpen, setPortalOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  // The project's saved drafts (top email section): new-thread drafts (kind 'custom') and per-thread
+  // reply drafts (kind 'reply-<threadId>'). Auto-saved by the composers; surfaced in the list below.
+  const [drafts, setDrafts] = useState<ProjectEmail[]>([])
 
   // Recipient emails for the one-off "Write email" composer: every email on the
   // project's linked contacts.
@@ -121,11 +131,97 @@ export function ProjectView({
     }
   }, [project.id])
 
+  // The top-section drafts for this project (reply drafts + new-thread drafts).
+  useEffect(() => {
+    let alive = true
+    loadProjectEmails()
+      .then(
+        (all) =>
+          alive &&
+          setDrafts(
+            all.filter(
+              (e) => e.projectId === project.id && e.status === 'draft' && (e.kind === 'custom' || e.kind.startsWith('reply-')),
+            ),
+          ),
+      )
+      .catch(() => alive && setDrafts([]))
+    return () => {
+      alive = false
+    }
+  }, [project.id])
+
   useEffect(() => {
     loadTemplates()
       .then(setTemplates)
       .catch(() => setTemplates([]))
   }, [])
+
+  // Keep the local draft list in sync as the composers auto-save / send. A 'draft' upsert replaces
+  // the record; anything else (sent) drops it from the list.
+  const upsertDraft = (email: ProjectEmail) =>
+    setDrafts((prev) => (email.status === 'draft' ? [...prev.filter((x) => x.id !== email.id), email] : prev.filter((x) => x.id !== email.id)))
+  const removeDraft = (id: string) => setDrafts((prev) => prev.filter((x) => x.id !== id))
+
+  // reply-<threadId> drafts keyed by their thread; custom drafts are standalone new-thread rows.
+  const replyDraftByThread: Record<string, ProjectEmail> = {}
+  for (const d of drafts) if (d.kind.startsWith('reply-')) replyDraftByThread[d.kind.slice('reply-'.length)] = d
+  const newThreadDrafts = drafts.filter((d) => d.kind === 'custom')
+
+  // Re-fetch threads from Gmail (used to resync after a star write fails).
+  const resyncComms = () => {
+    loadThreads(project.id)
+      .then(setComms)
+      .catch(() => {})
+  }
+  // Star / unstar a whole conversation, optimistically, writing through to Gmail.
+  const toggleThreadStar = (threadId: string, starred: boolean) => {
+    setComms((d) =>
+      d
+        ? {
+            ...d,
+            threads: d.threads.map((t) =>
+              t.id === threadId ? { ...t, starred, messages: t.messages.map((m) => ({ ...m, starred })) } : t,
+            ),
+          }
+        : d,
+    )
+    starThread({ threadId, starred })
+      .then((r) => {
+        if (!r.ok) {
+          resyncComms()
+          if (r.needsReconnect) window.alert('Reconnect Gmail to sync stars (the current login predates that permission).')
+        }
+      })
+      .catch(resyncComms)
+  }
+  // Star / unstar a single message, optimistically, writing through to Gmail.
+  const toggleMessageStar = (messageId: string, starred: boolean) => {
+    setComms((d) => {
+      if (!d) return d
+      return {
+        ...d,
+        threads: d.threads.map((t) => {
+          if (!t.messages.some((m) => m.id === messageId)) return t
+          const messages = t.messages.map((m) => (m.id === messageId ? { ...m, starred } : m))
+          return { ...t, messages, starred: messages.some((m) => m.starred) }
+        }),
+      }
+    })
+    starMessage({ messageId, starred })
+      .then((r) => {
+        if (!r.ok) {
+          resyncComms()
+          if (r.needsReconnect) window.alert('Reconnect Gmail to sync stars (the current login predates that permission).')
+        }
+      })
+      .catch(resyncComms)
+  }
+
+  // Open a new-thread draft back in the composer.
+  const openDraft = (email: ProjectEmail) => {
+    setEditingDraft(email)
+    setWriteOpen(true)
+  }
 
   // Clear a thread's unread highlight locally + tell the app to drop the badge count.
   const markThreadReadLocal = (threadId: string) => {
@@ -277,7 +373,21 @@ export function ProjectView({
             onUnlinkContact={onUnlinkContact}
             onAddContact={onAddContact}
             fullView
-            tasksAside={<MiniComms data={comms} error={commsError} onOpen={openThread} onWrite={() => setWriteOpen(true)} />}
+            tasksAside={
+              <MiniComms
+                data={comms}
+                error={commsError}
+                replyDrafts={replyDraftByThread}
+                newThreadDrafts={newThreadDrafts}
+                onOpen={openThread}
+                onOpenDraft={openDraft}
+                onToggleStar={toggleThreadStar}
+                onWrite={() => {
+                  setEditingDraft(null)
+                  setWriteOpen(true)
+                }}
+              />
+            }
           />
         </div>
       </div>
@@ -292,12 +402,20 @@ export function ProjectView({
         open={writeOpen}
         project={project}
         recipientEmails={recipientEmails}
-        existing={null}
+        existing={editingDraft}
         kind="custom"
-        title="New email"
+        title={editingDraft ? 'Edit draft' : 'New email'}
         defaultSubject=""
-        onClose={() => setWriteOpen(false)}
-        onSaved={() => {}}
+        autosave
+        onClose={() => {
+          setWriteOpen(false)
+          setEditingDraft(null)
+        }}
+        onSaved={upsertDraft}
+        onDiscard={(id) => {
+          removeDraft(id)
+          deleteProjectEmail(id).catch(() => {})
+        }}
       />
 
       {/* Reading a thread opens a big window over the project, instead of swapping
@@ -325,8 +443,12 @@ export function ProjectView({
                 project={project}
                 templates={templates}
                 canMarkRead={comms?.canMarkRead !== false}
+                existingDraft={replyDraftByThread[openThreadObj.id] ?? null}
                 onRead={() => markThreadReadLocal(openThreadObj.id)}
                 onBack={closeThread}
+                onDraftChange={upsertDraft}
+                onDraftDeleted={removeDraft}
+                onStarMessage={toggleMessageStar}
               />
             </motion.div>
           </motion.div>
