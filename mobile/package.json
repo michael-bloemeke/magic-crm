@@ -1,0 +1,7 @@
+{
+  "name": "magic-crm-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only Magic CRM phone app (static PWA + passcode-gated snapshot function), deployed to Vercel."
+}

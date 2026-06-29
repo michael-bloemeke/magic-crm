@@ -87,6 +87,7 @@ import {
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
 import { buildSnapshot } from './crm-snapshot.mjs'
+import { syncMobileSnapshot, isMobileConfigured } from './crm-mobile-sync.mjs'
 import {
   isClaudeAvailable,
   isClaudeConfigured,
@@ -176,9 +177,15 @@ export function crmDataPlugin() {
       // Back up shortly after the app starts, then every 4 hours it stays running.
       const t1 = setTimeout(runBackup, 90_000)
       const t2 = setInterval(runBackup, 4 * 60 * 60 * 1000)
+      // Keep the phone app's cloud snapshot fresh while the CRM runs (only once mobile is set up).
+      const syncMobile = () => { if (isMobileConfigured()) syncMobileSnapshot().catch(() => {}) }
+      const t3 = setTimeout(syncMobile, 12_000)
+      const t4 = setInterval(syncMobile, 5 * 60 * 1000)
       server.httpServer?.on('close', () => {
         clearTimeout(t1)
         clearInterval(t2)
+        clearTimeout(t3)
+        clearInterval(t4)
       })
 
       server.middlewares.use('/api/projects', (req, res, next) => {

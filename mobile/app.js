@@ -3,10 +3,9 @@
 
 'use strict'
 
-// Basic passcode gate (a speed bump for v1). Real server-side protection of the snapshot lands with
-// the cloud deploy. Change this value, or set window.MAGIC_PIN in a config.js, to your own code.
-var PIN = (typeof window !== 'undefined' && window.MAGIC_PIN) || '2468'
-
+// The passcode is verified server-side: it's sent to /api/snapshot, which only returns data when it
+// matches. Locally (dev server, no function) the snapshot route ignores the code so preview is open.
+var CODE = ''
 var SNAP = null
 var TAB = 'pipeline'
 var STAGE = {} // stageId -> { name, umbrella, color }
@@ -250,44 +249,70 @@ function render() {
 }
 
 // ---------- data ----------
+// Tries the deployed passcode-gated function first; 401 = wrong code; 404 = local dev (the dev
+// server's open /api/snapshot route, which ignores the code) so previewing on the Mac stays easy.
 function fetchSnapshot() {
-  return fetch('./snapshot.json', { cache: 'no-store' })
-    .then(function (r) { if (!r.ok) throw 0; return r.json() })
-    .catch(function () { return fetch('/api/snapshot', { cache: 'no-store' }).then(function (r) { return r.json() }) })
+  var q = CODE ? '?code=' + encodeURIComponent(CODE) : ''
+  return fetch('./api/snapshot' + q, { cache: 'no-store' }).then(function (r) {
+    if (r.status === 401) { var e = new Error('unauthorized'); e.unauth = true; throw e }
+    if (r.status === 404) return fetch('/api/snapshot', { cache: 'no-store' }).then(function (r2) { return r2.json() })
+    if (!r.ok) throw new Error('http ' + r.status)
+    return r.json()
+  })
 }
+function applySnapshot(s) {
+  SNAP = s
+  STAGE = {}
+  ;(s.structure.umbrellas || []).forEach(function (u) { (u.stages || []).forEach(function (st) { STAGE[st.id] = { name: st.name, umbrella: u.label, color: u.color } }) })
+}
+// Resolves 'ok' | 'unauth' | 'error'.
 function loadAndRender() {
   $('#updated').textContent = 'Refreshing…'
   return fetchSnapshot().then(function (s) {
-    SNAP = s
-    STAGE = {}
-    ;(s.structure.umbrellas || []).forEach(function (u) { (u.stages || []).forEach(function (st) { STAGE[st.id] = { name: st.name, umbrella: u.label, color: u.color } }) })
+    applySnapshot(s)
     $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)
     render()
+    return 'ok'
   }).catch(function (e) {
-    $('#view').innerHTML = '<div class="empty">Could not load data.<br>' + esc(String(e && e.message || e)) + '</div>'
+    if (e && e.unauth) return 'unauth'
+    $('#view').innerHTML = '<div class="empty">Could not load data.<br>' + esc(String((e && e.message) || e)) + '</div>'
     $('#updated').textContent = 'Offline'
+    return 'error'
   })
 }
 
 // ---------- boot ----------
-function start() {
+var wired = false
+function wireUI() {
+  if (wired) return
+  wired = true
   document.querySelectorAll('nav.tabbar button').forEach(function (b) {
     b.addEventListener('click', function () { TAB = b.dataset.tab; render(); window.scrollTo(0, 0) })
   })
   $('#refresh').addEventListener('click', loadAndRender)
-  loadAndRender()
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {})
 }
 
 function unlock() {
   var lock = $('#lock'), pin = $('#pin'), err = $('#pinerr')
-  if (sessionStorage.getItem('mcrm_ok') === '1') { lock.classList.add('hidden'); start(); return }
+  var saved = sessionStorage.getItem('mcrm_code')
+  if (saved !== null) {
+    CODE = saved
+    lock.classList.add('hidden')
+    wireUI()
+    loadAndRender()
+    return
+  }
   lock.classList.remove('hidden')
   pin.focus()
   pin.addEventListener('input', function () {
-    if (pin.value.length < PIN.length) { err.textContent = ''; return }
-    if (pin.value === PIN) { sessionStorage.setItem('mcrm_ok', '1'); lock.classList.add('hidden'); start() }
-    else { err.textContent = 'Wrong passcode'; pin.value = '' }
+    if (pin.value.length < 4) { err.textContent = ''; return }
+    err.textContent = 'Checking…'
+    CODE = pin.value
+    loadAndRender().then(function (res) {
+      if (res === 'unauth') { err.textContent = 'Wrong passcode'; pin.value = ''; CODE = '' }
+      else { sessionStorage.setItem('mcrm_code', CODE); err.textContent = ''; lock.classList.add('hidden'); wireUI() }
+    })
   })
 }
 

@@ -15,10 +15,17 @@
   "build": {
     "appId": "com.michaelbloemeke.magic-crm",
     "productName": "Magic CRM",
-    "directories": { "output": "release" },
-    "files": ["electron/**/*", "package.json"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
     "mac": {
-      "target": ["dir"],
+      "target": [
+        "dir"
+      ],
       "category": "public.app-category.productivity",
       "icon": "electron/icon.png",
       "identity": null
@@ -43,6 +50,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -50,7 +58,6 @@
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12",
-    "electron-builder": "^25.1.8"
+    "vite": "^8.0.12"
   }
 }
