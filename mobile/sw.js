@@ -2,7 +2,7 @@
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
-var CACHE = 'mcrm-v4'
+var CACHE = 'mcrm-v5'
 var SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {
@@ -17,13 +17,21 @@ self.addEventListener('activate', function (e) {
   )
 })
 
+// Network-first for everything (so app updates and data are always fresh when online), falling back
+// to the cache only when offline. Avoids stale cached versions of the app.
 self.addEventListener('fetch', function (e) {
-  var url = new URL(e.request.url)
-  if (url.pathname.indexOf('snapshot.json') >= 0 || url.pathname.indexOf('/api/snapshot') >= 0) {
-    e.respondWith(fetch(e.request).catch(function () { return caches.match(e.request) }))
-    return
-  }
-  e.respondWith(caches.match(e.request).then(function (r) { return r || fetch(e.request) }))
+  if (e.request.method !== 'GET') return
+  e.respondWith(
+    fetch(e.request)
+      .then(function (r) {
+        if (r && r.ok) {
+          var copy = r.clone()
+          caches.open(CACHE).then(function (c) { c.put(e.request, copy) }).catch(function () {})
+        }
+        return r
+      })
+      .catch(function () { return caches.match(e.request) }),
+  )
 })
 
 // Web push: the Mac (or a cloud cron) sends a payload; show it on the lock screen.

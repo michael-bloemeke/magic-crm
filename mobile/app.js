@@ -273,12 +273,14 @@ function setTabCount(id, n) {
 function updateCounts() {
   if (!SNAP) return
   var alerts = (SNAP.notifications || []).length
+  var due = dueCount()
   setTabCount('count-alerts', alerts)
-  setTabCount('count-tasks', dueCount())
-  // Number on the home-screen app icon = new alerts needing attention.
+  setTabCount('count-tasks', due)
+  // Number on the home-screen app icon = new alerts + tasks needing attention.
   try {
     if (navigator.setAppBadge) {
-      if (alerts > 0) navigator.setAppBadge(alerts)
+      var total = alerts + due
+      if (total > 0) navigator.setAppBadge(total)
       else if (navigator.clearAppBadge) navigator.clearAppBadge()
     }
   } catch (e) { /* badge unsupported */ }

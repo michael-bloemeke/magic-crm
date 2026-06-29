@@ -5,8 +5,19 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { RECORDS_DIR } from './crm-data-core.mjs'
+import { RECORDS_DIR, loadTasks } from './crm-data-core.mjs'
 import { pushNotification } from './crm-push.mjs'
+
+// Count of tasks due now (today or overdue, not done): part of the phone app's icon badge.
+function dueTaskCount() {
+  try {
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    return loadTasks().filter((t) => !t.done && t.dueDate && t.dueDate <= today).length
+  } catch {
+    return 0
+  }
+}
 
 const FILE = path.join(RECORDS_DIR, 'crm-notifications.json')
 
@@ -52,7 +63,7 @@ export function addNotification(projectId, kind, sourceId) {
   write(d)
   // Mirror every new bell event to the phone's lock screen (best-effort). The count is the current
   // unseen total, used to set the number on the phone app's icon.
-  pushNotification(ev, loadUnseenNotifications().length).catch(() => {})
+  pushNotification(ev, loadUnseenNotifications().length + dueTaskCount()).catch(() => {})
   return ev
 }
 export function markNotificationSeen(id) {
