@@ -60,7 +60,7 @@ import {
 } from './crm-questionnaire.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
-import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus } from './crm-inquiries.mjs'
+import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus, inquiryFormForProject } from './crm-inquiries.mjs'
 import {
   status as qbStatus,
   authUrl as qbAuthUrl,
@@ -817,6 +817,19 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ push: pushPublic(getPushConfig()) }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- The saved website inquiry form for a project (for the Inquiry section) ---
+      server.middlewares.use('/api/inquiry', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ inquiry: inquiryFormForProject(url.searchParams.get('projectId') || '') }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

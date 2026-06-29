@@ -87,6 +87,34 @@ function describe(inq) {
   return lines.join('\n\n')
 }
 
+// Keep a clean copy of the raw form fields so the project page can show the original inquiry.
+const FORM_FIELDS = ['name', 'email', 'phone', 'eventDate', 'eventTime', 'venue', 'guests', 'ages', 'showTypes', 'source', 'message', 'formLocation', 'submittedAt']
+function cleanForm(inq) {
+  const f = {}
+  for (const k of FORM_FIELDS) {
+    const v = inq && inq[k]
+    if (v != null && String(v).trim() !== '') f[k] = String(v).trim()
+  }
+  return f
+}
+// The saved inquiry form for a project (newest matching record), as labeled fields for display.
+const FORM_LABELS = [
+  ['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['eventDate', 'Event date'],
+  ['eventTime', 'Event time'], ['venue', 'Venue / location'], ['guests', 'Guest count'],
+  ['ages', 'Guest ages'], ['showTypes', 'Performance interest'], ['source', 'How they heard'], ['message', 'Message'],
+]
+export function inquiryFormForProject(projectId) {
+  if (!projectId) return null
+  const store = readStore()
+  let rec = null
+  for (const v of Object.values(store.inquiries || {})) {
+    if (v && v.projectId === projectId && v.form) { if (!rec || (v.importedAt || '') > (rec.importedAt || '')) rec = v }
+  }
+  if (!rec || !rec.form) return null
+  const fields = FORM_LABELS.map(([k, label]) => ({ key: k, label, value: rec.form[k] })).filter((x) => x.value)
+  return { submittedAt: rec.form.submittedAt || rec.importedAt || '', formLocation: rec.form.formLocation || '', fields }
+}
+
 // "2026-06-24T19:31:05.883Z" -> "June 24, 2026 at 3:31 PM" in the machine's local time.
 function fmtSubmitted(iso) {
   const d = new Date(iso)
@@ -205,7 +233,7 @@ async function runImport() {
       note = String(e?.message || e)
     }
     const emailed = await notifyByEmail(inq, projectId)
-    store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note, emailed }
+    store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note, emailed, form: cleanForm(inq) }
     created.push({ id: inq.id, ...store.inquiries[inq.id] })
   }
 

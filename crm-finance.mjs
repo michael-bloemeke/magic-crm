@@ -102,6 +102,9 @@ export function loadConfig() {
   const customFields = Array.isArray(d.customFields)
     ? d.customFields.filter((f) => f && f.id).map((f) => ({ id: String(f.id), label: String(f.label || '') }))
     : []
+  // Which project-page section to highlight for each pipeline umbrella (umbrellaId -> sectionId).
+  // Empty = use the built-in default per umbrella (computed on the front end).
+  const sectionHighlights = d.sectionHighlights && typeof d.sectionHighlights === 'object' ? d.sectionHighlights : {}
   // Email signature: rich HTML appended below the body on send (can embed a logo via a data: <img>,
   // which the send layer converts to an inline cid: image). Off by default until set up.
   const signatureEnabled = !!d.signatureEnabled
@@ -116,6 +119,7 @@ export function loadConfig() {
     eventFieldHidden,
     eventFieldDeleted,
     customFields,
+    sectionHighlights,
     signatureEnabled,
     signatureHtml,
   }
@@ -152,6 +156,9 @@ export function saveConfig(patch) {
     cur.customFields = (patch.customFields || [])
       .filter((f) => f && f.id && String(f.label || '').trim())
       .map((f) => ({ id: String(f.id), label: String(f.label).trim() }))
+  }
+  if (patch.sectionHighlights != null && typeof patch.sectionHighlights === 'object') {
+    cur.sectionHighlights = patch.sectionHighlights
   }
   if (patch.signatureEnabled != null) {
     cur.signatureEnabled = !!patch.signatureEnabled
