@@ -241,10 +241,55 @@ function renderMoney() {
   }
 }
 
+function alertCard(n) {
+  var c = el(
+    '<button class="card">' +
+      '<div class="row1"><span class="name" style="font-size:14.5px">' + esc(n.label || 'Update') + '</span>' +
+      '<span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(timeAgo(n.createdAt)) + '</span></div>' +
+      (n.projectName ? '<div class="meta">' + esc(n.projectName) + '</div>' : '') +
+    '</button>'
+  )
+  if (n.projectId) c.addEventListener('click', function () { renderDetail(n.projectId) })
+  else c.style.pointerEvents = 'none'
+  return c
+}
+function renderAlerts() {
+  var v = $('#view'); v.innerHTML = ''
+  var ns = (SNAP.notifications || []).slice().sort(function (a, b) { return String(b.createdAt || '').localeCompare(String(a.createdAt || '')) })
+  if (!ns.length) { v.appendChild(el('<div class="empty">No new alerts. You\'re all caught up.</div>')); return }
+  v.appendChild(sectionLabel('New alerts · ' + ns.length))
+  ns.forEach(function (n) { v.appendChild(alertCard(n)) })
+  v.appendChild(el('<p class="empty" style="padding:14px 10px 0">Alerts clear when you address them in the desktop app.</p>'))
+}
+
+function dueCount() {
+  var t = todayStr()
+  return (SNAP && SNAP.tasks ? SNAP.tasks : []).filter(function (x) { return !x.done && x.dueDate && x.dueDate <= t }).length
+}
+function setTabCount(id, n) {
+  var e = $('#' + id); if (!e) return
+  if (n > 0) { e.textContent = n > 99 ? '99+' : String(n); e.classList.remove('hidden') } else e.classList.add('hidden')
+}
+function updateCounts() {
+  if (!SNAP) return
+  var alerts = (SNAP.notifications || []).length
+  setTabCount('count-alerts', alerts)
+  setTabCount('count-tasks', dueCount())
+  // Number on the home-screen app icon = new alerts needing attention.
+  try {
+    if (navigator.setAppBadge) {
+      if (alerts > 0) navigator.setAppBadge(alerts)
+      else if (navigator.clearAppBadge) navigator.clearAppBadge()
+    }
+  } catch (e) { /* badge unsupported */ }
+}
+
 function render() {
   if (TAB === 'pipeline') renderPipeline()
+  else if (TAB === 'alerts') renderAlerts()
   else if (TAB === 'tasks') renderTasks()
   else if (TAB === 'money') renderMoney()
+  updateCounts()
   document.querySelectorAll('nav.tabbar button').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === TAB) })
 }
 

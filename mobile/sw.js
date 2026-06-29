@@ -2,7 +2,7 @@
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
-var CACHE = 'mcrm-v3'
+var CACHE = 'mcrm-v4'
 var SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {
@@ -38,7 +38,12 @@ self.addEventListener('push', function (e) {
     tag: data.tag || undefined,
     data: { url: data.url || './' },
   }
-  e.waitUntil(self.registration.showNotification(title, opts))
+  var jobs = [self.registration.showNotification(title, opts)]
+  // Update the home-screen icon's number from the payload (works even with the app closed).
+  if (typeof data.count === 'number' && navigator.setAppBadge) {
+    jobs.push(data.count > 0 ? navigator.setAppBadge(data.count) : (navigator.clearAppBadge ? navigator.clearAppBadge() : Promise.resolve()))
+  }
+  e.waitUntil(Promise.all(jobs.map(function (p) { return Promise.resolve(p).catch(function () {}) })))
 })
 
 // Tapping a notification opens / focuses the app.

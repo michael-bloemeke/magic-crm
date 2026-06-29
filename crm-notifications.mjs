@@ -50,8 +50,9 @@ export function addNotification(projectId, kind, sourceId) {
   const ev = { id: newId(), projectId, kind, sourceId: String(sourceId), createdAt: new Date().toISOString(), seen: false }
   d.events.push(ev)
   write(d)
-  // Mirror every new bell event to the phone's lock screen (best-effort; off until set up in Settings).
-  pushNotification(ev).catch(() => {})
+  // Mirror every new bell event to the phone's lock screen (best-effort). The count is the current
+  // unseen total, used to set the number on the phone app's icon.
+  pushNotification(ev, loadUnseenNotifications().length).catch(() => {})
   return ev
 }
 export function markNotificationSeen(id) {

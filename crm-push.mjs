@@ -93,7 +93,7 @@ export async function sendPush({ title, message, priority, tags, click } = {}, {
 
 // Map a notification event to a lock-screen alert and publish it (fire-and-forget from callers).
 // Client names are included (the topic is private); dollar amounts are intentionally left out.
-export async function pushNotification(ev) {
+export async function pushNotification(ev, count) {
   if (!ev || !ev.kind) return { ok: false, skipped: true }
   let who = 'a client'
   try {
@@ -140,6 +140,6 @@ export async function pushNotification(ev) {
       break
   }
   // Push from the CRM app itself (web push to the phone), and to ntfy if it's still enabled.
-  sendWebPush({ title, body: message, url: APP_URL, tag: ev.kind }).catch(() => {})
+  sendWebPush({ title, body: message, url: APP_URL, tag: ev.kind, count: typeof count === 'number' ? count : undefined }).catch(() => {})
   return sendPush({ title, message, tags, priority })
 }
