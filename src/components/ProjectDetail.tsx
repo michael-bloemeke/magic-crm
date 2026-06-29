@@ -16,6 +16,7 @@ type Props = {
   onAddTask: (title: string, dueDate: string) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
+  onEditTask: (id: string, patch: { title: string; dueDate: string }) => void
   onArchive: () => void
   onComplete: () => void
   onRestore: () => void
@@ -42,6 +43,7 @@ export function ProjectDetail({
   onAddTask,
   onToggleTask,
   onDeleteTask,
+  onEditTask,
   onArchive,
   onComplete,
   onRestore,
@@ -159,6 +161,7 @@ export function ProjectDetail({
                 onAddTask={onAddTask}
                 onToggleTask={onToggleTask}
                 onDeleteTask={onDeleteTask}
+                onEditTask={onEditTask}
                 onPaymentsChange={onPaymentsChange}
                 onProjectChanged={onProjectChanged}
                 onOpenContact={onOpenContact}

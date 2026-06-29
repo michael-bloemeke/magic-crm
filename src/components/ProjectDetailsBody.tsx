@@ -53,6 +53,7 @@ export function ProjectDetailsBody({
   onAddTask,
   onToggleTask,
   onDeleteTask,
+  onEditTask,
   onPaymentsChange,
   onProjectChanged,
   onOpenContact,
@@ -259,11 +260,11 @@ export function ProjectDetailsBody({
       {tasksAside ? (
         // Full view: Tasks on the left, the conversations box on the right.
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
-          <ProjectTasks tasks={tasks} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} />
+          <ProjectTasks tasks={tasks} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} onEdit={onEditTask} />
           {tasksAside}
         </div>
       ) : (
-        <ProjectTasks tasks={tasks} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} />
+        <ProjectTasks tasks={tasks} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} onEdit={onEditTask} />
       )}
 
       {/* Inquiry: the original website form fill (if any) + the inquiry-stage email sequence.
@@ -561,11 +562,13 @@ function ProjectTasks({
   onAdd,
   onToggle,
   onDelete,
+  onEdit,
 }: {
   tasks: Task[]
   onAdd: (title: string, dueDate: string) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
+  onEdit: (id: string, patch: { title: string; dueDate: string }) => void
 }) {
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
@@ -601,12 +604,12 @@ function ProjectTasks({
       ) : (
         <div className="board-scroll mb-3 max-h-[18rem] space-y-2 overflow-y-auto pr-1">
           {active.map((t) => (
-            <TaskRow key={t.id} task={t} onToggle={(d) => onToggle(t.id, d)} onDelete={() => onDelete(t.id)} />
+            <TaskRow key={t.id} task={t} onToggle={(d) => onToggle(t.id, d)} onDelete={() => onDelete(t.id)} onEdit={(patch) => onEdit(t.id, patch)} />
           ))}
           {done.length > 0 && (
             <div className="space-y-2 pt-1 opacity-70">
               {done.map((t) => (
-                <TaskRow key={t.id} task={t} onToggle={(d) => onToggle(t.id, d)} onDelete={() => onDelete(t.id)} />
+                <TaskRow key={t.id} task={t} onToggle={(d) => onToggle(t.id, d)} onDelete={() => onDelete(t.id)} onEdit={(patch) => onEdit(t.id, patch)} />
               ))}
             </div>
           )}

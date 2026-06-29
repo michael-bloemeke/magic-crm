@@ -10,12 +10,13 @@ type Props = {
   onAdd: (title: string, dueDate: string) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
+  onEdit: (id: string, patch: { title: string; dueDate: string }) => void
   onOpenProject: (project: Project) => void
 }
 
 const byDueAsc = (a: Task, b: Task) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')
 
-export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onOpenProject }: Props) {
+export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, onOpenProject }: Props) {
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const today = todayISO()
   const [newTitle, setNewTitle] = useState('')
@@ -66,6 +67,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onOpenPr
               projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
               onToggle={(done) => onToggle(t.id, done)}
               onDelete={() => onDelete(t.id)}
+              onEdit={(patch) => onEdit(t.id, patch)}
               onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
             />
           ))}
@@ -139,6 +141,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onOpenPr
                       projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
                       onToggle={(done) => onToggle(t.id, done)}
                       onDelete={() => onDelete(t.id)}
+                      onEdit={(patch) => onEdit(t.id, patch)}
                       onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
                     />
                   ))}

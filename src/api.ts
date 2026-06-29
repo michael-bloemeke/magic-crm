@@ -1163,12 +1163,14 @@ export async function setMileageRate(rate: number | string): Promise<void> {
 // --- Communications (Gmail) --------------------------------------------------
 
 export type EmailMessage = {
+  id?: string // Gmail message id (absent for demo messages); needed to star a single message
   from: string
   fromName: string
   date: string
   ts?: number
   body: string
   unread?: boolean
+  starred?: boolean
 }
 export type EmailThread = {
   id: string
@@ -1177,6 +1179,7 @@ export type EmailThread = {
   lastDate: string
   lastTs?: number
   unread?: number
+  starred?: boolean // true if any message in the thread is starred
   messages: EmailMessage[]
 }
 
@@ -1258,6 +1261,7 @@ export async function sendEmail(input: {
   to?: string
   subject?: string
   body: string
+  format?: 'html' | 'text'
   mode: 'send' | 'draft'
 }): Promise<{ ok: boolean; demo: boolean; mode: string }> {
   const res = await fetch('/api/comms/send', {
@@ -1267,6 +1271,35 @@ export async function sendEmail(input: {
   })
   if (!res.ok) throw new Error(`Failed to send (${res.status})`)
   return (await res.json()) as { ok: boolean; demo: boolean; mode: string }
+}
+
+// Star / unstar a whole conversation. Writes the STARRED label to Gmail so the same star shows
+// there. needsReconnect = the Gmail token predates the label-write permission.
+export async function starThread(input: {
+  threadId: string
+  starred: boolean
+}): Promise<{ ok: boolean; demo?: boolean; needsReconnect?: boolean }> {
+  const res = await fetch('/api/comms/star', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) return { ok: false }
+  return (await res.json()) as { ok: boolean; demo?: boolean; needsReconnect?: boolean }
+}
+
+// Star / unstar a single message in a thread.
+export async function starMessage(input: {
+  messageId: string
+  starred: boolean
+}): Promise<{ ok: boolean; demo?: boolean; needsReconnect?: boolean }> {
+  const res = await fetch('/api/comms/star', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) return { ok: false }
+  return (await res.json()) as { ok: boolean; demo?: boolean; needsReconnect?: boolean }
 }
 
 // --- HoneyBook inquiry sync (Notion Activity Log -> auto-created projects) ----

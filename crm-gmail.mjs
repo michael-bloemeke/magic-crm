@@ -215,13 +215,16 @@ function buildThread(full, me) {
   const subject = header(msgs[0].payload, 'Subject') || '(no subject)'
   const messages = msgs.map((m) => {
     const from = header(m.payload, 'From')
+    const labels = Array.isArray(m.labelIds) ? m.labelIds : []
     return {
+      id: m.id,
       from: emailFromAddr(from),
       fromName: nameFromAddr(from) || emailFromAddr(from),
       date: fmt(m.internalDate),
       ts: Number(m.internalDate) || 0,
       body: trimQuoted(plainText(m.payload)) || (m.snippet || ''),
-      unread: Array.isArray(m.labelIds) && m.labelIds.includes('UNREAD'),
+      unread: labels.includes('UNREAD'),
+      starred: labels.includes('STARRED'),
     }
   })
   // Participants = everyone on From/To/Cc across the thread (minus Michael),
@@ -243,6 +246,7 @@ function buildThread(full, me) {
     lastDate: messages[messages.length - 1].date,
     lastTs: Math.max(...messages.map((m) => m.ts), 0),
     unread: messages.filter((m) => m.unread).length,
+    starred: messages.some((m) => m.starred),
     messages,
   }
 }
@@ -464,6 +468,31 @@ export async function markThreadRead(threadId) {
     requestBody: { removeLabelIds: ['UNREAD'] },
   })
   return { ok: true, threadId }
+}
+
+// Star / unstar a whole thread: toggles the STARRED label on every message in it. This is what the
+// star click in the CRM conversations list does, and it shows up as a star in Gmail too. Needs the
+// gmail.modify scope (same as marking read).
+export async function starThread(threadId, starred) {
+  if (!threadId) throw new Error('threadId required')
+  await api().users.threads.modify({
+    userId: 'me',
+    id: threadId,
+    requestBody: starred ? { addLabelIds: ['STARRED'] } : { removeLabelIds: ['STARRED'] },
+  })
+  return { ok: true, threadId, starred: !!starred }
+}
+
+// Star / unstar a single message (the per-message star inside the thread reader). Round-trips to
+// Gmail the same way.
+export async function starMessage(messageId, starred) {
+  if (!messageId) throw new Error('messageId required')
+  await api().users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: starred ? { addLabelIds: ['STARRED'] } : { removeLabelIds: ['STARRED'] },
+  })
+  return { ok: true, messageId, starred: !!starred }
 }
 
 // True only if the stored token was granted the modify scope (so we can mark

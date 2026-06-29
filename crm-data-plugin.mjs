@@ -34,7 +34,7 @@ import {
   saveStructure,
   reassignStage,
 } from './crm-data-core.mjs'
-import { loadThreads, draftReply, sendEmail, loadInbox, markRead } from './crm-comms.mjs'
+import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import {
   loadPortals,
@@ -306,6 +306,11 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/comms/read', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, (b) => markRead(b))
+      })
+      // Star / unstar. A messageId stars that one message; otherwise the whole thread.
+      server.middlewares.use('/api/comms/star', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => (b.messageId ? starMessage(b) : starThread(b)))
       })
       server.middlewares.use('/api/comms', (req, res, next) => {
         if (req.method !== 'POST') return next()

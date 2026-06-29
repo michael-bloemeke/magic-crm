@@ -19,7 +19,10 @@ import {
   createDraft,
   markThreadRead,
   hasModifyScope,
+  starThread as gmailStarThread,
+  starMessage as gmailStarMessage,
 } from './crm-gmail.mjs'
+import { composeOutgoing, stripMergeFields } from './crm-email-render.mjs'
 
 export function isGmailConnected() {
   return gmailConnected()
@@ -215,21 +218,51 @@ export async function markRead({ threadId }) {
   }
 }
 
+// Star / unstar a conversation (the star in the conversations list). Writes the STARRED label to
+// Gmail so the same star shows there. A no-op demo when Gmail isn't connected.
+export async function starThread({ threadId, starred }) {
+  if (!gmailConnected()) return { ok: true, demo: true, threadId, starred: !!starred }
+  try {
+    const r = await gmailStarThread(threadId, !!starred)
+    invalidateInbox()
+    return r
+  } catch (e) {
+    const msg = String(e?.message || e)
+    return { ok: false, error: msg, needsReconnect: /insufficient|scope|permission/i.test(msg) }
+  }
+}
+
+// Star / unstar a single message (the per-message star in the thread reader).
+export async function starMessage({ messageId, starred }) {
+  if (!gmailConnected()) return { ok: true, demo: true, messageId, starred: !!starred }
+  try {
+    const r = await gmailStarMessage(messageId, !!starred)
+    invalidateInbox()
+    return r
+  } catch (e) {
+    const msg = String(e?.message || e)
+    return { ok: false, error: msg, needsReconnect: /insufficient|scope|permission/i.test(msg) }
+  }
+}
+
 export async function sendEmail({ projectId, threadId, to, subject, body, format, attachments, inlineImages, mode }) {
   if (gmailConnected()) {
     const p = getProject(projectId)
     const subj = subject || `Re: ${p?.client || 'your event'}`
-    // An HTML email carries the rich body as `html`; the Gmail layer derives a plain-text
-    // fallback. A plain email keeps using `body`. Attachments pass straight through. inlineImages
-    // (e.g. a signature logo the html references via cid:) ride along for the multipart/related part.
+    // An HTML email (a rich thread reply) is run through the same compose pipeline as a per-project
+    // email: chips stripped, spacing tightened, the signature appended, and any data: image turned
+    // into an inline cid: attachment. That keeps a reply identical to what the compose box previews
+    // and to every other email the CRM sends. A plain email keeps using `body` untouched. Any
+    // explicitly-passed inlineImages (rare on this path) are merged with the signature's.
     const isHtml = format === 'html'
+    const composed = isHtml ? composeOutgoing(stripMergeFields(body || '')) : null
     const payload = {
       to,
       subject: subj,
       threadId,
       attachments: Array.isArray(attachments) ? attachments : [],
-      inlineImages: Array.isArray(inlineImages) ? inlineImages : [],
-      ...(isHtml ? { html: body, body: '' } : { body }),
+      inlineImages: [...(Array.isArray(inlineImages) ? inlineImages : []), ...(composed ? composed.inlineImages : [])],
+      ...(isHtml ? { html: composed.sendHtml, body: '' } : { body }),
     }
     if (mode === 'draft') {
       const r = await createDraft(payload)

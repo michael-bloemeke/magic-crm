@@ -49,6 +49,8 @@ export function RichTextEditor({
   smartFields,
   resolveField,
   allowImage = false,
+  tone = 'dark',
+  minHeight = 180,
 }: {
   value: string
   onChange: (html: string) => void
@@ -62,7 +64,14 @@ export function RichTextEditor({
   // When true, a toolbar "Insert image" button appears (used by the signature editor). The picked
   // file is inlined as a data: <img>; the send layer converts it to an inline cid: image.
   allowImage?: boolean
+  // 'dark' = the app's dark modal chrome (default). 'light' = parchment chrome that sits inside the
+  // light thread-reply dialog. Only the toolbar/border colors change; the typing surface is always
+  // the white .email-rte (so the compose box previews the delivered email either way).
+  tone?: 'dark' | 'light'
+  // Minimum height of the editable area in px (replies are shorter than the full builder).
+  minHeight?: number
 }) {
+  const light = tone === 'light'
   const ref = useRef<HTMLDivElement>(null)
   const imgInputRef = useRef<HTMLInputElement>(null)
   const [empty, setEmpty] = useState(true)
@@ -127,6 +136,32 @@ export function RichTextEditor({
     ref.current?.focus()
     document.execCommand(cmd, false)
     emit()
+  }
+
+  // True when the caret sits inside a list, so Enter should make a new list item (browser default)
+  // rather than our plain line break.
+  const selectionInList = (): boolean => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return false
+    const root = ref.current
+    let node: Node | null = sel.anchorNode
+    while (node && node !== root) {
+      if (node instanceof HTMLElement && /^(LI|UL|OL)$/.test(node.tagName)) return true
+      node = node.parentNode
+    }
+    return false
+  }
+
+  // Make Enter and Shift+Enter identical: both insert a single line break (<br>), the same as a
+  // sentence that wraps. Browsers otherwise make plain Enter open a new paragraph/div with extra
+  // spacing, so a hard return looked taller than a soft wrap. Lists keep the native Enter (new item).
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      if (selectionInList()) return
+      e.preventDefault()
+      document.execCommand('insertLineBreak')
+      emit()
+    }
   }
   const addLink = () => {
     const u = normalizeUrl(window.prompt('Link URL (include https://)') || '')
@@ -220,9 +255,20 @@ export function RichTextEditor({
     emit()
   }
 
+  // Toolbar/border colors swap with the tone; the editable surface stays the white .email-rte.
+  const wrapCls = light
+    ? 'overflow-hidden rounded-lg border border-[#dcd7cc] bg-white focus-within:border-[#cb9b5d]'
+    : 'overflow-hidden rounded-lg border border-line bg-surface-2 focus-within:border-brass-dim'
+  const barCls = light
+    ? 'flex flex-wrap items-center gap-0.5 border-b border-[#ece8e0] bg-[#f4f2ed] px-1.5 py-1'
+    : 'flex flex-wrap items-center gap-0.5 border-b border-line bg-surface-3/40 px-1.5 py-1'
+  const btnCls = light
+    ? 'rounded-md p-1.5 text-[#6f6a60] transition-colors hover:bg-[#efece4] hover:text-[#201c17]'
+    : 'rounded-md p-1.5 text-muted transition-colors hover:bg-surface-3 hover:text-parchment'
+
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-surface-2 focus-within:border-brass-dim">
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-line bg-surface-3/40 px-1.5 py-1">
+    <div className={wrapCls}>
+      <div className={barCls}>
         {COMMANDS.map((c) => (
           <button
             key={c.key}
@@ -232,7 +278,7 @@ export function RichTextEditor({
             // Keep the editor selection while clicking a toolbar button.
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => run(c.cmd)}
-            className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-3 hover:text-parchment"
+            className={btnCls}
           >
             {c.icon}
           </button>
@@ -243,7 +289,7 @@ export function RichTextEditor({
           aria-label="Add link"
           onMouseDown={(e) => e.preventDefault()}
           onClick={addLink}
-          className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-3 hover:text-parchment"
+          className={btnCls}
         >
           {ICON(<><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" /></>)}
         </button>
@@ -267,7 +313,7 @@ export function RichTextEditor({
               aria-label="Insert image"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => imgInputRef.current?.click()}
-              className="rounded-md p-1.5 text-muted transition-colors hover:bg-surface-3 hover:text-parchment"
+              className={btnCls}
             >
               {ICON(<><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></>)}
             </button>
@@ -339,11 +385,14 @@ export function RichTextEditor({
 
       {/* Link bar: shows when the caret is inside a link. */}
       {linkBar && (
-        <div className="flex items-center gap-2 border-b border-line bg-surface-3/60 px-2.5 py-1.5 text-[11.5px]">
+        <div className={[
+          'flex items-center gap-2 border-b px-2.5 py-1.5 text-[11.5px]',
+          light ? 'border-[#ece8e0] bg-[#f4f2ed]' : 'border-line bg-surface-3/60',
+        ].join(' ')}>
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
           </svg>
-          <span className="min-w-0 flex-1 truncate text-muted" title={linkBar.href}>
+          <span className={['min-w-0 flex-1 truncate', light ? 'text-[#6f6a60]' : 'text-muted'].join(' ')} title={linkBar.href}>
             {linkBar.href || '(no URL)'}
           </span>
           <div className="flex shrink-0 items-center gap-1">
@@ -369,11 +418,13 @@ export function RichTextEditor({
           contentEditable
           suppressContentEditableWarning
           onInput={emit}
+          onKeyDown={onKeyDown}
           onMouseUp={refreshLink}
           onKeyUp={refreshLink}
           role="textbox"
           aria-multiline="true"
-          className="email-rte min-h-[180px] w-full px-3 py-3 outline-none"
+          className="email-rte w-full px-3 py-3 outline-none"
+          style={{ minHeight }}
         />
       </div>
     </div>

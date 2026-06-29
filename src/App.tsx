@@ -85,6 +85,7 @@ import {
   isReceivedPayment,
   addTask as apiAddTask,
   setTaskDone,
+  editTask as apiEditTask,
   removeTask,
   type Task,
   type Payment,
@@ -763,6 +764,12 @@ function App() {
       loadTasks().then(setTasks).catch(() => {})
     })
   }
+  const editTask = (id: string, patch: { title: string; dueDate: string }) => {
+    setTasks((prev) => (prev ? prev.map((t) => (t.id === id ? { ...t, ...patch } : t)) : prev))
+    apiEditTask(id, patch).catch(() => {
+      loadTasks().then(setTasks).catch(() => {})
+    })
+  }
 
   const tasksForSelected = selected ? allTasks.filter((t) => t.projectId === selected.id) : []
   const tasksForFull = fullProject ? allTasks.filter((t) => t.projectId === fullProject.id) : []
@@ -839,6 +846,7 @@ function App() {
             onAddTask={(title, dueDate) => addTaskFor(fullProject.id, title, dueDate)}
             onToggleTask={toggleTask}
             onDeleteTask={deleteTask}
+            onEditTask={editTask}
             onArchive={() => setArchiveTarget(fullProject)}
             onComplete={() => setCompleteTarget(fullProject)}
             onRestore={() => doRestore(fullProject.id)}
@@ -1018,6 +1026,7 @@ function App() {
                   onAdd={(title, dueDate) => addTaskFor('', title, dueDate)}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
+                  onEdit={editTask}
                   onOpenProject={openFull}
                 />
               ) : page === 'inbox' ? (
@@ -1096,6 +1105,7 @@ function App() {
         onAddTask={(title, dueDate) => selected && addTaskFor(selected.id, title, dueDate)}
         onToggleTask={toggleTask}
         onDeleteTask={deleteTask}
+        onEditTask={editTask}
         onArchive={() => selected && setArchiveTarget(selected)}
         onComplete={() => selected && setCompleteTarget(selected)}
         onRestore={() => selected && doRestore(selected.id)}
