@@ -116,6 +116,8 @@
       #lock h2 { font-size: 20px; margin: 0 0 4px; }
       #lock p { color: var(--faint); font-size: 13px; margin: 0 0 22px; }
       #lock input { width: 100%; text-align: center; letter-spacing: 8px; font-size: 22px; padding: 14px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--parchment); }
+      #lock .unlockbtn { width: 100%; margin-top: 14px; padding: 13px; border-radius: 12px; background: var(--brass); color: #20180a; font-weight: 700; font-size: 15px; }
+      #lock .unlockbtn:active { filter: brightness(1.1); }
       #lock .err { color: var(--red); font-size: 12.5px; margin-top: 12px; min-height: 16px; }
       .spinner { color: var(--faint); text-align: center; padding: 40px; font-size: 13px; }
     </style>
@@ -125,7 +127,8 @@
       <div class="box">
         <h2>Magic CRM</h2>
         <p>Enter your passcode</p>
-        <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••" />
+        <input id="pin" type="password" inputmode="numeric" autocomplete="off" autocorrect="off" autocapitalize="off" />
+        <button id="unlock-btn" class="unlockbtn">Unlock</button>
         <div class="err" id="pinerr"></div>
       </div>
     </div>

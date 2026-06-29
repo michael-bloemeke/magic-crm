@@ -40,7 +40,8 @@
     "pdfkit": "^0.19.1",
     "pdfmake": "^0.2.20",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

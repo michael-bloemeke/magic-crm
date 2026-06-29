@@ -4,10 +4,23 @@
 // synced to the cloud so the phone reads a static, read-only copy that works even when the Mac is
 // asleep. No write paths here; this only ever reads.
 
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { loadAll, loadTasks, loadStructure } from './crm-data-core.mjs'
 import { loadConfig, computeFinance } from './crm-finance.mjs'
 import { loadAllCustomValues } from './crm-custom-fields.mjs'
 import { loadUnseenNotifications } from './crm-notifications.mjs'
+
+// The web-push VAPID PUBLIC key (safe to expose) so the phone app can subscribe to notifications.
+function vapidPublicKey() {
+  try {
+    const f = path.join(path.dirname(fileURLToPath(import.meta.url)), 'push-vapid.json')
+    return JSON.parse(fs.readFileSync(f, 'utf8')).publicKey || ''
+  } catch {
+    return ''
+  }
+}
 
 const NOTIF_LABELS = {
   'invoice-paid': 'Invoice paid',
@@ -94,5 +107,6 @@ export function buildSnapshot() {
     eventFieldDeleted: cfg.eventFieldDeleted || [],
     finance,
     notifications,
+    vapidPublicKey: vapidPublicKey(),
   }
 }

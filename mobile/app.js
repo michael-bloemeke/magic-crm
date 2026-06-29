@@ -294,9 +294,11 @@ function wireUI() {
 }
 
 function unlock() {
-  var lock = $('#lock'), pin = $('#pin'), err = $('#pinerr')
-  var saved = sessionStorage.getItem('mcrm_code')
-  if (saved !== null) {
+  var lock = $('#lock'), pin = $('#pin'), err = $('#pinerr'), btn = $('#unlock-btn')
+  // Stays logged in across launches (localStorage). The data is gated server-side; the phone itself
+  // is the outer lock. To sign out, clear site data.
+  var saved = localStorage.getItem('mcrm_code')
+  if (saved) {
     CODE = saved
     lock.classList.add('hidden')
     wireUI()
@@ -305,15 +307,30 @@ function unlock() {
   }
   lock.classList.remove('hidden')
   pin.focus()
-  pin.addEventListener('input', function () {
-    if (pin.value.length < 4) { err.textContent = ''; return }
+  // Explicit submit (no guessing the passcode length): the Unlock button or Enter.
+  function attempt() {
+    var v = (pin.value || '').trim()
+    if (!v) return
     err.textContent = 'Checking…'
-    CODE = pin.value
+    CODE = v
     loadAndRender().then(function (res) {
-      if (res === 'unauth') { err.textContent = 'Wrong passcode'; pin.value = ''; CODE = '' }
-      else { sessionStorage.setItem('mcrm_code', CODE); err.textContent = ''; lock.classList.add('hidden'); wireUI() }
+      if (res === 'ok') {
+        localStorage.setItem('mcrm_code', CODE)
+        err.textContent = ''
+        lock.classList.add('hidden')
+        wireUI()
+      } else if (res === 'unauth') {
+        err.textContent = 'Wrong passcode'
+        pin.value = ''
+        CODE = ''
+        pin.focus()
+      } else {
+        err.textContent = 'Could not connect. Try again.'
+      }
     })
-  })
+  }
+  btn.addEventListener('click', attempt)
+  pin.addEventListener('keydown', function (e) { if (e.key === 'Enter') attempt() })
 }
 
 document.addEventListener('DOMContentLoaded', unlock)

@@ -12,6 +12,7 @@ dist
 dist-ssr
 release
 push-config.json
+push-vapid.json
 mobile-config.json
 mobile/snapshot.json
 *.local

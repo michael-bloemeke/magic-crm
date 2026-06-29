@@ -52,7 +52,11 @@ export function isMobileConfigured() {
   }
 }
 
-// Read config, generating a random 6-digit passcode + an unguessable blob path on first use.
+function writeConfig(c) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ passcode: c.passcode, blobPath: c.blobPath, subsPath: c.subsPath }, null, 2) + '\n')
+}
+
+// Read config, generating a 6-digit passcode + unguessable blob paths (snapshot + push subs) once.
 export function getMobileConfig() {
   const c = readJson(CONFIG_FILE, {})
   let changed = false
@@ -64,14 +68,24 @@ export function getMobileConfig() {
     c.blobPath = 'mobile/snap-' + crypto.randomBytes(12).toString('hex') + '.json'
     changed = true
   }
-  if (changed) fs.writeFileSync(CONFIG_FILE, JSON.stringify({ passcode: c.passcode, blobPath: c.blobPath }, null, 2) + '\n')
+  if (!c.subsPath) {
+    c.subsPath = 'mobile/subs-' + crypto.randomBytes(12).toString('hex') + '.json'
+    changed = true
+  }
+  if (changed) writeConfig(c)
   const base = blobBaseUrl()
-  return { passcode: c.passcode, blobPath: c.blobPath, snapshotUrl: base ? base + '/' + c.blobPath : '' }
+  return {
+    passcode: c.passcode,
+    blobPath: c.blobPath,
+    subsPath: c.subsPath,
+    snapshotUrl: base ? base + '/' + c.blobPath : '',
+    subsUrl: base ? base + '/' + c.subsPath : '',
+  }
 }
 
 export function setMobilePasscode(code) {
   const c = getMobileConfig()
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify({ passcode: String(code), blobPath: c.blobPath }, null, 2) + '\n')
+  writeConfig({ passcode: String(code), blobPath: c.blobPath, subsPath: c.subsPath })
   return getMobileConfig()
 }
 
