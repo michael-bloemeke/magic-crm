@@ -2,7 +2,7 @@
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
-var CACHE = 'mcrm-v2'
+var CACHE = 'mcrm-v3'
 var SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {

@@ -11,6 +11,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { loadAll, loadTasks } from './crm-data-core.mjs'
+import { sendWebPush } from './crm-webpush.mjs'
+
+// The deployed phone app, used as the tap target for web-push notifications.
+const APP_URL = 'https://mobile-blond-alpha.vercel.app'
 
 const CONFIG_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'push-config.json')
 const DEFAULT_SERVER = 'https://ntfy.sh'
@@ -135,5 +139,7 @@ export async function pushNotification(ev) {
     default:
       break
   }
+  // Push from the CRM app itself (web push to the phone), and to ntfy if it's still enabled.
+  sendWebPush({ title, body: message, url: APP_URL, tag: ev.kind }).catch(() => {})
   return sendPush({ title, message, tags, priority })
 }

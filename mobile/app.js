@@ -265,6 +265,56 @@ function applySnapshot(s) {
   STAGE = {}
   ;(s.structure.umbrellas || []).forEach(function (u) { (u.stages || []).forEach(function (st) { STAGE[st.id] = { name: st.name, umbrella: u.label, color: u.color } }) })
 }
+// ---------- web push (notifications from this app) ----------
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+}
+function updatePushButton() {
+  var btn = $('#enable-push')
+  if (!btn) return
+  var show = pushSupported() && SNAP && SNAP.vapidPublicKey && localStorage.getItem('mcrm_push') !== '1' && window.Notification && Notification.permission !== 'denied'
+  btn.classList.toggle('hidden', !show)
+}
+function urlB64ToUint8(base64) {
+  var pad = '='.repeat((4 - (base64.length % 4)) % 4)
+  var b64 = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/')
+  var raw = atob(b64)
+  var arr = new Uint8Array(raw.length)
+  for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
+  return arr
+}
+function enablePush() {
+  if (!pushSupported()) {
+    alert('To get notifications, add this app to your Home Screen first (Share, then Add to Home Screen), then open it from there and try again.')
+    return
+  }
+  if (!SNAP || !SNAP.vapidPublicKey) {
+    alert('Notifications are not set up yet on the desktop side.')
+    return
+  }
+  Notification.requestPermission().then(function (perm) {
+    if (perm !== 'granted') {
+      alert('Notifications were not allowed.')
+      return
+    }
+    return navigator.serviceWorker.ready
+      .then(function (reg) {
+        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(SNAP.vapidPublicKey) })
+      })
+      .then(function (sub) {
+        return fetch('./api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: CODE, subscription: sub }) })
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error('register failed')
+        localStorage.setItem('mcrm_push', '1')
+        updatePushButton()
+        alert('Notifications are on. Alerts will show up here on your lock screen.')
+      })
+  }).catch(function (e) {
+    alert('Could not turn on notifications: ' + ((e && e.message) || e))
+  })
+}
+
 // Resolves 'ok' | 'unauth' | 'error'.
 function loadAndRender() {
   $('#updated').textContent = 'Refreshing…'
@@ -272,6 +322,7 @@ function loadAndRender() {
     applySnapshot(s)
     $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)
     render()
+    updatePushButton()
     return 'ok'
   }).catch(function (e) {
     if (e && e.unauth) return 'unauth'
@@ -290,6 +341,8 @@ function wireUI() {
     b.addEventListener('click', function () { TAB = b.dataset.tab; render(); window.scrollTo(0, 0) })
   })
   $('#refresh').addEventListener('click', loadAndRender)
+  var ep = $('#enable-push')
+  if (ep) ep.addEventListener('click', enablePush)
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {})
 }
 
