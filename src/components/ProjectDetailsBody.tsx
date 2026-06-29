@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { type Project } from '../pipeline'
-import { deleteProjectEmail, loadConfig, loadCustomValues, loadProjectEmails, loadRecipient, saveCustomValue, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
+import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, saveCustomValue, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
 import { type CustomField } from '../eventFields'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
@@ -67,6 +67,10 @@ export function ProjectDetailsBody({
   const [eventHidden, setEventHidden] = useState<Set<string>>(new Set())
   const [eventDeleted, setEventDeleted] = useState<Set<string>>(new Set())
   const [customFields, setCustomFields] = useState<CustomField[]>([])
+  // Stage-driven section highlighting: the pipeline structure (to find the project's umbrella) and
+  // the umbrella -> section overrides from Settings.
+  const [structure, setStructure] = useState<PipelineStructure | null>(null)
+  const [sectionHighlights, setSectionHighlights] = useState<Record<string, string>>({})
   useEffect(() => {
     loadConfig()
       .then((c) => {
@@ -74,8 +78,10 @@ export function ProjectDetailsBody({
         setEventHidden(new Set(c.eventFieldHidden || []))
         setEventDeleted(new Set(c.eventFieldDeleted || []))
         setCustomFields(c.customFields || [])
+        setSectionHighlights(c.sectionHighlights || {})
       })
       .catch(() => {})
+    loadStructure().then(setStructure).catch(() => {})
   }, [])
   const lbl = (id: string, def: string) => eventLabels[id] || def
   // A field shows unless it's hidden or (for the display-only built-ins) deleted in Settings.
@@ -110,6 +116,7 @@ export function ProjectDetailsBody({
   // follow-up / check-in slots are explicit index lists so any added one can be
   // removed (the slot index is the storage key; titles render by position).
   const [emails, setEmails] = useState<ProjectEmail[]>([])
+  const [inquiryFollowupSlots, setInquiryFollowupSlots] = useState<number[]>([1])
   const [followupSlots, setFollowupSlots] = useState<number[]>([1])
   const [checkinSlots, setCheckinSlots] = useState<number[]>([1])
 
@@ -120,6 +127,7 @@ export function ProjectDetailsBody({
         if (!live) return
         const mine = all.filter((e) => e.projectId === project.id)
         setEmails(mine)
+        setInquiryFollowupSlots(buildSlots(mine, 'inquiry-followup'))
         setFollowupSlots(buildSlots(mine, 'followup'))
         setCheckinSlots(buildSlots(mine, 'checkin'))
       })
@@ -130,6 +138,48 @@ export function ProjectDetailsBody({
       live = false
     }
   }, [project.id])
+
+  // The original website inquiry form for this project (if it came from the site contact form).
+  const [inquiryForm, setInquiryForm] = useState<InquiryForm | null>(null)
+  useEffect(() => {
+    let live = true
+    loadInquiryForm(project.id)
+      .then((f) => live && setInquiryForm(f))
+      .catch(() => live && setInquiryForm(null))
+    return () => {
+      live = false
+    }
+  }, [project.id])
+
+  // Which workflow section the project's current stage highlights (and auto-expands). The umbrella's
+  // built-in default (Inquiry/Post Call/Booked/Post show) is overridable per umbrella in Settings.
+  const currentUmbrella: CategoryDef | null = structure
+    ? structure.umbrellas.find((u) => (u.stages || []).some((s) => s.id === project.stageId)) || null
+    : null
+  const defaultSectionFor = (u: CategoryDef | null): string | null => {
+    if (!u) return null
+    if (u.role === 'first') return 'inquiry'
+    if (u.role === 'booked') return 'booked'
+    if (u.role === 'postshow') return 'postshow'
+    return 'postcall'
+  }
+  const hlOverride = currentUmbrella ? sectionHighlights[currentUmbrella.id] : undefined
+  const highlightedSection = hlOverride === 'none' ? null : hlOverride || defaultSectionFor(currentUmbrella)
+
+  // The highlighted section opens by default; the rest collapse. Re-derives when the project or its
+  // stage changes; manual toggles persist until then.
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    setOpenSections(new Set(highlightedSection ? [highlightedSection] : []))
+  }, [project.id, highlightedSection])
+  const toggleSection = (id: string) =>
+    setOpenSections((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  const isOpen = (id: string) => openSections.has(id)
 
   const emailFor = (kind: string) => emails.find((e) => e.kind === kind) ?? null
   const upsertEmail = (e: ProjectEmail) => setEmails((prev) => [...prev.filter((x) => x.id !== e.id), e])
@@ -215,6 +265,61 @@ export function ProjectDetailsBody({
         <ProjectTasks tasks={tasks} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} />
       )}
 
+      {/* Inquiry: the original website form fill (if any) + the inquiry-stage email sequence.
+          Collapsible; auto-expands and highlights while the project sits in an Inquiry stage. */}
+      <DetailSection
+        title="Inquiry"
+        collapsible
+        open={isOpen('inquiry')}
+        onToggle={() => toggleSection('inquiry')}
+        highlight={highlightedSection === 'inquiry'}
+      >
+        {inquiryForm && inquiryForm.fields.length > 0 ? (
+          <div className="mb-4">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+              Website inquiry{inquiryForm.submittedAt ? ' · ' + fmtSubmitted(inquiryForm.submittedAt) : ''}
+            </div>
+            <div className="space-y-1.5 rounded-lg border border-line bg-surface px-3.5 py-3">
+              {inquiryForm.fields.map((f) => (
+                <div key={f.key} className="text-[13px] leading-relaxed">
+                  <span className="text-faint">{f.label}: </span>
+                  <span className="whitespace-pre-wrap text-parchment">{f.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="mb-4 text-[12px] text-faint">
+            No saved website inquiry for this project. (The form is saved automatically for new website inquiries.)
+          </p>
+        )}
+        <div className={cardGrid}>
+          <EmailBuilderCard
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            kind="inquiry-response" title="Inquiry response" defaultSubject="Re: Your inquiry"
+            templateHint={/inquiry/i} email={emailFor('inquiry-response')}
+          />
+          {inquiryFollowupSlots.map((n, i) => (
+            <EmailBuilderCard
+              key={`inquiry-followup-${n}`}
+              project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+              kind={`inquiry-followup-${n}`} title={`Follow-up #${i + 1}`} defaultSubject="Checking In"
+              templateHint={/follow-up/i} email={emailFor(`inquiry-followup-${n}`)}
+              onDelete={inquiryFollowupSlots.length > 1 ? () => removeSlot('inquiry-followup', n, setInquiryFollowupSlots) : undefined}
+            />
+          ))}
+          <EmailBuilderCard
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            kind="inquiry-shark" title="Shark email" defaultSubject="Checking In" email={emailFor('inquiry-shark')}
+          />
+          <EmailBuilderCard
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            kind="inquiry-breakup" title="Break-up email" defaultSubject="Following Up" email={emailFor('inquiry-breakup')}
+          />
+        </div>
+        <AddEmailButton label="Add follow-up" onClick={() => addSlot(setInquiryFollowupSlots)} />
+      </DetailSection>
+
       {/* Event details: the blurb up top (the most immediate detail), then the
           structured fields grouped when / scope / where / show / source. */}
       <DetailSection title="Event details">
@@ -245,7 +350,7 @@ export function ProjectDetailsBody({
       </DetailSection>
 
       {/* Post Call: the nurture sequence after the sales call. */}
-      <DetailSection title="Post Call">
+      <DetailSection title="Post Call" collapsible open={isOpen('postcall')} onToggle={() => toggleSection('postcall')} highlight={highlightedSection === 'postcall'}>
         <div className={cardGrid}>
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
@@ -301,7 +406,7 @@ export function ProjectDetailsBody({
       </DetailSection>
 
       {/* Booked: the show paperwork once it's locked in, plus the check-in emails. */}
-      <DetailSection title="Booked">
+      <DetailSection title="Booked" collapsible open={isOpen('booked')} onToggle={() => toggleSection('booked')} highlight={highlightedSection === 'booked'}>
         <div className={cardGrid}>
           {checkinSlots.map((n, i) => (
             <EmailBuilderCard
@@ -317,7 +422,7 @@ export function ProjectDetailsBody({
       </DetailSection>
 
       {/* Post show: the wrap-up numbers and the thank-you note. */}
-      <DetailSection title="Post show">
+      <DetailSection title="Post show" collapsible open={isOpen('postshow')} onToggle={() => toggleSection('postshow')} highlight={highlightedSection === 'postshow'}>
         <div className={splitGrid}>
           <div className="grid grid-cols-2 gap-x-7 gap-y-5">
             <div>
@@ -353,18 +458,69 @@ export function ProjectDetailsBody({
   )
 }
 
-// A defined section: a bordered card with a tinted header band carrying the label,
-// so the groups read as distinct, organized blocks (not just a faint divider).
-function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+// "2026-06-24T19:31:05.883Z" -> "Jun 24, 2026, 3:31 PM" (local), for the saved inquiry timestamp.
+function fmtSubmitted(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+// A defined section: a bordered card with a tinted header band carrying the label. Optionally
+// collapsible (clickable header + chevron) and/or highlighted (brass ring + tinted header) when the
+// project's current stage maps to it.
+function DetailSection({
+  title,
+  children,
+  collapsible = false,
+  open = true,
+  onToggle,
+  highlight = false,
+}: {
+  title: string
+  children: ReactNode
+  collapsible?: boolean
+  open?: boolean
+  onToggle?: () => void
+  highlight?: boolean
+}) {
+  const shown = !collapsible || open
+  const header = (
+    <div
+      className={[
+        'flex items-center justify-between gap-2 px-5 py-2.5',
+        shown ? 'border-b border-line-strong' : '',
+        highlight ? 'bg-brass/10' : 'bg-surface-3/40',
+      ].join(' ')}
+    >
+      <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass">
+        <span className="h-3 w-[3px] rounded-full bg-brass" />
+        {title}
+      </h3>
+      {collapsible && (
+        <svg
+          className={['h-4 w-4 text-muted transition-transform', open ? 'rotate-180' : ''].join(' ')}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      )}
+    </div>
+  )
   return (
-    <section className="overflow-hidden rounded-2xl border border-line-strong bg-surface-2/30 shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-      <div className="border-b border-line-strong bg-surface-3/40 px-5 py-2.5">
-        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass">
-          <span className="h-3 w-[3px] rounded-full bg-brass" />
-          {title}
-        </h3>
-      </div>
-      <div className="p-5">{children}</div>
+    <section
+      className={[
+        'overflow-hidden rounded-2xl border bg-surface-2/30 shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-colors',
+        highlight ? 'border-brass-dim ring-1 ring-brass-dim/40' : 'border-line-strong',
+      ].join(' ')}
+    >
+      {collapsible ? (
+        <button type="button" onClick={onToggle} className="block w-full cursor-pointer text-left">
+          {header}
+        </button>
+      ) : (
+        header
+      )}
+      {shown && <div className="p-5">{children}</div>}
     </section>
   )
 }

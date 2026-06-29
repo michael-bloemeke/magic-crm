@@ -172,9 +172,10 @@ function kindLabel(kind) {
   const k = String(kind || '')
   if (k === 'thankyou') return 'thank-you email'
   if (k === 'postcall') return 'post-call email'
-  if (k === 'shark') return 'shark email'
-  if (k === 'breakup') return 'break-up email'
-  if (/^followup-\d+$/.test(k)) return 'follow-up email'
+  if (k === 'inquiry-response') return 'inquiry response'
+  if (k === 'shark' || k === 'inquiry-shark') return 'shark email'
+  if (k === 'breakup' || k === 'inquiry-breakup') return 'break-up email'
+  if (/^(inquiry-)?followup-\d+$/.test(k)) return 'follow-up email'
   if (/^checkin-\d+$/.test(k)) return 'check-in email'
   return 'email'
 }

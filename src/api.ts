@@ -914,6 +914,8 @@ export type AppConfig = {
   eventFieldDeleted: string[]
   // User-defined custom event fields (definitions; values via load/saveCustomValue).
   customFields: { id: string; label: string }[]
+  // Which project-page section to highlight per pipeline umbrella (umbrellaId -> sectionId).
+  sectionHighlights: Record<string, string>
   // Email signature appended below the body on send. signatureHtml may embed a logo as a data: <img>.
   signatureEnabled: boolean
   signatureHtml: string
@@ -947,6 +949,14 @@ export async function saveConfig(patch: Partial<AppConfig>): Promise<AppConfig> 
   })
   if (!res.ok) throw new Error(`Failed to save config (${res.status})`)
   return (await res.json()) as AppConfig
+}
+
+// --- Website inquiry form (for the Inquiry section) --------------------------
+export type InquiryForm = { submittedAt: string; formLocation: string; fields: { key: string; label: string; value: string }[] }
+export async function loadInquiryForm(projectId: string): Promise<InquiryForm | null> {
+  const res = await fetch(`/api/inquiry?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) return null
+  return ((await res.json()).inquiry ?? null) as InquiryForm | null
 }
 
 // --- Phone push (ntfy) -------------------------------------------------------

@@ -4,6 +4,7 @@ import {
   saveQuestionnaireTemplate,
   loadConfig,
   saveConfig,
+  loadStructure,
   loadPush,
   savePush,
   testPush,
@@ -12,7 +13,23 @@ import {
   type QuestionType,
 } from '../api'
 import { EVENT_FIELDS, MAPPABLE_FIELDS, ESSENTIAL_FIELD_IDS, makeCustomFieldId, type CustomField } from '../eventFields'
+import { type CategoryDef } from '../pipeline'
 import { RichTextEditor } from './RichTextEditor'
+
+// The workflow sections a pipeline stage can highlight on the project page.
+const SECTION_OPTIONS = [
+  { id: 'inquiry', label: 'Inquiry' },
+  { id: 'postcall', label: 'Post Call' },
+  { id: 'booked', label: 'Booked' },
+  { id: 'postshow', label: 'Post show' },
+  { id: 'none', label: 'No highlight' },
+]
+function defaultSectionFor(u: CategoryDef): string {
+  if (u.role === 'first') return 'inquiry'
+  if (u.role === 'booked') return 'booked'
+  if (u.role === 'postshow') return 'postshow'
+  return 'postcall'
+}
 
 // The Settings page. Sections: the global questionnaire editor (the question set every project's
 // questionnaire uses), event-field overrides (rename or hide fields in Event details), and the
@@ -54,6 +71,11 @@ export function SettingsPage() {
   const [pushBusy, setPushBusy] = useState(false)
   const [pushNote, setPushNote] = useState<string | null>(null)
 
+  const [umbrellas, setUmbrellas] = useState<CategoryDef[]>([])
+  const [highlights, setHighlights] = useState<Record<string, string>>({})
+  const [hlBusy, setHlBusy] = useState(false)
+  const [hlNote, setHlNote] = useState<string | null>(null)
+
   useEffect(() => {
     loadQuestionnaireTemplate()
       .then((t) => {
@@ -69,7 +91,11 @@ export function SettingsPage() {
         setCustomFields(c.customFields || [])
         setSigEnabled(!!c.signatureEnabled)
         setSigHtml(c.signatureHtml || '')
+        setHighlights(c.sectionHighlights || {})
       })
+      .catch(() => {})
+    loadStructure()
+      .then((s) => setUmbrellas(s.umbrellas || []))
       .catch(() => {})
     loadPush()
       .then(setPush)
@@ -203,6 +229,21 @@ export function SettingsPage() {
       setSigNote(String(e instanceof Error ? e.message : e))
     } finally {
       setSigBusy(false)
+    }
+  }
+
+  // --- Stage-driven section highlighting ---
+  const setHighlight = (umbrellaId: string, sectionId: string) => setHighlights((h) => ({ ...h, [umbrellaId]: sectionId }))
+  const saveHighlights = async () => {
+    setHlBusy(true)
+    setHlNote(null)
+    try {
+      await saveConfig({ sectionHighlights: highlights })
+      setHlNote('Saved. Open a project to see the highlighting.')
+    } catch (e) {
+      setHlNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setHlBusy(false)
     }
   }
 
@@ -557,6 +598,48 @@ export function SettingsPage() {
               amounts. Your Mac must be running to send live "something happened" alerts; due-task alerts fire while the app is open.
             </p>
           </div>
+        </section>
+
+        {/* Stage highlighting: which project-page section lights up + expands per pipeline category */}
+        <section className="rounded-2xl border border-line bg-surface-2/30 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-display text-[17px] text-parchment">Stage highlighting</h2>
+              <p className="mt-0.5 text-[12px] text-muted">
+                For each pipeline category, pick which section is highlighted and auto-expanded on the project page while a
+                project sits in it.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={saveHighlights}
+              disabled={hlBusy}
+              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+            >
+              {hlBusy ? 'Saving…' : 'Save highlights'}
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-1.5">
+            {umbrellas.map((u) => (
+              <div key={u.id} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+                <span className="flex-1 text-[13px] text-parchment">{u.label}</span>
+                <select
+                  value={highlights[u.id] ?? defaultSectionFor(u)}
+                  onChange={(e) => setHighlight(u.id, e.target.value)}
+                  className="rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] text-parchment focus:border-brass-dim focus:outline-none"
+                >
+                  {SECTION_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+            {umbrellas.length === 0 && <p className="text-[11.5px] text-faint">Loading pipeline categories…</p>}
+          </div>
+          {hlNote && <p className="mt-2 text-[11.5px] text-muted">{hlNote}</p>}
         </section>
       </div>
     </div>
