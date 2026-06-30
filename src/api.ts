@@ -342,6 +342,10 @@ export type ProjectEmail = {
   body: string
   format: 'html' | 'text'
   attachments: EmailAttachment[]
+  // When set, the email is sent as a reply into this existing Gmail thread instead of a new one.
+  // threadSubject is kept for display. Empty = a new thread.
+  threadId: string
+  threadSubject: string
   status: 'draft' | 'sent'
   createdAt: string
   updatedAt: string
@@ -363,6 +367,8 @@ export async function saveProjectEmail(input: {
   body: string
   format?: 'html' | 'text'
   attachments?: EmailAttachment[]
+  threadId?: string
+  threadSubject?: string
 }): Promise<ProjectEmail> {
   const res = await fetch('/api/emails/save', {
     method: 'POST',

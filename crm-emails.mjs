@@ -83,6 +83,11 @@ function clean(e) {
     body: String(e.body || ''),
     format: e.format === 'html' ? 'html' : 'text',
     attachments: normalizeAttachments(e.attachments),
+    // When set, this email is sent as a reply INTO an existing Gmail thread (so e.g. follow-up #2
+    // lands in follow-up #1's conversation) rather than starting a new thread. threadSubject is kept
+    // for display only. Empty = a new thread (the default).
+    threadId: String(e.threadId || ''),
+    threadSubject: String(e.threadSubject || ''),
     status: e.status === 'sent' ? 'sent' : 'draft',
     createdAt: e.createdAt || '',
     updatedAt: e.updatedAt || '',
@@ -115,7 +120,7 @@ export function loadEmails(projectId) {
 // leaves the record as a draft (sending is a separate call). A previously sent email is a
 // permanent record: it is returned unchanged (any save is a no-op), never edited or reverted
 // to a draft.
-export function saveProjectEmail({ id, projectId, kind, to, subject, body, format, attachments } = {}) {
+export function saveProjectEmail({ id, projectId, kind, to, subject, body, format, attachments, threadId, threadSubject } = {}) {
   if (!projectId && !id) throw new Error('projectId is required')
   const data = readEmailsFile()
   const now = new Date().toISOString()
@@ -133,6 +138,8 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body, forma
     e.body = String(body ?? e.body ?? '')
     if (format != null) e.format = format === 'html' ? 'html' : 'text'
     if (attachments != null) e.attachments = normalizeAttachments(attachments)
+    if (threadId !== undefined) e.threadId = String(threadId || '')
+    if (threadSubject !== undefined) e.threadSubject = String(threadSubject || '')
     e.status = 'draft'
     e.sentAt = ''
     e.updatedAt = now
@@ -166,6 +173,8 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body, forma
     body: String(body || ''),
     format: format === 'html' ? 'html' : 'text',
     attachments: normalizeAttachments(attachments),
+    threadId: String(threadId || ''),
+    threadSubject: String(threadSubject || ''),
     status: 'draft',
     createdAt: now,
     updatedAt: now,
@@ -212,6 +221,9 @@ export async function sendProjectEmail({ id } = {}) {
   const isHtml = e.format === 'html'
   const r = await sendEmail({
     projectId: e.projectId,
+    // When threadId is set, the email is added to that existing Gmail conversation instead of
+    // starting a new thread (the subject was set to the thread's "Re:" subject when it was picked).
+    threadId: e.threadId || undefined,
     to: to.join(', '),
     subject: e.subject || 'Thank you!',
     body: e.body || '',
