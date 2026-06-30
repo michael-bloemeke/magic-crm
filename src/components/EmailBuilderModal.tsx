@@ -6,6 +6,7 @@ import {
   saveProjectEmail,
   sendProjectEmail,
   loadFiles,
+  loadThreads,
   uploadEmailAttachment,
   deleteEmailAttachment,
   claudeStatus,
@@ -16,10 +17,18 @@ import {
   type ProjectEmail,
   type Template,
   type EmailAttachment,
+  type EmailThread,
   type FileItem,
 } from '../api'
 import { RichTextEditor } from './RichTextEditor'
 import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
+
+const MICHAEL = 'michael@michaelbloemeke.com'
+// Normalize a thread subject to a reply subject so Gmail keeps the message in that conversation.
+function reSubject(s: string): string {
+  const t = (s || '').trim()
+  return /^re:/i.test(t) ? t : `Re: ${t}`
+}
 
 // True if the HTML body has any actual text/content (ignoring empty tags), for send checks.
 function htmlHasContent(html: string): boolean {
@@ -80,6 +89,16 @@ export function EmailBuilderModal({
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
+  // Reply-into-an-existing-thread: when on, this email is added to the chosen Gmail conversation
+  // instead of starting a new one (so e.g. follow-up #2 lands in follow-up #1's thread). The project's
+  // threads load lazily the first time reply mode is on. Hidden in the top "New email" (autosave) mode.
+  const [replyMode, setReplyMode] = useState(false)
+  const [threadId, setThreadId] = useState('')
+  const [threadSubject, setThreadSubject] = useState('')
+  // null = not loaded yet (shows "Loading…" while reply mode is on); [] = loaded, none found.
+  const [threads, setThreads] = useState<EmailThread[] | null>(null)
+  const [threadsError, setThreadsError] = useState(false)
+  const threadsFetched = useRef(false)
   // Set once the user has been warned that the email still has unfilled placeholders, so a
   // second Send click goes through.
   const [confirmUnfilled, setConfirmUnfilled] = useState(false)
@@ -129,6 +148,12 @@ export function EmailBuilderModal({
     }
     setConfirmUnfilled(false)
     setAttachments(existing?.attachments ?? [])
+    setReplyMode(!!existing?.threadId)
+    setThreadId(existing?.threadId || '')
+    setThreadSubject(existing?.threadSubject || '')
+    setThreads(null)
+    setThreadsError(false)
+    threadsFetched.current = false
     sessionUploads.current = new Set()
     savedIdRef.current = existing?.id
     savingRef.current = null
@@ -161,6 +186,57 @@ export function EmailBuilderModal({
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
   const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
 
+  // If the project changes while this (shared, non-remounted) modal is open, drop the cached threads
+  // so the picker never shows another project's conversations.
+  useEffect(() => {
+    threadsFetched.current = false
+    setThreads(null)
+    setThreadsError(false)
+  }, [project.id])
+
+  // Load the project's threads the first time reply mode is on (so the conversation picker can fill).
+  // A ref guards against a double fetch without a synchronous setState in the effect body. On failure
+  // the guard is released so a retry (or a project change) can fetch again.
+  useEffect(() => {
+    if (!open || !replyMode || threadsFetched.current) return
+    threadsFetched.current = true
+    loadThreads(project.id)
+      .then((d) => setThreads(d.threads || []))
+      .catch(() => {
+        threadsFetched.current = false
+        setThreadsError(true)
+      })
+  }, [open, replyMode, project.id])
+
+  const retryLoadThreads = () => {
+    threadsFetched.current = false
+    setThreadsError(false)
+    setThreads(null)
+  }
+
+  const toggleReplyMode = (checked: boolean) => {
+    setReplyMode(checked)
+    if (!checked) {
+      setThreadId('')
+      setThreadSubject('')
+    }
+  }
+  // Picking a conversation targets that thread and aligns the subject + recipients to it so the
+  // message threads cleanly in Gmail.
+  const pickThread = (tid: string) => {
+    setThreadId(tid)
+    const t = threads?.find((x) => x.id === tid)
+    if (t) {
+      setThreadSubject(t.subject)
+      setSubject(reSubject(t.subject))
+      const recips = t.participants.filter((p) => p !== MICHAEL).join(', ')
+      if (recips) setTo(recips)
+    } else {
+      setThreadSubject('')
+    }
+    setConfirmUnfilled(false)
+  }
+
   // Saves are serialized through savingRef: if one is already in flight, the next waits for it before
   // reading the id, so concurrent triggers (the debounce + the close-flush) update the same record
   // instead of each creating a fresh one with id === undefined.
@@ -184,6 +260,8 @@ export function EmailBuilderModal({
           body: bodyToSave,
           format: 'html',
           attachments,
+          threadId: replyMode ? threadId : '',
+          threadSubject: replyMode ? threadSubject : '',
         })
         savedIdRef.current = saved.id
         setDraftId(saved.id)
@@ -285,6 +363,11 @@ export function EmailBuilderModal({
   }, [open])
 
   const send = async () => {
+    // Reply mode with no conversation chosen would silently start a new thread, so block it.
+    if (replyMode && !threadId) {
+      setStatus('Pick a conversation to reply to, or turn off "reply to a thread".')
+      return
+    }
     // Fill any placeholders the project can now resolve; warn (once) about any that remain so a
     // raw "[Client name]" doesn't go out unnoticed. The stored/sent body has chip markup stripped.
     const resolved = resolveMergeFields(body, project, customVals)
@@ -323,7 +406,7 @@ export function EmailBuilderModal({
   const applyTemplate = (id: string) => {
     const t = templates.find((x) => x.id === id)
     if (!t) return
-    if (t.subject) setSubject(t.subject)
+    if (t.subject && !replyMode) setSubject(t.subject) // in reply mode the subject must stay the thread's
     const html = t.format === 'html' ? t.body : textToHtml(t.body)
     setBody(resolveMergeFields(html, project, customVals))
     setConfirmUnfilled(false)
@@ -339,7 +422,7 @@ export function EmailBuilderModal({
       setStatus('No template for this one yet. Pick one below or write your own.')
       return
     }
-    if (t.subject) setSubject(t.subject)
+    if (t.subject && !replyMode) setSubject(t.subject) // in reply mode the subject must stay the thread's
     const html = t.format === 'html' ? t.body : textToHtml(t.body)
     setBody(resolveMergeFields(html, project, customVals))
     setConfirmUnfilled(false)
@@ -479,6 +562,12 @@ export function EmailBuilderModal({
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject</span>
                   <p className="text-[13px] text-parchment">{existing.subject || '(no subject)'}</p>
                 </div>
+                {existing.threadId && (
+                  <div>
+                    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Thread</span>
+                    <p className="text-[13px] text-parchment">Added as a reply to “{existing.threadSubject || 'an existing conversation'}”.</p>
+                  </div>
+                )}
                 <div>
                   <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
                   {existing.format === 'html' ? (
@@ -587,6 +676,65 @@ export function EmailBuilderModal({
                 />
                 <span className="mt-1 block text-[10.5px] text-faint">Separate multiple addresses with commas.</span>
               </label>
+
+              {/* Reply into an existing conversation instead of starting a new thread. */}
+              {!autosave && (
+                <div className="rounded-lg border border-line bg-surface-2/40 px-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-parchment">
+                    <input
+                      type="checkbox"
+                      checked={replyMode}
+                      onChange={(e) => toggleReplyMode(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-line"
+                      style={{ accentColor: 'var(--color-brass)' }}
+                    />
+                    Send as a reply in an existing email thread
+                  </label>
+                  {replyMode && (
+                    <div className="mt-2">
+                      {threadsError ? (
+                        <p className="text-[11.5px] text-[#e08a6b]">
+                          Couldn’t load conversations.{' '}
+                          <button type="button" onClick={retryLoadThreads} className="font-semibold underline hover:text-parchment">
+                            Retry
+                          </button>
+                        </p>
+                      ) : threads === null ? (
+                        <p className="text-[11.5px] text-faint">Loading conversations…</p>
+                      ) : threads.length > 0 || threadId ? (
+                        // Show the picker when there are threads, or when one is already chosen (so a
+                        // saved/aged-out selection stays visible even if it isn't in the current list).
+                        <div className="relative">
+                          <select
+                            value={threadId}
+                            onChange={(e) => pickThread(e.target.value)}
+                            className="w-full cursor-pointer appearance-none rounded-lg border border-line bg-surface-2 py-2 pl-3 pr-8 text-[12.5px] text-parchment focus:border-brass-dim focus:outline-none"
+                          >
+                            <option value="">Choose a conversation…</option>
+                            {threadId && threadSubject && !threads.some((t) => t.id === threadId) && (
+                              <option value={threadId}>{threadSubject}</option>
+                            )}
+                            {threads.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.subject}
+                                {t.lastDate ? ` · ${t.lastDate}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                        </div>
+                      ) : (
+                        <p className="text-[11.5px] text-faint">No conversations on this project yet to reply to.</p>
+                      )}
+                      {threadId && threadSubject && (
+                        <p className="mt-1.5 text-[11px] text-brass-dim">This will be added to “{threadSubject}”.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-wrap items-end gap-2">
                 <label className="min-w-[12rem] flex-1">

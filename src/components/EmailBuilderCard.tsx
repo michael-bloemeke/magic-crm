@@ -93,6 +93,7 @@ export function EmailBuilderCard({
           {sent && <Badge tone="booked">Sent</Badge>}
           {draft && <Badge tone="amber">Draft</Badge>}
           {textSent && <Badge tone="text">Texted</Badge>}
+          {email?.threadId && <Badge tone="reply">Reply</Badge>}
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
           {onDelete && !sent && (
@@ -120,9 +121,11 @@ export function EmailBuilderCard({
 
       <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
         {sent
-          ? `Sent ${fmtDate(email!.sentAt)}${email!.to.length ? ` to ${email!.to.join(', ')}` : ''}.`
+          ? `Sent ${fmtDate(email!.sentAt)}${email!.to.length ? ` to ${email!.to.join(', ')}` : ''}${
+              email!.threadId ? ` · added to “${email!.threadSubject || 'an existing thread'}”` : ''
+            }.`
           : draft
-            ? 'Draft saved, not sent yet.'
+            ? `Draft saved${email!.threadId ? ` · replies into “${email!.threadSubject || 'a thread'}”` : ''}, not sent yet.`
             : 'Not started.'}
       </p>
 
@@ -195,13 +198,15 @@ export function EmailBuilderCard({
   )
 }
 
-function Badge({ tone, children }: { tone: 'booked' | 'amber' | 'text'; children: ReactNode }) {
+function Badge({ tone, children }: { tone: 'booked' | 'amber' | 'text' | 'reply'; children: ReactNode }) {
   const style =
     tone === 'booked'
       ? { color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }
       : tone === 'text'
         ? { color: '#7fc795', backgroundColor: 'color-mix(in oklab, #5aa86d 16%, transparent)' }
-        : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
+        : tone === 'reply'
+          ? { color: '#7aa2e3', backgroundColor: 'color-mix(in oklab, #7aa2e3 16%, transparent)' }
+          : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
   return (
     <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={style}>
       {children}

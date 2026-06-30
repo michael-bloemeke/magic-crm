@@ -14,6 +14,15 @@ import { readFile as readBusinessFile } from './crm-files.mjs'
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
 
+// Reply subject for threading. Gmail only adds a message to an existing thread when the Subject
+// matches that thread's subject (we set no In-Reply-To/References headers), so when an email targets
+// a thread we force its outgoing subject to the thread's "Re:" subject — no matter what a template or
+// edit left in the subject field.
+function reSubject(s) {
+  const t = String(s || '').trim()
+  return /^re:/i.test(t) ? t : `Re: ${t}`
+}
+
 function meta() {
   return {
     file: 'crm-emails.json',
@@ -222,10 +231,11 @@ export async function sendProjectEmail({ id } = {}) {
   const r = await sendEmail({
     projectId: e.projectId,
     // When threadId is set, the email is added to that existing Gmail conversation instead of
-    // starting a new thread (the subject was set to the thread's "Re:" subject when it was picked).
+    // starting a new thread. Force the subject to the thread's "Re:" subject so threading can't be
+    // broken by a template/edit that changed the subject after the thread was picked.
     threadId: e.threadId || undefined,
     to: to.join(', '),
-    subject: e.subject || 'Thank you!',
+    subject: e.threadId && e.threadSubject ? reSubject(e.threadSubject) : e.subject || 'Thank you!',
     body: e.body || '',
     format: isHtml ? 'html' : 'text',
     attachments: resolveAttachments(e.attachments),
