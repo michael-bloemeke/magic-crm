@@ -15,9 +15,11 @@ import type { Project } from '../pipeline'
 
 const ME = 'michael@michaelbloemeke.com'
 
-// True if the HTML body has any actual text/content (ignoring empty tags). The reply is HTML now, so
-// reply.trim() would treat a lone <br> as "content"; this checks real text/attachments instead.
+// True if the HTML body has any actual content (ignoring empty tags). The reply is HTML now, so
+// reply.trim() would treat a lone <br> as "content"; this checks real text, or an embedded image
+// (a pasted picture is real content even with no surrounding text).
 function htmlHasContent(html: string): boolean {
+  if (/<(img|video|audio)\b/i.test(html)) return true
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() !== ''
 }
 
@@ -72,6 +74,10 @@ export function ThreadReader({
   // Becomes true on the first real edit, so the auto-save effect never re-saves a freshly loaded
   // draft on mount (and only deletes on empty after the user actually cleared it).
   const dirty = useRef(false)
+  // True from the moment Send starts, so a debounced autosave that fires during/after the send can't
+  // resurrect the draft we're deleting. savingRef holds the in-flight autosave so Send can await it.
+  const sending = useRef(false)
+  const savingRef = useRef<Promise<void> | null>(null)
   const expanded = composing || htmlHasContent(reply)
 
   const startComposing = () => {
@@ -101,7 +107,8 @@ export function ThreadReader({
   useEffect(() => {
     if (!dirty.current) return
     const t = setTimeout(() => {
-      void (async () => {
+      if (sending.current) return // a send is in progress; don't write a draft we're about to drop
+      const run = async () => {
         try {
           if (htmlHasContent(reply)) {
             const saved = await saveProjectEmail({
@@ -126,7 +133,10 @@ export function ThreadReader({
         } catch {
           // best-effort; a failed autosave just leaves the text in the box
         }
-      })()
+      }
+      savingRef.current = run().finally(() => {
+        savingRef.current = null
+      })
     }, 800)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,15 +176,24 @@ export function ThreadReader({
 
   const doSend = async () => {
     if (!htmlHasContent(reply)) return
+    sending.current = true // block autosave from re-creating the draft we're about to send/delete
     setStatus('Sending…')
     try {
       const r = await sendEmail({ projectId: project.id, threadId: thread.id, to, subject, body: reply, format: 'html', mode: 'send' })
       if (r.demo) {
         setStatus(`Demo: this would send to ${to}. Nothing was actually sent.`)
+        sending.current = false
         return
       }
       setStatus('Sent.')
-      // The reply went out, so drop its draft.
+      // Let any autosave already in flight settle (so draftId is current), then drop the draft.
+      if (savingRef.current) {
+        try {
+          await savingRef.current
+        } catch {
+          // ignore; we delete by whatever id we end up with
+        }
+      }
       if (draftId.current) {
         const id = draftId.current
         draftId.current = undefined
@@ -184,8 +203,10 @@ export function ThreadReader({
       dirty.current = false
       setReply('')
       onRead() // replying clears the unread flag
+      sending.current = false // a fresh follow-up reply in this thread can autosave again
     } catch {
       setStatus('Something went wrong.')
+      sending.current = false
     }
   }
 

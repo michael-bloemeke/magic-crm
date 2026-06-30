@@ -264,9 +264,12 @@ export async function sendEmail({ projectId, threadId, to, subject, body, format
       inlineImages: [...(Array.isArray(inlineImages) ? inlineImages : []), ...(composed ? composed.inlineImages : [])],
       ...(isHtml ? { html: composed.sendHtml, body: '' } : { body }),
     }
+    // receiptHtml = the data:-image version of what went out, so a caller (sendProjectEmail) can
+    // store an in-app receipt that matches the delivered email WITHOUT composing a second time.
+    const receiptHtml = composed ? composed.receiptHtml : undefined
     if (mode === 'draft') {
       const r = await createDraft(payload)
-      return { ok: true, demo: false, mode: 'draft', id: r.id }
+      return { ok: true, demo: false, mode: 'draft', id: r.id, receiptHtml }
     }
     const r = await sendMessage(payload)
     // Replying clears the unread flag (best-effort; needs the modify scope).
@@ -278,7 +281,7 @@ export async function sendEmail({ projectId, threadId, to, subject, body, format
       }
       invalidateInbox()
     }
-    return { ok: true, demo: false, mode: 'send', id: r.id }
+    return { ok: true, demo: false, mode: 'send', id: r.id, receiptHtml }
   }
   return { ok: true, demo: true, mode: mode || 'send' }
 }

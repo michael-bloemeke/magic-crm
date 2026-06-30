@@ -11,7 +11,6 @@ import { RECORDS_DIR, appendActivityLog } from './crm-data-core.mjs'
 import { sendEmail } from './crm-comms.mjs'
 import { readAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
-import { composeOutgoing, stripMergeFields } from './crm-email-render.mjs'
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
 
@@ -141,6 +140,23 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body, forma
     return clean(e)
   }
 
+  // A reply draft is unique per thread (kind 'reply-<threadId>'). If one already exists for this
+  // project+kind as a draft, update it in place rather than minting a second record, so concurrent
+  // id-less autosaves (rapid typing before the first save's id comes back) converge to one draft.
+  if (projectId && /^reply-/.test(String(kind || ''))) {
+    const dup = data.emails.find((x) => x.projectId === projectId && x.kind === kind && x.status === 'draft')
+    if (dup) {
+      dup.to = toList
+      dup.subject = String(subject ?? dup.subject ?? '')
+      dup.body = String(body ?? dup.body ?? '')
+      if (format != null) dup.format = format === 'html' ? 'html' : 'text'
+      if (attachments != null) dup.attachments = normalizeAttachments(attachments)
+      dup.updatedAt = now
+      writeEmailsFile(data)
+      return clean(dup)
+    }
+  }
+
   const e = {
     id: crypto.randomUUID(),
     projectId,
@@ -189,20 +205,18 @@ export async function sendProjectEmail({ id } = {}) {
   const to = normalizeTo(e.to)
   if (to.length === 0) throw new Error('add at least one recipient before sending')
 
-  // The body that goes OUT has its placeholder chips stripped to plain text; the stored draft
-  // keeps its chips until the send actually succeeds (so a demo/failed send loses nothing). For
-  // HTML, composeOutgoing wraps it in the Gmail base style, appends the signature, and splits into
-  // a send version (cid: logo + inlineImages) and a receipt version (data: logo, renders in-app).
+  // The raw body is handed to sendEmail, which is the SINGLE place that runs composeOutgoing
+  // (chips stripped, spacing tightened, signature appended, data: logo -> cid: inline image). We pass
+  // the raw body and read back the receipt version so the outgoing email is composed exactly once —
+  // composing here too would deliver the signature twice and nest the base-font wrapper.
   const isHtml = e.format === 'html'
-  const composed = isHtml ? composeOutgoing(stripMergeFields(e.body || '')) : null
   const r = await sendEmail({
     projectId: e.projectId,
     to: to.join(', '),
     subject: e.subject || 'Thank you!',
-    body: isHtml ? composed.sendHtml : e.body || '',
+    body: e.body || '',
     format: isHtml ? 'html' : 'text',
     attachments: resolveAttachments(e.attachments),
-    inlineImages: isHtml ? composed.inlineImages : [],
     mode: 'send',
   })
 
@@ -214,7 +228,7 @@ export async function sendProjectEmail({ id } = {}) {
   const now = new Date().toISOString()
   // Record what actually went out (chips stripped, signature appended), so the sent receipt matches
   // the email. The receipt keeps data: images so the in-app view still renders the logo.
-  e.body = isHtml ? composed.receiptHtml : e.body || ''
+  e.body = isHtml ? r.receiptHtml || e.body || '' : e.body || ''
   e.status = 'sent'
   e.sentAt = now
   e.updatedAt = now
