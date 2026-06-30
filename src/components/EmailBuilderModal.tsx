@@ -186,14 +186,6 @@ export function EmailBuilderModal({
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
   const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
 
-  // If the project changes while this (shared, non-remounted) modal is open, drop the cached threads
-  // so the picker never shows another project's conversations.
-  useEffect(() => {
-    threadsFetched.current = false
-    setThreads(null)
-    setThreadsError(false)
-  }, [project.id])
-
   // Load the project's threads the first time reply mode is on (so the conversation picker can fill).
   // A ref guards against a double fetch without a synchronous setState in the effect body. On failure
   // the guard is released so a retry (or a project change) can fetch again.

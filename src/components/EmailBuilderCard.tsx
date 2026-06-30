@@ -181,6 +181,9 @@ export function EmailBuilderCard({
       )}
 
       <EmailBuilderModal
+        // Remount on project change so a project-to-project switch (e.g. Cmd+K) with this modal open
+        // can never carry over the prior project's threads, recipients, or subject.
+        key={project.id}
         open={open}
         project={project}
         recipientEmails={recipientEmails}
