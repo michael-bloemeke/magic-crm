@@ -36,6 +36,7 @@ import {
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
+import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import {
   loadPortals,
   loadPortal,
@@ -534,6 +535,22 @@ export function crmDataPlugin() {
         try {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify({ emails: loadEmails() }))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- "Text sent" markers (manual SMS flags per email slot, no message content) ---
+      server.middlewares.use('/api/text-markers/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => ({ marker: saveTextMarker(b) }))
+      })
+      server.middlewares.use('/api/text-markers', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ markers: loadTextMarkers() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

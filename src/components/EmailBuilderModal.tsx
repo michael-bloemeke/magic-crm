@@ -100,8 +100,13 @@ export function EmailBuilderModal({
   // them from the server to avoid orphaned files. Saving/sending references them instead.
   const sessionUploads = useRef<Set<string>>(new Set())
   // In autosave mode the first save (existing === null) creates a record; this holds its id so the
-  // following autosaves update the same draft instead of spawning duplicates.
+  // following autosaves update the same draft instead of spawning duplicates. savingRef serializes
+  // saves so two triggers (debounce + close flush) can't both create before the id comes back.
   const savedIdRef = useRef<string | undefined>(existing?.id)
+  const savingRef = useRef<Promise<ProjectEmail | null> | null>(null)
+  // The live draft id (existing or just-autosaved), so the Discard control appears even for a
+  // brand-new email that has only been auto-saved this session.
+  const [draftId, setDraftId] = useState<string | undefined>(existing?.id)
   // A sent email is locked: the dialog becomes a read-only receipt of what went out. No
   // editing, no template/attach, no save, no re-send. "Once it's sent, it's sent."
   const readOnly = existing?.status === 'sent'
@@ -126,6 +131,8 @@ export function EmailBuilderModal({
     setAttachments(existing?.attachments ?? [])
     sessionUploads.current = new Set()
     savedIdRef.current = existing?.id
+    savingRef.current = null
+    setDraftId(existing?.id)
     setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
     loadTemplates()
@@ -154,34 +161,71 @@ export function EmailBuilderModal({
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
   const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
 
+  // Saves are serialized through savingRef: if one is already in flight, the next waits for it before
+  // reading the id, so concurrent triggers (the debounce + the close-flush) update the same record
+  // instead of each creating a fresh one with id === undefined.
   const persist = async (bodyToSave: string = body): Promise<ProjectEmail | null> => {
-    try {
-      const saved = await saveProjectEmail({
-        id: existing?.id ?? savedIdRef.current,
-        projectId: project.id,
-        kind,
-        to: toList(),
-        subject: subject.trim() || defaultSubject || '(no subject)',
-        body: bodyToSave,
-        format: 'html',
-        attachments,
-      })
-      savedIdRef.current = saved.id
-      onSaved(saved)
-      return saved
-    } catch {
-      setStatus('Could not save right now.')
-      return null
+    const prev = savingRef.current
+    const p = (async (): Promise<ProjectEmail | null> => {
+      if (prev) {
+        try {
+          await prev
+        } catch {
+          // ignore; we still attempt our own save below
+        }
+      }
+      try {
+        const saved = await saveProjectEmail({
+          id: existing?.id ?? savedIdRef.current,
+          projectId: project.id,
+          kind,
+          to: toList(),
+          subject: subject.trim() || defaultSubject || '(no subject)',
+          body: bodyToSave,
+          format: 'html',
+          attachments,
+        })
+        savedIdRef.current = saved.id
+        setDraftId(saved.id)
+        onSaved(saved)
+        return saved
+      } catch {
+        setStatus('Could not save right now.')
+        return null
+      }
+    })()
+    savingRef.current = p
+    const res = await p
+    if (savingRef.current === p) savingRef.current = null
+    return res
+  }
+
+  // Drop the auto-saved draft when it's emptied (so an emptied "New email" doesn't linger as a blank
+  // draft row). Waits for any in-flight save so a create that's still landing can't leave an orphan.
+  // onDiscard removes it from the parent list and deletes it server-side.
+  const dropAutosaved = async () => {
+    if (savingRef.current) {
+      try {
+        await savingRef.current
+      } catch {
+        // ignore; we still drop by whatever id we have
+      }
     }
+    const id = savedIdRef.current
+    if (!id) return
+    savedIdRef.current = undefined
+    setDraftId(undefined)
+    onDiscard?.(id)
   }
 
   // Autosave (debounced): the top "New email" composer persists whatever's written without a Save
   // button, so a started email shows in the conversations list as a draft and survives a close.
+  // Emptying it back out deletes the draft (mirrors the thread reply box).
   useEffect(() => {
     if (!open || !autosave || readOnly) return
-    if (!htmlHasContent(body) && attachments.length === 0) return
     const t = setTimeout(() => {
-      void persist()
+      if (htmlHasContent(body) || attachments.length > 0) void persist()
+      else void dropAutosaved()
     }, 800)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,12 +240,14 @@ export function EmailBuilderModal({
 
   // Permanently delete a saved draft (distinct from Cancel, which just keeps it as-is).
   const discard = () => {
-    if (busy || !existing) return
+    const id = existing?.id ?? savedIdRef.current
+    if (busy || !id) return
     if (!window.confirm('Discard this draft? This permanently deletes it.')) return
     // Drop any attachments uploaded this session that were never saved into the record.
-    for (const id of sessionUploads.current) deleteEmailAttachment(id).catch(() => {})
+    for (const uid of sessionUploads.current) deleteEmailAttachment(uid).catch(() => {})
     sessionUploads.current = new Set()
-    onDiscard?.(existing.id)
+    savedIdRef.current = undefined
+    onDiscard?.(id)
     onClose()
   }
 
@@ -215,6 +261,7 @@ export function EmailBuilderModal({
     // hasn't caught yet, then close without discarding anything.
     if (autosave) {
       if (!readOnly && (htmlHasContent(body) || attachments.length > 0)) void persist()
+      else if (!readOnly) void dropAutosaved()
       onClose()
       return
     }
@@ -736,7 +783,7 @@ export function EmailBuilderModal({
 
             <div className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">
               <div className="flex min-w-0 items-center gap-3">
-                {existing && (
+                {(existing || draftId) && (
                   <button
                     type="button"
                     onClick={discard}

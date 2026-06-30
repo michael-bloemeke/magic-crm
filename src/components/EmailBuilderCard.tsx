@@ -1,8 +1,14 @@
 import { useState, type ReactNode } from 'react'
 import { type Project } from '../pipeline'
-import { sendProjectEmail, type ProjectEmail } from '../api'
+import { sendProjectEmail, type ProjectEmail, type TextMarker } from '../api'
 import { unfilledFields } from '../smartFields'
 import { EmailBuilderModal } from './EmailBuilderModal'
+
+// Local YYYY-MM-DD for "today" (not UTC, so the date doesn't jump late at night).
+function todayISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 // One email slot in a project section (e.g. "Post-call email", "Follow-up #2",
 // "Check-in #1", "Thank-you email"). Shows the status (none / draft / sent), a
@@ -21,6 +27,8 @@ export function EmailBuilderCard({
   onSaved,
   onDiscard,
   onDelete,
+  textMarkers,
+  onSetTextMarker,
 }: {
   project: Project
   recipientEmails: string[]
@@ -36,6 +44,10 @@ export function EmailBuilderCard({
   // Provided only for removable slots (added follow-ups / check-ins). The button
   // shows only while the email is unsent.
   onDelete?: () => void
+  // "Text sent" markers (keyed by kind) + setter, so this slot can flag a text was sent (with an
+  // optional date), independent of the email above. Some clients get a text instead of an email.
+  textMarkers?: Record<string, TextMarker>
+  onSetTextMarker?: (kind: string, sent: boolean, date: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -43,6 +55,14 @@ export function EmailBuilderCard({
 
   const sent = email?.status === 'sent'
   const draft = !!email && email.status === 'draft'
+  const marker = textMarkers?.[kind] ?? null
+  const textSent = !!marker?.sent
+  const textDate = marker?.date || ''
+  const toggleText = () => {
+    const next = !textSent
+    // Turning it on defaults the date to today (editable / clearable); turning it off clears both.
+    onSetTextMarker?.(kind, next, next ? textDate || todayISO() : '')
+  }
 
   const sendNow = async () => {
     if (!email) return

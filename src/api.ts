@@ -402,6 +402,38 @@ export async function deleteProjectEmail(id: string): Promise<void> {
   await postJson('/api/emails/delete', { id })
 }
 
+// --- "Text sent" markers (manual SMS flag per email slot) ---------------------
+// A small marker that a text/SMS was sent for a given communication slot (kind), independent of the
+// email record. No message content — just a flag and an optional date.
+export type TextMarker = {
+  projectId: string
+  kind: string
+  sent: boolean
+  date: string // YYYY-MM-DD or ''
+  updatedAt: string
+}
+
+export async function loadTextMarkers(): Promise<TextMarker[]> {
+  const res = await fetch('/api/text-markers')
+  if (!res.ok) return []
+  return ((await res.json()).markers ?? []) as TextMarker[]
+}
+
+export async function saveTextMarker(input: {
+  projectId: string
+  kind: string
+  sent: boolean
+  date?: string
+}): Promise<TextMarker> {
+  const res = await fetch('/api/text-markers/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(`Failed to save text marker (${res.status})`)
+  return (await res.json()).marker as TextMarker
+}
+
 // --- Client portal -----------------------------------------------------------
 export type PortalSettings = {
   token: string

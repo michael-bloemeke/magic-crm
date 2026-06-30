@@ -190,7 +190,7 @@
    match what the recipient sees in Gmail (Arial, 14px, 1.5 line-height, dark text on white, blue
    underlined links) so the compose box and the sent receipt are a literal preview of the delivered
    email. The SAME base style + link color are inlined onto the outgoing HTML server-side
-   (EMAIL_BASE_STYLE / tightenEmailHtml in crm-emails.mjs), keeping all three in sync. Also restores
+   (EMAIL_BASE_STYLE / tightenEmailHtml in crm-email-render.mjs), keeping all three in sync. Also restores
    list markers Tailwind's reset strips and breaks long unbroken tokens (e.g. a pasted URL) so they
    can't overflow horizontally. */
 .email-rte {

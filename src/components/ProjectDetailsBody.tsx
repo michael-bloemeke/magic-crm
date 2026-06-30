@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
-import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, saveCustomValue, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, loadTextMarkers, saveCustomValue, saveRecipient, saveTextMarker, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type Payment, type ProjectEmail, type ProjectLinks, type Task, type TextMarker } from '../api'
 import { type CustomField } from '../eventFields'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
@@ -121,6 +121,8 @@ export function ProjectDetailsBody({
   const [inquiryFollowupSlots, setInquiryFollowupSlots] = useState<number[]>([1])
   const [followupSlots, setFollowupSlots] = useState<number[]>([1])
   const [checkinSlots, setCheckinSlots] = useState<number[]>([1])
+  // "Text sent" markers (manual SMS flags), keyed by email-slot kind. Independent of the emails.
+  const [textMarkers, setTextMarkers] = useState<TextMarker[]>([])
 
   useEffect(() => {
     let live = true
@@ -140,6 +142,35 @@ export function ProjectDetailsBody({
       live = false
     }
   }, [project.id])
+
+  useEffect(() => {
+    let live = true
+    loadTextMarkers()
+      .then((all) => live && setTextMarkers(all.filter((m) => m.projectId === project.id)))
+      .catch(() => live && setTextMarkers([]))
+    return () => {
+      live = false
+    }
+  }, [project.id])
+
+  // kind -> marker, for the cards. Toggling/dating a text persists it and updates this map.
+  const textMarkerMap: Record<string, TextMarker> = {}
+  for (const m of textMarkers) textMarkerMap[m.kind] = m
+  const setTextMarker = (kind: string, sent: boolean, date: string) => {
+    // Optimistic: reflect it immediately; an emptied marker (off + no date) drops out of the list.
+    setTextMarkers((prev) => {
+      const others = prev.filter((m) => m.kind !== kind)
+      return !sent && !date ? others : [...others, { projectId: project.id, kind, sent, date, updatedAt: new Date().toISOString() }]
+    })
+    saveTextMarker({ projectId: project.id, kind, sent, date })
+      .then((saved) =>
+        setTextMarkers((prev) => {
+          const others = prev.filter((m) => m.kind !== kind)
+          return saved.sent || saved.date ? [...others, saved] : others
+        }),
+      )
+      .catch(() => {})
+  }
 
   // The original website inquiry form for this project (if it came from the site contact form).
   const [inquiryForm, setInquiryForm] = useState<InquiryForm | null>(null)
@@ -298,6 +329,7 @@ export function ProjectDetailsBody({
         <div className={cardGrid}>
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="inquiry-response" title="Inquiry response" defaultSubject="Re: Your inquiry"
             templateHint={/inquiry/i} email={emailFor('inquiry-response')}
           />
@@ -305,6 +337,7 @@ export function ProjectDetailsBody({
             <EmailBuilderCard
               key={`inquiry-followup-${n}`}
               project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
               kind={`inquiry-followup-${n}`} title={`Follow-up #${i + 1}`} defaultSubject="Checking In"
               templateHint={/follow-up/i} email={emailFor(`inquiry-followup-${n}`)}
               onDelete={inquiryFollowupSlots.length > 1 ? () => removeSlot('inquiry-followup', n, setInquiryFollowupSlots) : undefined}
@@ -312,10 +345,12 @@ export function ProjectDetailsBody({
           ))}
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="inquiry-shark" title="Shark email" defaultSubject="Checking In" email={emailFor('inquiry-shark')}
           />
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="inquiry-breakup" title="Break-up email" defaultSubject="Following Up" email={emailFor('inquiry-breakup')}
           />
         </div>
@@ -356,6 +391,7 @@ export function ProjectDetailsBody({
         <div className={cardGrid}>
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="postcall" title="Post-call email" defaultSubject="Magician Information - Please Reply"
             templateHint={/post-call/i} email={emailFor('postcall')}
           />
@@ -363,6 +399,7 @@ export function ProjectDetailsBody({
             <EmailBuilderCard
               key={`followup-${n}`}
               project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
               kind={`followup-${n}`} title={`Follow-up #${i + 1}`} defaultSubject="Checking In"
               templateHint={/follow-up/i} email={emailFor(`followup-${n}`)}
               onDelete={followupSlots.length > 1 ? () => removeSlot('followup', n, setFollowupSlots) : undefined}
@@ -370,10 +407,12 @@ export function ProjectDetailsBody({
           ))}
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="shark" title="Shark email" defaultSubject="Checking In" email={emailFor('shark')}
           />
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="breakup" title="Break-up email" defaultSubject="Following Up" email={emailFor('breakup')}
           />
         </div>
@@ -414,6 +453,7 @@ export function ProjectDetailsBody({
             <EmailBuilderCard
               key={`checkin-${n}`}
               project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
               kind={`checkin-${n}`} title={`Check-in #${i + 1}`} defaultSubject="Checking In"
               templateHint={/check-in/i} email={emailFor(`checkin-${n}`)}
               onDelete={checkinSlots.length > 1 ? () => removeSlot('checkin', n, setCheckinSlots) : undefined}
@@ -448,6 +488,7 @@ export function ProjectDetailsBody({
           </div>
           <EmailBuilderCard
             project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
             kind="thankyou" title="Thank-you email" defaultSubject="Thank you!"
             templateHint={/thank/i} email={emailFor('thankyou')}
           />
