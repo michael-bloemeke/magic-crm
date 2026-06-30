@@ -92,6 +92,7 @@ export function EmailBuilderCard({
           <p className="truncate text-[13px] font-medium text-parchment">{title}</p>
           {sent && <Badge tone="booked">Sent</Badge>}
           {draft && <Badge tone="amber">Draft</Badge>}
+          {textSent && <Badge tone="text">Texted</Badge>}
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
           {onDelete && !sent && (
@@ -140,6 +141,42 @@ export function EmailBuilderCard({
       )}
       {!draft && note && <p className="mt-1 text-[11px] text-muted">{note}</p>}
 
+      {/* Manual "text sent" marker — independent of the email above. Optional; leave off if no text
+          was sent, or flag a text with no email. We record only the flag + an optional date. */}
+      {onSetTextMarker && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2.5">
+          <button
+            type="button"
+            onClick={toggleText}
+            aria-pressed={textSent}
+            title={textSent ? 'A text was sent for this. Click to clear.' : 'Mark that you sent a text for this'}
+            className={[
+              'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] font-medium transition-colors',
+              textSent
+                ? 'border-[#5aa86d]/55 bg-[#5aa86d]/12 text-[#7fc795]'
+                : 'border-line text-muted hover:border-line-strong hover:text-parchment',
+            ].join(' ')}
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 9.5 9.5 0 0 1-4-.9L3 21l1.9-5.5A8.5 8.5 0 0 1 4 11.5 8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
+            </svg>
+            {textSent ? 'Text sent' : 'Mark text sent'}
+          </button>
+          {textSent && (
+            <label className="inline-flex items-center gap-1.5 text-[11px] text-faint">
+              on
+              <input
+                type="date"
+                value={textDate}
+                onChange={(e) => onSetTextMarker?.(kind, true, e.target.value)}
+                className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-muted focus:border-brass-dim focus:outline-none"
+                style={{ colorScheme: 'dark' }}
+              />
+            </label>
+          )}
+        </div>
+      )}
+
       <EmailBuilderModal
         open={open}
         project={project}
@@ -158,11 +195,13 @@ export function EmailBuilderCard({
   )
 }
 
-function Badge({ tone, children }: { tone: 'booked' | 'amber'; children: ReactNode }) {
+function Badge({ tone, children }: { tone: 'booked' | 'amber' | 'text'; children: ReactNode }) {
   const style =
     tone === 'booked'
       ? { color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }
-      : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
+      : tone === 'text'
+        ? { color: '#7fc795', backgroundColor: 'color-mix(in oklab, #5aa86d 16%, transparent)' }
+        : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
   return (
     <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={style}>
       {children}

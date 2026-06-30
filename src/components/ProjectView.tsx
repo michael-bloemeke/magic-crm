@@ -10,6 +10,7 @@ import {
   starMessage,
   type CommsData,
   type Contact,
+  type EmailMessage,
   type Payment,
   type ProjectEmail,
   type ProjectLinks,
@@ -180,7 +181,9 @@ export function ProjectView({
         ? {
             ...d,
             threads: d.threads.map((t) =>
-              t.id === threadId ? { ...t, starred, messages: t.messages.map((m) => ({ ...m, starred })) } : t,
+              t.id === threadId
+                ? { ...t, starred, messages: t.messages.map((m) => (m.id?.startsWith('pending-') ? m : { ...m, starred })) }
+                : t,
             ),
           }
         : d,
@@ -221,6 +224,39 @@ export function ProjectView({
   const openDraft = (email: ProjectEmail) => {
     setEditingDraft(email)
     setWriteOpen(true)
+  }
+
+  // Optimistic reply: show my message in the thread the instant I hit Send (before the Gmail
+  // round-trip), and pull it back out if I Undo or the send fails.
+  const appendReply = (threadId: string, message: EmailMessage) => {
+    setComms((d) =>
+      d
+        ? {
+            ...d,
+            threads: d.threads.map((t) =>
+              // Leave unread alone (sending a reply marks it read via onRead on the real send; an undo
+              // then restores nothing). Only the message list + recency move.
+              t.id === threadId
+                ? { ...t, messages: [...t.messages, message], lastTs: message.ts ?? t.lastTs, lastDate: message.date || t.lastDate }
+                : t,
+            ),
+          }
+        : d,
+    )
+  }
+  const removeReply = (threadId: string, messageId: string) => {
+    setComms((d) => {
+      if (!d) return d
+      return {
+        ...d,
+        threads: d.threads.map((t) => {
+          if (t.id !== threadId) return t
+          const messages = t.messages.filter((m) => m.id !== messageId)
+          const last = messages[messages.length - 1]
+          return { ...t, messages, lastTs: last?.ts ?? 0, lastDate: last?.date ?? '' }
+        }),
+      }
+    })
   }
 
   // Clear a thread's unread highlight locally + tell the app to drop the badge count.
@@ -449,6 +485,8 @@ export function ProjectView({
                 onDraftChange={upsertDraft}
                 onDraftDeleted={removeDraft}
                 onStarMessage={toggleMessageStar}
+                onReplySent={appendReply}
+                onReplyUndone={removeReply}
               />
             </motion.div>
           </motion.div>
