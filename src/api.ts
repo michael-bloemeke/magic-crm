@@ -1241,6 +1241,27 @@ export async function loadInbox(): Promise<InboxData> {
   return (await res.json()) as InboxData
 }
 
+// --- Google Calendar ---------------------------------------------------------
+export type CalendarStatus = {
+  connected: boolean // Google (Gmail) connected at all
+  hasScope: boolean // the connection was granted the calendar permission
+  gigsName: string
+  workName: string
+  gigsCalendar: boolean // a calendar named gigsName exists in the account
+  workCalendar: boolean
+  error?: string
+}
+export async function loadCalendarStatus(): Promise<CalendarStatus> {
+  const res = await fetch('/api/calendar')
+  if (!res.ok) return { connected: false, hasScope: false, gigsName: 'Gigs', workName: 'Work', gigsCalendar: false, workCalendar: false }
+  return (await res.json()) as CalendarStatus
+}
+export async function syncCalendar(): Promise<{ ok: boolean; projects?: number; tasks?: number; errors?: string[]; error?: string }> {
+  const res = await fetch('/api/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  if (!res.ok) return { ok: false, error: `Sync failed (${res.status})` }
+  return (await res.json()) as { ok: boolean; projects?: number; tasks?: number; errors?: string[]; error?: string }
+}
+
 // Unread email counts per project id (for the flow-view badges).
 export async function loadUnreadByProject(): Promise<Record<string, number>> {
   try {

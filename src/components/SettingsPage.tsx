@@ -8,6 +8,9 @@ import {
   loadPush,
   savePush,
   testPush,
+  loadCalendarStatus,
+  syncCalendar,
+  type CalendarStatus,
   type PushConfig,
   type Question,
   type QuestionType,
@@ -54,6 +57,7 @@ const SETTINGS_TABS = [
   { id: 'fields', label: 'Event fields' },
   { id: 'highlighting', label: 'Highlighting' },
   { id: 'email', label: 'Email' },
+  { id: 'calendar', label: 'Calendar' },
   { id: 'notifications', label: 'Notifications' },
 ] as const
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
@@ -80,6 +84,10 @@ export function SettingsPage() {
   const [push, setPush] = useState<PushConfig | null>(null)
   const [pushBusy, setPushBusy] = useState(false)
   const [pushNote, setPushNote] = useState<string | null>(null)
+
+  const [cal, setCal] = useState<CalendarStatus | null>(null)
+  const [calBusy, setCalBusy] = useState(false)
+  const [calNote, setCalNote] = useState<string | null>(null)
 
   const [umbrellas, setUmbrellas] = useState<CategoryDef[]>([])
   const [highlights, setHighlights] = useState<Record<string, string>>({})
@@ -114,7 +122,34 @@ export function SettingsPage() {
     loadPush()
       .then(setPush)
       .catch(() => {})
+    loadCalendarStatus()
+      .then(setCal)
+      .catch(() => {})
   }, [])
+
+  // --- Google Calendar ---
+  const runCalendarSync = async () => {
+    setCalBusy(true)
+    setCalNote('Syncing…')
+    try {
+      const r = await syncCalendar()
+      if (r.ok) {
+        const g = r.projects ?? 0
+        const t = r.tasks ?? 0
+        setCalNote(
+          `Synced ${g} gig${g === 1 ? '' : 's'} and ${t} task${t === 1 ? '' : 's'}.` +
+            (r.errors && r.errors.length ? ` Issues: ${r.errors.join('; ')}` : ''),
+        )
+      } else {
+        setCalNote(r.error || 'Sync failed.')
+      }
+      loadCalendarStatus().then(setCal).catch(() => {})
+    } catch (e) {
+      setCalNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setCalBusy(false)
+    }
+  }
 
   // --- Phone notifications (ntfy push) ---
   const togglePush = async (enabled: boolean) => {

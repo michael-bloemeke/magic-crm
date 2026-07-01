@@ -38,6 +38,14 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import {
+  syncProject,
+  syncTask,
+  removeProjectEvent,
+  removeTaskEvent,
+  syncAll as syncCalendarAll,
+  calendarStatus,
+} from './crm-calendar.mjs'
+import {
   loadPortals,
   loadPortal,
   savePortal,
@@ -209,6 +217,7 @@ export function crmDataPlugin() {
           try {
             const { id, stageId } = JSON.parse(body || '{}')
             const result = setStage(id, stageId)
+            void syncProject(id) // a stage change can flip Inquiry <-> booked; keep the calendar in step
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(result))
           } catch (e) {
@@ -275,15 +284,26 @@ export function crmDataPlugin() {
 
       server.middlewares.use('/api/tasks/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ task: addTask(b) }))
+        withbody(req, res, (b) => {
+          const task = addTask(b)
+          void syncTask(task.id)
+          return { task }
+        })
       })
       server.middlewares.use('/api/tasks/update', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ task: updateTask(b) }))
+        withbody(req, res, (b) => {
+          const task = updateTask(b)
+          void syncTask(task.id) // date/time/done change -> upsert or remove the Work-calendar event
+          return { task }
+        })
       })
       server.middlewares.use('/api/tasks/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deleteTask(b.id))
+        withbody(req, res, (b) => {
+          void removeTaskEvent(b.id)
+          return deleteTask(b.id)
+        })
       })
       server.middlewares.use('/api/tasks', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -320,7 +340,11 @@ export function crmDataPlugin() {
 
       server.middlewares.use('/api/project/field', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => updateProjectField(b))
+        withbody(req, res, (b) => {
+          const r = updateProjectField(b)
+          void syncProject(b.id) // location/times/name/date edits flow to the gig's calendar event
+          return r
+        })
       })
 
       server.middlewares.use('/api/project/log-call', (req, res, next) => {
@@ -360,6 +384,7 @@ export function crmDataPlugin() {
           } else {
             setProjectContacts(project.id, []) // explicit empty entry -> never auto-seeded
           }
+          void syncProject(project.id) // a new dated project appears on the Gigs calendar
           return { project }
         })
       })
@@ -367,15 +392,27 @@ export function crmDataPlugin() {
       // Archive / complete / restore: move a project between canonical buckets.
       server.middlewares.use('/api/project/archive', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => archiveProject(b))
+        withbody(req, res, (b) => {
+          const r = archiveProject(b)
+          void syncProject(b.id) // no longer active -> its gig event is removed
+          return r
+        })
       })
       server.middlewares.use('/api/project/complete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => completeProject(b))
+        withbody(req, res, (b) => {
+          const r = completeProject(b)
+          void syncProject(b.id) // no longer active -> its gig event is removed
+          return r
+        })
       })
       server.middlewares.use('/api/project/restore', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => restoreProject(b))
+        withbody(req, res, (b) => {
+          const r = restoreProject(b)
+          void syncProject(b.id) // active again -> its gig event comes back
+          return r
+        })
       })
       // Permanent delete: removes the canonical record AND the CRM's overlay data
       // (stage, tasks, payments, mileage) for that project. No undo.
@@ -386,6 +423,7 @@ export function crmDataPlugin() {
           deletePaymentsForProject(b.id)
           deleteTripsForProject(b.id)
           deleteProjectLinks(b.id)
+          void removeProjectEvent(b.id) // gone from the CRM -> gone from the calendar
           return result
         })
       })
@@ -1353,6 +1391,24 @@ export function crmDataPlugin() {
         if (req.method !== 'GET') return next()
         res.setHeader('Content-Type', 'application/json')
         res.end(JSON.stringify({ connected: isConnected(), hasCredentials: credentialsPresent() }))
+      })
+
+      // --- Google Calendar (shares the Google connection above) ---
+      server.middlewares.use('/api/calendar/sync', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, () => syncCalendarAll())
+      })
+      server.middlewares.use('/api/calendar', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        calendarStatus()
+          .then((status) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(status))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
       })
       server.middlewares.use('/api/gmail/unread', (req, res, next) => {
         if (req.method !== 'GET') return next()
