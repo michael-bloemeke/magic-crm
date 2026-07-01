@@ -450,6 +450,13 @@ export function ProjectDetailsBody({
       {/* Booked: the show paperwork once it's locked in, plus the check-in emails. */}
       <DetailSection title="Booked" collapsible open={isOpen('booked')} onToggle={() => toggleSection('booked')} highlight={highlightedSection === 'booked'}>
         <div className={cardGrid}>
+          {/* Booking confirmation — the "you're all set" note once the booking is locked in, ahead of the check-ins. */}
+          <EmailBuilderCard
+            project={project} recipientEmails={recipientEmails} onSaved={upsertEmail} onDiscard={discardEmail}
+            textMarkers={textMarkerMap} onSetTextMarker={setTextMarker}
+            kind="booking-confirmation" title="Booking confirmation" defaultSubject="Booking Confirmed"
+            templateHint={/booking|confirm/i} email={emailFor('booking-confirmation')}
+          />
           {checkinSlots.map((n, i) => (
             <EmailBuilderCard
               key={`checkin-${n}`}

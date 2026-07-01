@@ -482,7 +482,10 @@ function App() {
   // pipeline. Quietly does nothing if the Notion sync isn't configured.
   useEffect(() => {
     let alive = true
+    let running = false
     const run = async () => {
+      if (running) return // avoid stacking overlapping checks (interval + focus)
+      running = true
       try {
         const r = await checkInquiries()
         if (r?.importedCount && r.importedCount > 0) reloadProjects()
@@ -490,13 +493,24 @@ function App() {
         if (alive) setInquiries(d.notifications)
       } catch {
         // not configured / offline — ignore
+      } finally {
+        running = false
       }
     }
     run()
-    const timer = setInterval(run, 5 * 60 * 1000)
+    // Poll the website-inquiry relay every 20s (was 5 min) so new inquiries show up fast.
+    const timer = setInterval(run, 20 * 1000)
+    // And check immediately whenever the CRM window regains focus / becomes visible,
+    // so an inquiry that just arrived appears the moment Michael looks at the app.
+    const onFocus = () => run()
+    const onVisible = () => { if (document.visibilityState === 'visible') run() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       alive = false
       clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 
@@ -822,7 +836,9 @@ function App() {
   return (
     <div className="relative z-10 flex h-screen overflow-hidden">
       <Sidebar
-        page={page}
+        // While a project is open, highlight the nav item for where that project lives
+        // (Pipeline for active, Completed/Archive otherwise) instead of the page we opened it from.
+        page={fullProject ? (fullProject.bucket === 'completed' ? 'completed' : fullProject.bucket === 'archived' ? 'archive' : 'pipeline') : page}
         onNavigate={(p) => {
           setContactPane(null)
           setFullProject(null)

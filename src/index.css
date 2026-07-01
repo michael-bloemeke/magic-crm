@@ -186,6 +186,136 @@
   scrollbar-color: rgba(201, 169, 97, 0.3) transparent;
 }
 
+/* --- LIGHT: bright neutral surfaces, near-black text, gold accent. The surface ramp inverts vs the
+   dark themes: cards are white (surface) and each higher step is a slightly darker grey (so hover /
+   nested states stay visible on white). The brass family also inverts — "bright" is the DARKEST gold
+   (accent text needs contrast on white), "dim" is the lightest (soft borders). --- */
+:root[data-theme='light'] {
+  --color-canvas: #eceef1;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f6f8;
+  --color-surface-3: #e9ebef;
+  --color-surface-4: #dde0e6;
+  --color-surface-5: #cfd3db;
+
+  --color-brass: #b07d2a;
+  --color-brass-bright: #8a5e14;
+  --color-brass-dim: #d8c48c;
+
+  --color-parchment: #1c1e22;
+  --color-muted: #565b64;
+  --color-faint: #8a8f99;
+
+  --color-line: rgba(20, 25, 40, 0.1);
+  --color-line-strong: rgba(20, 25, 40, 0.17);
+
+  --color-umb-inquiry: #6b7280;
+  --color-umb-postcall: #2f74b8;
+  --color-umb-booked: #2f9d5c;
+  --color-umb-archive: #b07d2a;
+}
+:root[data-theme='light'] body {
+  background-image:
+    radial-gradient(120% 80% at 50% -10%, rgba(176, 125, 42, 0.06) 0%, transparent 55%),
+    radial-gradient(90% 60% at 85% 0%, rgba(47, 116, 184, 0.05) 0%, transparent 55%);
+}
+:root[data-theme='light'] body::before {
+  opacity: 0.02; /* grain barely-there on a bright canvas */
+}
+:root[data-theme='light'] ::selection {
+  background: rgba(176, 125, 42, 0.22);
+  color: #5a3e0e;
+}
+:root[data-theme='light'] .board-scroll {
+  scrollbar-color: rgba(20, 25, 40, 0.28) transparent;
+}
+:root[data-theme='light'] .board-scroll::-webkit-scrollbar-thumb {
+  background: rgba(20, 25, 40, 0.22);
+  background-clip: content-box;
+}
+:root[data-theme='light'] .board-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 25, 40, 0.38);
+  background-clip: content-box;
+}
+
+/* --- DARK: neutral near-black greys with a soft blue accent (distinct from Ember's warmth and
+   FISM's navy). Same ramp direction as the dark themes: higher surface = lighter. --- */
+:root[data-theme='dark'] {
+  --color-canvas: #0f1012;
+  --color-surface: #151619;
+  --color-surface-2: #1b1d21;
+  --color-surface-3: #24262b;
+  --color-surface-4: #2f323a;
+  --color-surface-5: #3b3f48;
+
+  --color-brass: #7cabe0;
+  --color-brass-bright: #b3d3f2;
+  --color-brass-dim: #46618a;
+
+  --color-parchment: #e8eaee;
+  --color-muted: #9aa0ab;
+  --color-faint: #646a75;
+
+  --color-line: rgba(220, 228, 240, 0.08);
+  --color-line-strong: rgba(220, 228, 240, 0.14);
+
+  --color-umb-inquiry: #9aa0ab;
+  --color-umb-postcall: #6ea8e6;
+  --color-umb-booked: #6ecb8a;
+  --color-umb-archive: #d0a45f;
+}
+:root[data-theme='dark'] body {
+  background-image:
+    radial-gradient(120% 80% at 50% -10%, rgba(124, 171, 224, 0.06) 0%, transparent 55%),
+    radial-gradient(90% 60% at 85% 0%, rgba(124, 171, 224, 0.04) 0%, transparent 55%);
+}
+:root[data-theme='dark'] ::selection {
+  background: rgba(124, 171, 224, 0.28);
+  color: var(--color-brass-bright);
+}
+:root[data-theme='dark'] .board-scroll {
+  scrollbar-color: rgba(124, 171, 224, 0.28) transparent;
+}
+
+/* --- GREY: a muted mid-tone "in between" light and dark — medium-grey surfaces, light text, warm
+   bronze accent. --- */
+:root[data-theme='grey'] {
+  --color-canvas: #3b3d42;
+  --color-surface: #43454b;
+  --color-surface-2: #4b4e55;
+  --color-surface-3: #565961;
+  --color-surface-4: #62666f;
+  --color-surface-5: #70747e;
+
+  --color-brass: #c8a670;
+  --color-brass-bright: #e4c99e;
+  --color-brass-dim: #8c7449;
+
+  --color-parchment: #f1f2f4;
+  --color-muted: #c3c6cc;
+  --color-faint: #969aa2;
+
+  --color-line: rgba(255, 255, 255, 0.1);
+  --color-line-strong: rgba(255, 255, 255, 0.17);
+
+  --color-umb-inquiry: #b9bdc5;
+  --color-umb-postcall: #83b2e2;
+  --color-umb-booked: #83cc9d;
+  --color-umb-archive: #c8a670;
+}
+:root[data-theme='grey'] body {
+  background-image:
+    radial-gradient(120% 80% at 50% -10%, rgba(200, 166, 112, 0.07) 0%, transparent 55%),
+    radial-gradient(90% 60% at 85% 0%, rgba(255, 255, 255, 0.03) 0%, transparent 55%);
+}
+:root[data-theme='grey'] ::selection {
+  background: rgba(200, 166, 112, 0.3);
+  color: var(--color-brass-bright);
+}
+:root[data-theme='grey'] .board-scroll {
+  scrollbar-color: rgba(200, 166, 112, 0.3) transparent;
+}
+
 /* Rich-text email editor + read-only receipt (both carry .email-rte). This surface is styled to
    match what the recipient sees in Gmail (Arial, 14px, 1.5 line-height, dark text on white, blue
    underlined links) so the compose box and the sent receipt are a literal preview of the delivered
