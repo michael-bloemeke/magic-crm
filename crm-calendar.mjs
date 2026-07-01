@@ -101,6 +101,9 @@ async function resolveCalendarId(cal, name) {
 function parseTime(raw) {
   const s = String(raw || '').toLowerCase()
   if (!s.trim()) return null
+  // If the value LEADS with TBD/unknown, the time isn't set yet — keep the gig all-day even if a
+  // window is mentioned in a note (e.g. "TBD (anywhere within the 5-10 PM window)").
+  if (/^\s*(tbd|to be determined|unknown|n\/?a|none)\b/.test(s)) return null
   // An explicit am/pm time anywhere in the string wins first: "4:15 pm", "4pm", "4 p.m.".
   let m = s.match(/(\d{1,2})(?::([0-5]\d))?\s*([ap])\.?\s?m\.?/)
   if (m) {
