@@ -288,6 +288,15 @@ function postshowStageIdSet(structure) {
   return new Set(ps ? ps.stages.map((s) => s.id) : [])
 }
 
+// True if a project is booked-or-beyond: sitting in the Booked or Post Show category, or already
+// completed. Used by the calendar sync to decide whether a gig needs an "Inquiry: " prefix.
+export function isProjectBooked(project) {
+  if (!project) return false
+  if (project.bucket === 'completed') return true
+  const structure = loadStructure()
+  return bookedStageIdSet(structure).has(project.stageId) || postshowStageIdSet(structure).has(project.stageId)
+}
+
 function readJson(file, fallback = null) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'))
