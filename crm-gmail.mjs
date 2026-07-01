@@ -24,6 +24,9 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/gmail.send',
+  // calendar = read + write events + list calendars, so the CRM can put gigs on the "Gigs" calendar
+  // and tasks on "Work". One Google connection covers both; granting it needs a one-time reconnect.
+  'https://www.googleapis.com/auth/calendar',
 ]
 
 function readJson(file) {
@@ -77,9 +80,9 @@ export async function exchangeCode(code) {
   return { ok: true }
 }
 
-function authedClient() {
+export function authedClient() {
   const tokens = readJson(TOKEN_FILE)
-  if (!tokens || !tokens.refresh_token) throw new Error('Gmail not connected')
+  if (!tokens || !tokens.refresh_token) throw new Error('Google not connected')
   const client = makeClient()
   client.setCredentials(tokens)
   // Persist refreshed tokens.
@@ -500,6 +503,13 @@ export async function starMessage(messageId, starred) {
 export function hasModifyScope() {
   const t = readJson(TOKEN_FILE)
   return !!(t && typeof t.scope === 'string' && t.scope.includes('gmail.modify'))
+}
+
+// True only if the stored Google token was granted the calendar scope (older Gmail-only tokens were
+// not; they need a one-time reconnect). Lets the calendar UI prompt a reconnect without a failed call.
+export function hasCalendarScope() {
+  const t = readJson(TOKEN_FILE)
+  return !!(t && typeof t.scope === 'string' && t.scope.includes('auth/calendar'))
 }
 
 export async function createDraft({ to, subject, body, html, attachments, inlineImages, threadId }) {
