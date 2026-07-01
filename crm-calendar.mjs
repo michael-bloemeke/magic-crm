@@ -69,11 +69,17 @@ function writeMap(map) {
 // re-lists to refresh it, and a stale-id operation error also clears it (see upsertEvent).
 const calIdCache = new Map()
 
-// Fresh lookup: list the account's calendars, match by exact name, and update the cache (positive or
-// negative). Used by calendarStatus so the Settings view always reflects reality.
+// Fresh lookup: list the account's calendars, match by the name the user SEES, and update the cache
+// (positive or negative). Google stores a calendar's own title as `summary`, but if the user renamed
+// it in their calendar list that custom name lives in `summaryOverride` (e.g. a calendar whose real
+// title is "Social" but shown as "Gigs"). We match the display name = summaryOverride ?? summary.
+// Used by calendarStatus so the Settings view always reflects reality.
 async function listCalendarId(cal, name) {
+  const target = name.trim().toLowerCase()
   const res = await cal.calendarList.list({ maxResults: 250 })
-  const found = (res.data.items || []).find((c) => (c.summary || '').trim().toLowerCase() === name.toLowerCase())
+  const found = (res.data.items || []).find(
+    (c) => (c.summaryOverride || c.summary || '').trim().toLowerCase() === target,
+  )
   const id = found ? found.id : null
   if (id) calIdCache.set(name, id)
   else calIdCache.delete(name)
