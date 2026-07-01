@@ -13,10 +13,10 @@ type Props = {
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
-  onAddTask: (title: string, dueDate: string) => void
+  onAddTask: (title: string, dueDate: string, dueTime: string) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
-  onEditTask: (id: string, patch: { title: string; dueDate: string }) => void
+  onEditTask: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
   onArchive: () => void
   onComplete: () => void
   onRestore: () => void

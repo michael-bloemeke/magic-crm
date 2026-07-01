@@ -1023,7 +1023,7 @@ function App() {
                 <TasksPage
                   tasks={allTasks}
                   projects={allProjects}
-                  onAdd={(title, dueDate) => addTaskFor('', title, dueDate)}
+                  onAdd={(title, dueDate, dueTime) => addTaskFor('', title, dueDate, dueTime)}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
                   onEdit={editTask}
@@ -1102,7 +1102,7 @@ function App() {
         links={links}
         onChangeStage={(stageId) => selected && changeStage(selected.id, stageId)}
         onSaveField={(field, value) => selected && saveField(selected.id, field, value)}
-        onAddTask={(title, dueDate) => selected && addTaskFor(selected.id, title, dueDate)}
+        onAddTask={(title, dueDate, dueTime) => selected && addTaskFor(selected.id, title, dueDate, dueTime)}
         onToggleTask={toggleTask}
         onDeleteTask={deleteTask}
         onEditTask={editTask}

@@ -7,27 +7,40 @@ type Props = {
   projectName?: string
   onToggle: (done: boolean) => void
   onDelete: () => void
-  // When provided, the row can be renamed / re-dated inline (a pencil appears on hover).
-  onEdit?: (patch: { title: string; dueDate: string }) => void
+  // When provided, the row can be renamed / re-dated / re-timed inline (a pencil appears on hover).
+  onEdit?: (patch: { title: string; dueDate: string; dueTime: string }) => void
   onOpenProject?: () => void
 }
 
 const OVERDUE = '#e08a6b'
 
+// "13:00" -> "1:00 PM" for display. Empty for an all-day task.
+function fmtTime(hhmm: string): string {
+  const m = (hhmm || '').match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return ''
+  let h = Number(m[1])
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${m[2]} ${ampm}`
+}
+
 export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenProject }: Props) {
   const [editing, setEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState(task.title)
   const [draftDue, setDraftDue] = useState(task.dueDate || '')
+  const [draftTime, setDraftTime] = useState(task.dueTime || '')
 
   const startEdit = () => {
     setDraftTitle(task.title)
     setDraftDue(task.dueDate || '')
+    setDraftTime(task.dueTime || '')
     setEditing(true)
   }
   const saveEdit = () => {
     const t = draftTitle.trim()
     if (!t) return
-    onEdit?.({ title: t, dueDate: draftDue })
+    onEdit?.({ title: t, dueDate: draftDue, dueTime: draftTime })
     setEditing(false)
   }
 
@@ -49,6 +62,15 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
           value={draftDue}
           onChange={(e) => setDraftDue(e.target.value)}
           className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
+          style={{ colorScheme: 'dark' }}
+        />
+        <input
+          type="time"
+          value={draftTime}
+          onChange={(e) => setDraftTime(e.target.value)}
+          title="Optional time (leave blank for an all-day task)"
+          className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
+          style={{ colorScheme: 'dark' }}
         />
         <button type="button" onClick={saveEdit} aria-label="Save task" className="shrink-0 rounded-md p-1 text-brass-bright transition-colors hover:text-brass">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 6" /></svg>
@@ -105,6 +127,7 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
           <span className="tabular-nums" style={{ color: dueColor }}>
             {overdue ? 'Overdue · ' : ''}
             {formatEventDate(task.dueDate)}
+            {task.dueTime ? ` · ${fmtTime(task.dueTime)}` : ''}
           </span>
           {projectName && onOpenProject && (
             <>

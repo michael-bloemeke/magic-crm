@@ -7,10 +7,10 @@ import { TaskRow } from './TaskRow'
 type Props = {
   tasks: Task[]
   projects: Project[]
-  onAdd: (title: string, dueDate: string) => void
+  onAdd: (title: string, dueDate: string, dueTime: string) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
-  onEdit: (id: string, patch: { title: string; dueDate: string }) => void
+  onEdit: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
   onOpenProject: (project: Project) => void
 }
 
@@ -21,12 +21,14 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
   const today = todayISO()
   const [newTitle, setNewTitle] = useState('')
   const [newDue, setNewDue] = useState('')
+  const [newTime, setNewTime] = useState('')
   const submitNew = () => {
     const t = newTitle.trim()
     if (!t) return
-    onAdd(t, newDue)
+    onAdd(t, newDue, newTime)
     setNewTitle('')
     setNewDue('')
+    setNewTime('')
   }
 
   const active = tasks.filter((t) => !t.done)
@@ -101,6 +103,15 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             value={newDue}
             onChange={(e) => setNewDue(e.target.value)}
             className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+            style={{ colorScheme: 'dark' }}
+          />
+          <input
+            type="time"
+            value={newTime}
+            onChange={(e) => setNewTime(e.target.value)}
+            title="Optional time (leave blank for an all-day task)"
+            className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+            style={{ colorScheme: 'dark' }}
           />
           <button
             type="button"

@@ -27,10 +27,10 @@ type Props = {
   contacts: Contact[]
   links: ProjectLinks
   onSaveField: (field: string, value: string) => void
-  onAddTask: (title: string, dueDate: string) => void
+  onAddTask: (title: string, dueDate: string, dueTime: string) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
-  onEditTask: (id: string, patch: { title: string; dueDate: string }) => void
+  onEditTask: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
   onPaymentsChange?: (payments: Payment[]) => void
   // Called after the questionnaire auto-fills project fields, so the view reloads to show them.
   onProjectChanged?: () => void
@@ -606,13 +606,14 @@ function ProjectTasks({
   onEdit,
 }: {
   tasks: Task[]
-  onAdd: (title: string, dueDate: string) => void
+  onAdd: (title: string, dueDate: string, dueTime: string) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
-  onEdit: (id: string, patch: { title: string; dueDate: string }) => void
+  onEdit: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
 }) {
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
+  const [time, setTime] = useState('')
 
   const active = tasks.filter((t) => !t.done).sort(byDueAsc)
   const done = tasks.filter((t) => t.done).sort(byDueAsc)
@@ -621,9 +622,10 @@ function ProjectTasks({
     e.preventDefault()
     const t = title.trim()
     if (!t) return
-    onAdd(t, due)
+    onAdd(t, due, time)
     setTitle('')
     setDue('')
+    setTime('')
   }
 
   return (
@@ -669,6 +671,14 @@ function ProjectTasks({
           type="date"
           value={due}
           onChange={(e) => setDue(e.target.value)}
+          className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[12px] text-muted focus:border-brass-dim focus:outline-none"
+          style={{ colorScheme: 'dark' }}
+        />
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          title="Optional time (leave blank for an all-day task)"
           className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[12px] text-muted focus:border-brass-dim focus:outline-none"
           style={{ colorScheme: 'dark' }}
         />
