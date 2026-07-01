@@ -109,6 +109,15 @@ function parseTime(raw) {
   return { h, m: min }
 }
 
+// A real calendar date: strictly YYYY-MM-DD AND an actual day (so "TBD", "2026", or "2026-13-40"
+// never get sent to Google, which would 400). Guards both gig eventDates and task dueDates.
+function isValidDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))) return false
+  const [y, m, d] = s.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d
+}
+
 // Shift a YYYY-MM-DD date by whole days (UTC math so it's timezone-safe date arithmetic).
 function shiftDate(dateISO, days) {
   const [y, mo, d] = dateISO.split('-').map(Number)
@@ -266,7 +275,11 @@ export async function syncProject(projectId) {
     const calId = await resolveCalendarId(cal, GIGS_CALENDAR)
     if (!calId) return { ok: false, error: `Calendar "${GIGS_CALENDAR}" not found in your account.` }
     const project = loadAll().projects.find((p) => p.id === projectId)
-    if (!project || project.bucket !== 'active' || !project.eventDate) {
+    // A gig stays on the calendar while it's active OR completed (so past gigs you actually did
+    // remain as a record). It's removed when archived/deleted, or if it has no real date yet ("TBD").
+    const eligible =
+      project && (project.bucket === 'active' || project.bucket === 'completed') && isValidDate(project.eventDate)
+    if (!eligible) {
       await removeEvent(cal, calId, 'projects', projectId)
       return { ok: true, removed: true }
     }
@@ -287,7 +300,7 @@ export async function syncTask(taskId) {
     const calId = await resolveCalendarId(cal, WORK_CALENDAR)
     if (!calId) return { ok: false, error: `Calendar "${WORK_CALENDAR}" not found in your account.` }
     const task = loadTasks().find((t) => t.id === taskId)
-    if (!task || task.done || !task.dueDate) {
+    if (!task || task.done || !isValidDate(task.dueDate)) {
       await removeEvent(cal, calId, 'tasks', taskId)
       return { ok: true, removed: true }
     }
@@ -328,8 +341,8 @@ export async function removeTaskEvent(taskId) {
 // stored map), so re-running just updates. Returns counts + any distinct errors.
 export async function syncAll() {
   if (!isCalendarConnected()) return { ok: false, error: 'Not connected to Google Calendar.' }
-  const projects = loadAll().projects.filter((p) => p.bucket === 'active' && p.eventDate)
-  const tasks = loadTasks().filter((t) => !t.done && t.dueDate)
+  const projects = loadAll().projects.filter((p) => p.bucket === 'active' && isValidDate(p.eventDate))
+  const tasks = loadTasks().filter((t) => !t.done && isValidDate(t.dueDate))
   let projectCount = 0
   let taskCount = 0
   const errors = new Set()
