@@ -72,6 +72,7 @@ export type Task = {
   projectId: string
   title: string
   dueDate: string // YYYY-MM-DD
+  dueTime: string // HH:MM (24h), or '' for an all-day task. CRM reminders stay date-based either way.
   done: boolean
   createdAt: string
 }
@@ -87,6 +88,7 @@ export async function addTask(input: {
   projectId?: string
   title: string
   dueDate: string
+  dueTime?: string
 }): Promise<Task> {
   const res = await fetch('/api/tasks/add', {
     method: 'POST',
@@ -107,8 +109,8 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
   if (!res.ok) throw new Error(`Failed to update task (${res.status})`)
 }
 
-// Rename a task and/or change its due date.
-export async function editTask(id: string, patch: { title?: string; dueDate?: string }): Promise<void> {
+// Rename a task and/or change its due date/time.
+export async function editTask(id: string, patch: { title?: string; dueDate?: string; dueTime?: string }): Promise<void> {
   const res = await fetch('/api/tasks/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

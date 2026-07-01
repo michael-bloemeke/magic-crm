@@ -618,8 +618,19 @@ function tasksMeta() {
       'CRM-owned task list. Each task links to a project by projectId (slug of client_name) and carries a due date + done flag. The CRM creates, checks off, and deletes these.',
     cowork_guidance:
       'Safe to read. The CRM manages this file. If Cowork wants to auto-create standard tasks for a project (midway / 1-week / day-before / thank-you), append objects to tasks[] with the same shape and a matching projectId.',
-    task_shape: 'id, projectId, title, dueDate (YYYY-MM-DD), done (bool), createdAt (ISO)',
+    task_shape: 'id, projectId, title, dueDate (YYYY-MM-DD), dueTime (HH:MM 24h, optional/"" for none), done (bool), createdAt (ISO)',
   }
+}
+
+// A time string kept as "HH:MM" (24h) or "" when the task has no specific time (an all-day task).
+function normalizeTime(t) {
+  const s = String(t || '').trim()
+  const m = s.match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return ''
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h > 23 || min > 59) return ''
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 
 function writeTasksFile(data) {
@@ -637,10 +648,11 @@ function readTasksFile() {
 }
 
 export function loadTasks() {
-  return readTasksFile().tasks
+  // Default dueTime for tasks created before the field existed.
+  return readTasksFile().tasks.map((t) => ({ ...t, dueTime: normalizeTime(t.dueTime) }))
 }
 
-export function addTask({ projectId, title, dueDate }) {
+export function addTask({ projectId, title, dueDate, dueTime }) {
   const t = String(title || '').trim()
   if (!t) throw new Error('task title is required')
   const data = readTasksFile()
@@ -649,6 +661,8 @@ export function addTask({ projectId, title, dueDate }) {
     projectId: String(projectId || ''),
     title: t,
     dueDate: String(dueDate || ''),
+    // Optional time-of-day. "" = an all-day task (still gets date-based CRM reminders).
+    dueTime: normalizeTime(dueTime),
     done: false,
     createdAt: new Date().toISOString(),
   }
@@ -658,13 +672,14 @@ export function addTask({ projectId, title, dueDate }) {
   return task
 }
 
-export function updateTask({ id, done, title, dueDate }) {
+export function updateTask({ id, done, title, dueDate, dueTime }) {
   const data = readTasksFile()
   const task = data.tasks.find((x) => x.id === id)
   if (!task) throw new Error('task not found')
   if (typeof done === 'boolean') task.done = done
   if (title != null) task.title = String(title)
   if (dueDate != null) task.dueDate = String(dueDate)
+  if (dueTime != null) task.dueTime = normalizeTime(dueTime)
   data._meta = tasksMeta()
   writeTasksFile(data)
   return task

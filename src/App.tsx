@@ -747,8 +747,8 @@ function App() {
     reloadProjects()
   }
 
-  const addTaskFor = (projectId: string, title: string, dueDate: string) => {
-    apiAddTask({ projectId, title, dueDate })
+  const addTaskFor = (projectId: string, title: string, dueDate: string, dueTime = '') => {
+    apiAddTask({ projectId, title, dueDate, dueTime })
       .then((task) => setTasks((prev) => [...(prev ?? []), task]))
       .catch(() => {})
   }
@@ -764,7 +764,7 @@ function App() {
       loadTasks().then(setTasks).catch(() => {})
     })
   }
-  const editTask = (id: string, patch: { title: string; dueDate: string }) => {
+  const editTask = (id: string, patch: { title: string; dueDate: string; dueTime: string }) => {
     setTasks((prev) => (prev ? prev.map((t) => (t.id === id ? { ...t, ...patch } : t)) : prev))
     apiEditTask(id, patch).catch(() => {
       loadTasks().then(setTasks).catch(() => {})
@@ -843,7 +843,7 @@ function App() {
             tasks={tasksForFull}
             onChangeStage={(stageId) => changeStage(fullProject.id, stageId)}
             onSaveField={(field, value) => saveField(fullProject.id, field, value)}
-            onAddTask={(title, dueDate) => addTaskFor(fullProject.id, title, dueDate)}
+            onAddTask={(title, dueDate, dueTime) => addTaskFor(fullProject.id, title, dueDate, dueTime)}
             onToggleTask={toggleTask}
             onDeleteTask={deleteTask}
             onEditTask={editTask}
