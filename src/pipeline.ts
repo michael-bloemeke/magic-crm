@@ -23,6 +23,7 @@ export type Project = {
   eventLocation: string
   venueType: string
   indoorsOrOutdoors: string
+  arrivalTime: string
   eventStartTime: string
   showStartTime: string
   numberOfGuests: string

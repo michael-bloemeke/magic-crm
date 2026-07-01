@@ -4,6 +4,7 @@
 export const EVENT_FIELDS: { id: string; label: string }[] = [
   { id: 'eventSummary', label: 'Description' },
   { id: 'eventDate', label: 'Event date' },
+  { id: 'arrivalTime', label: 'Arrival time' },
   { id: 'eventStartTime', label: 'Event start' },
   { id: 'showStartTime', label: 'Show start' },
   { id: 'totalFee', label: 'Quote' },
