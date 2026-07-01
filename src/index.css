@@ -191,28 +191,32 @@
    nested states stay visible on white). The brass family also inverts — "bright" is the DARKEST gold
    (accent text needs contrast on white), "dim" is the lightest (soft borders). --- */
 :root[data-theme='light'] {
-  --color-canvas: #eceef1;
+  /* Warm off-white surfaces (a hint of cream, not stark grey) so the canvas has life. */
+  /* A greyer canvas so the near-white cards clearly sit above it (a white card on off-white was the
+     culprit); headers step a shade darker to band off the card. */
+  --color-canvas: #e3dfd6;
   --color-surface: #ffffff;
-  --color-surface-2: #f5f6f8;
-  --color-surface-3: #e9ebef;
-  --color-surface-4: #dde0e6;
-  --color-surface-5: #cfd3db;
+  --color-surface-2: #fbf9f4;
+  --color-surface-3: #f0ece3;
+  --color-surface-4: #e3ded2;
+  --color-surface-5: #d3cdbf;
 
   --color-brass: #b07d2a;
   --color-brass-bright: #8a5e14;
-  --color-brass-dim: #d8c48c;
+  --color-brass-dim: #d6c188;
 
-  --color-parchment: #1c1e22;
-  --color-muted: #565b64;
-  --color-faint: #8a8f99;
+  --color-parchment: #201d17;
+  --color-muted: #5c574d;
+  --color-faint: #8d877a;
 
-  --color-line: rgba(20, 25, 40, 0.1);
-  --color-line-strong: rgba(20, 25, 40, 0.17);
+  --color-line: rgba(40, 32, 18, 0.11);
+  --color-line-strong: rgba(40, 32, 18, 0.2);
 
-  --color-umb-inquiry: #6b7280;
-  --color-umb-postcall: #2f74b8;
-  --color-umb-booked: #2f9d5c;
-  --color-umb-archive: #b07d2a;
+  /* Saturated, distinct pipeline pops that carry the color on a bright canvas. */
+  --color-umb-inquiry: #6d7280;
+  --color-umb-postcall: #2f74c4;
+  --color-umb-booked: #2f9d57;
+  --color-umb-archive: #c07b1f;
 }
 :root[data-theme='light'] body {
   background-image:
@@ -241,28 +245,31 @@
 /* --- DARK: neutral near-black greys with a soft blue accent (distinct from Ember's warmth and
    FISM's navy). Same ramp direction as the dark themes: higher surface = lighter. --- */
 :root[data-theme='dark'] {
-  --color-canvas: #0f1012;
-  --color-surface: #151619;
-  --color-surface-2: #1b1d21;
-  --color-surface-3: #24262b;
-  --color-surface-4: #2f323a;
-  --color-surface-5: #3b3f48;
+  /* Cool slate: canvas is clearly the darkest, then wide, deliberate steps so raised panels lift
+     off it and stack (canvas -> card -> header). */
+  --color-canvas: #0b0c10;
+  --color-surface: #15171e;
+  --color-surface-2: #1e212b;
+  --color-surface-3: #2a2f3d;
+  --color-surface-4: #363d4e;
+  --color-surface-5: #454e63;
 
   --color-brass: #7cabe0;
-  --color-brass-bright: #b3d3f2;
-  --color-brass-dim: #46618a;
+  --color-brass-bright: #b6d6f5;
+  --color-brass-dim: #45608a;
 
-  --color-parchment: #e8eaee;
-  --color-muted: #9aa0ab;
-  --color-faint: #646a75;
+  --color-parchment: #e9ebf0;
+  --color-muted: #99a0ad;
+  --color-faint: #626976;
 
-  --color-line: rgba(220, 228, 240, 0.08);
-  --color-line-strong: rgba(220, 228, 240, 0.14);
+  --color-line: rgba(216, 226, 245, 0.09);
+  --color-line-strong: rgba(216, 226, 245, 0.2);
 
-  --color-umb-inquiry: #9aa0ab;
+  /* A warm amber archive against the cool blue accent gives the theme two-tone contrast. */
+  --color-umb-inquiry: #9aa2b5;
   --color-umb-postcall: #6ea8e6;
-  --color-umb-booked: #6ecb8a;
-  --color-umb-archive: #d0a45f;
+  --color-umb-booked: #5ecb86;
+  --color-umb-archive: #e0a55c;
 }
 :root[data-theme='dark'] body {
   background-image:
@@ -280,28 +287,31 @@
 /* --- GREY: a muted mid-tone "in between" light and dark — medium-grey surfaces, light text, warm
    bronze accent. --- */
 :root[data-theme='grey'] {
-  --color-canvas: #3b3d42;
-  --color-surface: #43454b;
-  --color-surface-2: #4b4e55;
-  --color-surface-3: #565961;
-  --color-surface-4: #62666f;
-  --color-surface-5: #70747e;
+  /* Warm-neutral mid grey. The canvas drops a notch and the steps widen, so cards + headers stack
+     with visible depth instead of melting together. */
+  --color-canvas: #302e34;
+  --color-surface: #3b3941;
+  --color-surface-2: #46444e;
+  --color-surface-3: #54515d;
+  --color-surface-4: #62606d;
+  --color-surface-5: #716e7d;
 
-  --color-brass: #c8a670;
-  --color-brass-bright: #e4c99e;
-  --color-brass-dim: #8c7449;
+  --color-brass: #cb9f66;
+  --color-brass-bright: #e7c793;
+  --color-brass-dim: #8a6f43;
 
-  --color-parchment: #f1f2f4;
-  --color-muted: #c3c6cc;
-  --color-faint: #969aa2;
+  --color-parchment: #f2f1f3;
+  --color-muted: #c4c1c8;
+  --color-faint: #97949c;
 
-  --color-line: rgba(255, 255, 255, 0.1);
-  --color-line-strong: rgba(255, 255, 255, 0.17);
+  --color-line: rgba(255, 255, 255, 0.11);
+  --color-line-strong: rgba(255, 255, 255, 0.21);
 
-  --color-umb-inquiry: #b9bdc5;
-  --color-umb-postcall: #83b2e2;
-  --color-umb-booked: #83cc9d;
-  --color-umb-archive: #c8a670;
+  /* Cool blue + green pops read against the warm grey and the bronze accent. */
+  --color-umb-inquiry: #bcbac4;
+  --color-umb-postcall: #85b0e0;
+  --color-umb-booked: #86cc9c;
+  --color-umb-archive: #cb9f66;
 }
 :root[data-theme='grey'] body {
   background-image:
@@ -314,6 +324,48 @@
 }
 :root[data-theme='grey'] .board-scroll {
   scrollbar-color: rgba(200, 166, 112, 0.3) transparent;
+}
+
+/* --- GRAPE: from the coolors palette (shadow grey -> vintage grape -> dusty grape, dusk blue,
+   gunmetal). Deep purple-grey canvas whose ramp climbs toward grape; a dusty-grape violet accent;
+   and dusk-blue + green + gold pipeline pops so it's colorful, not one flat hue. --- */
+:root[data-theme='grape'] {
+  /* Deeper shadow-grape canvas with wide steps up through grape, so panels lift and stack. */
+  --color-canvas: #191521;
+  --color-surface: #241d30;
+  --color-surface-2: #2e2740;
+  --color-surface-3: #3a3252;
+  --color-surface-4: #473e66;
+  --color-surface-5: #564d7e;
+
+  /* Dusty-grape violet accent (5F5AA2 lifted so dark button text stays legible). */
+  --color-brass: #8480cc;
+  --color-brass-bright: #b7b3ee;
+  --color-brass-dim: #524e86;
+
+  --color-parchment: #f0eef7;
+  --color-muted: #b3aec6;
+  --color-faint: #7c7794;
+
+  --color-line: rgba(200, 195, 235, 0.1);
+  --color-line-strong: rgba(200, 195, 235, 0.2);
+
+  --color-umb-inquiry: #9a95b6; /* lavender-grey */
+  --color-umb-postcall: #6f8fd4; /* dusk blue (355691) */
+  --color-umb-booked: #6ecb8a; /* green pop */
+  --color-umb-archive: #cba36a; /* warm gold pop against the purple */
+}
+:root[data-theme='grape'] body {
+  background-image:
+    radial-gradient(120% 80% at 50% -10%, rgba(132, 128, 204, 0.12) 0%, transparent 58%),
+    radial-gradient(90% 60% at 85% 0%, rgba(53, 86, 145, 0.16) 0%, transparent 55%);
+}
+:root[data-theme='grape'] ::selection {
+  background: rgba(132, 128, 204, 0.32);
+  color: var(--color-brass-bright);
+}
+:root[data-theme='grape'] .board-scroll {
+  scrollbar-color: rgba(132, 128, 204, 0.32) transparent;
 }
 
 /* Rich-text email editor + read-only receipt (both carry .email-rte). This surface is styled to

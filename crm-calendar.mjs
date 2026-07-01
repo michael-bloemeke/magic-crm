@@ -93,20 +93,29 @@ async function resolveCalendarId(cal, name) {
 
 // ---- Date / time helpers ----------------------------------------------------
 
-// Parse a free-text time ("6:00 PM", "6pm", "18:00", "6", "6:30") into {h, m} (24h), or null. Also
-// handles the strict "HH:MM" a task's time input produces.
+// Pull the FIRST clear time-of-day out of a value into {h, m} (24h), or null. This handles both the
+// strict "HH:MM" a task's time input produces AND note-style gig fields like
+// "Festival 4:00 PM to 9:00 PM (per Tina's questionnaire)" -> 16:00. We only accept a token that has
+// an am/pm marker or an HH:MM colon, so we never mistake a bare number (a year, a guest count,
+// "30-minute", a phone number) for a time.
 function parseTime(raw) {
-  const s = String(raw || '').trim().toLowerCase()
-  const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/)
-  if (!m) return null
-  let h = Number(m[1])
-  const min = m[2] ? Number(m[2]) : 0
-  if (min > 59) return null
-  const ap = m[3]
-  if (ap === 'pm' && h < 12) h += 12
-  else if (ap === 'am' && h === 12) h = 0
-  if (h > 23) return null
-  return { h, m: min }
+  const s = String(raw || '').toLowerCase()
+  if (!s.trim()) return null
+  // An explicit am/pm time anywhere in the string wins first: "4:15 pm", "4pm", "4 p.m.".
+  let m = s.match(/(\d{1,2})(?::([0-5]\d))?\s*([ap])\.?\s?m\.?/)
+  if (m) {
+    let h = Number(m[1])
+    const min = m[2] ? Number(m[2]) : 0
+    const pm = m[3] === 'p'
+    if (pm && h < 12) h += 12
+    else if (!pm && h === 12) h = 0
+    if (h > 23 || min > 59) return null
+    return { h, m: min }
+  }
+  // Otherwise the first 24h HH:MM: "16:00", "9:30".
+  m = s.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/)
+  if (m) return { h: Number(m[1]), m: Number(m[2]) }
+  return null
 }
 
 // A real calendar date: strictly YYYY-MM-DD AND an actual day (so "TBD", "2026", or "2026-13-40"

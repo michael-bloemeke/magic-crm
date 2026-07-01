@@ -3,7 +3,7 @@
 // :root[data-theme="fism"] block overrides them for FISM. Switching a theme just
 // sets data-theme on <html>; the swatches below are only for the picker preview.
 
-export type ThemeId = 'ember' | 'fism' | 'light' | 'dark' | 'grey'
+export type ThemeId = 'ember' | 'fism' | 'light' | 'dark' | 'grey' | 'grape'
 
 export type Theme = {
   id: ThemeId
@@ -44,10 +44,16 @@ export const THEMES: Theme[] = [
     tagline: 'Muted mid-tone',
     swatch: { bg: '#3b3d42', surface: '#4b4e55', accent: '#c8a670' },
   },
+  {
+    id: 'grape',
+    label: 'Grape',
+    tagline: 'Shadow grape & dusk blue',
+    swatch: { bg: '#241f29', surface: '#3d374e', accent: '#8480cc' },
+  },
 ]
 
 // Every selectable theme id, for validating what's in storage.
-const VALID_THEMES: ThemeId[] = ['ember', 'fism', 'light', 'dark', 'grey']
+const VALID_THEMES: ThemeId[] = ['ember', 'fism', 'light', 'dark', 'grey', 'grape']
 
 // Bumped to -v2 so the new FISM default takes effect even where an older 'ember' value was
 // already saved (e.g. the first Electron launch before FISM became the default).

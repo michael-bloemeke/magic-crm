@@ -86,7 +86,7 @@ export function EmailBuilderCard({
   }
 
   return (
-    <div className="rounded-xl border border-line bg-surface-2/30 px-4 py-3">
+    <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.35)]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-[13px] font-medium text-parchment">{title}</p>

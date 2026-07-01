@@ -540,7 +540,7 @@ function DetailSection({
       className={[
         'flex items-center justify-between gap-2 px-5 py-2.5',
         shown ? 'border-b border-line-strong' : '',
-        highlight ? 'bg-brass/10' : 'bg-surface-3/40',
+        highlight ? 'bg-brass/12' : 'bg-surface-4/60',
       ].join(' ')}
     >
       <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass">
@@ -560,7 +560,7 @@ function DetailSection({
   return (
     <section
       className={[
-        'overflow-hidden rounded-2xl border bg-surface-2/30 shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-colors',
+        'overflow-hidden rounded-2xl border bg-surface-2/70 shadow-[0_4px_16px_-4px_rgba(0,0,0,0.4)] transition-colors',
         highlight ? 'border-brass-dim ring-1 ring-brass-dim/40' : 'border-line-strong',
       ].join(' ')}
     >
