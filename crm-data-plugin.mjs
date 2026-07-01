@@ -419,11 +419,17 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/project/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, (b) => {
+          // Capture this project's task ids BEFORE deleteProject purges them from crm-tasks.json, so
+          // their Work-calendar events can be removed too (otherwise they'd orphan).
+          const taskIds = loadTasks()
+            .filter((t) => t.projectId === b.id)
+            .map((t) => t.id)
           const result = deleteProject(b)
           deletePaymentsForProject(b.id)
           deleteTripsForProject(b.id)
           deleteProjectLinks(b.id)
           void removeProjectEvent(b.id) // gone from the CRM -> gone from the calendar
+          for (const tid of taskIds) void removeTaskEvent(tid)
           return result
         })
       })

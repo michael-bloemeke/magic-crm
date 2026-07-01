@@ -34,6 +34,25 @@ function defaultSectionFor(u: CategoryDef): string {
   return 'postcall'
 }
 
+// One "is this calendar present in the account?" row in the Google Calendar settings.
+function CalRow({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-parchment">{label}</span>
+      {ok ? (
+        <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[#7fc795]">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+          Found
+        </span>
+      ) : (
+        <span className="text-[11.5px] font-semibold text-[#e0b060]">Not found</span>
+      )}
+    </div>
+  )
+}
+
 // The Settings page. Sections: the global questionnaire editor (the question set every project's
 // questionnaire uses), event-field overrides (rename or hide fields in Event details), and the
 // email signature appended below the body on every send.
@@ -662,6 +681,76 @@ export function SettingsPage() {
               Keep this topic private: anyone who knows it can read your alerts. Alerts include client names but never dollar
               amounts. Your Mac must be running to send live "something happened" alerts; due-task alerts fire while the app is open.
             </p>
+          </div>
+        </section>
+
+        {/* Google Calendar: gigs -> "Gigs", tasks -> "Work", auto + manual sync. */}
+        <section className={sectionCls('calendar')}>
+          <div>
+            <h2 className="font-display text-[17px] text-parchment">Google Calendar</h2>
+            <p className="mt-0.5 text-[12px] text-muted">
+              Put your gigs on your <span className="text-parchment">Gigs</span> calendar and your tasks on your{' '}
+              <span className="text-parchment">Work</span> calendar, automatically. Uses the same Google connection as your email.
+            </p>
+          </div>
+
+          <div className="mt-4 space-y-3 text-[12.5px] text-muted">
+            {!cal ? (
+              <p className="text-faint">Checking connection…</p>
+            ) : !cal.connected ? (
+              <>
+                <p>Not connected to Google yet.</p>
+                <a
+                  href="/api/gmail/auth"
+                  className="inline-block rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110"
+                >
+                  Connect Google (Gmail + Calendar)
+                </a>
+              </>
+            ) : !cal.hasScope ? (
+              <>
+                <p>
+                  Your Google account is connected for email, but hasn’t granted calendar access yet. Reconnect once to allow
+                  calendar syncing.
+                </p>
+                <a
+                  href="/api/gmail/auth"
+                  className="inline-block rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110"
+                >
+                  Reconnect to grant calendar access
+                </a>
+              </>
+            ) : (
+              <>
+                <div className="space-y-1.5 rounded-lg border border-line bg-surface px-3 py-2.5">
+                  <CalRow label={`"${cal.gigsName}" calendar (gigs)`} ok={cal.gigsCalendar} />
+                  <CalRow label={`"${cal.workName}" calendar (tasks)`} ok={cal.workCalendar} />
+                </div>
+                {(!cal.gigsCalendar || !cal.workCalendar) && (
+                  <p className="text-[11.5px] text-[#e0b060]">
+                    Create the missing calendar in Google Calendar named exactly “{!cal.gigsCalendar ? cal.gigsName : cal.workName}”,
+                    then Sync.
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={runCalendarSync}
+                    disabled={calBusy}
+                    className="rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+                  >
+                    {calBusy ? 'Syncing…' : 'Sync now'}
+                  </button>
+                  {calNote && <span className="text-[11.5px] text-muted">{calNote}</span>}
+                </div>
+                <p className="text-[11px] leading-relaxed text-faint">
+                  Gigs and tasks also sync automatically as you add or edit them. A gig that isn’t booked yet shows as “Inquiry: …”.
+                  Tasks with a time get 10-minute and at-time reminders; tasks with no time are all-day. Your in-app due reminders
+                  stay based on the date either way.
+                </p>
+              </>
+            )}
+            {cal?.error && <p className="text-[11.5px] text-[#e08a6b]">{cal.error}</p>}
           </div>
         </section>
 

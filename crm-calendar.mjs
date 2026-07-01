@@ -64,18 +64,25 @@ function writeMap(map) {
   }
 }
 
-// Find a calendar by its exact name (summary), caching the id. Returns null if there's no such
-// calendar in the account.
-async function resolveCalendarId(cal, name) {
-  const map = readMap()
-  if (map.calendars[name]) return map.calendars[name]
+// Calendar ids by name, cached in-memory for THIS server session only (never persisted). So a
+// deleted/recreated "Gigs" or "Work" calendar self-heals: the cache clears on restart, calendarStatus
+// re-lists to refresh it, and a stale-id operation error also clears it (see upsertEvent).
+const calIdCache = new Map()
+
+// Fresh lookup: list the account's calendars, match by exact name, and update the cache (positive or
+// negative). Used by calendarStatus so the Settings view always reflects reality.
+async function listCalendarId(cal, name) {
   const res = await cal.calendarList.list({ maxResults: 250 })
   const found = (res.data.items || []).find((c) => (c.summary || '').trim().toLowerCase() === name.toLowerCase())
-  if (!found) return null
-  const m2 = readMap()
-  m2.calendars[name] = found.id
-  writeMap(m2)
-  return found.id
+  const id = found ? found.id : null
+  if (id) calIdCache.set(name, id)
+  else calIdCache.delete(name)
+  return id
+}
+// Cached lookup for the sync hot path; lists once when the name isn't cached yet. Returns null when
+// there is no such calendar in the account.
+async function resolveCalendarId(cal, name) {
+  return calIdCache.has(name) ? calIdCache.get(name) : listCalendarId(cal, name)
 }
 
 // ---- Date / time helpers ----------------------------------------------------
@@ -183,36 +190,63 @@ function taskEventBody(task, project) {
 
 // ---- Upsert / remove --------------------------------------------------------
 
+// Every map-touching operation runs through this one promise chain, so the "does this key already
+// have an event?" check and the insert+id-write are one critical section. Without it, two concurrent
+// first-time syncs of the SAME project/task would both insert -> a duplicate event + an orphan the
+// CRM can never manage. These ops are fire-and-forget and network-bound, so serializing is fine.
+let opChain = Promise.resolve()
+function serialize(fn) {
+  const run = opChain.then(fn, fn)
+  opChain = run.catch(() => {}) // keep the chain alive even if one op rejects
+  return run
+}
+
+function errorCode(e) {
+  return e?.code || e?.response?.status
+}
+
 async function upsertEvent(cal, calId, bucket, key, body) {
-  const existingId = readMap()[bucket][key]
-  if (existingId) {
-    try {
-      await cal.events.update({ calendarId: calId, eventId: existingId, requestBody: body })
-      return existingId
-    } catch (e) {
-      const code = e?.code || e?.response?.status
-      if (code !== 404 && code !== 410) throw e
-      // The event was deleted in Google; fall through and re-create it.
+  return serialize(async () => {
+    const existingId = readMap()[bucket][key]
+    if (existingId) {
+      try {
+        await cal.events.update({ calendarId: calId, eventId: existingId, requestBody: body })
+        return existingId
+      } catch (e) {
+        const code = errorCode(e)
+        if (code !== 404 && code !== 410) throw e
+        // The event was deleted in Google; fall through and re-create it.
+      }
     }
-  }
-  const res = await cal.events.insert({ calendarId: calId, requestBody: body })
-  const map = readMap()
-  map[bucket][key] = res.data.id
-  writeMap(map)
-  return res.data.id
+    let res
+    try {
+      res = await cal.events.insert({ calendarId: calId, requestBody: body })
+    } catch (e) {
+      // A 404 here means the calendar id itself is stale (e.g. the calendar was recreated). Drop the
+      // cached ids so the next sync re-resolves them, then surface the error.
+      if (errorCode(e) === 404) calIdCache.clear()
+      throw e
+    }
+    const map = readMap()
+    map[bucket][key] = res.data.id
+    writeMap(map)
+    return res.data.id
+  })
 }
 
 async function removeEvent(cal, calId, bucket, key) {
-  const id = readMap()[bucket][key]
-  if (!id) return
-  try {
-    await cal.events.delete({ calendarId: calId, eventId: id })
-  } catch {
-    // already gone / 404 — fine
-  }
-  const map = readMap()
-  delete map[bucket][key]
-  writeMap(map)
+  return serialize(async () => {
+    const id = readMap()[bucket][key]
+    if (!id) return
+    try {
+      await cal.events.delete({ calendarId: calId, eventId: id })
+    } catch {
+      // already gone / 404 — fine
+    }
+    const map = readMap()
+    delete map[bucket][key]
+    writeMap(map)
+  })
 }
 
 // ---- Public sync API --------------------------------------------------------
@@ -314,8 +348,9 @@ export async function calendarStatus() {
   if (!connected || !scope) return base
   try {
     const cal = api()
-    const gigs = await resolveCalendarId(cal, GIGS_CALENDAR)
-    const work = await resolveCalendarId(cal, WORK_CALENDAR)
+    // Fresh list (not the cache) so Settings reflects reality and refreshes any stale cached id.
+    const gigs = await listCalendarId(cal, GIGS_CALENDAR)
+    const work = await listCalendarId(cal, WORK_CALENDAR)
     return { ...base, gigsCalendar: !!gigs, workCalendar: !!work }
   } catch (e) {
     return { ...base, error: String(e?.message || e) }
