@@ -101,9 +101,14 @@ export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0
         </div>
 
         <div className="hidden shrink-0 items-center gap-6 text-[12px] sm:flex">
-          <div className="text-right">
+          <div className="max-w-[10rem] text-right">
             <p className="tabular-nums text-muted">{formatEventDate(p.eventDate)}</p>
-            {!summary && p.numberOfGuests ? <p className="text-[10.5px] text-faint">{p.numberOfGuests} guests</p> : null}
+            {/* Only show the guest count when it's an actual short count. Some projects hold a whole
+                sentence here (e.g. a festival's "thousands across the footprint..."), which would
+                otherwise blow out the row; the full value still lives on the project page. */}
+            {!summary && p.numberOfGuests && p.numberOfGuests.length <= 22 ? (
+              <p className="truncate text-[10.5px] text-faint">{p.numberOfGuests} guests</p>
+            ) : null}
           </div>
           <span className="w-16 text-right font-semibold tabular-nums text-brass">{formatFee(p.totalFee)}</span>
         </div>
