@@ -30,6 +30,7 @@ signwell-credentials.json
 portal-credentials.json
 claude-credentials.json
 anthropic-key.txt
+supabase-credentials.json
 
 # Uploaded business files (Files page) — local working assets, not source
 crm-files/
