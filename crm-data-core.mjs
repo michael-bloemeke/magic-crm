@@ -14,7 +14,25 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { formatPhoneField } from './crm-phone.mjs'
-import { CRM_STORE, getCachedProjects, getCachedPipelineMeta } from './crm-store.mjs'
+import {
+  CRM_STORE,
+  getCachedProjects,
+  getCachedPipelineMeta,
+  // async Supabase writers
+  insertProject as sbInsertProject,
+  updateProject as sbUpdateProject,
+  deleteProject as sbDeleteProject,
+  setProjectStage as sbSetProjectStage,
+  reassignStage as sbReassignStage,
+  setPipelineMeta as sbSetPipelineMeta,
+  // synchronous cache mutators
+  cacheUpsertProject,
+  cachePatchProject,
+  cacheRemoveProject,
+  cacheSetProjectStage,
+  cacheReassignStage,
+  cacheSetPipelineMeta,
+} from './crm-store.mjs'
 
 export const RECORDS_DIR = path.join(
   os.homedir(),
@@ -491,6 +509,13 @@ function loadAllSupabase() {
   const structure = loadStructure()
   const valid = validStageIdSet(structure)
 
+  // Derived-stage changes computed below are persisted back to Supabase, mirroring how the files
+  // path persists to crm-pipeline.json. This is fire-and-forget: we update the cache synchronously
+  // (so the value we return and any later sync read agree) and kick off the async column write
+  // without awaiting it. These derivations are idempotent (recomputed on every load), so a dropped
+  // write self-heals next load. `persist` records the id->stage changes to flush after the loop.
+  const persist = new Map()
+
   for (const p of projects) {
     if (p.bucket !== 'active') {
       p.stageId = ''
@@ -506,6 +531,7 @@ function loadAllSupabase() {
       // files a never-seen project is inferred; under supabase every active project already
       // has a stage_id column, so a blank/invalid one means orphaned -> Inquiry.
       p.stageId = ORPHAN_STAGE
+      if (existing !== ORPHAN_STAGE) persist.set(p.id, ORPHAN_STAGE) // rehome the orphan
     }
   }
 
@@ -518,10 +544,23 @@ function loadAllSupabase() {
     const fee = p.totalFee
     const paidInFull = fee != null && receivedTotalFor(p.id) + 0.005 >= fee
     if (bookedSet.has(p.stageId) && p.eventDate && p.eventDate < todayLocal) {
-      p.stageId = paidInFull ? THANK_YOU : THANK_YOU_PAYMENT
+      const target = paidInFull ? THANK_YOU : THANK_YOU_PAYMENT
+      if (p.stageId !== target) {
+        p.stageId = target
+        persist.set(p.id, target)
+      }
     } else if (p.stageId === THANK_YOU_PAYMENT && paidInFull) {
       p.stageId = THANK_YOU
+      persist.set(p.id, THANK_YOU)
     }
+  }
+
+  // Flush the derived-stage changes: update the cache now, fire the Supabase write without awaiting.
+  for (const [id, stageId] of persist) {
+    cacheSetProjectStage(id, stageId)
+    sbSetProjectStage(id, stageId).catch((err) =>
+      console.error(`[crm-data] loadAllSupabase: failed to persist derived stage ${id}=${stageId}:`, err?.message || err),
+    )
   }
 
   return { projects, recordsDir: RECORDS_DIR }
@@ -614,7 +653,7 @@ function loadAllFiles() {
   return { projects, recordsDir: RECORDS_DIR }
 }
 
-export function setStage(id, stageId) {
+export async function setStage(id, stageId) {
   const structure = loadStructure()
   if (!id || !validStageIdSet(structure).has(stageId)) throw new Error('invalid id or stageId')
   // Post Show is auto-only: projects land there the day after the event, never by a
@@ -623,11 +662,17 @@ export function setStage(id, stageId) {
     throw new Error('Projects move into Post Show automatically the day after the event; they can be moved out but not in.')
   }
   // A project can't enter ANY stage in the Booked category without a received
-  // payment on file. Enforced here (the data layer) so EVERY path is gated.
+  // payment on file. Enforced here (the data layer) so EVERY path is gated. hasReceivedPaymentFor
+  // reads crm-payments.json in BOTH backends (payments are not migrated), so the gate is identical.
   if (bookedStageIdSet(structure).has(stageId) && !hasReceivedPaymentFor(id)) {
     throw new Error(
       'Cannot move to a Booked stage without a received payment (amount + date). Log a payment for this project in crm-payments.json first.',
     )
+  }
+  if (CRM_STORE === 'supabase') {
+    cacheSetProjectStage(id, stageId)
+    await sbSetProjectStage(id, stageId)
+    return { ok: true, id, stageId }
   }
   const map = readJson(STAGE_FILE) || { stages: {} }
   if (!map.stages) map.stages = {}
@@ -640,10 +685,17 @@ export function setStage(id, stageId) {
 
 // Persist an edited pipeline structure (add/rename/delete/reorder of categories +
 // stages). Normalized so the invariants always hold regardless of what's sent.
-export function saveStructure(raw) {
+export async function saveStructure(raw) {
+  const structure = normalizeStructure(raw)
+  if (CRM_STORE === 'supabase') {
+    // Structure lives in pipeline_meta.structure (cached). Store the normalized structure so the
+    // cache and DB match what loadStructure() will re-normalize on read.
+    cacheSetPipelineMeta({ structure })
+    await sbSetPipelineMeta({ structure })
+    return structure
+  }
   const map = readJson(STAGE_FILE) || { stages: {} }
   if (!map.stages) map.stages = {}
-  const structure = normalizeStructure(raw)
   map.structure = structure
   map._meta = stageMeta()
   writeStageFile(map)
@@ -653,10 +705,19 @@ export function saveStructure(raw) {
 // Move every project currently sitting on one of `fromStageIds` to `toStageId`
 // (used by the "Dump all projects into Inquiry" action before deleting a stage or
 // category). toStageId is clamped to a stage that exists (falling back to Inquiry).
-export function reassignStage(fromStageIds, toStageId) {
+export async function reassignStage(fromStageIds, toStageId) {
   const valid = validStageIdSet(loadStructure())
   const to = valid.has(toStageId) ? toStageId : ORPHAN_STAGE
   const from = new Set(Array.isArray(fromStageIds) ? fromStageIds : [fromStageIds])
+  if (CRM_STORE === 'supabase') {
+    const fromIds = [...from]
+    // Count from the cache (matches the files path counting stage entries) before mutating.
+    let changed = 0
+    for (const p of getCachedProjects()) if (from.has(p.stage_id)) changed++
+    cacheReassignStage(fromIds, to)
+    await sbReassignStage(fromIds, to)
+    return { ok: true, changed, to }
+  }
   const map = readJson(STAGE_FILE) || { stages: {} }
   if (!map.stages) map.stages = {}
   let changed = 0
@@ -680,7 +741,12 @@ export function loadLayout() {
   return map.flowLayout || null
 }
 
-export function saveLayout(layout) {
+export async function saveLayout(layout) {
+  if (CRM_STORE === 'supabase') {
+    cacheSetPipelineMeta({ flow_layout: layout })
+    await sbSetPipelineMeta({ flow_layout: layout })
+    return { ok: true }
+  }
   const map = readJson(STAGE_FILE) || { stages: {} }
   if (!map.stages) map.stages = {}
   map.flowLayout = layout
@@ -813,9 +879,29 @@ const EDITABLE_FIELDS = {
   projectNotes: 'project_notes',
 }
 
-export function updateProjectField({ id, field, value }) {
+// Coerce an inbound field value to the stored form, exactly as the files path does inline.
+function coerceFieldValue(jsonField, value) {
+  if (jsonField === 'total_fee' || jsonField === 'mileage' || jsonField === 'tips') {
+    const n = Number(String(value ?? '').replace(/[^0-9.]/g, ''))
+    return value === '' || value == null || Number.isNaN(n) ? null : n
+  }
+  if (jsonField === 'contact_phones') {
+    return formatPhoneField(value == null ? '' : String(value))
+  }
+  return value == null ? '' : String(value)
+}
+
+export async function updateProjectField({ id, field, value }) {
   const jsonField = EDITABLE_FIELDS[field]
   if (!jsonField) throw new Error(`field not editable: ${field}`)
+
+  if (CRM_STORE === 'supabase') {
+    if (!getCachedProjects().some((p) => p.id === id)) throw new Error(`project not found: ${id}`)
+    const stored = coerceFieldValue(jsonField, value)
+    cachePatchProject(id, { [jsonField]: stored })
+    await sbUpdateProject(id, { [jsonField]: stored })
+    return { ok: true, id, field, value: stored }
+  }
 
   for (const b of allBuckets()) {
     const file = path.join(RECORDS_DIR, b.file)
@@ -842,7 +928,7 @@ export function updateProjectField({ id, field, value }) {
 // Appends a dated call entry to the project's activity_log. answered=true logs
 // "They answered." plus an optional note; answered=false logs whether a voicemail
 // was left. Mirrors the activity_log style (newest first). Returns the updated log.
-export function logCall({ id, answered, voicemail, note } = {}) {
+export async function logCall({ id, answered, voicemail, note } = {}) {
   if (!id) throw new Error('project id is required')
   let detail
   if (answered) {
@@ -853,6 +939,14 @@ export function logCall({ id, answered, voicemail, note } = {}) {
     detail = voicemail ? 'No answer, left a voicemail.' : 'No answer, no voicemail left.'
   }
   const entry = `${logDate()}: Made a call. ${detail}`
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id)
+    if (!row) throw new Error(`project not found: ${id}`)
+    const activity_log = [entry, ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : [])]
+    cachePatchProject(id, { activity_log })
+    await sbUpdateProject(id, { activity_log })
+    return { ok: true, id, entry, activityLog: activity_log }
+  }
   for (const b of allBuckets()) {
     const file = path.join(RECORDS_DIR, b.file)
     const data = readJson(file)
@@ -871,8 +965,16 @@ export function logCall({ id, answered, voicemail, note } = {}) {
 // "Month Day, Year: ..." convention. Shared helper for actions outside this file
 // (e.g. the email sender). Best-effort: returns {ok:false} if the project isn't found
 // rather than throwing, so a logging miss never fails the action that triggered it.
-export function appendActivityLog(id, text) {
+export async function appendActivityLog(id, text) {
   const entry = `${logDate()}: ${String(text || '').trim()}`
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id)
+    if (!row) return { ok: false }
+    const activity_log = [entry, ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : [])]
+    cachePatchProject(id, { activity_log })
+    await sbUpdateProject(id, { activity_log })
+    return { ok: true, entry }
+  }
   for (const b of allBuckets()) {
     const file = path.join(RECORDS_DIR, b.file)
     const data = readJson(file)
@@ -892,7 +994,7 @@ export function appendActivityLog(id, text) {
 // name required, then sets its pipeline stage (default inquiry). Everything else
 // is optional and editable afterward.
 
-export function createProject(input = {}) {
+export async function createProject(input = {}) {
   const name = String(input.clientName ?? input.client_name ?? '').trim()
   if (!name) throw new Error('project name is required')
   const id = slugify(name)
@@ -926,18 +1028,68 @@ export function createProject(input = {}) {
     activity_log: [`${logDate()}: Project created in the CRM.`],
   }
 
+  // Clamp the requested stage to a valid, allowed starting stage BEFORE writing (so the persisted
+  // stage_id is correct in one write under supabase). A brand-new project has no payment yet, so it
+  // can't start in the Booked category, and Post Show is auto-only; either way land it in Inquiry.
+  const structure = loadStructure()
+  let stageId = validStageIdSet(structure).has(input.stageId) ? input.stageId : ORPHAN_STAGE
+  if (bookedStageIdSet(structure).has(stageId) || postshowStageIdSet(structure).has(stageId)) stageId = ORPHAN_STAGE
+
+  if (CRM_STORE === 'supabase') {
+    // One row in the projects table carries both the record and its stage (stage_id column). Fill the
+    // remaining columns to null so the raw row matches what normalize() reads (import-phase1 shape).
+    const row = {
+      id,
+      client_name: name,
+      project_name: rec.project_name,
+      bucket: 'active',
+      stage_id: stageId,
+      event_type: rec.event_type,
+      event_date: rec.event_date,
+      event_location: rec.event_location,
+      venue_type: null,
+      indoors_or_outdoors: null,
+      arrival_time: null,
+      event_start_time: null,
+      show_start_time: null,
+      number_of_guests: null,
+      age_of_guests: null,
+      performance_style: null,
+      total_fee,
+      tips: null,
+      tips_method: null,
+      mileage,
+      vips: null,
+      av: null,
+      contact_names: rec.contact_names,
+      contact_emails: rec.contact_emails,
+      contact_phones: rec.contact_phones,
+      booking_source: null,
+      event_summary: null,
+      event_description: null,
+      project_notes: rec.project_notes,
+      how_it_went: null,
+      assets: null,
+      status: 'open',
+      flags: [],
+      activity_log: rec.activity_log,
+      archive_reason: null,
+      why_archived: null,
+      completed_date: null,
+      links_seeded: false,
+    }
+    cacheUpsertProject(row)
+    await sbInsertProject(row)
+    return loadAll().projects.find((p) => p.id === id)
+  }
+
   const file = path.join(RECORDS_DIR, BUCKET_FILE.active)
   const data = readJson(file) || { projects: [] }
   if (!Array.isArray(data.projects)) data.projects = []
   data.projects.push(rec)
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n')
 
-  const structure = loadStructure()
-  let stageId = validStageIdSet(structure).has(input.stageId) ? input.stageId : ORPHAN_STAGE
-  // A brand-new project has no payment yet, so it can't start in the Booked
-  // category, and Post Show is auto-only; either way land it in Inquiry instead.
-  if (bookedStageIdSet(structure).has(stageId) || postshowStageIdSet(structure).has(stageId)) stageId = ORPHAN_STAGE
-  setStage(id, stageId)
+  await setStage(id, stageId)
 
   return loadAll().projects.find((p) => p.id === id)
 }
@@ -981,6 +1133,9 @@ function appendLog(rec, line) {
   rec.activity_log.unshift(line)
 }
 
+// Under files, drop the project's entry from crm-pipeline.json's stages map. Under supabase the
+// stage lives in the projects.stage_id column and is cleared as part of the bucket-move UPDATE
+// (below), so this is a files-only helper. Kept sync (files path only ever calls it).
 function clearStageEntry(id) {
   const map = readJson(STAGE_FILE)
   if (map && map.stages && map.stages[id]) {
@@ -1014,8 +1169,21 @@ function moveBetween(from, to, id, mutate) {
   return { ok: true, id, from, to }
 }
 
-export function archiveProject({ id, reason }) {
+export async function archiveProject({ id, reason }) {
   const r = String(reason || '').trim()
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id && (str(p.bucket) || 'active') === 'active')
+    if (!row) throw new Error(`project not found in active: ${id}`)
+    const activity_log = [
+      `${logDate()}: Project archived in CRM.${r ? ` Reason: ${r}.` : ''}`,
+      ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
+    ]
+    // One UPDATE on the single row: flip the bucket, record the reason, clear the stage.
+    const patch = { bucket: 'archived', stage_id: null, activity_log, ...(r ? { archive_reason: r } : {}) }
+    cachePatchProject(id, patch)
+    await sbUpdateProject(id, patch)
+    return { ok: true, id, from: 'active', to: 'archived' }
+  }
   const activeData = projData('active-projects.json')
   const rec = activeData.projects.find((p) => slugify(p.client_name) === id)
   if (!rec) throw new Error(`project not found in active: ${id}`)
@@ -1027,9 +1195,33 @@ export function archiveProject({ id, reason }) {
   return { ok: true, id, from: 'active', to: toFile }
 }
 
-export function completeProject({ id }) {
-  // No discrepancies: a gig can only be completed once it's paid in full (the
-  // received payments cover the total fee). Enforced here so every path is gated.
+export async function completeProject({ id }) {
+  // No discrepancies: a gig can only be completed once it's paid in full (the received payments
+  // cover the total fee). Enforced here so every path is gated. receivedTotalFor reads
+  // crm-payments.json in BOTH backends (payments are not migrated), so the gate is identical.
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id && (str(p.bucket) || 'active') === 'active')
+    if (!row) throw new Error(`project not found in active: ${id}`)
+    const raw = row.total_fee
+    const fee = raw == null || raw === '' ? null : Number(typeof raw === 'number' ? raw : String(raw).replace(/[^0-9.]/g, ''))
+    if (fee == null || Number.isNaN(fee)) {
+      throw new Error('Set a total fee before completing this project, so its payments can be reconciled to it.')
+    }
+    const received = receivedTotalFor(id)
+    if (received + 0.005 < fee) {
+      throw new Error(
+        `Cannot complete: $${Math.round(fee - received)} still outstanding (received $${Math.round(received)} of the $${Math.round(fee)} fee). Log the remaining payment first.`,
+      )
+    }
+    const activity_log = [
+      `${logDate()}: Project marked complete in CRM.`,
+      ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
+    ]
+    const patch = { bucket: 'completed', stage_id: null, completed_date: new Date().toISOString().slice(0, 10), activity_log }
+    cachePatchProject(id, patch)
+    await sbUpdateProject(id, patch)
+    return { ok: true, id, from: 'active', to: 'completed' }
+  }
   const activeData = projData('active-projects.json')
   const rec = activeData.projects.find((p) => slugify(p.client_name) === id)
   if (!rec) throw new Error(`project not found in active: ${id}`)
@@ -1056,7 +1248,21 @@ export function completeProject({ id }) {
 // Bring an archived/completed project back into the active pipeline. Pulls the
 // record out of EVERY non-active bucket file (so a stray duplicate can't be left
 // behind) and lands a single copy in active.
-export function restoreProject({ id }) {
+export async function restoreProject({ id }) {
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id && (str(p.bucket) || 'active') !== 'active')
+    if (!row) throw new Error(`project not found in archived/completed: ${id}`)
+    const activity_log = [
+      `${logDate()}: Project returned to the active pipeline.`,
+      ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
+    ]
+    // Back to active with archive/complete markers cleared and stage cleared, so the next load
+    // re-derives its stage into Inquiry (matching the files path's clearStageEntry -> re-infer).
+    const patch = { bucket: 'active', stage_id: null, archive_reason: null, completed_date: null, activity_log }
+    cachePatchProject(id, patch)
+    await sbUpdateProject(id, patch)
+    return { ok: true, id, to: 'active' }
+  }
   let rec = null
   const touched = []
   for (const b of allBuckets()) {
@@ -1091,8 +1297,21 @@ export function restoreProject({ id }) {
 // canonical record is gone, so this is gated behind a confirm in the UI. Used for
 // duplicates, mistakes, or projects Michael doesn't want kept (e.g. a no-budget
 // inquiry he won't revisit).
-export function deleteProject({ id } = {}) {
+export async function deleteProject({ id } = {}) {
   if (!id) throw new Error('project id is required')
+
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id)
+    if (!row) throw new Error(`project not found: ${id}`)
+    const name = str(row.client_name)
+    const fromBucket = str(row.bucket) || 'active'
+    cacheRemoveProject(id) // also drops its link entry from the cached map
+    await sbDeleteProject(id) // contact_links cascade via FK
+    // Keep the CRM-owned, files-based purges (tasks stay on files even under supabase).
+    purgeTasksForProject(id)
+    return { ok: true, id, from: [fromBucket], name }
+  }
+
   let removed = null
   const fromBuckets = []
   for (const b of allBuckets()) {
@@ -1109,6 +1328,14 @@ export function deleteProject({ id } = {}) {
   if (!removed) throw new Error(`project not found: ${id}`)
 
   clearStageEntry(id)
+  purgeTasksForProject(id)
+
+  return { ok: true, id, from: fromBuckets, name: str(removed.client_name) }
+}
+
+// Purge a deleted project's CRM tasks (crm-tasks.json — not migrated, so files-based in both
+// backends). Best-effort: a failure here never fails the delete. Extracted so both paths share it.
+function purgeTasksForProject(id) {
   try {
     const t = readTasksFile()
     const before = t.tasks.length
@@ -1120,8 +1347,6 @@ export function deleteProject({ id } = {}) {
   } catch (e) {
     console.error('[crm-data] could not purge tasks for deleted project:', e?.message || e)
   }
-
-  return { ok: true, id, from: fromBuckets, name: str(removed.client_name) }
 }
 
 // --- Email templates (CRM-owned, in crm-templates.json) ----------------------

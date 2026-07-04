@@ -13,9 +13,31 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { loadContacts, addContact } from './crm-contacts.mjs'
-import { CRM_STORE, getCachedLinksMap, getCachedProjects } from './crm-store.mjs'
+import { formatPhone } from './crm-phone.mjs'
+import {
+  CRM_STORE,
+  getCachedLinksMap,
+  getCachedProjects,
+  // async Supabase writers
+  setProjectLinks as sbSetProjectLinks,
+  addLink as sbAddLink,
+  removeLink as sbRemoveLink,
+  purgeContactLinks as sbPurgeContactLinks,
+  deleteProjectLinks as sbDeleteProjectLinks,
+  updateProject as sbUpdateProject,
+  upsertContact as sbUpsertContact,
+  // synchronous cache mutators
+  cacheSetProjectLinks,
+  cacheAddLink,
+  cacheRemoveLink,
+  cachePurgeContactLinks,
+  cacheDeleteProjectLinks,
+  cachePatchProject,
+  cacheUpsertContact,
+} from './crm-store.mjs'
 
 const LINKS_FILE = path.join(RECORDS_DIR, 'crm-links.json')
 
@@ -79,6 +101,10 @@ function writeLinks(d) {
 // return the full links map. Idempotent and non-destructive: it only ADDS entries
 // for projects it has never seen, and reuses an existing contact when one matches.
 export function seedLinksIfNeeded() {
+  return CRM_STORE === 'supabase' ? seedLinksSupabase() : seedLinksFiles()
+}
+
+function seedLinksFiles() {
   const d = readLinks()
   const projects = loadAll().projects
   const contacts = loadContacts()
@@ -144,6 +170,107 @@ export function seedLinksIfNeeded() {
   return d.links
 }
 
+// Build the RAW contact row (snake_case) a seed would create, WITHOUT calling the async addContact.
+// Mirrors normalizeContact + addContact's defaults so the seeded contact reads back identically.
+function buildSeedContactRow({ name, emails, phones, relationship }) {
+  const cleanEmails = (Array.isArray(emails) ? emails : []).map((x) => String(x).trim()).filter(Boolean)
+  const cleanPhones = (Array.isArray(phones) ? phones : []).map((x) => String(x).trim()).filter(Boolean).map(formatPhone)
+  const nm = String(name || '').trim() || cleanEmails[0] || ''
+  const now = new Date().toISOString()
+  return {
+    id: crypto.randomUUID(),
+    name: nm,
+    emails: cleanEmails,
+    phones: cleanPhones,
+    type: 'client',
+    relationship: ['yes', 'no', 'maybe', 'active', ''].includes(relationship) ? relationship : '',
+    engagement: '',
+    tags: [],
+    notes: '',
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+// SUPABASE seeding. Runs inside the READ path (called by loadLinks -> loadContacts handler and the
+// /api/contacts GET), so it MUST stay synchronous: it updates the in-memory cache immediately and
+// fires the Supabase persists WITHOUT awaiting (fire-and-forget, errors logged). Idempotent: seeding
+// is decided by the project's links_seeded flag (not map-key presence), and we flip that flag in the
+// cache the instant we seed so a project is never re-seeded within the process. A dropped async write
+// self-heals because links_seeded/contact_links are recomputed from Supabase on the next load.
+function seedLinksSupabase() {
+  const map = getCachedLinksMap() // live cache reference (mutate in place)
+  const projects = loadAll().projects
+  const contacts = loadContacts() // normalized, from cache
+
+  const byEmail = new Map()
+  const byName = new Map()
+  const reindexContact = (c) => {
+    for (const e of c.emails || []) {
+      const k = norm(e)
+      if (k && !byEmail.has(k)) byEmail.set(k, c.id)
+    }
+    const n = norm(c.name)
+    if (n && !byName.has(n)) byName.set(n, c.id)
+  }
+  for (const c of contacts) reindexContact(c)
+
+  // seeded set = projects whose links_seeded flag is true (the definitive "initialized" record).
+  const seeded = new Set(getCachedProjects().filter((p) => p.links_seeded).map((p) => p.id))
+
+  for (const p of projects) {
+    if (seeded.has(p.id)) continue // already initialized -> the user owns it now
+
+    const emails = list(p.contactEmails).filter((e) => e.includes('@'))
+    const names = list(p.contactNames)
+    const name = names[0] || p.client || ''
+
+    let contactId = null
+    for (const e of emails) {
+      const id = byEmail.get(norm(e))
+      if (id) {
+        contactId = id
+        break
+      }
+    }
+    if (!contactId && name) {
+      const id = byName.get(norm(name))
+      if (id) contactId = id
+    }
+    if (!contactId && (name || emails.length)) {
+      // Create the contact synchronously in the cache; fire-and-forget the Supabase write.
+      const row = buildSeedContactRow({
+        name,
+        emails,
+        phones: list(p.contactPhones),
+        relationship: p.bucket === 'active' ? 'active' : p.bucket === 'completed' ? 'yes' : 'no',
+      })
+      cacheUpsertContact(row)
+      sbUpsertContact(row).catch((err) => console.error('[crm-links] seed upsertContact failed:', err?.message || err))
+      // Index the new contact (mirror normalizeContact's phone form so lookups match a later read).
+      reindexContact({ id: row.id, name: row.name, emails: row.emails })
+      contactId = row.id
+    }
+
+    // Update the cache now: link (if any) + mark the project seeded so it never re-seeds.
+    if (contactId) {
+      cacheSetProjectLinks(p.id, [contactId])
+      sbSetProjectLinks(p.id, [contactId]).catch((err) =>
+        console.error('[crm-links] seed setProjectLinks failed:', err?.message || err),
+      )
+    } else {
+      cacheSetProjectLinks(p.id, []) // explicit empty set: seeded, no contacts
+    }
+    cachePatchProject(p.id, { links_seeded: true })
+    seeded.add(p.id)
+    sbUpdateProject(p.id, { links_seeded: true }).catch((err) =>
+      console.error('[crm-links] seed set links_seeded failed:', err?.message || err),
+    )
+  }
+
+  return readLinks().links
+}
+
 // The full links map. Under files it seeds any uninitialized projects first (a write concern);
 // under supabase seeding is deferred to the later write pass, so this just returns the cached map.
 export function loadLinks() {
@@ -155,14 +282,31 @@ export function contactIdsForProject(projectId) {
   return readLinks().links[projectId] || []
 }
 
-export function setProjectContacts(projectId, contactIds) {
+export async function setProjectContacts(projectId, contactIds) {
+  const ids = Array.from(new Set((contactIds || []).map(String)))
+  if (CRM_STORE === 'supabase') {
+    // Replacing the contact set also means the project is now initialized (links_seeded=true), so an
+    // explicit empty set is a respected "seeded, no contacts" state and won't be re-seeded.
+    cacheSetProjectLinks(projectId, ids)
+    cachePatchProject(projectId, { links_seeded: true })
+    await sbSetProjectLinks(projectId, ids)
+    await sbUpdateProject(projectId, { links_seeded: true })
+    return readLinks().links
+  }
   const d = readLinks()
-  d.links[projectId] = Array.from(new Set((contactIds || []).map(String)))
+  d.links[projectId] = ids
   writeLinks(d)
   return d.links
 }
 
-export function linkContact(projectId, contactId) {
+export async function linkContact(projectId, contactId) {
+  if (CRM_STORE === 'supabase') {
+    cacheAddLink(projectId, contactId)
+    cachePatchProject(projectId, { links_seeded: true })
+    await sbAddLink(projectId, contactId)
+    await sbUpdateProject(projectId, { links_seeded: true })
+    return readLinks().links
+  }
   const d = readLinks()
   const arr = d.links[projectId] || []
   if (!arr.includes(contactId)) arr.push(contactId)
@@ -171,7 +315,12 @@ export function linkContact(projectId, contactId) {
   return d.links
 }
 
-export function unlinkContact(projectId, contactId) {
+export async function unlinkContact(projectId, contactId) {
+  if (CRM_STORE === 'supabase') {
+    cacheRemoveLink(projectId, contactId)
+    await sbRemoveLink(projectId, contactId)
+    return readLinks().links
+  }
   const d = readLinks()
   d.links[projectId] = (d.links[projectId] || []).filter((x) => x !== contactId)
   writeLinks(d)
@@ -180,7 +329,12 @@ export function unlinkContact(projectId, contactId) {
 
 // Remove a (deleted) contact from every project it was on. Keeps deletions from
 // leaving dangling ids, and means a deleted contact stays gone.
-export function purgeContact(contactId) {
+export async function purgeContact(contactId) {
+  if (CRM_STORE === 'supabase') {
+    cachePurgeContactLinks(contactId)
+    await sbPurgeContactLinks(contactId)
+    return readLinks().links
+  }
   const d = readLinks()
   let dirty = false
   for (const k of Object.keys(d.links)) {
@@ -192,7 +346,12 @@ export function purgeContact(contactId) {
   return d.links
 }
 
-export function deleteProjectLinks(projectId) {
+export async function deleteProjectLinks(projectId) {
+  if (CRM_STORE === 'supabase') {
+    cacheDeleteProjectLinks(projectId)
+    await sbDeleteProjectLinks(projectId)
+    return { ok: true }
+  }
   const d = readLinks()
   if (projectId in d.links) {
     delete d.links[projectId]

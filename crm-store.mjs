@@ -197,6 +197,97 @@ export function getCachedPipelineMeta() {
   return requireCache('getCachedPipelineMeta').pipelineMeta
 }
 
+// ---------------- in-memory cache MUTATORS (for the write funnels) ----------------
+//
+// Under CRM_STORE==='supabase' the write funnels persist to Supabase (async) AND must update this
+// cache synchronously, so a synchronous read later in the same process reflects the change without
+// waiting for a refresh. Every mutator here operates on the RAW row shape (snake_case) so the cache
+// stays byte-identical to what getAllProjects()/getContacts()/getLinksMap() would return. No-ops if
+// the cache isn't initialized (defensive; the funnels only call these under supabase after initStore).
+
+// Insert or replace a whole project row in the cache (keyed by id).
+export function cacheUpsertProject(row) {
+  if (!_cache) return
+  const i = _cache.projects.findIndex((p) => p.id === row.id)
+  if (i === -1) _cache.projects.push(row)
+  else _cache.projects[i] = row
+}
+// Merge a partial patch into one cached project row.
+export function cachePatchProject(id, patch) {
+  if (!_cache) return
+  const p = _cache.projects.find((p) => p.id === id)
+  if (p) Object.assign(p, patch)
+}
+// Remove a project row (and any of its contact_links) from the cache.
+export function cacheRemoveProject(id) {
+  if (!_cache) return
+  _cache.projects = _cache.projects.filter((p) => p.id !== id)
+  delete _cache.linksMap[id]
+}
+export function cacheSetProjectStage(id, stageId) {
+  cachePatchProject(id, { stage_id: stageId })
+}
+// Move every cached project at any of `fromIds` to `toId`.
+export function cacheReassignStage(fromIds, toId) {
+  if (!_cache) return
+  const from = new Set(fromIds || [])
+  for (const p of _cache.projects) if (from.has(p.stage_id)) p.stage_id = toId
+}
+
+// Insert or replace a whole contact row in the cache (keyed by id).
+export function cacheUpsertContact(row) {
+  if (!_cache) return
+  const i = _cache.contacts.findIndex((c) => c.id === row.id)
+  if (i === -1) _cache.contacts.push(row)
+  else _cache.contacts[i] = row
+}
+export function cacheRemoveContact(id) {
+  if (!_cache) return
+  _cache.contacts = _cache.contacts.filter((c) => c.id !== id)
+  // Strip the contact from every project's link array (mirrors purgeContactLinks).
+  for (const pid of Object.keys(_cache.linksMap)) {
+    _cache.linksMap[pid] = _cache.linksMap[pid].filter((cid) => cid !== id)
+    if (_cache.linksMap[pid].length === 0) delete _cache.linksMap[pid]
+  }
+}
+
+// Replace a project's entire contact set in the cache. An empty set is tracked by links_seeded
+// on the project row, not by a map entry, so we DELETE the key when the set is empty (matching
+// getLinksMap, which only lists projects with >=1 contact).
+export function cacheSetProjectLinks(projectId, contactIds) {
+  if (!_cache) return
+  const ids = [...new Set((contactIds || []).map(String))]
+  if (ids.length) _cache.linksMap[projectId] = ids
+  else delete _cache.linksMap[projectId]
+}
+export function cacheAddLink(projectId, contactId) {
+  if (!_cache) return
+  const arr = _cache.linksMap[projectId] || (_cache.linksMap[projectId] = [])
+  if (!arr.includes(contactId)) arr.push(contactId)
+}
+export function cacheRemoveLink(projectId, contactId) {
+  if (!_cache) return
+  if (!_cache.linksMap[projectId]) return
+  _cache.linksMap[projectId] = _cache.linksMap[projectId].filter((cid) => cid !== contactId)
+  if (_cache.linksMap[projectId].length === 0) delete _cache.linksMap[projectId]
+}
+export function cachePurgeContactLinks(contactId) {
+  if (!_cache) return
+  for (const pid of Object.keys(_cache.linksMap)) {
+    _cache.linksMap[pid] = _cache.linksMap[pid].filter((cid) => cid !== contactId)
+    if (_cache.linksMap[pid].length === 0) delete _cache.linksMap[pid]
+  }
+}
+export function cacheDeleteProjectLinks(projectId) {
+  if (!_cache) return
+  delete _cache.linksMap[projectId]
+}
+// Merge a patch ({ structure } and/or { flow_layout }) into the cached pipeline_meta.
+export function cacheSetPipelineMeta(patch) {
+  if (!_cache) return
+  _cache.pipelineMeta = { ...(_cache.pipelineMeta || {}), ...patch }
+}
+
 // ---------------- pipeline_meta (structure + flow layout) ----------------
 
 export async function getPipelineMeta() {

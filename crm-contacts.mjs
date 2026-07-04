@@ -8,7 +8,14 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { formatPhone } from './crm-phone.mjs'
-import { CRM_STORE, getCachedContacts } from './crm-store.mjs'
+import {
+  CRM_STORE,
+  getCachedContacts,
+  upsertContact as sbUpsertContact,
+  deleteContact as sbDeleteContact,
+  cacheUpsertContact,
+  cacheRemoveContact,
+} from './crm-store.mjs'
 
 const CONTACTS_FILE = path.join(RECORDS_DIR, 'crm-contacts.json')
 
@@ -103,10 +110,28 @@ export function loadContacts() {
   return rawContacts().map(normalizeContact)
 }
 
-export function addContact(input = {}) {
+// A normalized contact (camelCase createdAt/updatedAt) -> the RAW Supabase row shape (snake_case
+// created_at/updated_at, jsonb arrays), so the cache row matches what getCachedContacts() returns
+// and rawContacts() re-maps identically. isoZ round-trips the timestamp exactly as the read path.
+function toRawRow(c) {
+  return {
+    id: c.id,
+    name: c.name,
+    emails: c.emails,
+    phones: c.phones,
+    type: c.type,
+    relationship: c.relationship,
+    engagement: c.engagement,
+    tags: c.tags,
+    notes: c.notes,
+    created_at: c.createdAt || null,
+    updated_at: c.updatedAt || null,
+  }
+}
+
+export async function addContact(input = {}) {
   const name = String(input.name || '').trim()
   if (!name && list(input.emails).length === 0) throw new Error('a name or email is required')
-  const d = readFile()
   const c = normalizeContact({
     ...input,
     id: crypto.randomUUID(),
@@ -114,12 +139,36 @@ export function addContact(input = {}) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   })
+  if (CRM_STORE === 'supabase') {
+    const row = toRawRow(c)
+    cacheUpsertContact(row)
+    await sbUpsertContact(row)
+    // Re-normalize through the read path so the returned object matches a subsequent loadContacts()
+    // (isoZ timestamp form). Same object either backend.
+    return normalizeContact({ ...row, createdAt: isoZ(row.created_at), updatedAt: isoZ(row.updated_at) })
+  }
+  const d = readFile()
   d.contacts.push(c)
   writeFile(d)
   return c
 }
 
-export function updateContact({ id, ...fields }) {
+export async function updateContact({ id, ...fields }) {
+  if (CRM_STORE === 'supabase') {
+    const existing = getCachedContacts().find((x) => x.id === id)
+    if (!existing) throw new Error('contact not found')
+    // Start from the normalized current contact, apply the incoming fields, bump updatedAt.
+    const merged = normalizeContact({ ...existing, createdAt: isoZ(existing.created_at), updatedAt: isoZ(existing.updated_at) })
+    for (const k of ['name', 'emails', 'phones', 'type', 'relationship', 'engagement', 'tags', 'notes']) {
+      if (k in fields) merged[k] = fields[k]
+    }
+    merged.updatedAt = new Date().toISOString()
+    const normalized = normalizeContact(merged)
+    const row = toRawRow(normalized)
+    cacheUpsertContact(row)
+    await sbUpsertContact(row)
+    return normalized
+  }
   const d = readFile()
   const c = d.contacts.find((x) => x.id === id)
   if (!c) throw new Error('contact not found')
@@ -133,7 +182,14 @@ export function updateContact({ id, ...fields }) {
   return normalized
 }
 
-export function deleteContact(id) {
+export async function deleteContact(id) {
+  if (CRM_STORE === 'supabase') {
+    // contact_links cascade via FK; also clear the contact from the cached links map. purgeContact
+    // (crm-links) is still called by the plugin handler to keep the files link map in step under files.
+    cacheRemoveContact(id)
+    await sbDeleteContact(id)
+    return { ok: true }
+  }
   const d = readFile()
   d.contacts = d.contacts.filter((x) => x.id !== id)
   writeFile(d)
