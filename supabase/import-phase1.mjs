@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(DIR, '..')
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const RECORDS = '/Users/michaelbloemeke/Desktop/claude/The Award-Winning Magic of Michael Bloemeke/Project Records'
 
 const creds = JSON.parse(fs.readFileSync(path.join(REPO, 'supabase-credentials.json'), 'utf8'))
@@ -110,6 +111,7 @@ create table projects (
   archive_reason text,
   why_archived text,
   completed_date text,
+  links_seeded boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -150,6 +152,10 @@ alter table pipeline_meta enable row level security;
 // ---------- 2. Gather data ----------
 const pipeline = readJson(path.join(RECORDS, 'crm-pipeline.json'), {})
 const stages = pipeline.stages || {}
+
+// A project is "seeded" (its contact links were initialized) if it has ANY entry in crm-links.json,
+// even an empty array. Preserve that flag so the app never re-seeds and resurrects a deleted contact.
+const seededSet = new Set(Object.keys(readJson(path.join(RECORDS, 'crm-links.json'), {}).links || {}))
 
 // project bucket files
 const files = fs.readdirSync(RECORDS)
@@ -206,6 +212,7 @@ for (const [file, bucket] of bucketFiles) {
       archive_reason: t(p.archive_reason),
       why_archived: t(p.why_archived),
       completed_date: t(p.completed_date),
+      links_seeded: seededSet.has(id),
     })
   }
 }
@@ -249,6 +256,19 @@ if (skippedLinks.length) console.log(`Orphan links skipped (${skippedLinks.lengt
 console.log('\nCreating tables...')
 await sql(DDL)
 console.log('  tables created (projects, contacts, contact_links, pipeline_meta) with RLS enabled.')
+
+// PostgREST caches the schema; after DDL it needs a reload to see the new tables.
+await sql("notify pgrst, 'reload schema';")
+process.stdout.write('Waiting for data API to see the new tables')
+let ready = false
+for (let i = 0; i < 25; i++) {
+  const res = await fetch(`${url}/rest/v1/projects?select=links_seeded&limit=1`, { headers: { apikey: secretKey, Authorization: `Bearer ${secretKey}` } })
+  if (res.ok) { ready = true; break }
+  process.stdout.write('.')
+  await sleep(1000)
+  if (i === 6) await sql("notify pgrst, 'reload schema';")
+}
+console.log(ready ? ' ready.' : ' timed out (will try inserting anyway).')
 
 console.log('Inserting...')
 console.log('  projects:', await insert('projects', projects))

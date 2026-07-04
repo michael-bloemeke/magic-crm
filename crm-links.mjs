@@ -15,6 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { loadContacts, addContact } from './crm-contacts.mjs'
+import { CRM_STORE, getCachedLinksMap } from './crm-store.mjs'
 
 const LINKS_FILE = path.join(RECORDS_DIR, 'crm-links.json')
 
@@ -42,6 +43,9 @@ function meta() {
 }
 
 function readLinks() {
+  // Under supabase the links map comes from the cache (contact_links, projects with >=1 contact).
+  // Return a shallow copy so read helpers can't mutate the shared cache. Under files, read the JSON.
+  if (CRM_STORE === 'supabase') return { links: { ...getCachedLinksMap() } }
   let d
   try {
     d = JSON.parse(fs.readFileSync(LINKS_FILE, 'utf8'))
@@ -130,8 +134,10 @@ export function seedLinksIfNeeded() {
   return d.links
 }
 
-// The full links map (seeding any uninitialized projects first).
+// The full links map. Under files it seeds any uninitialized projects first (a write concern);
+// under supabase seeding is deferred to the later write pass, so this just returns the cached map.
 export function loadLinks() {
+  if (CRM_STORE === 'supabase') return readLinks().links
   return seedLinksIfNeeded()
 }
 

@@ -8,6 +8,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { formatPhone } from './crm-phone.mjs'
+import { CRM_STORE, getCachedContacts } from './crm-store.mjs'
 
 const CONTACTS_FILE = path.join(RECORDS_DIR, 'crm-contacts.json')
 
@@ -77,8 +78,18 @@ function normalizeContact(c) {
   }
 }
 
+// Raw contact rows for whichever backend is active. Files: crm-contacts.json (camelCase
+// createdAt/updatedAt). Supabase: cached rows (snake_case created_at/updated_at) mapped to the
+// camelCase keys normalizeContact() reads, so the identical normalization runs either way.
+function rawContacts() {
+  if (CRM_STORE === 'supabase') {
+    return getCachedContacts().map((c) => ({ ...c, createdAt: c.created_at, updatedAt: c.updated_at }))
+  }
+  return readFile().contacts
+}
+
 export function loadContacts() {
-  return readFile().contacts.map(normalizeContact)
+  return rawContacts().map(normalizeContact)
 }
 
 export function addContact(input = {}) {

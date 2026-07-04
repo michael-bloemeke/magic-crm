@@ -14,6 +14,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { formatPhoneField } from './crm-phone.mjs'
+import { CRM_STORE, getCachedProjects, getCachedPipelineMeta } from './crm-store.mjs'
 
 export const RECORDS_DIR = path.join(
   os.homedir(),
@@ -270,8 +271,11 @@ function normalizeStructure(raw) {
 function loadStructureFrom(map) {
   return normalizeStructure(map && map.structure ? map.structure : DEFAULT_STRUCTURE)
 }
-// The editable pipeline structure (categories + stages), normalized.
+// The editable pipeline structure (categories + stages), normalized. Under supabase the
+// raw structure lives in pipeline_meta (cached); under files it's crm-pipeline.json. Either
+// way it feeds through the identical loadStructureFrom/normalizeStructure path.
 export function loadStructure() {
+  if (CRM_STORE === 'supabase') return loadStructureFrom({ structure: getCachedPipelineMeta().structure })
   return loadStructureFrom(readJson(STAGE_FILE) || {})
 }
 function validStageIdSet(structure) {
@@ -461,6 +465,72 @@ function writeStageFile(map) {
 }
 
 export function loadAll() {
+  return CRM_STORE === 'supabase' ? loadAllSupabase() : loadAllFiles()
+}
+
+// SUPABASE read path. Same DTOs, same cross-bucket dedup, same orphan-rehoming and Post Show
+// auto-progression as the files path. The ONE difference: the stored per-project stage is the
+// `stage_id` COLUMN on each cached project row (not a `stages` map). We compute the derived
+// stage in memory and return it; we do NOT persist derived changes in this reads-only pass
+// (that is the write pass). Rows are raw snake_case, so normalize() runs on them unchanged.
+function loadAllSupabase() {
+  const projects = []
+  // Dedup by id (slug), keeping the first row per id. The cache is a flat list of rows across
+  // all buckets; project ids are unique in Supabase (id is the PK), so this is a belt-and-braces
+  // pass matching the files path's dedup semantics.
+  const seenIds = new Set()
+  for (const p of getCachedProjects()) {
+    const norm = normalize(p, str(p.bucket) || 'active')
+    if (seenIds.has(norm.id)) continue
+    seenIds.add(norm.id)
+    // Stash the stored stage from the row so we can apply the derived-stage logic below.
+    norm._storedStage = str(p.stage_id)
+    projects.push(norm)
+  }
+
+  const structure = loadStructure()
+  const valid = validStageIdSet(structure)
+
+  for (const p of projects) {
+    if (p.bucket !== 'active') {
+      p.stageId = ''
+      delete p._storedStage
+      continue
+    }
+    const existing = p._storedStage
+    delete p._storedStage
+    if (existing && valid.has(existing)) {
+      p.stageId = existing
+    } else {
+      // Orphaned (stage missing/no longer exists) OR never staged: land in Inquiry. Under
+      // files a never-seen project is inferred; under supabase every active project already
+      // has a stage_id column, so a blank/invalid one means orphaned -> Inquiry.
+      p.stageId = ORPHAN_STAGE
+    }
+  }
+
+  // Post Show auto-progression (in memory only). Identical rule to the files path.
+  const now = new Date()
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const bookedSet = bookedStageIdSet(structure)
+  for (const p of projects) {
+    if (p.bucket !== 'active') continue
+    const fee = p.totalFee
+    const paidInFull = fee != null && receivedTotalFor(p.id) + 0.005 >= fee
+    if (bookedSet.has(p.stageId) && p.eventDate && p.eventDate < todayLocal) {
+      p.stageId = paidInFull ? THANK_YOU : THANK_YOU_PAYMENT
+    } else if (p.stageId === THANK_YOU_PAYMENT && paidInFull) {
+      p.stageId = THANK_YOU
+    }
+  }
+
+  return { projects, recordsDir: RECORDS_DIR }
+}
+
+// FILES read path. Unchanged from the original loadAll(): reads the canonical bucket JSONs +
+// crm-pipeline.json, infers/repairs stages, and may PERSIST derived stage changes back to
+// crm-pipeline.json (writeStageFile). This is the byte-for-byte original behavior.
+function loadAllFiles() {
   const projects = []
   // Dedup by id (slug) across buckets, keeping the first (BUCKETS order =
   // active > completed > archived). This means a record that ended up in two
@@ -605,6 +675,7 @@ export function reassignStage(fromStageIds, toStageId) {
 // Flow-view node layout (positions + links) lives in crm-pipeline.json too, so
 // the CRM's visual arrangement is durable across app changes and browsers.
 export function loadLayout() {
+  if (CRM_STORE === 'supabase') return getCachedPipelineMeta().flow_layout || null
   const map = readJson(STAGE_FILE) || {}
   return map.flowLayout || null
 }
