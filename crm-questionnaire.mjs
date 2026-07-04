@@ -182,7 +182,7 @@ export function questionnaireForBundle(projectId) {
 // Write each mapped answer into its target field. A question can map to a built-in project field
 // (written to the record) or to a user-defined custom field (written to the CRM custom-values
 // store). Returns the labels of the fields filled.
-function applyAnswers(projectId, questions, answers) {
+async function applyAnswers(projectId, questions, answers) {
   const valueById = Object.fromEntries((answers || []).map((a) => [a.id, a.value]))
   const customIds = new Set((loadConfig().customFields || []).map((f) => f.id))
   const filled = []
@@ -192,7 +192,7 @@ function applyAnswers(projectId, questions, answers) {
     if (v == null || String(v).trim() === '') continue
     try {
       if (customIds.has(q.fieldKey)) setCustomValue({ projectId, fieldId: q.fieldKey, value: String(v) })
-      else updateProjectField({ id: projectId, field: q.fieldKey, value: String(v) })
+      else await updateProjectField({ id: projectId, field: q.fieldKey, value: String(v) })
       filled.push(q.label)
     } catch {
       // A field that no longer exists (or a project not found) just gets skipped; the raw
@@ -243,7 +243,7 @@ export async function pullResponse(projectId) {
     return { ok: true, response: q.response, filledFields: [], fresh: false }
   }
 
-  const filled = applyAnswers(projectId, loadTemplate().questions, incoming.answers)
+  const filled = await applyAnswers(projectId, loadTemplate().questions, incoming.answers)
   q.response = {
     answers: incoming.answers,
     submittedAt: incoming.submittedAt,
@@ -252,8 +252,8 @@ export async function pullResponse(projectId) {
     seen: false,
   }
   writeFile(d)
-  if (filled.length) appendActivityLog(projectId, `Client filled the questionnaire. Auto-filled: ${filled.join(', ')}.`)
-  else appendActivityLog(projectId, 'Client filled the questionnaire.')
+  if (filled.length) await appendActivityLog(projectId, `Client filled the questionnaire. Auto-filled: ${filled.join(', ')}.`)
+  else await appendActivityLog(projectId, 'Client filled the questionnaire.')
   return { ok: true, response: q.response, filledFields: filled, fresh: true }
 }
 

@@ -199,7 +199,6 @@ function buildSeedContactRow({ name, emails, phones, relationship }) {
 // cache the instant we seed so a project is never re-seeded within the process. A dropped async write
 // self-heals because links_seeded/contact_links are recomputed from Supabase on the next load.
 function seedLinksSupabase() {
-  const map = getCachedLinksMap() // live cache reference (mutate in place)
   const projects = loadAll().projects
   const contacts = loadContacts() // normalized, from cache
 

@@ -256,7 +256,7 @@ export async function sendProjectEmail({ id } = {}) {
   e.updatedAt = now
   writeEmailsFile(data)
   try {
-    appendActivityLog(e.projectId, `Sent ${kindLabel(e.kind)} to ${to.join(', ')}.`)
+    await appendActivityLog(e.projectId, `Sent ${kindLabel(e.kind)} to ${to.join(', ')}.`)
   } catch {
     // activity log is best-effort; the send already succeeded
   }

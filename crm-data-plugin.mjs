@@ -11,6 +11,7 @@ import { exec } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { CRM_STORE, initStore } from './crm-store.mjs'
 import {
   loadAll,
   setStage,
@@ -182,7 +183,14 @@ function runBackup() {
 export function crmDataPlugin() {
   return {
     name: 'crm-data',
-    configureServer(server) {
+    async configureServer(server) {
+      // Under CRM_STORE=supabase every synchronous read funnel (loadAll/loadContacts/loadLinks/
+      // loadStructure) serves from the in-memory cache, so prime it ONCE before handling requests.
+      // Under files this is a no-op. If it throws (bad creds/network), fail loudly at startup.
+      if (CRM_STORE === 'supabase') {
+        await initStore()
+        console.log('[crm-data] Supabase store initialized (CRM_STORE=supabase).')
+      }
       // Back up shortly after the app starts, then every 4 hours it stays running.
       const t1 = setTimeout(runBackup, 90_000)
       const t2 = setInterval(runBackup, 4 * 60 * 60 * 1000)

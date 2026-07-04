@@ -200,7 +200,7 @@ async function runImport() {
     let projectId = null
     let note = ''
     try {
-      const proj = createProject({
+      const proj = await createProject({
         clientName: name || email || 'Website inquiry',
         contactNames: name,
         contactEmails: email,
@@ -221,13 +221,13 @@ async function runImport() {
       for (const [field, value] of Object.entries(extra)) {
         if (!value) continue
         try {
-          updateProjectField({ id: proj.id, field, value })
+          await updateProjectField({ id: proj.id, field, value })
         } catch {
           // skip a field that won't take; the inquiry is still imported
         }
       }
       const formLabel = String(inq.formLocation || '').trim()
-      appendActivityLog(proj.id, `New inquiry from the website contact form${formLabel ? ` (${formLabel})` : ''}.`)
+      await appendActivityLog(proj.id, `New inquiry from the website contact form${formLabel ? ` (${formLabel})` : ''}.`)
     } catch (e) {
       // Most likely a duplicate project name; keep the notification so Michael sees it.
       note = String(e?.message || e)
