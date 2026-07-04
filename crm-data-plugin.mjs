@@ -213,10 +213,10 @@ export function crmDataPlugin() {
         if (req.method !== 'POST' && req.method !== 'PUT') return next()
         let body = ''
         req.on('data', (c) => (body += c))
-        req.on('end', () => {
+        req.on('end', async () => {
           try {
             const { id, stageId } = JSON.parse(body || '{}')
-            const result = setStage(id, stageId)
+            const result = await setStage(id, stageId)
             void syncProject(id) // a stage change can flip Inquiry <-> booked; keep the calendar in step
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(result))
@@ -240,7 +240,7 @@ export function crmDataPlugin() {
           return
         }
         if (req.method === 'POST' || req.method === 'PUT') {
-          withbody(req, res, (b) => ({ structure: saveStructure(b.structure) }))
+          withbody(req, res, async (b) => ({ structure: await saveStructure(b.structure) }))
           return
         }
         next()
@@ -266,10 +266,10 @@ export function crmDataPlugin() {
         if (req.method === 'POST' || req.method === 'PUT') {
           let body = ''
           req.on('data', (c) => (body += c))
-          req.on('end', () => {
+          req.on('end', async () => {
             try {
               const layout = JSON.parse(body || '{}')
-              saveLayout(layout)
+              await saveLayout(layout)
               res.setHeader('Content-Type', 'application/json')
               res.end(JSON.stringify({ ok: true }))
             } catch (e) {
@@ -340,8 +340,8 @@ export function crmDataPlugin() {
 
       server.middlewares.use('/api/project/field', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const r = updateProjectField(b)
+        withbody(req, res, async (b) => {
+          const r = await updateProjectField(b)
           void syncProject(b.id) // location/times/name/date edits flow to the gig's calendar event
           return r
         })
@@ -354,8 +354,8 @@ export function crmDataPlugin() {
 
       server.middlewares.use('/api/project/create', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const project = createProject(b)
+        withbody(req, res, async (b) => {
+          const project = await createProject(b)
           // Initialize the project's contact links EXPLICITLY so the auto-seeder
           // never fabricates a contact from the project name. Only attach a
           // contact when the form actually provided contact info; if the contact
@@ -379,10 +379,10 @@ export function crmDataPlugin() {
             }
             if (!match && name) match = contacts.find((c) => norm(c.name) === norm(name))
             const contact =
-              match || addContact({ name: name || emails[0], emails, phones, type: 'client', relationship: 'active' })
-            setProjectContacts(project.id, [contact.id])
+              match || (await addContact({ name: name || emails[0], emails, phones, type: 'client', relationship: 'active' }))
+            await setProjectContacts(project.id, [contact.id])
           } else {
-            setProjectContacts(project.id, []) // explicit empty entry -> never auto-seeded
+            await setProjectContacts(project.id, []) // explicit empty entry -> never auto-seeded
           }
           void syncProject(project.id) // a new dated project appears on the Gigs calendar
           return { project }
@@ -392,24 +392,24 @@ export function crmDataPlugin() {
       // Archive / complete / restore: move a project between canonical buckets.
       server.middlewares.use('/api/project/archive', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const r = archiveProject(b)
+        withbody(req, res, async (b) => {
+          const r = await archiveProject(b)
           void syncProject(b.id) // no longer active -> its gig event is removed
           return r
         })
       })
       server.middlewares.use('/api/project/complete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const r = completeProject(b)
+        withbody(req, res, async (b) => {
+          const r = await completeProject(b)
           void syncProject(b.id) // no longer active -> its gig event is removed
           return r
         })
       })
       server.middlewares.use('/api/project/restore', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const r = restoreProject(b)
+        withbody(req, res, async (b) => {
+          const r = await restoreProject(b)
           void syncProject(b.id) // active again -> its gig event comes back
           return r
         })
@@ -418,16 +418,16 @@ export function crmDataPlugin() {
       // (stage, tasks, payments, mileage) for that project. No undo.
       server.middlewares.use('/api/project/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
+        withbody(req, res, async (b) => {
           // Capture this project's task ids BEFORE deleteProject purges them from crm-tasks.json, so
           // their Work-calendar events can be removed too (otherwise they'd orphan).
           const taskIds = loadTasks()
             .filter((t) => t.projectId === b.id)
             .map((t) => t.id)
-          const result = deleteProject(b)
+          const result = await deleteProject(b)
           deletePaymentsForProject(b.id)
           deleteTripsForProject(b.id)
-          deleteProjectLinks(b.id)
+          await deleteProjectLinks(b.id)
           void removeProjectEvent(b.id) // gone from the CRM -> gone from the calendar
           for (const tid of taskIds) void removeTaskEvent(tid)
           return result
@@ -437,19 +437,19 @@ export function crmDataPlugin() {
       // --- Contacts (specific paths before the generic GET) ---
       server.middlewares.use('/api/contacts/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ contact: addContact(b) }))
+        withbody(req, res, async (b) => ({ contact: await addContact(b) }))
       })
       server.middlewares.use('/api/contacts/update', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ contact: updateContact(b) }))
+        withbody(req, res, async (b) => ({ contact: await updateContact(b) }))
       })
       server.middlewares.use('/api/contacts/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
         // Deleting a contact also strips it from every project it was on, so it
         // stays gone (no resurrection) and no project keeps a dangling link.
-        withbody(req, res, (b) => {
-          const result = deleteContact(b.id)
-          purgeContact(b.id)
+        withbody(req, res, async (b) => {
+          const result = await deleteContact(b.id)
+          await purgeContact(b.id)
           return result
         })
       })
@@ -470,11 +470,11 @@ export function crmDataPlugin() {
       // --- Project <-> contact links ---
       server.middlewares.use('/api/links/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ links: linkContact(b.projectId, b.contactId) }))
+        withbody(req, res, async (b) => ({ links: await linkContact(b.projectId, b.contactId) }))
       })
       server.middlewares.use('/api/links/remove', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ links: unlinkContact(b.projectId, b.contactId) }))
+        withbody(req, res, async (b) => ({ links: await unlinkContact(b.projectId, b.contactId) }))
       })
       server.middlewares.use('/api/links', (req, res, next) => {
         if (req.method !== 'GET') return next()
