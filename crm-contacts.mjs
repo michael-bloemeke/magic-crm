@@ -78,12 +78,23 @@ function normalizeContact(c) {
   }
 }
 
+// Postgres returns timestamptz as e.g. "2026-06-18T08:54:42.59+00:00" (offset form, trailing
+// zeros trimmed); the files store the JS toISOString() form "...590Z". Same instant, different
+// text. Re-serialize through Date so the supabase read yields the identical string the files
+// path produces. Empty/unparseable -> '' (matches normalizeContact's `c.createdAt || ''`).
+function isoZ(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toISOString()
+}
+
 // Raw contact rows for whichever backend is active. Files: crm-contacts.json (camelCase
 // createdAt/updatedAt). Supabase: cached rows (snake_case created_at/updated_at) mapped to the
 // camelCase keys normalizeContact() reads, so the identical normalization runs either way.
 function rawContacts() {
   if (CRM_STORE === 'supabase') {
-    return getCachedContacts().map((c) => ({ ...c, createdAt: c.created_at, updatedAt: c.updated_at }))
+    return getCachedContacts().map((c) => ({ ...c, createdAt: isoZ(c.created_at), updatedAt: isoZ(c.updated_at) }))
   }
   return readFile().contacts
 }

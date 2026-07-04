@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { loadContacts, addContact } from './crm-contacts.mjs'
-import { CRM_STORE, getCachedLinksMap } from './crm-store.mjs'
+import { CRM_STORE, getCachedLinksMap, getCachedProjects } from './crm-store.mjs'
 
 const LINKS_FILE = path.join(RECORDS_DIR, 'crm-links.json')
 
@@ -43,9 +43,19 @@ function meta() {
 }
 
 function readLinks() {
-  // Under supabase the links map comes from the cache (contact_links, projects with >=1 contact).
+  // Under supabase the links map comes from the cache (contact_links → projects with >=1 contact).
+  // A project that was SEEDED but has zero contacts leaves no contact_links row, so it's absent
+  // from that map; but under files such a project has an explicit empty-array entry (seeding wrote
+  // one). To match, add [] for every links_seeded project not already present. The links_seeded
+  // flag on project rows is the exact record of "initialized" (an empty array is a respected state).
   // Return a shallow copy so read helpers can't mutate the shared cache. Under files, read the JSON.
-  if (CRM_STORE === 'supabase') return { links: { ...getCachedLinksMap() } }
+  if (CRM_STORE === 'supabase') {
+    const links = { ...getCachedLinksMap() }
+    for (const p of getCachedProjects()) {
+      if (p.links_seeded && !(p.id in links)) links[p.id] = []
+    }
+    return { links }
+  }
   let d
   try {
     d = JSON.parse(fs.readFileSync(LINKS_FILE, 'utf8'))
