@@ -104,7 +104,9 @@ function allBuckets() {
 
 // The year a completed/archived record files under: its event year, else the
 // earliest year in its activity_log (≈ when it was created), else the current year.
-function recordYear(rec) {
+// Exported so the Supabase backup exporter (supabase/backup-export.mjs) files each
+// completed/archived row into the SAME per-year bucket the app would, without reinventing this.
+export function recordYear(rec) {
   const m = String(rec?.event_date || '').trim().match(/^(\d{4})/)
   if (m) return m[1]
   let earliest = null
@@ -331,7 +333,12 @@ function str(v) {
   return v == null ? '' : String(v)
 }
 
-function slugify(name) {
+// Project id = slug of client_name (the stable join key). Exported so the Supabase backup
+// exporter can key rows the same way the app does. NOTE: the ORIGINAL import (import-phase1.mjs)
+// used a slightly different slug (no NFKD, and empty -> '') to build the DB ids. This function is
+// the app's canonical slugify; the exporter reads the id straight off each row (projects.id) rather
+// than re-slugging, so its output is independent of any slug drift between the two.
+export function slugify(name) {
   return (
     String(name || '')
       .toLowerCase()
