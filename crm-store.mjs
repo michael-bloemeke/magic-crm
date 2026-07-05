@@ -18,7 +18,24 @@ import { fileURLToPath } from 'node:url'
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const creds = JSON.parse(fs.readFileSync(path.join(DIR, 'supabase-credentials.json'), 'utf8'))
 
-export const CRM_STORE = process.env.CRM_STORE === 'supabase' ? 'supabase' : 'files'
+// Backend selector, checked in priority order so the desktop app can flip without env vars:
+//   1) CRM_STORE env var ('supabase' | 'files') — used by tests/scripts
+//   2) store-config.json {"store":"supabase"} next to this file (gitignored, per-machine toggle)
+//   3) default 'files'
+// Flipping is just changing #2 and relaunching the app; reverting is deleting it. Default stays files.
+function resolveStore() {
+  if (process.env.CRM_STORE === 'supabase') return 'supabase'
+  if (process.env.CRM_STORE === 'files') return 'files'
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(DIR, 'store-config.json'), 'utf8'))
+    if (cfg.store === 'supabase') return 'supabase'
+  } catch {
+    /* no config file -> default */
+  }
+  return 'files'
+}
+
+export const CRM_STORE = resolveStore()
 
 let _sb = null
 export function sb() {
