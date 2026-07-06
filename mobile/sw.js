@@ -2,8 +2,11 @@
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
-var CACHE = 'mcrm-v5'
-var SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
+// v6: the app moved from a passcode + snapshot blob to Supabase login + live reads. Bumping the cache
+// name forces every client to drop the old app shell (which still had the passcode flow) on activate,
+// so no phone is left running the stale auth against the new data layer.
+var CACHE = 'mcrm-v6'
+var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL) }).then(function () { return self.skipWaiting() }))
@@ -17,10 +20,15 @@ self.addEventListener('activate', function (e) {
   )
 })
 
-// Network-first for everything (so app updates and data are always fresh when online), falling back
-// to the cache only when offline. Avoids stale cached versions of the app.
+// Network-first for our own app shell (so updates are always fresh when online), falling back to the
+// cache only when offline. Cross-origin requests (the esm.sh supabase-js CDN import + the Supabase
+// REST/auth API) are left entirely to the browser: they must always hit the network and must never be
+// served from a stale cache, so we don't intercept them at all.
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return
+  var url
+  try { url = new URL(e.request.url) } catch (_) { return }
+  if (url.origin !== self.location.origin) return // let CDN + Supabase calls pass through untouched
   e.respondWith(
     fetch(e.request)
       .then(function (r) {

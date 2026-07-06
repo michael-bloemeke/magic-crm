@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Read-only Magic CRM phone app (static PWA + passcode-gated snapshot function), deployed to Vercel.",
+  "description": "Magic CRM phone app (static PWA). Supabase Auth login + live read from Supabase (RLS-gated); web-push subscribe function still used. Deployed to Vercel.",
   "dependencies": {
     "@vercel/blob": "^0.27.3"
   }

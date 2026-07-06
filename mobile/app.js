@@ -1,11 +1,15 @@
-/* Magic CRM mobile (read-only). Renders a snapshot the Mac syncs to the cloud. No write paths.
-   Local dev: served at /m/, reads /api/snapshot. Deployed: reads ./snapshot.json next to the app. */
+/* Magic CRM mobile. Logs in with Supabase Auth and reads LIVE data straight from the database (RLS
+   lets the logged-in user read everything; the publishable key alone reads nothing). Login is
+   once-per-device (supabase-js persists the session). Read-only for now: the view renders live data;
+   writes are a later stage and slot into supabase-data.js behind the load*() functions.
+
+   This file is an ES module (loaded with <script type="module">) so it can import the data layer. */
 
 'use strict'
 
-// The passcode is verified server-side: it's sent to /api/snapshot, which only returns data when it
-// matches. Locally (dev server, no function) the snapshot route ignores the code so preview is open.
-var CODE = ''
+import { loadEverything, getSession, signIn, signOut, currentUserEmail } from './supabase-data.js'
+import { VAPID_PUBLIC_KEY, PUSH_SUBSCRIBE_CODE } from './config.js'
+
 var SNAP = null
 var TAB = 'pipeline'
 var STAGE = {} // stageId -> { name, umbrella, color }
@@ -96,7 +100,6 @@ function renderPipeline() {
     // group by umbrella in structure order
     list.innerHTML = ''
     if (!items.length) { list.appendChild(el('<div class="empty">No matching projects.</div>')); return }
-    var order = (SNAP.structure.umbrellas || []).map(function (u) { return u.id })
     var groups = {}
     items.forEach(function (p) {
       var si = stageInfo(p.stageId)
@@ -296,22 +299,34 @@ function render() {
 }
 
 // ---------- data ----------
-// Tries the deployed passcode-gated function first; 401 = wrong code; 404 = local dev (the dev
-// server's open /api/snapshot route, which ignores the code) so previewing on the Mac stays easy.
-function fetchSnapshot() {
-  var q = CODE ? '?code=' + encodeURIComponent(CODE) : ''
-  return fetch('./api/snapshot' + q, { cache: 'no-store' }).then(function (r) {
-    if (r.status === 401) { var e = new Error('unauthorized'); e.unauth = true; throw e }
-    if (r.status === 404) return fetch('/api/snapshot', { cache: 'no-store' }).then(function (r2) { return r2.json() })
-    if (!r.ok) throw new Error('http ' + r.status)
-    return r.json()
-  })
-}
+// Builds the STAGE lookup (stageId -> { name, umbrella, color }) from the pipeline structure, exactly
+// as the old snapshot path did.
 function applySnapshot(s) {
   SNAP = s
   STAGE = {}
   ;(s.structure.umbrellas || []).forEach(function (u) { (u.stages || []).forEach(function (st) { STAGE[st.id] = { name: st.name, umbrella: u.label, color: u.color } }) })
 }
+
+// Resolves 'ok' | 'unauth' | 'error'. Reads everything LIVE from Supabase (loadEverything()).
+function loadAndRender() {
+  $('#updated').textContent = 'Refreshing…'
+  return loadEverything().then(function (s) {
+    applySnapshot(s)
+    $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)
+    render()
+    updatePushButton()
+    return 'ok'
+  }).catch(function (e) {
+    // A 401 / JWT error means the session is gone (expired + refresh failed) -> back to login.
+    var msg = String((e && (e.message || e.error_description)) || e)
+    if (e && (e.status === 401 || /jwt|not\s*authenticated|invalid.*token/i.test(msg))) return 'unauth'
+    // Keep the last-loaded data on screen if we have it (graceful offline); else show the error.
+    if (SNAP) { $('#updated').textContent = 'Offline · showing last data' }
+    else { $('#view').innerHTML = '<div class="empty">Could not load data.<br>' + esc(msg) + '</div>'; $('#updated').textContent = 'Offline' }
+    return 'error'
+  })
+}
+
 // ---------- web push (notifications from this app) ----------
 function pushSupported() {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
@@ -319,7 +334,10 @@ function pushSupported() {
 function updatePushButton() {
   var btn = $('#enable-push')
   if (!btn) return
-  var show = pushSupported() && SNAP && SNAP.vapidPublicKey && localStorage.getItem('mcrm_push') !== '1' && window.Notification && Notification.permission !== 'denied'
+  // Show the bell only when push is usable AND the subscribe endpoint is wired (a passcode is set in
+  // config.js). Until the deploy configures that, keep it hidden.
+  var show = pushSupported() && VAPID_PUBLIC_KEY && PUSH_SUBSCRIBE_CODE &&
+    localStorage.getItem('mcrm_push') !== '1' && window.Notification && Notification.permission !== 'denied'
   btn.classList.toggle('hidden', !show)
 }
 function urlB64ToUint8(base64) {
@@ -335,8 +353,8 @@ function enablePush() {
     alert('To get notifications, add this app to your Home Screen first (Share, then Add to Home Screen), then open it from there and try again.')
     return
   }
-  if (!SNAP || !SNAP.vapidPublicKey) {
-    alert('Notifications are not set up yet on the desktop side.')
+  if (!VAPID_PUBLIC_KEY || !PUSH_SUBSCRIBE_CODE) {
+    alert('Notifications are not set up yet on the server side.')
     return
   }
   Notification.requestPermission().then(function (perm) {
@@ -346,10 +364,10 @@ function enablePush() {
     }
     return navigator.serviceWorker.ready
       .then(function (reg) {
-        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(SNAP.vapidPublicKey) })
+        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC_KEY) })
       })
       .then(function (sub) {
-        return fetch('./api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: CODE, subscription: sub }) })
+        return fetch('./api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: PUSH_SUBSCRIBE_CODE, subscription: sub }) })
       })
       .then(function (r) {
         if (!r.ok) throw new Error('register failed')
@@ -359,23 +377,6 @@ function enablePush() {
       })
   }).catch(function (e) {
     alert('Could not turn on notifications: ' + ((e && e.message) || e))
-  })
-}
-
-// Resolves 'ok' | 'unauth' | 'error'.
-function loadAndRender() {
-  $('#updated').textContent = 'Refreshing…'
-  return fetchSnapshot().then(function (s) {
-    applySnapshot(s)
-    $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)
-    render()
-    updatePushButton()
-    return 'ok'
-  }).catch(function (e) {
-    if (e && e.unauth) return 'unauth'
-    $('#view').innerHTML = '<div class="empty">Could not load data.<br>' + esc(String((e && e.message) || e)) + '</div>'
-    $('#updated').textContent = 'Offline'
-    return 'error'
   })
 }
 
@@ -390,47 +391,69 @@ function wireUI() {
   $('#refresh').addEventListener('click', loadAndRender)
   var ep = $('#enable-push')
   if (ep) ep.addEventListener('click', enablePush)
+  var lo = $('#logout')
+  if (lo) lo.addEventListener('click', doLogout)
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {})
 }
 
-function unlock() {
-  var lock = $('#lock'), pin = $('#pin'), err = $('#pinerr'), btn = $('#unlock-btn')
-  // Stays logged in across launches (localStorage). The data is gated server-side; the phone itself
-  // is the outer lock. To sign out, clear site data.
-  var saved = localStorage.getItem('mcrm_code')
-  if (saved) {
-    CODE = saved
-    lock.classList.add('hidden')
-    wireUI()
-    loadAndRender()
-    return
-  }
-  lock.classList.remove('hidden')
-  pin.focus()
-  // Explicit submit (no guessing the passcode length): the Unlock button or Enter.
-  function attempt() {
-    var v = (pin.value || '').trim()
-    if (!v) return
-    err.textContent = 'Checking…'
-    CODE = v
-    loadAndRender().then(function (res) {
-      if (res === 'ok') {
-        localStorage.setItem('mcrm_code', CODE)
-        err.textContent = ''
-        lock.classList.add('hidden')
-        wireUI()
-      } else if (res === 'unauth') {
-        err.textContent = 'Wrong passcode'
-        pin.value = ''
-        CODE = ''
-        pin.focus()
-      } else {
-        err.textContent = 'Could not connect. Try again.'
-      }
-    })
-  }
-  btn.addEventListener('click', attempt)
-  pin.addEventListener('keydown', function (e) { if (e.key === 'Enter') attempt() })
+// Show the app, hide the login screen, and load live data.
+function enterApp() {
+  $('#login').classList.add('hidden')
+  $('#app').classList.remove('hidden')
+  wireUI()
+  loadAndRender()
 }
 
-document.addEventListener('DOMContentLoaded', unlock)
+// Log out: end the Supabase session (clears the persisted token) and return to the login screen.
+function doLogout() {
+  signOut().then(function () {
+    SNAP = null
+    try { if (navigator.clearAppBadge) navigator.clearAppBadge() } catch (e) { /* noop */ }
+    $('#app').classList.add('hidden')
+    showLogin()
+  })
+}
+
+// Wire + display the login screen. Email + password -> Supabase sign-in. Handles a wrong password
+// gracefully. supabase-js persists the session, so this only runs when there is no active session.
+var loginWired = false
+function showLogin() {
+  var login = $('#login'), email = $('#email'), pw = $('#password'), err = $('#loginerr'), btn = $('#signin-btn')
+  login.classList.remove('hidden')
+  if (!loginWired) {
+    loginWired = true
+    function attempt() {
+      var e = (email.value || '').trim(), p = pw.value || ''
+      if (!e || !p) { err.textContent = 'Enter your email and password.'; return }
+      err.textContent = 'Signing in…'
+      btn.disabled = true
+      signIn(e, p).then(function () {
+        err.textContent = ''
+        pw.value = ''
+        btn.disabled = false
+        enterApp()
+      }).catch(function (ex) {
+        btn.disabled = false
+        var m = String((ex && ex.message) || ex)
+        err.textContent = /invalid login|credentials/i.test(m) ? 'Wrong email or password.' : ('Could not sign in: ' + m)
+        pw.focus()
+      })
+    }
+    btn.addEventListener('click', attempt)
+    pw.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') attempt() })
+    email.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') pw.focus() })
+  }
+  setTimeout(function () { if ($('#email')) $('#email').focus() }, 50)
+}
+
+// On load: if there's a persisted session, skip straight to the app; otherwise show login.
+function boot() {
+  getSession().then(function (session) {
+    if (session) enterApp()
+    else showLogin()
+  }).catch(function () {
+    showLogin()
+  })
+}
+
+document.addEventListener('DOMContentLoaded', boot)
