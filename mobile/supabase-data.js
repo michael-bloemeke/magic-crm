@@ -120,6 +120,23 @@ function paymentFromRow(r) {
   }
 }
 
+// ---------- phone normalization (mirrors crm-phone.mjs formatPhoneField) ----------
+// Formats each phone-number run found in a string IN PLACE: 10 digits -> (XXX) XXX-XXXX ;
+// 11 digits -> +X (XXX) XXX-XXXX. Surrounding text (names, "(cell)", "TBD", a 2nd number) is
+// preserved; runs that aren't 10/11 digits are left untouched. "/" is excluded so dates like
+// 8/19/2026 never match. Byte-identical to the desktop so contact_phones round-trips the same.
+function fmtDigits(d) {
+  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  if (d.length === 11) return `+${d[0]} (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
+  return null
+}
+const PHONE_RUN = /\+?\(?\d[\d\s().\-]{7,}\d/g
+export function formatPhoneField(raw) {
+  const s = String(raw == null ? '' : raw).trim()
+  if (!s) return ''
+  return s.replace(PHONE_RUN, (run) => fmtDigits(run.replace(/\D/g, '')) || run)
+}
+
 // The bell's labels, matching NOTIF_LABELS in crm-snapshot.mjs.
 const NOTIF_LABELS = {
   'invoice-paid': 'Invoice paid',
@@ -324,14 +341,264 @@ export function computeFinance(projects, payments, config) {
   }
 }
 
+// ============================================================================
+// WRITES (Stage C). The phone writes DIRECTLY to Supabase via supabase-js, so the DATABASE does NOT
+// enforce the CRM business rules (those live in the desktop's crm-data-core.mjs). Every rule that
+// matters is therefore replicated HERE, client-side, before the write hits PostgREST. Each function
+// returns the freshly written/updated record (already mapped to the app's camelCase shape) so the
+// caller can optimistically patch the on-screen data, and throws on failure with a clear message.
+// ============================================================================
+
+// "July 6, 2026" — the activity_log date style, matching logDate() in crm-data-core.mjs. Newest
+// entries are PREPENDED so the log stays newest-first.
+function logDate() {
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  const d = new Date()
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+}
+
+// dueTime kept as "HH:MM" (24h) or "" for an all-day task. Mirrors normalizeTime() in crm-data-core.
+function normalizeTime(t) {
+  const s = String(t == null ? '' : t).trim()
+  const m = s.match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return ''
+  const h = Number(m[1]), min = Number(m[2])
+  if (h > 23 || min > 59) return ''
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
+// A fresh uuid (the desktop uses crypto.randomUUID() for task/payment ids; the DB columns are uuid).
+function uuid() {
+  if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID()
+  // Fallback for older webviews without crypto.randomUUID.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
+}
+
+// ---------- tasks ----------
+// addTask: same shape + id generation as crm-data-core.addTask (uuid id, normalized dueTime, done
+// false, created_at now). Returns the app task record.
+export async function addTask({ projectId, title, dueDate, dueTime } = {}) {
+  const t = String(title == null ? '' : title).trim()
+  if (!t) throw new Error('Task title is required.')
+  const row = {
+    id: uuid(),
+    project_id: String(projectId || ''),
+    title: t,
+    due_date: String(dueDate || ''),
+    due_time: normalizeTime(dueTime),
+    done: false,
+    created_at: new Date().toISOString(),
+  }
+  const { error } = await sb.from('tasks').insert(row)
+  if (error) throw error
+  return { id: row.id, projectId: row.project_id, title: row.title, dueDate: row.due_date, dueTime: row.due_time, done: false }
+}
+
+// toggleTask: flip the done flag (crm-data-core.updateTask with just {done}).
+export async function toggleTask(id, done) {
+  if (!id) throw new Error('Task id is required.')
+  const { error } = await sb.from('tasks').update({ done: !!done }).eq('id', id)
+  if (error) throw error
+  return { ok: true }
+}
+
+// deleteTask: crm-data-core.deleteTask.
+export async function deleteTask(id) {
+  if (!id) throw new Error('Task id is required.')
+  const { error } = await sb.from('tasks').delete().eq('id', id)
+  if (error) throw error
+  return { ok: true }
+}
+
+// ---------- project notes / activity log ----------
+// addNote: prepend a dated line to the project's activity_log jsonb array (newest first), matching
+// appendActivityLog() in crm-data-core.mjs. The whole array is rewritten (jsonb has no push). Returns
+// the new full activityLog array so the caller can patch SNAP without a re-fetch.
+export async function addNote(projectId, text) {
+  const clean = String(text == null ? '' : text).trim()
+  if (!projectId) throw new Error('Project id is required.')
+  if (!clean) throw new Error('Note text is required.')
+  const { data: cur, error: readErr } = await sb.from('projects').select('activity_log').eq('id', projectId).single()
+  if (readErr) throw readErr
+  const existing = Array.isArray(cur && cur.activity_log) ? cur.activity_log.map(String) : []
+  const entry = `${logDate()}: ${clean}`
+  const activity_log = [entry, ...existing]
+  const { error } = await sb.from('projects').update({ activity_log }).eq('id', projectId)
+  if (error) throw error
+  return { ok: true, entry, activityLog: activity_log }
+}
+
+// ---------- project field edits ----------
+// A SAFE, allow-listed set of editable columns (camelCase field -> snake_case column). client_name is
+// deliberately NOT here: it is the immutable slug/join key. project_name holds the editable display
+// name. Mirrors the relevant subset of EDITABLE_FIELDS in crm-data-core.mjs.
+const PROJECT_FIELD_COLUMNS = {
+  eventDate: 'event_date',
+  eventLocation: 'event_location',
+  venueType: 'venue_type',
+  indoorsOrOutdoors: 'indoors_or_outdoors',
+  eventStartTime: 'event_start_time',
+  showStartTime: 'show_start_time',
+  numberOfGuests: 'number_of_guests',
+  ageOfGuests: 'age_of_guests',
+  performanceStyle: 'performance_style',
+  eventDescription: 'event_description',
+  projectNotes: 'project_notes',
+  contactNames: 'contact_names',
+  contactEmails: 'contact_emails',
+  contactPhones: 'contact_phones',
+  bookingSource: 'booking_source',
+  projectName: 'project_name',
+  vips: 'vips',
+  av: 'av',
+}
+// updateProjectField: write one allow-listed text column. contact_phones gets the desktop's phone
+// normalization applied on save (coerceFieldValue in crm-data-core.mjs). All these columns are text,
+// so values are stored as strings. Returns the stored value for optimistic UI patching.
+export async function updateProjectField(id, col, value) {
+  if (!id) throw new Error('Project id is required.')
+  const column = PROJECT_FIELD_COLUMNS[col]
+  if (!column) throw new Error(`Field not editable on phone: ${col}`)
+  let stored = value == null ? '' : String(value)
+  if (column === 'contact_phones') stored = formatPhoneField(stored)
+  const { error } = await sb.from('projects').update({ [column]: stored }).eq('id', id)
+  if (error) throw error
+  return { ok: true, id, field: col, column, value: stored }
+}
+
+// ---------- payments ----------
+// addPayment: insert a payment row (uuid id, numeric amount + amount_text companion for non-numeric,
+// created_at now), matching addPayment()/paymentToRow() in crm-finance.mjs. type is clamped to the
+// same allowed set. A dated (non-pending) payment is what the Booked-stage gate looks for. Returns the
+// app payment record so the Money tab can be refreshed / patched.
+export async function addPayment({ projectId, amount, dateReceived, type, method, note, pending } = {}) {
+  if (!projectId) throw new Error('Project id is required.')
+  const isPending = !!pending
+  const amtNum = num(amount)
+  const numeric = Number.isFinite(amtNum) ? amtNum : null
+  const row = {
+    id: uuid(),
+    project_id: String(projectId || ''),
+    amount: numeric,
+    amount_text: numeric === null ? String(amount) : null,
+    date_received: isPending ? '' : String(dateReceived || ''),
+    pending: isPending,
+    type: ['deposit', 'balance', 'full', 'other'].includes(type) ? type : 'deposit',
+    method: String(method || ''),
+    note: String(note || ''),
+    created_at: new Date().toISOString(),
+  }
+  const { error } = await sb.from('payments').insert(row)
+  if (error) throw error
+  return paymentFromRow(row)
+}
+
+// ---------- stage move (with the desktop's gates replicated) ----------
+// Returns the umbrella whose role matches, from the loaded structure (pipeline_meta.structure).
+function umbrellaByRole(structure, role) {
+  return (structure.umbrellas || []).find((u) => u.role === role) || null
+}
+function stageIdsForRole(structure, role) {
+  const u = umbrellaByRole(structure, role)
+  return new Set(u ? (u.stages || []).map((s) => s.id) : [])
+}
+function validStageIds(structure) {
+  const s = new Set()
+  for (const u of structure.umbrellas || []) for (const st of u.stages || []) s.add(st.id)
+  return s
+}
+// A project has a RECEIVED payment iff there's a non-pending payment with a positive amount AND a real
+// date_received. Mirrors hasReceivedPaymentFor() / isReceivedPayment() in crm-data-core.mjs.
+function hasReceivedPayment(payments, projectId) {
+  return (payments || []).some(
+    (pm) => pm.projectId === projectId && !pm.pending && num(pm.amount) > 0 && String(pm.dateReceived || '').trim() !== '',
+  )
+}
+// setStage: move a project to stageId, replicating crm-data-core.setStage's two gates:
+//   1. Post Show (role 'postshow') is AUTO-ONLY: block a manual move INTO it (moving out is fine).
+//   2. Booked category (role 'booked') is PAYMENT-GATED: block moving into any of its stages unless
+//      the project has a received payment on file.
+// `structure` and `payments` are passed in (the app already has them loaded) so no extra fetch is
+// needed and the gate reads the same data the UI shows. Throws (with the desktop's messages) when a
+// gate blocks; on success writes stage_id and returns { ok, id, stageId }.
+export async function setStage(projectId, stageId, structure, payments) {
+  if (!projectId || !stageId) throw new Error('Project id and stage are required.')
+  if (!validStageIds(structure).has(stageId)) throw new Error('Invalid stage.')
+  if (stageIdsForRole(structure, 'postshow').has(stageId)) {
+    throw new Error('Projects move into Post Show automatically the day after the event; they can be moved out but not in.')
+  }
+  if (stageIdsForRole(structure, 'booked').has(stageId) && !hasReceivedPayment(payments, projectId)) {
+    throw new Error('Cannot move to a Booked stage without a received payment (amount + date). Log a payment for this project first.')
+  }
+  const { error } = await sb.from('projects').update({ stage_id: stageId }).eq('id', projectId)
+  if (error) throw error
+  return { ok: true, id: projectId, stageId }
+}
+
+// ---------- contacts ----------
+// A contact for a project is matched by email/name on the desktop; the phone edits the contact row
+// directly by id. updateContact patches an allow-listed set (name, relationship, tags, notes, emails,
+// phones), normalizing phones the same way as the desktop and bumping updated_at. emails/phones/tags
+// are jsonb arrays. Mirrors updateContact() in crm-contacts.mjs (the fields the phone exposes).
+const CONTACT_RELATIONSHIPS = ['', 'active', 'yes', 'maybe', 'no']
+function toList(v) {
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean)
+  return String(v == null ? '' : v).split(/[,;\n]/).map((s) => s.trim()).filter(Boolean)
+}
+export async function updateContact(id, patch = {}) {
+  if (!id) throw new Error('Contact id is required.')
+  const row = { updated_at: new Date().toISOString() }
+  if ('name' in patch) row.name = String(patch.name == null ? '' : patch.name)
+  if ('relationship' in patch) row.relationship = CONTACT_RELATIONSHIPS.includes(patch.relationship) ? patch.relationship : ''
+  if ('notes' in patch) row.notes = String(patch.notes == null ? '' : patch.notes)
+  if ('tags' in patch) row.tags = toList(patch.tags)
+  if ('emails' in patch) row.emails = toList(patch.emails)
+  if ('phones' in patch) row.phones = toList(patch.phones).map((p) => formatPhoneField(p))
+  const { error } = await sb.from('contacts').update(row).eq('id', id)
+  if (error) throw error
+  return { ok: true, id, patch: row }
+}
+
+// Load contacts (id + editable fields) so the phone can show/edit them. Mirrors the read shape of
+// crm-contacts.mjs (jsonb arrays -> string arrays).
+export async function loadContacts() {
+  const { data, error } = await sb.from('contacts').select('id,name,emails,phones,type,relationship,engagement,tags,notes')
+  if (error) throw error
+  return (data || []).map((c) => ({
+    id: str(c.id),
+    name: str(c.name),
+    emails: Array.isArray(c.emails) ? c.emails.map(String) : [],
+    phones: Array.isArray(c.phones) ? c.phones.map(String) : [],
+    type: str(c.type),
+    relationship: str(c.relationship),
+    engagement: str(c.engagement),
+    tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
+    notes: str(c.notes),
+  }))
+}
+
+// Refresh just the payments ledger + recompute finance (used after addPayment). Returns { payments,
+// finance } so the Money tab and the stage gate stay in sync without a full loadEverything().
+export async function reloadPaymentsFinance(projects, config) {
+  const { data, error } = await sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at')
+  if (error) throw error
+  const payments = (data || []).map(paymentFromRow)
+  const finance = computeFinance(projects, payments, config)
+  return { payments, finance }
+}
+
 // One call that pulls everything a load-and-render needs, and assembles the exact `SNAP`-shaped
 // object the view code consumes. This is the single seam the boot code hits after login.
 export async function loadEverything() {
-  const [projects, structure, tasks, config, paymentsRaw] = await Promise.all([
+  const [projects, structure, tasks, config, contacts, paymentsRaw] = await Promise.all([
     loadProjects(),
     loadStructure(),
     loadTasks(),
     loadConfig(),
+    loadContacts(),
     sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at'),
   ])
   if (paymentsRaw.error) throw paymentsRaw.error
@@ -346,6 +613,11 @@ export async function loadEverything() {
     tasks,
     notifications,
     finance,
+    // Raw ledgers/config kept on SNAP so writes (stage gate, finance refresh, contact edits) work off
+    // the same data the UI shows, without an extra round-trip.
+    payments,
+    config,
+    contacts,
     customFields: config.customFields,
     customValues: {}, // custom values are desktop-file-only; the phone has none
     eventFieldLabels: config.eventFieldLabels,

@@ -12,8 +12,15 @@ export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_QxnnWa1SGJrCaS2XEQY3wA_K
 // the desktop's push-vapid.json publicKey. If the key is ever rotated, update it here.
 export const VAPID_PUBLIC_KEY = 'BJ-kKbuNb4748FiB5n4x2Y9f2B89QuyRMvxFt66iovJOG2xO1ADGCNA3srgky4UbZiISFrpquq5ae6AjWB86eoI'
 
-// The web-push /api/subscribe function is still passcode-gated (it authorizes against the snapshot
-// blob, which is unrelated to Supabase auth). This is the same passcode the desktop uploads; it only
-// authorizes registering a push subscription, nothing else. Leave '' to keep the "Enable push" button
-// hidden until the deploy wires it up.
+// PUSH DECISION (2026-07-06, Stage D): web-push SUBSCRIBE from the app is left DISABLED for now.
+// Reason: the old /api/subscribe is passcode-gated (it authorizes against the snapshot blob's stored
+// hash, `snap.auth`, which is unrelated to Supabase auth), and the new Supabase-login app has no
+// passcode to source. Lock-screen push from the Mac still works via ntfy (independent, already
+// running), so nothing is lost day-to-day. Re-enabling in-app subscribe is a later, Supabase-based
+// rework (e.g. a small edge function that verifies the user's session JWT and stores the subscription
+// in a `push_subscriptions` table), NOT a passcode.
+//
+// To flip it back on the OLD way in the meantime: set this to the same passcode the desktop uploads
+// with the snapshot, and the "Enable push" bell reappears (updatePushButton() gates on this being
+// non-empty). Left '' keeps the bell hidden.
 export const PUSH_SUBSCRIBE_CODE = ''

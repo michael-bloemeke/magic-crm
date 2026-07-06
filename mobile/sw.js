@@ -2,10 +2,11 @@
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
-// v6: the app moved from a passcode + snapshot blob to Supabase login + live reads. Bumping the cache
-// name forces every client to drop the old app shell (which still had the passcode flow) on activate,
-// so no phone is left running the stale auth against the new data layer.
-var CACHE = 'mcrm-v6'
+// v7: Stage C adds writes (tasks/notes/payments/field edits/stage moves/contacts). Bumping the cache
+// name forces every client to drop the old read-only shell on activate, so no phone keeps running the
+// pre-write app.js/supabase-data.js against the live data.
+// (v6 was the passcode+snapshot -> Supabase login + live-reads switchover.)
+var CACHE = 'mcrm-v7'
 var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {

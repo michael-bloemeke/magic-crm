@@ -7,12 +7,24 @@
 
 'use strict'
 
-import { loadEverything, getSession, signIn, signOut, currentUserEmail } from './supabase-data.js'
+import {
+  loadEverything, getSession, signIn, signOut, currentUserEmail,
+  addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
+  reloadPaymentsFinance,
+} from './supabase-data.js'
 import { VAPID_PUBLIC_KEY, PUSH_SUBSCRIBE_CODE } from './config.js'
 
 var SNAP = null
 var TAB = 'pipeline'
 var STAGE = {} // stageId -> { name, umbrella, color }
+var DETAIL_ID = null // when non-null, the detail view for this project is on screen (not a tab)
+
+// Re-render whatever is currently on screen: the open project detail, else the active tab. Used after
+// a write so the change shows immediately without kicking the user out of a detail view.
+function refreshView() {
+  if (DETAIL_ID && SNAP && SNAP.projects.some(function (p) { return p.id === DETAIL_ID })) renderDetail(DETAIL_ID)
+  else render()
+}
 
 // ---------- helpers ----------
 function $(sel) { return document.querySelector(sel) }
@@ -57,6 +69,30 @@ function timeAgo(iso) {
   return Math.floor(s / 86400) + 'd ago'
 }
 
+// A brief bottom toast for write success / failure feedback (native-feeling, non-blocking).
+var toastTimer = null
+function toast(msg, kind) {
+  var t = $('#toast')
+  if (!t) { t = el('<div id="toast"></div>'); document.body.appendChild(t) }
+  t.textContent = msg
+  t.className = 'show' + (kind === 'err' ? ' err' : '')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(function () { t.className = '' }, kind === 'err' ? 3600 : 2200)
+}
+// Run a write, showing a failure toast if it throws. `after` runs only on success.
+function doWrite(promise, okMsg, after) {
+  return promise.then(function (r) {
+    if (okMsg) toast(okMsg)
+    if (after) after(r)
+    return r
+  }).catch(function (e) {
+    toast((e && e.message) ? e.message : 'Could not save. Try again.', 'err')
+    throw e
+  })
+}
+// Today as YYYY-MM-DD, and the stage label for a given stage id.
+function stageName(id) { return (STAGE[id] || {}).name || '' }
+
 // Event detail fields, in desktop order, with label overrides / hidden / deleted applied + customs.
 var EVENT_FIELDS = [
   ['eventSummary', 'Description'], ['eventDate', 'Event date'], ['eventStartTime', 'Event start'],
@@ -85,6 +121,7 @@ function stageInfo(id) { return STAGE[id] || { name: '', umbrella: '', color: 'v
 
 // ---------- views ----------
 function renderPipeline() {
+  DETAIL_ID = null
   var v = $('#view')
   var active = SNAP.projects.filter(function (p) { return p.bucket === 'active' })
   v.innerHTML = ''
@@ -134,6 +171,7 @@ function projectCard(p) {
 
 function renderDetail(id) {
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
+  DETAIL_ID = id
   var v = $('#view'); v.innerHTML = ''
   var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Pipeline</button>')
   back.addEventListener('click', renderPipeline)
@@ -146,79 +184,417 @@ function renderDetail(id) {
     '</div>'
   ))
 
-  // contacts
+  // ---- stage picker (with the desktop gates) ----
+  v.appendChild(sectionLabel('Stage'))
+  v.appendChild(stagePicker(p))
+
+  // ---- contacts (Call/Text/Email + inline edit) ----
   var emails = (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
   var phones = (p.contactPhones || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
-  if (p.contactNames || emails.length || phones.length) {
-    v.appendChild(sectionLabel('Contact'))
-    if (p.contactNames) v.appendChild(el('<div class="card" style="pointer-events:none">' + esc(p.contactNames) + '</div>'))
-    var actions = el('<div class="contact"></div>')
-    if (phones[0]) actions.appendChild(el('<a href="tel:' + esc(phones[0]) + '">Call</a>'))
-    if (phones[0]) actions.appendChild(el('<a href="sms:' + esc(phones[0]) + '">Text</a>'))
-    if (emails[0]) actions.appendChild(el('<a href="mailto:' + esc(emails[0]) + '">Email</a>'))
-    if (actions.children.length) v.appendChild(actions)
-  }
+  v.appendChild(sectionLabel('Contact'))
+  var contactCard = el('<div class="card" style="pointer-events:none"></div>')
+  contactCard.appendChild(el('<div class="name" style="font-size:14.5px">' + esc(p.contactNames || '(no name)') + '</div>'))
+  if (emails.length) contactCard.appendChild(el('<div class="meta">' + esc(emails.join(', ')) + '</div>'))
+  if (phones.length) contactCard.appendChild(el('<div class="meta">' + esc(phones.join(', ')) + '</div>'))
+  v.appendChild(contactCard)
+  var actions = el('<div class="contact"></div>')
+  if (phones[0]) actions.appendChild(el('<a href="tel:' + esc(phones[0]) + '">Call</a>'))
+  if (phones[0]) actions.appendChild(el('<a href="sms:' + esc(phones[0]) + '">Text</a>'))
+  if (emails[0]) actions.appendChild(el('<a href="mailto:' + esc(emails[0]) + '">Email</a>'))
+  if (actions.children.length) v.appendChild(actions)
+  // Edit the project's contact fields (names/emails/phones on the PROJECT row; phones get normalized).
+  var editContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">Edit contact info</button>')
+  editContactBtn.addEventListener('click', function () { openContactEditor(p) })
+  v.appendChild(editContactBtn)
 
-  // event details
-  var rows = fieldRows(p)
-  if (rows.length) {
-    v.appendChild(sectionLabel('Event details'))
-    var kv = el('<div class="kv"></div>')
-    rows.forEach(function (r) { kv.appendChild(el('<div class="item"><div class="k">' + esc(r.k) + '</div><div class="v">' + esc(r.v) + '</div></div>')) })
-    v.appendChild(kv)
-  }
+  // ---- event details (tap any row to edit; only the safe/allow-listed fields are editable) ----
+  v.appendChild(sectionLabel('Event details'))
+  v.appendChild(detailFieldsEditor(p))
 
-  // notes
-  if (p.projectNotes && p.projectNotes.trim()) {
-    v.appendChild(sectionLabel('Notes'))
-    v.appendChild(el('<div class="card" style="pointer-events:none;white-space:pre-wrap">' + esc(p.projectNotes) + '</div>'))
-  }
+  // ---- notes: the free-text project_notes field (editable) ----
+  v.appendChild(sectionLabel('Notes'))
+  v.appendChild(editableField(p, 'projectNotes', 'Notes', p.projectNotes || '', 'textarea', true))
 
-  // tasks for this project
-  var tasks = SNAP.tasks.filter(function (t) { return t.projectId === id && !t.done })
-  if (tasks.length) {
-    v.appendChild(sectionLabel('Open tasks'))
-    tasks.sort(function (a, b) { return (a.dueDate || '') < (b.dueDate || '') ? -1 : 1 })
-    tasks.forEach(function (t) { v.appendChild(taskCard(t, false)) })
-  }
+  // ---- activity log + add a dated note entry ----
+  v.appendChild(sectionLabel('Activity'))
+  v.appendChild(addNoteBox(p))
+  var logWrap = el('<div id="log-' + esc(p.id) + '"></div>')
+  renderLog(logWrap, p)
+  v.appendChild(logWrap)
 
-  // activity log
-  if (Array.isArray(p.activityLog) && p.activityLog.length) {
-    v.appendChild(sectionLabel('Activity'))
-    var wrap = el('<div></div>')
-    p.activityLog.slice(0, 15).forEach(function (line) { wrap.appendChild(el('<div class="log">' + esc(typeof line === 'string' ? line : (line && line.text) || JSON.stringify(line)) + '</div>')) })
-    v.appendChild(wrap)
-  }
+  // ---- tasks for this project (toggle / delete / add) ----
+  var thead = el('<div class="tabhead" style="margin-top:18px"><div class="section-label" style="margin:0"><span class="dot"></span>Tasks</div><button class="addbtn" id="add-ptask"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add</button></div>')
+  v.appendChild(thead)
+  var pFormSlot = el('<div></div>')
+  v.appendChild(pFormSlot)
+  thead.querySelector('#add-ptask').addEventListener('click', function () {
+    if (pFormSlot.firstChild) { pFormSlot.innerHTML = ''; return }
+    pFormSlot.appendChild(addTaskForm(p.id))
+  })
+  var ptasks = SNAP.tasks.filter(function (t) { return t.projectId === id && !t.done })
+  ptasks.sort(function (a, b) { return (a.dueDate || '') < (b.dueDate || '') ? -1 : 1 })
+  if (ptasks.length) ptasks.forEach(function (t) { v.appendChild(taskCard(t, false)) })
+  else v.appendChild(el('<div class="empty" style="padding:12px">No open tasks.</div>'))
+
+  // ---- payments: log a deposit / balance for this project ----
+  var mhead = el('<div class="tabhead" style="margin-top:18px"><div class="section-label" style="margin:0"><span class="dot"></span>Payments</div><button class="addbtn" id="add-pay"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Log payment</button></div>')
+  v.appendChild(mhead)
+  var payFormSlot = el('<div></div>')
+  v.appendChild(payFormSlot)
+  mhead.querySelector('#add-pay').addEventListener('click', function () {
+    if (payFormSlot.firstChild) { payFormSlot.innerHTML = ''; return }
+    payFormSlot.appendChild(addPaymentForm(p))
+  })
+  var pays = (SNAP.payments || []).filter(function (x) { return x.projectId === id })
+    .sort(function (a, b) { return String(b.dateReceived || '').localeCompare(String(a.dateReceived || '')) })
+  if (pays.length) {
+    pays.forEach(function (pm) {
+      var lbl = [pm.type, pm.method].filter(Boolean).join(' · ')
+      v.appendChild(el('<div class="card" style="pointer-events:none"><div class="row1"><span class="name" style="font-size:14.5px">' + esc(money(pm.amount) || String(pm.amount)) + (pm.pending ? ' <span style="color:var(--faint);font-size:12px">(pending)</span>' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(pm.dateReceived ? fmtShort(pm.dateReceived) : '') + '</span></div>' + (lbl ? '<div class="meta">' + esc(lbl) + '</div>' : '') + '</div>'))
+    })
+  } else v.appendChild(el('<div class="empty" style="padding:12px">No payments logged.</div>'))
+
   window.scrollTo(0, 0)
 }
 
+// Render (or re-render) a project's activity log into `wrap`.
+function renderLog(wrap, p) {
+  wrap.innerHTML = ''
+  var lines = Array.isArray(p.activityLog) ? p.activityLog : []
+  if (!lines.length) { wrap.appendChild(el('<div class="empty" style="padding:10px">No activity yet.</div>')); return }
+  lines.slice(0, 20).forEach(function (line) {
+    wrap.appendChild(el('<div class="log">' + esc(typeof line === 'string' ? line : (line && line.text) || JSON.stringify(line)) + '</div>'))
+  })
+}
+
+// The stage <select>: shows every stage grouped by umbrella. On change, calls setStage with the
+// desktop gates (Post Show blocked; Booked needs a received payment). If a gate throws, the select
+// snaps back to the current stage and the error is toasted.
+function stagePicker(p) {
+  var wrap = el('<div class="card" style="pointer-events:auto"></div>')
+  var sel = document.createElement('select')
+  sel.className = 'stagesel'
+  ;(SNAP.structure.umbrellas || []).forEach(function (u) {
+    var og = document.createElement('optgroup')
+    og.label = u.label
+    ;(u.stages || []).forEach(function (st) {
+      var o = document.createElement('option')
+      o.value = st.id
+      o.textContent = st.name
+      if (st.id === p.stageId) o.selected = true
+      og.appendChild(o)
+    })
+    sel.appendChild(og)
+  })
+  var prev = p.stageId
+  sel.addEventListener('change', function () {
+    var next = sel.value
+    if (next === prev) return
+    doWrite(setStage(p.id, next, SNAP.structure, SNAP.payments || []), 'Moved to ' + stageName(next), function () {
+      p.stageId = next
+      prev = next
+      renderDetail(p.id) // refresh the header stage label; pipeline grouping updates on next visit
+    }).catch(function () {
+      sel.value = prev // gate blocked -> revert the dropdown
+    })
+  })
+  wrap.appendChild(sel)
+  return wrap
+}
+
+// A single editable field. Tapping the value turns it into an input/textarea; saving on blur (or the
+// Save button for textareas) writes via updateProjectField and patches the project object in place.
+// `field` is the camelCase key on the project AND the key updateProjectField expects.
+function editableField(p, field, label, value, kind, fullCard) {
+  var container = el('<div class="' + (fullCard ? 'card' : 'kv-edit') + '"></div>')
+  var display = el('<div class="edit-display"><div class="k">' + esc(label) + '</div><div class="v">' + (String(value).trim() ? esc(value) : '<span style="color:var(--faint)">Tap to add</span>') + '</div><span class="pencil">✎</span></div>')
+  container.appendChild(display)
+  display.addEventListener('click', function () {
+    container.innerHTML = ''
+    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+    input.className = 'field-input'
+    if (kind === 'date') input.type = 'date'
+    if (kind === 'number') { input.type = 'text'; input.inputMode = 'decimal' }
+    input.value = value == null ? '' : String(value)
+    if (kind === 'textarea') input.rows = 4
+    container.appendChild(el('<div class="k" style="margin-bottom:5px">' + esc(label) + '</div>'))
+    container.appendChild(input)
+    var save = function () {
+      var nv = input.value
+      if (nv === String(value == null ? '' : value)) { renderDetail(p.id); return }
+      doWrite(updateProjectField(p.id, field, nv), 'Saved', function (r) {
+        p[field] = r.value
+        renderDetail(p.id)
+      }).catch(function () { renderDetail(p.id) })
+    }
+    if (kind === 'textarea') {
+      var bar = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+      bar.children[0].addEventListener('click', function () { renderDetail(p.id) })
+      bar.children[1].addEventListener('click', save)
+      container.appendChild(bar)
+    } else {
+      input.addEventListener('blur', save)
+    }
+    setTimeout(function () { input.focus() }, 30)
+  })
+  return container
+}
+
+// The allow-listed editable event fields, in a sensible order. Each maps a camelCase project key to a
+// label + input kind. Only SAFE fields (never client_name).
+var EDITABLE_DETAIL_FIELDS = [
+  ['projectName', 'Display name', 'text'],
+  ['eventDate', 'Event date', 'date'],
+  ['eventStartTime', 'Event start', 'text'],
+  ['showStartTime', 'Show start', 'text'],
+  ['eventLocation', 'Location', 'text'],
+  ['venueType', 'Venue type', 'text'],
+  ['indoorsOrOutdoors', 'Indoors / Outdoors', 'text'],
+  ['numberOfGuests', 'Guest count', 'text'],
+  ['ageOfGuests', 'Guest ages', 'text'],
+  ['performanceStyle', 'Performance', 'text'],
+  ['av', 'AV', 'text'],
+  ['vips', 'VIPs', 'text'],
+  ['bookingSource', 'Booking source', 'text'],
+  ['eventDescription', 'Description', 'textarea'],
+]
+function detailFieldsEditor(p) {
+  var wrap = el('<div class="kv"></div>')
+  EDITABLE_DETAIL_FIELDS.forEach(function (f) {
+    var key = f[0]
+    var val = key === 'projectName' ? (p.client || '') : (p[key] == null ? '' : p[key])
+    var display = key === 'eventDate' && val ? fmtDate(val) : val
+    var item = el('<div class="item kv-tap"><div class="k">' + esc(f[1]) + '</div><div class="v">' + (String(val).trim() ? esc(display) : '<span style="color:var(--faint)">Tap to add</span>') + '</div></div>')
+    item.addEventListener('click', function () { openFieldSheet(p, key, f[1], f[2]) })
+    wrap.appendChild(item)
+  })
+  return wrap
+}
+
+// A tiny modal sheet to edit one field (used by the event-details rows). Writes on Save.
+function openFieldSheet(p, field, label, kind) {
+  var curVal = field === 'projectName' ? (p.client || '') : (p[field] == null ? '' : String(p[field]))
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  card.appendChild(el('<div class="sheet-title">' + esc(label) + '</div>'))
+  var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+  input.className = 'field-input'
+  if (kind === 'date') input.type = 'date'
+  input.value = curVal
+  if (kind === 'textarea') input.rows = 4
+  card.appendChild(input)
+  if (field === 'contactPhones') card.appendChild(el('<div class="hint">Phone numbers get auto-formatted on save.</div>'))
+  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+  var close = function () { sheet.remove() }
+  bar.children[0].addEventListener('click', close)
+  bar.children[1].addEventListener('click', function () {
+    var nv = input.value
+    if (nv === curVal) { close(); return }
+    doWrite(updateProjectField(p.id, field, nv), 'Saved', function (r) {
+      if (field === 'projectName') p.client = r.value
+      else p[field] = r.value
+      close()
+      renderDetail(p.id)
+    })
+  })
+  card.appendChild(bar)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+  setTimeout(function () { input.focus() }, 40)
+}
+
+// The "add a note" box: appends a dated line to the activity log (newest first).
+function addNoteBox(p) {
+  var wrap = el('<div class="addform"><textarea class="field-input" id="note-in" rows="2" placeholder="Add a note to the activity log…"></textarea><div class="addrow"><span></span><button class="btn-gold" id="note-save">Add note</button></div></div>')
+  wrap.querySelector('#note-save').addEventListener('click', function () {
+    var text = wrap.querySelector('#note-in').value.trim()
+    if (!text) { toast('Enter a note.', 'err'); return }
+    doWrite(addNote(p.id, text), 'Note added', function (r) {
+      p.activityLog = r.activityLog
+      var lw = $('#log-' + p.id)
+      if (lw) renderLog(lw, p)
+      wrap.querySelector('#note-in').value = ''
+    })
+  })
+  return wrap
+}
+
+// The "log a payment" form: amount + date + type + method. A dated payment satisfies the Booked gate.
+function addPaymentForm(p) {
+  var wrap = el(
+    '<div class="addform">' +
+      '<input class="field-input" id="pay-amt" inputmode="decimal" placeholder="Amount (e.g. 500)" />' +
+      '<div class="addrow"><input class="field-input" id="pay-date" type="date" /></div>' +
+      '<div class="addrow">' +
+        '<select class="field-input" id="pay-type"><option value="deposit">Deposit</option><option value="balance">Balance</option><option value="full">Paid in full</option><option value="other">Other</option></select>' +
+        '<select class="field-input" id="pay-method"><option value="">Method…</option><option>Online (HB)</option><option>Cash</option><option>Check</option><option>PayPal</option><option>Venmo</option><option>CashApp</option><option>Zelle</option></select>' +
+      '</div>' +
+      '<label class="pendrow"><input type="checkbox" id="pay-pending" /> Amount known, no date yet (pending)</label>' +
+      '<div class="addrow"><button class="btn-ghost" id="pay-cancel">Cancel</button><button class="btn-gold" id="pay-save">Log payment</button></div>' +
+    '</div>'
+  )
+  wrap.querySelector('#pay-date').value = todayStr()
+  var pend = wrap.querySelector('#pay-pending')
+  pend.addEventListener('change', function () { wrap.querySelector('#pay-date').disabled = pend.checked })
+  wrap.querySelector('#pay-cancel').addEventListener('click', function () { wrap.remove() })
+  wrap.querySelector('#pay-save').addEventListener('click', function () {
+    var amt = wrap.querySelector('#pay-amt').value.trim()
+    if (!amt || isNaN(Number(amt.replace(/[^0-9.\-]/g, '')))) { toast('Enter a valid amount.', 'err'); return }
+    var pending = pend.checked
+    doWrite(addPayment({
+      projectId: p.id,
+      amount: amt,
+      dateReceived: pending ? '' : (wrap.querySelector('#pay-date').value || ''),
+      type: wrap.querySelector('#pay-type').value,
+      method: wrap.querySelector('#pay-method').value,
+      pending: pending,
+    }), 'Payment logged', function () {
+      // Refresh the ledger + finance so the Money tab and the stage gate see the new payment.
+      reloadPaymentsFinance(SNAP.projects, SNAP.config).then(function (r) {
+        SNAP.payments = r.payments
+        SNAP.finance = r.finance
+        renderDetail(p.id)
+      }).catch(function () { renderDetail(p.id) })
+    })
+  })
+  return wrap
+}
+
+// A modal sheet to edit the project's contact fields (names / emails / phones on the project row).
+// Phones are normalized on save (formatPhoneField), matching the desktop.
+function openContactEditor(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  card.appendChild(el('<div class="sheet-title">Edit contact</div>'))
+  card.appendChild(el('<div class="k" style="margin-bottom:4px">Names</div>'))
+  var nameIn = document.createElement('input'); nameIn.className = 'field-input'; nameIn.value = p.contactNames || ''
+  card.appendChild(nameIn)
+  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Emails</div>'))
+  var emIn = document.createElement('input'); emIn.className = 'field-input'; emIn.value = p.contactEmails || ''
+  card.appendChild(emIn)
+  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Phones</div>'))
+  var phIn = document.createElement('input'); phIn.className = 'field-input'; phIn.value = p.contactPhones || ''
+  card.appendChild(phIn)
+  card.appendChild(el('<div class="hint">Phone numbers get auto-formatted on save.</div>'))
+  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+  var close = function () { sheet.remove() }
+  bar.children[0].addEventListener('click', close)
+  bar.children[1].addEventListener('click', function () {
+    // Write each changed field (names/emails as-is; phones normalized by updateProjectField).
+    var writes = []
+    if (nameIn.value !== (p.contactNames || '')) writes.push(updateProjectField(p.id, 'contactNames', nameIn.value).then(function (r) { p.contactNames = r.value }))
+    if (emIn.value !== (p.contactEmails || '')) writes.push(updateProjectField(p.id, 'contactEmails', emIn.value).then(function (r) { p.contactEmails = r.value }))
+    if (phIn.value !== (p.contactPhones || '')) writes.push(updateProjectField(p.id, 'contactPhones', phIn.value).then(function (r) { p.contactPhones = r.value }))
+    if (!writes.length) { close(); return }
+    doWrite(Promise.all(writes), 'Contact updated', function () { close(); renderDetail(p.id) })
+  })
+  card.appendChild(bar)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// A task row with a tap-to-toggle checkbox on the left, the title/meta in the middle (tapping the
+// body opens the project when showProject), and a delete (x) on the right. Toggling checks it off
+// (crm rule: done=true), which removes it from the open lists on the next render.
 function taskCard(t, showProject) {
   var st = dueState(t.dueDate)
   var pName = ''
   if (showProject) { var pr = SNAP.projects.find(function (x) { return x.id === t.projectId }); pName = pr ? pr.client : t.projectId }
   var c = el(
-    '<button class="card">' +
-      '<div class="name" style="font-size:14.5px">' + esc(t.title || 'Task') + '</div>' +
-      (showProject ? '<div class="meta">' + esc(pName) + '</div>' : '') +
-      (t.dueDate ? '<span class="pill ' + (st || '') + '">' + (st === 'overdue' ? 'Overdue · ' : st === 'due' ? 'Due today' : 'Due ') + (st === 'due' ? '' : esc(fmtShort(t.dueDate))) + '</span>' : '') +
-    '</button>'
+    '<div class="card taskrow' + (t.done ? ' done' : '') + '">' +
+      '<button class="check" aria-label="Toggle done">' +
+        (t.done ? '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>' : '') +
+      '</button>' +
+      '<div class="taskbody">' +
+        '<div class="name" style="font-size:14.5px">' + esc(t.title || 'Task') + '</div>' +
+        (showProject && pName ? '<div class="meta">' + esc(pName) + '</div>' : '') +
+        (t.dueDate ? '<span class="pill ' + (st || '') + '">' + (st === 'overdue' ? 'Overdue · ' : st === 'due' ? 'Due today' : 'Due ') + (st === 'due' ? '' : esc(fmtShort(t.dueDate))) + '</span>' : '') +
+      '</div>' +
+      '<button class="taskdel" aria-label="Delete task"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' +
+    '</div>'
   )
-  if (showProject) c.addEventListener('click', function () { renderDetail(t.projectId) })
-  else c.style.pointerEvents = 'none'
+  var check = c.querySelector('.check')
+  check.addEventListener('click', function (ev) {
+    ev.stopPropagation()
+    var next = !t.done
+    doWrite(toggleTask(t.id, next), next ? 'Task done' : 'Task reopened', function () {
+      t.done = next // optimistic; SNAP.tasks holds the same object reference
+      refreshView()
+    })
+  })
+  var del = c.querySelector('.taskdel')
+  del.addEventListener('click', function (ev) {
+    ev.stopPropagation()
+    if (!confirm('Delete this task?')) return
+    doWrite(deleteTask(t.id), 'Task deleted', function () {
+      SNAP.tasks = SNAP.tasks.filter(function (x) { return x.id !== t.id })
+      refreshView()
+    })
+  })
+  if (showProject) {
+    var body = c.querySelector('.taskbody')
+    body.addEventListener('click', function () { renderDetail(t.projectId) })
+  }
   return c
+}
+
+// A minimal add-task form (title + optional due date/time), used both on the Tasks tab (no project)
+// and inside a project detail (projectId prefilled). onDone(newTask) fires after a successful add.
+function addTaskForm(projectId, onDone) {
+  var wrap = el(
+    '<div class="addform">' +
+      '<input class="search" id="nt-title" placeholder="New task…" />' +
+      '<div class="addrow">' +
+        '<input class="search" id="nt-date" type="date" />' +
+        '<input class="search" id="nt-time" type="time" />' +
+      '</div>' +
+      '<div class="addrow">' +
+        '<button class="btn-ghost" id="nt-cancel">Cancel</button>' +
+        '<button class="btn-gold" id="nt-save">Add task</button>' +
+      '</div>' +
+    '</div>'
+  )
+  var close = function () { wrap.remove() }
+  wrap.querySelector('#nt-cancel').addEventListener('click', close)
+  wrap.querySelector('#nt-save').addEventListener('click', function () {
+    var title = wrap.querySelector('#nt-title').value.trim()
+    if (!title) { toast('Enter a task title.', 'err'); return }
+    var dueDate = wrap.querySelector('#nt-date').value || ''
+    var dueTime = wrap.querySelector('#nt-time').value || ''
+    doWrite(addTask({ projectId: projectId || '', title: title, dueDate: dueDate, dueTime: dueTime }), 'Task added', function (nt) {
+      SNAP.tasks.push(nt)
+      close()
+      if (onDone) onDone(nt)
+      refreshView()
+    })
+  })
+  setTimeout(function () { var e = wrap.querySelector('#nt-title'); if (e) e.focus() }, 40)
+  return wrap
 }
 
 function renderTasks() {
   var v = $('#view'); v.innerHTML = ''
-  var open = SNAP.tasks.filter(function (t) { return !t.done && t.dueDate })
-  open.sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : 1 })
-  var overdue = open.filter(function (t) { return dueState(t.dueDate) === 'overdue' })
-  var today = open.filter(function (t) { return dueState(t.dueDate) === 'due' })
-  var upcoming = open.filter(function (t) { return !dueState(t.dueDate) })
-  if (!open.length) { v.appendChild(el('<div class="empty">No open tasks with due dates. Nice.</div>')); return }
+  // Header row: title + a "+" to add a task (no project attached from this tab).
+  var head = el('<div class="tabhead"><span></span><button class="addbtn" id="add-task" aria-label="Add task"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New task</button></div>')
+  v.appendChild(head)
+  var formSlot = el('<div id="taskform-slot"></div>')
+  v.appendChild(formSlot)
+  head.querySelector('#add-task').addEventListener('click', function () {
+    if (formSlot.firstChild) { formSlot.innerHTML = ''; return }
+    formSlot.appendChild(addTaskForm('', function () { /* render() re-runs; keep it simple */ }))
+  })
+  var open = SNAP.tasks.filter(function (t) { return !t.done })
+  var dated = open.filter(function (t) { return t.dueDate })
+  dated.sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : 1 })
+  var overdue = dated.filter(function (t) { return dueState(t.dueDate) === 'overdue' })
+  var today = dated.filter(function (t) { return dueState(t.dueDate) === 'due' })
+  var upcoming = dated.filter(function (t) { return !dueState(t.dueDate) })
+  var nodate = open.filter(function (t) { return !t.dueDate })
+  if (!open.length) { v.appendChild(el('<div class="empty">No open tasks. Nice.</div>')); return }
   if (overdue.length) { v.appendChild(sectionLabel('Overdue · ' + overdue.length)); overdue.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
   if (today.length) { v.appendChild(sectionLabel('Today · ' + today.length)); today.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
   if (upcoming.length) { v.appendChild(sectionLabel('Upcoming · ' + upcoming.length)); upcoming.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
+  if (nodate.length) { v.appendChild(sectionLabel('No due date · ' + nodate.length)); nodate.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
 }
 
 function renderMoney() {
@@ -313,6 +689,7 @@ function loadAndRender() {
   return loadEverything().then(function (s) {
     applySnapshot(s)
     $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)
+    DETAIL_ID = null // a full reload returns to the active tab
     render()
     updatePushButton()
     return 'ok'
@@ -386,7 +763,7 @@ function wireUI() {
   if (wired) return
   wired = true
   document.querySelectorAll('nav.tabbar button').forEach(function (b) {
-    b.addEventListener('click', function () { TAB = b.dataset.tab; render(); window.scrollTo(0, 0) })
+    b.addEventListener('click', function () { DETAIL_ID = null; TAB = b.dataset.tab; render(); window.scrollTo(0, 0) })
   })
   $('#refresh').addEventListener('click', loadAndRender)
   var ep = $('#enable-push')
