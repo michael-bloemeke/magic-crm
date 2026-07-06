@@ -18,6 +18,9 @@ import {
   CRM_STORE,
   getCachedProjects,
   getCachedPipelineMeta,
+  getCachedPayments,
+  getCachedTasks,
+  getCachedTemplates,
   // async Supabase writers
   insertProject as sbInsertProject,
   updateProject as sbUpdateProject,
@@ -25,6 +28,11 @@ import {
   setProjectStage as sbSetProjectStage,
   reassignStage as sbReassignStage,
   setPipelineMeta as sbSetPipelineMeta,
+  upsertTask as sbUpsertTask,
+  deleteTask as sbDeleteTask,
+  deleteTasksForProject as sbDeleteTasksForProject,
+  upsertTemplate as sbUpsertTemplate,
+  deleteTemplate as sbDeleteTemplate,
   // synchronous cache mutators
   cacheUpsertProject,
   cachePatchProject,
@@ -32,6 +40,11 @@ import {
   cacheSetProjectStage,
   cacheReassignStage,
   cacheSetPipelineMeta,
+  cacheUpsertTask,
+  cacheRemoveTask,
+  cacheRemoveTasksForProject,
+  cacheUpsertTemplate,
+  cacheRemoveTemplate,
 } from './crm-store.mjs'
 
 export const RECORDS_DIR = path.join(
@@ -47,22 +60,41 @@ const TASKS_FILE = path.join(RECORDS_DIR, 'crm-tasks.json')
 const TEMPLATES_FILE = path.join(RECORDS_DIR, 'crm-templates.json')
 const PAYMENTS_FILE = path.join(RECORDS_DIR, 'crm-payments.json')
 
-// True if the project has at least one RECEIVED payment (amount + a real date,
-// not a date-pending one). Read directly from crm-payments.json to avoid a
-// circular import with crm-finance.mjs. Matches isReceivedPayment() in the app.
-function hasReceivedPaymentFor(id) {
+// Payment rows for the current backend, normalized to the { projectId, amount, dateReceived,
+// pending } fields the gates below read. Files: crm-payments.json (camelCase, read directly to
+// avoid a circular import with crm-finance.mjs). Supabase: the payments cache (snake_case columns
+// mapped to those same fields) so the Booked-stage gate and paid-in-full completion keep working
+// after payments moved to Supabase. The gate logic itself is identical in both backends.
+function paymentRowsForGate() {
+  if (CRM_STORE === 'supabase') {
+    return getCachedPayments().map((p) => ({
+      projectId: p.project_id == null ? '' : String(p.project_id),
+      amount: Number(p.amount) || 0,
+      dateReceived: p.date_received == null ? '' : String(p.date_received),
+      pending: !!p.pending,
+    }))
+  }
   const d = readJson(PAYMENTS_FILE)
   const arr = d && Array.isArray(d.payments) ? d.payments : []
-  return arr.some(
+  return arr.map((p) => ({
+    projectId: p.projectId,
+    amount: Number(p.amount),
+    dateReceived: p.dateReceived,
+    pending: p.pending,
+  }))
+}
+
+// True if the project has at least one RECEIVED payment (amount + a real date,
+// not a date-pending one). Matches isReceivedPayment() in the app.
+function hasReceivedPaymentFor(id) {
+  return paymentRowsForGate().some(
     (p) => p.projectId === id && !p.pending && Number(p.amount) > 0 && String(p.dateReceived || '').trim() !== '',
   )
 }
 
 // Total of RECEIVED payments for a project (used to check a gig is paid in full).
 function receivedTotalFor(id) {
-  const d = readJson(PAYMENTS_FILE)
-  const arr = d && Array.isArray(d.payments) ? d.payments : []
-  return arr.reduce(
+  return paymentRowsForGate().reduce(
     (s, p) =>
       p.projectId === id && !p.pending && String(p.dateReceived || '').trim() !== '' ? s + (Number(p.amount) || 0) : s,
     0,
@@ -331,6 +363,16 @@ function readJson(file, fallback = null) {
 
 function str(v) {
   return v == null ? '' : String(v)
+}
+
+// Postgres returns timestamptz in offset form (e.g. "2026-06-29T18:47:46.036771+00:00"); the files
+// store the JS toISOString() "...Z" form. Re-serialize through Date so a supabase read yields the
+// identical createdAt string the files path produces (mirrors isoZ in crm-contacts.mjs).
+function isoZ(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toISOString()
 }
 
 // Project id = slug of client_name (the stable join key). Exported so the Supabase backup
@@ -801,15 +843,42 @@ function readTasksFile() {
   return data
 }
 
+// Raw DB task row -> the app's task record. dueTime is normalized identically to the files path
+// (normalizeTime defaults a missing/invalid time to ""), so loadTasks() is byte-identical either
+// backend. createdAt is re-serialized to the "...Z" form via isoZ.
+function taskFromRow(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    title: r.title == null ? '' : String(r.title),
+    dueDate: r.due_date == null ? '' : String(r.due_date),
+    dueTime: normalizeTime(r.due_time),
+    done: !!r.done,
+    createdAt: isoZ(r.created_at),
+  }
+}
+// App task record -> raw DB row (snake_case columns).
+function taskToRow(t) {
+  return {
+    id: t.id,
+    project_id: t.projectId || '',
+    title: t.title || '',
+    due_date: t.dueDate || '',
+    due_time: t.dueTime || '',
+    done: !!t.done,
+    created_at: t.createdAt || null,
+  }
+}
+
 export function loadTasks() {
+  if (CRM_STORE === 'supabase') return getCachedTasks().map(taskFromRow)
   // Default dueTime for tasks created before the field existed.
   return readTasksFile().tasks.map((t) => ({ ...t, dueTime: normalizeTime(t.dueTime) }))
 }
 
-export function addTask({ projectId, title, dueDate, dueTime }) {
+export async function addTask({ projectId, title, dueDate, dueTime }) {
   const t = String(title || '').trim()
   if (!t) throw new Error('task title is required')
-  const data = readTasksFile()
   const task = {
     id: crypto.randomUUID(),
     projectId: String(projectId || ''),
@@ -820,13 +889,33 @@ export function addTask({ projectId, title, dueDate, dueTime }) {
     done: false,
     createdAt: new Date().toISOString(),
   }
+  if (CRM_STORE === 'supabase') {
+    const row = taskToRow(task)
+    cacheUpsertTask(row)
+    await sbUpsertTask(row)
+    return task
+  }
+  const data = readTasksFile()
   data.tasks.push(task)
   data._meta = tasksMeta()
   writeTasksFile(data)
   return task
 }
 
-export function updateTask({ id, done, title, dueDate, dueTime }) {
+export async function updateTask({ id, done, title, dueDate, dueTime }) {
+  if (CRM_STORE === 'supabase') {
+    const existing = getCachedTasks().find((x) => x.id === id)
+    if (!existing) throw new Error('task not found')
+    const task = taskFromRow(existing)
+    if (typeof done === 'boolean') task.done = done
+    if (title != null) task.title = String(title)
+    if (dueDate != null) task.dueDate = String(dueDate)
+    if (dueTime != null) task.dueTime = normalizeTime(dueTime)
+    const row = taskToRow(task)
+    cacheUpsertTask(row)
+    await sbUpsertTask(row)
+    return task
+  }
   const data = readTasksFile()
   const task = data.tasks.find((x) => x.id === id)
   if (!task) throw new Error('task not found')
@@ -839,7 +928,12 @@ export function updateTask({ id, done, title, dueDate, dueTime }) {
   return task
 }
 
-export function deleteTask(id) {
+export async function deleteTask(id) {
+  if (CRM_STORE === 'supabase') {
+    cacheRemoveTask(id)
+    await sbDeleteTask(id)
+    return { ok: true }
+  }
   const data = readTasksFile()
   data.tasks = data.tasks.filter((x) => x.id !== id)
   data._meta = tasksMeta()
@@ -1340,10 +1434,19 @@ export async function deleteProject({ id } = {}) {
   return { ok: true, id, from: fromBuckets, name: str(removed.client_name) }
 }
 
-// Purge a deleted project's CRM tasks (crm-tasks.json — not migrated, so files-based in both
-// backends). Best-effort: a failure here never fails the delete. Extracted so both paths share it.
+// Purge a deleted project's CRM tasks. Best-effort: a failure here never fails the delete.
+// Extracted so both paths share it. Under supabase, tasks now live in Supabase, so purge the cache
+// synchronously + fire the DB delete (fire-and-forget, since deleteProject already awaited the
+// project delete and this runs in that sync tail); under files, rewrite crm-tasks.json.
 function purgeTasksForProject(id) {
   try {
+    if (CRM_STORE === 'supabase') {
+      cacheRemoveTasksForProject(id)
+      sbDeleteTasksForProject(id).catch((e) =>
+        console.error('[crm-data] could not purge Supabase tasks for deleted project:', e?.message || e),
+      )
+      return
+    }
     const t = readTasksFile()
     const before = t.tasks.length
     t.tasks = t.tasks.filter((x) => x.projectId !== id)
@@ -1384,13 +1487,67 @@ function writeTemplatesFile(data) {
   }
 }
 
+// Raw DB template row -> file-shape record. The files omit `format` on legacy rows (treated as text);
+// the DB stores it explicitly, so we emit format only when it's a real value, matching the files.
+function templateFromRow(r) {
+  const t = {
+    id: r.id,
+    name: String(r.name || ''),
+    subject: String(r.subject || ''),
+    body: String(r.body || ''),
+    updatedAt: isoZ(r.updated_at),
+  }
+  if (r.format != null) t.format = r.format === 'html' ? 'html' : 'text'
+  return t
+}
+// File-shape template record -> raw DB row.
+function templateToRow(t) {
+  return {
+    id: t.id,
+    name: String(t.name || ''),
+    subject: String(t.subject || ''),
+    body: String(t.body || ''),
+    format: t.format == null ? null : t.format === 'html' ? 'html' : 'text',
+    updated_at: t.updatedAt || null,
+  }
+}
+
 export function loadTemplates() {
+  if (CRM_STORE === 'supabase') return getCachedTemplates().map(templateFromRow)
   return readTemplatesFile().templates
 }
 
-export function saveTemplate({ id, name, subject, body, format }) {
-  const data = readTemplatesFile()
+export async function saveTemplate({ id, name, subject, body, format }) {
   const now = new Date().toISOString()
+  if (CRM_STORE === 'supabase') {
+    if (id) {
+      const existing = getCachedTemplates().find((x) => x.id === id)
+      if (!existing) throw new Error('template not found')
+      const t = templateFromRow(existing)
+      t.name = String(name ?? t.name)
+      t.subject = String(subject ?? t.subject)
+      t.body = String(body ?? t.body)
+      if (format != null) t.format = format === 'html' ? 'html' : 'text'
+      t.updatedAt = now
+      const row = templateToRow(t)
+      cacheUpsertTemplate(row)
+      await sbUpsertTemplate(row)
+      return t
+    }
+    const t = {
+      id: crypto.randomUUID(),
+      name: String(name || 'Untitled template'),
+      subject: String(subject || ''),
+      body: String(body || ''),
+      format: format === 'html' ? 'html' : 'text',
+      updatedAt: now,
+    }
+    const row = templateToRow(t)
+    cacheUpsertTemplate(row)
+    await sbUpsertTemplate(row)
+    return t
+  }
+  const data = readTemplatesFile()
   if (id) {
     const t = data.templates.find((x) => x.id === id)
     if (!t) throw new Error('template not found')
@@ -1415,7 +1572,12 @@ export function saveTemplate({ id, name, subject, body, format }) {
   return t
 }
 
-export function deleteTemplate(id) {
+export async function deleteTemplate(id) {
+  if (CRM_STORE === 'supabase') {
+    cacheRemoveTemplate(id)
+    await sbDeleteTemplate(id)
+    return { ok: true }
+  }
   const data = readTemplatesFile()
   data.templates = data.templates.filter((x) => x.id !== id)
   writeTemplatesFile(data)

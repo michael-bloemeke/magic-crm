@@ -178,13 +178,76 @@ let _cache = null
 // test harness). Idempotent per process unless forced: a second call refreshes the snapshot.
 export async function initStore({ force = false } = {}) {
   if (_cache && !force) return _cache
-  const [projects, contacts, linksMap, pipelineMeta] = await Promise.all([
+  const [
+    projects,
+    contacts,
+    linksMap,
+    pipelineMeta,
+    // Phase-2 entities (loaded here as groundwork; finance + tasks are WIRED now, the rest
+    // are laid for a later batch that will wire their modules).
+    payments,
+    expenses,
+    mileageTrips,
+    crmSettings,
+    tasks,
+    emails,
+    templates,
+    notifications,
+    textMarkers,
+    invoices,
+    contracts,
+    questionnaires,
+    portals,
+    recipients,
+    inquiries,
+    calendarMap,
+    crmConfig,
+  ] = await Promise.all([
     getAllProjects(),
     getContacts(),
     getLinksMap(),
     getPipelineMeta(),
+    getAllPayments(),
+    getAllExpenses(),
+    getAllMileageTrips(),
+    getCrmSettings(),
+    getAllTasks(),
+    getAllEmails(),
+    getAllTemplates(),
+    getAllNotifications(),
+    getAllTextMarkers(),
+    getAllInvoices(),
+    getAllContracts(),
+    getAllQuestionnaires(),
+    getAllPortals(),
+    getAllRecipients(),
+    getAllInquiries(),
+    getCalendarMap(),
+    getCrmConfig(),
   ])
-  _cache = { projects, contacts, linksMap, pipelineMeta }
+  _cache = {
+    projects,
+    contacts,
+    linksMap,
+    pipelineMeta,
+    payments,
+    expenses,
+    mileageTrips,
+    crmSettings,
+    tasks,
+    emails,
+    templates,
+    notifications,
+    textMarkers,
+    invoices,
+    contracts,
+    questionnaires,
+    portals,
+    recipients,
+    inquiries,
+    calendarMap,
+    crmConfig,
+  }
   return _cache
 }
 
@@ -212,6 +275,64 @@ export function getCachedLinksMap() {
 // { structure, flow_layout } from pipeline_meta.
 export function getCachedPipelineMeta() {
   return requireCache('getCachedPipelineMeta').pipelineMeta
+}
+
+// ---- Phase-2 cached getters (raw snake_case rows / jsonb payloads) ----
+// WIRED now (finance + tasks):
+export function getCachedPayments() {
+  return requireCache('getCachedPayments').payments
+}
+export function getCachedExpenses() {
+  return requireCache('getCachedExpenses').expenses
+}
+export function getCachedMileageTrips() {
+  return requireCache('getCachedMileageTrips').mileageTrips
+}
+// The single crm_settings row: { mileage_rate_per_mile, questionnaire_template }.
+export function getCachedCrmSettings() {
+  return requireCache('getCachedCrmSettings').crmSettings
+}
+export function getCachedTasks() {
+  return requireCache('getCachedTasks').tasks
+}
+// Groundwork getters (not wired yet; a later batch wires their modules):
+export function getCachedEmails() {
+  return requireCache('getCachedEmails').emails
+}
+export function getCachedTemplates() {
+  return requireCache('getCachedTemplates').templates
+}
+export function getCachedNotifications() {
+  return requireCache('getCachedNotifications').notifications
+}
+export function getCachedTextMarkers() {
+  return requireCache('getCachedTextMarkers').textMarkers
+}
+export function getCachedInvoices() {
+  return requireCache('getCachedInvoices').invoices
+}
+export function getCachedContracts() {
+  return requireCache('getCachedContracts').contracts
+}
+export function getCachedQuestionnaires() {
+  return requireCache('getCachedQuestionnaires').questionnaires
+}
+export function getCachedPortals() {
+  return requireCache('getCachedPortals').portals
+}
+export function getCachedRecipients() {
+  return requireCache('getCachedRecipients').recipients
+}
+export function getCachedInquiries() {
+  return requireCache('getCachedInquiries').inquiries
+}
+// The single calendar_map row: { calendars, projects, tasks }.
+export function getCachedCalendarMap() {
+  return requireCache('getCachedCalendarMap').calendarMap
+}
+// The single crm_config row's { data } payload.
+export function getCachedCrmConfig() {
+  return requireCache('getCachedCrmConfig').crmConfig
 }
 
 // ---------------- in-memory cache MUTATORS (for the write funnels) ----------------
@@ -305,6 +426,148 @@ export function cacheSetPipelineMeta(patch) {
   _cache.pipelineMeta = { ...(_cache.pipelineMeta || {}), ...patch }
 }
 
+// ---- Phase-2 cache mutators (RAW row shape, keyed by each table's PK) ----
+// Every mutator no-ops when the cache isn't initialized (defensive; the funnels only call
+// these under supabase after initStore). Each keeps the cached array/object byte-identical
+// to what the corresponding getAll*/get* helper would return on a fresh load.
+
+// Generic keyed-by-id upsert/remove over a named cache array.
+function cacheUpsertBy(arrKey, row, idField = 'id') {
+  if (!_cache) return
+  const arr = _cache[arrKey]
+  const i = arr.findIndex((x) => x[idField] === row[idField])
+  if (i === -1) arr.push(row)
+  else arr[i] = row
+}
+function cacheRemoveBy(arrKey, id, idField = 'id') {
+  if (!_cache) return
+  _cache[arrKey] = _cache[arrKey].filter((x) => x[idField] !== id)
+}
+
+// payments
+export function cacheUpsertPayment(row) {
+  cacheUpsertBy('payments', row)
+}
+export function cacheRemovePayment(id) {
+  cacheRemoveBy('payments', id)
+}
+export function cacheRemovePaymentsForProject(projectId) {
+  if (!_cache) return
+  _cache.payments = _cache.payments.filter((p) => p.project_id !== projectId)
+}
+// expenses
+export function cacheUpsertExpense(row) {
+  cacheUpsertBy('expenses', row)
+}
+export function cacheRemoveExpense(id) {
+  cacheRemoveBy('expenses', id)
+}
+// mileage_trips
+export function cacheUpsertMileageTrip(row) {
+  cacheUpsertBy('mileageTrips', row)
+}
+export function cacheRemoveMileageTrip(id) {
+  cacheRemoveBy('mileageTrips', id)
+}
+export function cacheRemoveMileageTripsForProject(projectId) {
+  if (!_cache) return
+  _cache.mileageTrips = _cache.mileageTrips.filter((t) => t.project_id !== projectId)
+}
+// crm_settings (single row): merge a patch into the cached settings object.
+export function cacheSetCrmSettings(patch) {
+  if (!_cache) return
+  _cache.crmSettings = { ...(_cache.crmSettings || {}), ...patch }
+}
+// tasks
+export function cacheUpsertTask(row) {
+  cacheUpsertBy('tasks', row)
+}
+export function cacheRemoveTask(id) {
+  cacheRemoveBy('tasks', id)
+}
+export function cacheRemoveTasksForProject(projectId) {
+  if (!_cache) return
+  _cache.tasks = _cache.tasks.filter((t) => t.project_id !== projectId)
+}
+// ---- groundwork mutators (not wired yet) ----
+export function cacheUpsertEmail(row) {
+  cacheUpsertBy('emails', row)
+}
+export function cacheRemoveEmail(id) {
+  cacheRemoveBy('emails', id)
+}
+export function cacheUpsertTemplate(row) {
+  cacheUpsertBy('templates', row)
+}
+export function cacheRemoveTemplate(id) {
+  cacheRemoveBy('templates', id)
+}
+export function cacheUpsertNotification(row) {
+  cacheUpsertBy('notifications', row)
+}
+export function cacheRemoveNotification(id) {
+  cacheRemoveBy('notifications', id)
+}
+// text_markers: composite PK (project_id, kind).
+export function cacheUpsertTextMarker(row) {
+  if (!_cache) return
+  const i = _cache.textMarkers.findIndex((m) => m.project_id === row.project_id && m.kind === row.kind)
+  if (i === -1) _cache.textMarkers.push(row)
+  else _cache.textMarkers[i] = row
+}
+export function cacheRemoveTextMarker(projectId, kind) {
+  if (!_cache) return
+  _cache.textMarkers = _cache.textMarkers.filter((m) => !(m.project_id === projectId && m.kind === kind))
+}
+// keyed-by-project_id jsonb tables
+export function cacheUpsertInvoice(row) {
+  cacheUpsertBy('invoices', row, 'project_id')
+}
+export function cacheRemoveInvoice(projectId) {
+  cacheRemoveBy('invoices', projectId, 'project_id')
+}
+export function cacheUpsertContract(row) {
+  cacheUpsertBy('contracts', row, 'project_id')
+}
+export function cacheRemoveContract(projectId) {
+  cacheRemoveBy('contracts', projectId, 'project_id')
+}
+export function cacheUpsertQuestionnaire(row) {
+  cacheUpsertBy('questionnaires', row, 'project_id')
+}
+export function cacheRemoveQuestionnaire(projectId) {
+  cacheRemoveBy('questionnaires', projectId, 'project_id')
+}
+export function cacheUpsertPortal(row) {
+  cacheUpsertBy('portals', row, 'project_id')
+}
+export function cacheRemovePortal(projectId) {
+  cacheRemoveBy('portals', projectId, 'project_id')
+}
+export function cacheUpsertRecipient(row) {
+  cacheUpsertBy('recipients', row, 'project_id')
+}
+export function cacheRemoveRecipient(projectId) {
+  cacheRemoveBy('recipients', projectId, 'project_id')
+}
+// inquiries: keyed by id (relay inquiry id).
+export function cacheUpsertInquiry(row) {
+  cacheUpsertBy('inquiries', row, 'id')
+}
+export function cacheRemoveInquiry(id) {
+  cacheRemoveBy('inquiries', id, 'id')
+}
+// calendar_map (single row): merge a patch ({ calendars } / { projects } / { tasks }).
+export function cacheSetCalendarMap(patch) {
+  if (!_cache) return
+  _cache.calendarMap = { ...(_cache.calendarMap || {}), ...patch }
+}
+// crm_config (single row): replace the { data } payload.
+export function cacheSetCrmConfig(data) {
+  if (!_cache) return
+  _cache.crmConfig = data
+}
+
 // ---------------- pipeline_meta (structure + flow layout) ----------------
 
 export async function getPipelineMeta() {
@@ -318,4 +581,265 @@ export async function setPipelineMeta(patch) {
     .from('pipeline_meta')
     .upsert({ id: 1, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'id' })
   must(error, 'setPipelineMeta')
+}
+
+// ================= Phase-2 async DB helpers =================
+// Raw rows (snake_case columns / jsonb payloads), matching what the import wrote and what the
+// per-entity read paths re-map. WIRED now: payments, expenses, mileage_trips, crm_settings, tasks.
+// The rest are groundwork for a later batch (same conventions, no caller yet).
+
+// ---------------- payments ----------------
+export async function getAllPayments() {
+  const { data, error } = await sb().from('payments').select('*')
+  must(error, 'getAllPayments')
+  return data || []
+}
+export async function upsertPayment(row) {
+  const { error } = await sb().from('payments').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertPayment')
+}
+export async function deletePayment(id) {
+  const { error } = await sb().from('payments').delete().eq('id', id)
+  must(error, 'deletePayment')
+}
+export async function deletePaymentsForProject(projectId) {
+  const { error } = await sb().from('payments').delete().eq('project_id', projectId)
+  must(error, 'deletePaymentsForProject')
+}
+
+// ---------------- expenses ----------------
+export async function getAllExpenses() {
+  const { data, error } = await sb().from('expenses').select('*')
+  must(error, 'getAllExpenses')
+  return data || []
+}
+export async function upsertExpense(row) {
+  const { error } = await sb().from('expenses').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertExpense')
+}
+export async function deleteExpense(id) {
+  const { error } = await sb().from('expenses').delete().eq('id', id)
+  must(error, 'deleteExpense')
+}
+
+// ---------------- mileage_trips ----------------
+export async function getAllMileageTrips() {
+  const { data, error } = await sb().from('mileage_trips').select('*')
+  must(error, 'getAllMileageTrips')
+  return data || []
+}
+export async function upsertMileageTrip(row) {
+  const { error } = await sb().from('mileage_trips').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertMileageTrip')
+}
+export async function deleteMileageTrip(id) {
+  const { error } = await sb().from('mileage_trips').delete().eq('id', id)
+  must(error, 'deleteMileageTrip')
+}
+export async function deleteMileageTripsForProject(projectId) {
+  const { error } = await sb().from('mileage_trips').delete().eq('project_id', projectId)
+  must(error, 'deleteMileageTripsForProject')
+}
+
+// ---------------- crm_settings (single row id=1) ----------------
+export async function getCrmSettings() {
+  const { data, error } = await sb()
+    .from('crm_settings')
+    .select('mileage_rate_per_mile, questionnaire_template')
+    .eq('id', 1)
+    .maybeSingle()
+  must(error, 'getCrmSettings')
+  return data || { mileage_rate_per_mile: null, questionnaire_template: null }
+}
+export async function setCrmSettings(patch) {
+  const { error } = await sb().from('crm_settings').upsert({ id: 1, ...patch }, { onConflict: 'id' })
+  must(error, 'setCrmSettings')
+}
+
+// ---------------- tasks ----------------
+export async function getAllTasks() {
+  const { data, error } = await sb().from('tasks').select('*')
+  must(error, 'getAllTasks')
+  return data || []
+}
+export async function upsertTask(row) {
+  const { error } = await sb().from('tasks').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertTask')
+}
+export async function deleteTask(id) {
+  const { error } = await sb().from('tasks').delete().eq('id', id)
+  must(error, 'deleteTask')
+}
+export async function deleteTasksForProject(projectId) {
+  const { error } = await sb().from('tasks').delete().eq('project_id', projectId)
+  must(error, 'deleteTasksForProject')
+}
+
+// ---------------- emails (groundwork) ----------------
+export async function getAllEmails() {
+  const { data, error } = await sb().from('emails').select('*')
+  must(error, 'getAllEmails')
+  return data || []
+}
+export async function upsertEmail(row) {
+  const { error } = await sb().from('emails').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertEmail')
+}
+export async function deleteEmail(id) {
+  const { error } = await sb().from('emails').delete().eq('id', id)
+  must(error, 'deleteEmail')
+}
+
+// ---------------- templates (groundwork) ----------------
+export async function getAllTemplates() {
+  const { data, error } = await sb().from('templates').select('*')
+  must(error, 'getAllTemplates')
+  return data || []
+}
+export async function upsertTemplate(row) {
+  const { error } = await sb().from('templates').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertTemplate')
+}
+export async function deleteTemplate(id) {
+  const { error } = await sb().from('templates').delete().eq('id', id)
+  must(error, 'deleteTemplate')
+}
+
+// ---------------- notifications (groundwork) ----------------
+export async function getAllNotifications() {
+  const { data, error } = await sb().from('notifications').select('*')
+  must(error, 'getAllNotifications')
+  return data || []
+}
+export async function upsertNotification(row) {
+  const { error } = await sb().from('notifications').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertNotification')
+}
+export async function deleteNotification(id) {
+  const { error } = await sb().from('notifications').delete().eq('id', id)
+  must(error, 'deleteNotification')
+}
+
+// ---------------- text_markers (groundwork; composite PK) ----------------
+export async function getAllTextMarkers() {
+  const { data, error } = await sb().from('text_markers').select('*')
+  must(error, 'getAllTextMarkers')
+  return data || []
+}
+export async function upsertTextMarker(row) {
+  const { error } = await sb().from('text_markers').upsert(row, { onConflict: 'project_id,kind' })
+  must(error, 'upsertTextMarker')
+}
+export async function deleteTextMarker(projectId, kind) {
+  const { error } = await sb().from('text_markers').delete().eq('project_id', projectId).eq('kind', kind)
+  must(error, 'deleteTextMarker')
+}
+
+// ---------------- per-project jsonb tables (groundwork) ----------------
+export async function getAllInvoices() {
+  const { data, error } = await sb().from('invoices').select('*')
+  must(error, 'getAllInvoices')
+  return data || []
+}
+export async function upsertInvoice(row) {
+  const { error } = await sb().from('invoices').upsert(row, { onConflict: 'project_id' })
+  must(error, 'upsertInvoice')
+}
+export async function deleteInvoice(projectId) {
+  const { error } = await sb().from('invoices').delete().eq('project_id', projectId)
+  must(error, 'deleteInvoice')
+}
+export async function getAllContracts() {
+  const { data, error } = await sb().from('contracts').select('*')
+  must(error, 'getAllContracts')
+  return data || []
+}
+export async function upsertContract(row) {
+  const { error } = await sb().from('contracts').upsert(row, { onConflict: 'project_id' })
+  must(error, 'upsertContract')
+}
+export async function deleteContract(projectId) {
+  const { error } = await sb().from('contracts').delete().eq('project_id', projectId)
+  must(error, 'deleteContract')
+}
+export async function getAllQuestionnaires() {
+  const { data, error } = await sb().from('questionnaires').select('*')
+  must(error, 'getAllQuestionnaires')
+  return data || []
+}
+export async function upsertQuestionnaire(row) {
+  const { error } = await sb().from('questionnaires').upsert(row, { onConflict: 'project_id' })
+  must(error, 'upsertQuestionnaire')
+}
+export async function deleteQuestionnaire(projectId) {
+  const { error } = await sb().from('questionnaires').delete().eq('project_id', projectId)
+  must(error, 'deleteQuestionnaire')
+}
+export async function getAllPortals() {
+  const { data, error } = await sb().from('portals').select('*')
+  must(error, 'getAllPortals')
+  return data || []
+}
+export async function upsertPortal(row) {
+  const { error } = await sb().from('portals').upsert(row, { onConflict: 'project_id' })
+  must(error, 'upsertPortal')
+}
+export async function deletePortal(projectId) {
+  const { error } = await sb().from('portals').delete().eq('project_id', projectId)
+  must(error, 'deletePortal')
+}
+export async function getAllRecipients() {
+  const { data, error } = await sb().from('recipients').select('*')
+  must(error, 'getAllRecipients')
+  return data || []
+}
+export async function upsertRecipient(row) {
+  const { error } = await sb().from('recipients').upsert(row, { onConflict: 'project_id' })
+  must(error, 'upsertRecipient')
+}
+export async function deleteRecipient(projectId) {
+  const { error } = await sb().from('recipients').delete().eq('project_id', projectId)
+  must(error, 'deleteRecipient')
+}
+
+// ---------------- inquiries (groundwork; keyed by id) ----------------
+export async function getAllInquiries() {
+  const { data, error } = await sb().from('inquiries').select('*')
+  must(error, 'getAllInquiries')
+  return data || []
+}
+export async function upsertInquiry(row) {
+  const { error } = await sb().from('inquiries').upsert(row, { onConflict: 'id' })
+  must(error, 'upsertInquiry')
+}
+export async function deleteInquiry(id) {
+  const { error } = await sb().from('inquiries').delete().eq('id', id)
+  must(error, 'deleteInquiry')
+}
+
+// ---------------- calendar_map (single row id=1) ----------------
+export async function getCalendarMap() {
+  const { data, error } = await sb()
+    .from('calendar_map')
+    .select('calendars, projects, tasks')
+    .eq('id', 1)
+    .maybeSingle()
+  must(error, 'getCalendarMap')
+  return data || { calendars: {}, projects: {}, tasks: {} }
+}
+export async function setCalendarMap(patch) {
+  const { error } = await sb().from('calendar_map').upsert({ id: 1, ...patch }, { onConflict: 'id' })
+  must(error, 'setCalendarMap')
+}
+
+// ---------------- crm_config (single row id=1) ----------------
+// Returns the { data } payload only (the app's config object), or {} if unset.
+export async function getCrmConfig() {
+  const { data, error } = await sb().from('crm_config').select('data').eq('id', 1).maybeSingle()
+  must(error, 'getCrmConfig')
+  return data?.data || {}
+}
+export async function setCrmConfig(configData) {
+  const { error } = await sb().from('crm_config').upsert({ id: 1, data: configData }, { onConflict: 'id' })
+  must(error, 'setCrmConfig')
 }

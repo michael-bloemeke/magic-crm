@@ -91,6 +91,7 @@ create table projects (
   age_of_guests text,
   performance_style text,
   total_fee numeric,
+  total_fee_text text,
   tips numeric,
   tips_method text,
   mileage numeric,
@@ -192,6 +193,8 @@ for (const [file, bucket] of bucketFiles) {
       age_of_guests: t(p.age_of_guests),
       performance_style: t(p.performance_style),
       total_fee: num(p.total_fee),
+      // Preserve a non-numeric quote note (e.g. "TBD (...)") the numeric column can't hold.
+      total_fee_text: p.total_fee != null && p.total_fee !== '' && num(p.total_fee) === null ? String(p.total_fee) : null,
       tips: num(p.tips),
       tips_method: t(p.tips_method),
       mileage: num(p.mileage),
@@ -252,6 +255,15 @@ console.log('Project ref:', projectRef)
 console.log(`Gathered: ${projects.length} projects, ${contacts.length} contacts, ${links.length} links`)
 if (dupes.length) console.log('Duplicate project slugs skipped:', dupes.join(', '))
 if (skippedLinks.length) console.log(`Orphan links skipped (${skippedLinks.length}):`, skippedLinks.slice(0, 10).join(', '), skippedLinks.length > 10 ? '...' : '')
+
+// Guard: the DB is now LIVE. This script DROPS + rebuilds the tables from the files, which would
+// discard anything changed in the app/cloud since the last import. Require an explicit opt-in.
+if (process.env.CONFIRM_RESET !== 'yes') {
+  console.error('\nRefusing to run: this DROPS and rebuilds the live Supabase tables from the JSON files,')
+  console.error('discarding any changes made in the app or cloud since the last import.')
+  console.error('If you truly want a full reset from files:  CONFIRM_RESET=yes node supabase/import-phase1.mjs')
+  process.exit(1)
+}
 
 console.log('\nCreating tables...')
 await sql(DDL)

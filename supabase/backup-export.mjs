@@ -12,9 +12,13 @@
 //
 // It reconstructs these files (and nothing else):
 //   active-projects.json, completed-<year>.json, archived-<year>.json,
-//   crm-contacts.json, crm-links.json, crm-pipeline.json
-// Every other crm-*.json (payments, tasks, templates, ...) is NOT migrated to Supabase and is left
-// entirely alone.
+//   crm-contacts.json, crm-links.json, crm-pipeline.json,
+//   crm-payments.json, crm-expenses.json, crm-mileage.json, crm-tasks.json,
+//   crm-emails.json, crm-templates.json, crm-notifications.json, crm-text-markers.json,
+//   crm-invoices.json, crm-contracts.json, crm-questionnaire.json (incl. the top-level default
+//   template from crm_settings), crm-portal.json, crm-recipients.json, crm-inquiries.json,
+//   crm-config.json, crm-calendar-map.json
+// After this, the backup covers ALL crm data (every crm-*.json now lives in Supabase).
 //
 // Run with Node 22:  /Users/michaelbloemeke/.local/node22/bin/node supabase/backup-export.mjs [targetDir]
 
@@ -24,7 +28,29 @@ import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 // Reuse the app's OWN read helpers (raw snake_case rows) so the data is exactly what the app sees.
-import { getAllProjects, getContacts, getLinksMap, getPipelineMeta } from '../crm-store.mjs'
+import {
+  getAllProjects,
+  getContacts,
+  getLinksMap,
+  getPipelineMeta,
+  getAllPayments,
+  getAllExpenses,
+  getAllMileageTrips,
+  getCrmSettings,
+  getAllTasks,
+  getAllEmails,
+  getAllTemplates,
+  getAllNotifications,
+  getAllTextMarkers,
+  getAllInvoices,
+  getAllContracts,
+  getAllQuestionnaires,
+  getAllPortals,
+  getAllRecipients,
+  getAllInquiries,
+  getCalendarMap,
+  getCrmConfig,
+} from '../crm-store.mjs'
 // Reuse the app's OWN record-year logic so completed/archived rows file into the SAME per-year
 // bucket the app would. Do NOT reinvent it.
 import { recordYear } from '../crm-data-core.mjs'
@@ -90,6 +116,17 @@ function putStr(out, key, v) {
   if (v != null && String(v) !== '') out[key] = String(v)
 }
 
+// Postgres returns timestamptz as "2026-06-18T04:40:13.206+00:00" (offset form); the files store the
+// JS toISOString() form "...Z". Same instant, different text. Re-serialize through Date so the export
+// yields the identical string the files hold. This mirrors isoZ() in crm-contacts.mjs (the app's
+// supabase read path applies the same normalization when mapping created_at/updated_at -> createdAt/updatedAt).
+function isoZ(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toISOString()
+}
+
 // Build one file record from a raw DB project row, in canonical key order for its bucket.
 function projectRecord(row) {
   const out = {}
@@ -99,7 +136,10 @@ function projectRecord(row) {
   putStr(out, 'project_name', row.project_name)
 
   for (const k of STR_DETAIL_ORDER) putStr(out, k, row[k])
-  putNum(out, 'total_fee', row.total_fee)
+  // total_fee is a real number when quoted; otherwise the original non-numeric note (e.g.
+  // "TBD (ballpark $750-$1500...)") preserved in total_fee_text, so the files round-trip exactly.
+  if (row.total_fee_text != null && String(row.total_fee_text) !== '') out.total_fee = String(row.total_fee_text)
+  else putNum(out, 'total_fee', row.total_fee)
   for (const k of STR_TAIL_ORDER) putStr(out, k, row[k])
 
   // status: rarely present; comes after the string block in the files.
@@ -128,6 +168,133 @@ function projectRecord(row) {
     // active: mileage is the only late numeric that appears on a few active records.
     putNum(out, 'mileage', row.mileage)
   }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Finance ledgers + tasks reconstruction
+// ---------------------------------------------------------------------------
+//
+// These mirror the app's OWN read mappers (paymentFromRow / expenseFromRow / tripFromRow in
+// crm-finance.mjs, taskFromRow in crm-data-core.mjs): the numeric-companion text column wins when
+// present (a non-numeric value the app preserved), otherwise the numeric column; timestamps collapse
+// to the JS "...Z" form via isoZ. The emitted key ORDER matches the app's writer, so the files stay
+// byte-faithful mirrors of what the CRM would have written under the files backend.
+
+function numOr(numCol, textCol) {
+  if (textCol != null && String(textCol) !== '') return String(textCol)
+  return typeof numCol === 'number' && Number.isFinite(numCol) ? numCol : 0
+}
+
+function paymentRecord(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    amount: numOr(r.amount, r.amount_text),
+    dateReceived: r.date_received == null ? '' : String(r.date_received),
+    pending: !!r.pending,
+    type: r.type == null ? 'deposit' : String(r.type),
+    method: r.method == null ? '' : String(r.method),
+    note: r.note == null ? '' : String(r.note),
+    createdAt: isoZ(r.created_at),
+  }
+}
+function expenseRecord(r) {
+  return {
+    id: r.id,
+    name: r.name == null ? '' : String(r.name),
+    amount: numOr(r.amount, r.amount_text),
+    cadence: r.cadence == null ? 'monthly' : String(r.cadence),
+    category: r.category == null ? '' : String(r.category),
+    note: r.note == null ? '' : String(r.note),
+    createdAt: isoZ(r.created_at),
+  }
+}
+function tripRecord(r) {
+  return {
+    id: r.id,
+    date: r.date == null ? '' : String(r.date),
+    miles: numOr(r.miles, r.miles_text),
+    purpose: r.purpose == null ? '' : String(r.purpose),
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    createdAt: isoZ(r.created_at),
+  }
+}
+function taskRecord(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    title: r.title == null ? '' : String(r.title),
+    dueDate: r.due_date == null ? '' : String(r.due_date),
+    // dueTime is optional in the files; the app defaults absent/invalid to "" (normalizeTime).
+    dueTime: r.due_time == null ? '' : String(r.due_time),
+    done: !!r.done,
+    createdAt: isoZ(r.created_at),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase-2 record mappers (mirror each module's own supabase read mapper, so the rebuilt files are
+// byte-faithful mirrors of what the CRM would have written under the files backend).
+// ---------------------------------------------------------------------------
+
+// crm-emails.json events[]. Mirrors emailFromRow in crm-emails.mjs (timestamps -> "...Z").
+function emailRecord(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    kind: r.kind || 'thankyou',
+    to: Array.isArray(r.to) ? r.to.filter(Boolean) : [],
+    subject: String(r.subject || ''),
+    body: String(r.body || ''),
+    format: r.format === 'html' ? 'html' : 'text',
+    attachments: Array.isArray(r.attachments) ? r.attachments : [],
+    threadId: String(r.thread_id || ''),
+    threadSubject: String(r.thread_subject || ''),
+    status: r.status === 'sent' ? 'sent' : 'draft',
+    createdAt: isoZ(r.created_at),
+    updatedAt: isoZ(r.updated_at),
+    sentAt: r.sent_at == null ? '' : String(r.sent_at),
+  }
+}
+// crm-templates.json templates[]. Mirrors templateFromRow in crm-data-core.mjs (format emitted only
+// when the DB has a real value, matching the files that omit it on legacy rows).
+function templateRecord(r) {
+  const t = {
+    id: r.id,
+    name: String(r.name || ''),
+    subject: String(r.subject || ''),
+    body: String(r.body || ''),
+    updatedAt: isoZ(r.updated_at),
+  }
+  if (r.format != null) t.format = r.format === 'html' ? 'html' : 'text'
+  return t
+}
+// crm-notifications.json events[]. Mirrors eventFromRow in crm-notifications.mjs.
+function notificationRecord(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    kind: r.kind == null ? '' : String(r.kind),
+    sourceId: r.source_id == null ? '' : String(r.source_id),
+    createdAt: isoZ(r.created_at),
+    seen: !!r.seen,
+  }
+}
+// crm-text-markers.json markers[]. Mirrors markerFromRow in crm-text-markers.mjs.
+function textMarkerRecord(r) {
+  return {
+    projectId: String(r.project_id || ''),
+    kind: String(r.kind || ''),
+    sent: !!r.sent,
+    date: typeof r.date === 'string' ? r.date : '',
+    updatedAt: isoZ(r.updated_at),
+  }
+}
+// Rebuild a { [key]: value } map from row-per-key jsonb rows.
+function keyedMap(rows, keyCol, valCol) {
+  const out = {}
+  for (const r of rows || []) out[r[keyCol]] = r[valCol]
   return out
 }
 
@@ -190,11 +357,50 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
   if (!targetDir) throw new Error('exportBackup: targetDir is required')
   fs.mkdirSync(targetDir, { recursive: true })
 
-  const [projects, contacts, linksMap, pipelineMeta] = await Promise.all([
+  const [
+    projects,
+    contacts,
+    linksMap,
+    pipelineMeta,
+    payments,
+    expenses,
+    mileageTrips,
+    crmSettings,
+    tasks,
+    emails,
+    templates,
+    notifications,
+    textMarkers,
+    invoices,
+    contracts,
+    questionnaires,
+    portals,
+    recipients,
+    inquiries,
+    calendarMap,
+    crmConfig,
+  ] = await Promise.all([
     getAllProjects(),
     getContacts(),
     getLinksMap(),
     getPipelineMeta(),
+    getAllPayments(),
+    getAllExpenses(),
+    getAllMileageTrips(),
+    getCrmSettings(),
+    getAllTasks(),
+    getAllEmails(),
+    getAllTemplates(),
+    getAllNotifications(),
+    getAllTextMarkers(),
+    getAllInvoices(),
+    getAllContracts(),
+    getAllQuestionnaires(),
+    getAllPortals(),
+    getAllRecipients(),
+    getAllInquiries(),
+    getCalendarMap(),
+    getCrmConfig(),
   ])
 
   const written = []
@@ -238,8 +444,8 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
       engagement: c.engagement == null ? '' : String(c.engagement),
       tags: Array.isArray(c.tags) ? c.tags : [],
       notes: c.notes == null ? '' : String(c.notes),
-      createdAt: c.created_at == null ? '' : String(c.created_at),
-      updatedAt: c.updated_at == null ? '' : String(c.updated_at),
+      createdAt: isoZ(c.created_at),
+      updatedAt: isoZ(c.updated_at),
     }))
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
   {
@@ -295,6 +501,254 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     written.push(`crm-pipeline.json (${Object.keys(stages).length} stages)`)
   }
 
+  // ---- 5. crm-payments.json ----
+  // { payments: [...], _meta }. Sorted by createdAt so the file order is stable across runs.
+  {
+    const records = payments
+      .map(paymentRecord)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-payments.json'), {
+      fileName: 'crm-payments.json',
+      count: records.length,
+      fallbackPurpose: 'Cash received from projects, mirrored from Supabase.',
+    })
+    // On-disk key order: payments FIRST, then _meta.
+    writeJson(targetDir, 'crm-payments.json', { payments: records, _meta: meta })
+    written.push(`crm-payments.json (${records.length})`)
+  }
+
+  // ---- 6. crm-expenses.json ----
+  // { expenses: [...], _meta }.
+  {
+    const records = expenses
+      .map(expenseRecord)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-expenses.json'), {
+      fileName: 'crm-expenses.json',
+      count: records.length,
+      fallbackPurpose: 'Recurring business expenses, mirrored from Supabase.',
+    })
+    // On-disk key order: expenses FIRST, then _meta.
+    writeJson(targetDir, 'crm-expenses.json', { expenses: records, _meta: meta })
+    written.push(`crm-expenses.json (${records.length})`)
+  }
+
+  // ---- 7. crm-mileage.json ----
+  // { trips: [...], ratePerMile, _meta }. ratePerMile lives in crm_settings.mileage_rate_per_mile.
+  {
+    const records = mileageTrips
+      .map(tripRecord)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    const rate =
+      typeof crmSettings?.mileage_rate_per_mile === 'number' ? crmSettings.mileage_rate_per_mile : 0.7
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-mileage.json'), {
+      fileName: 'crm-mileage.json',
+      count: records.length,
+      fallbackPurpose: 'Business mileage log + per-mile rate, mirrored from Supabase.',
+    })
+    // On-disk key order: trips, ratePerMile, then _meta.
+    writeJson(targetDir, 'crm-mileage.json', { trips: records, ratePerMile: rate, _meta: meta })
+    written.push(`crm-mileage.json (${records.length} trips, rate ${rate})`)
+  }
+
+  // ---- 8. crm-tasks.json ----
+  // { _meta, tasks: [...] }. NOTE the on-disk order here is _meta FIRST, then tasks (unlike the
+  // ledger files). Sorted by createdAt for a stable file order.
+  {
+    const records = tasks
+      .map(taskRecord)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-tasks.json'), {
+      fileName: 'crm-tasks.json',
+      count: records.length,
+      fallbackPurpose: 'CRM-owned task list, mirrored from Supabase.',
+    })
+    // On-disk key order: _meta FIRST, then tasks.
+    writeJson(targetDir, 'crm-tasks.json', { _meta: meta, tasks: records })
+    written.push(`crm-tasks.json (${records.length})`)
+  }
+
+  // ---- 9. crm-emails.json ----
+  // { emails: [...], _meta }. Sorted by createdAt for a stable order.
+  {
+    const records = emails
+      .map(emailRecord)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-emails.json'), {
+      fileName: 'crm-emails.json',
+      count: records.length,
+      fallbackPurpose: 'CRM-owned per-project composed emails, mirrored from Supabase.',
+    })
+    // On-disk key order: emails FIRST, then _meta.
+    writeJson(targetDir, 'crm-emails.json', { emails: records, _meta: meta })
+    written.push(`crm-emails.json (${records.length})`)
+  }
+
+  // ---- 10. crm-templates.json ----
+  // { templates: [...], _meta }. Sorted by updatedAt for a stable order.
+  {
+    const records = templates
+      .map(templateRecord)
+      .sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-templates.json'), {
+      fileName: 'crm-templates.json',
+      count: records.length,
+      fallbackPurpose: 'CRM-owned reusable email templates, mirrored from Supabase.',
+    })
+    // On-disk key order: templates FIRST, then _meta.
+    writeJson(targetDir, 'crm-templates.json', { templates: records, _meta: meta })
+    written.push(`crm-templates.json (${records.length})`)
+  }
+
+  // ---- 11. crm-notifications.json ----
+  // { events: [...], _meta }. Sorted by createdAt for a stable order.
+  {
+    const records = notifications
+      .map(notificationRecord)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-notifications.json'), {
+      fileName: 'crm-notifications.json',
+      count: records.length,
+      fallbackPurpose: 'Status-change bell notifications, mirrored from Supabase.',
+    })
+    // On-disk key order: events FIRST, then _meta.
+    writeJson(targetDir, 'crm-notifications.json', { events: records, _meta: meta })
+    written.push(`crm-notifications.json (${records.length})`)
+  }
+
+  // ---- 12. crm-text-markers.json ----
+  // { markers: [...], _meta }. Sorted by projectId+kind for a stable order.
+  {
+    const records = textMarkers
+      .map(textMarkerRecord)
+      .sort((a, b) => `${a.projectId}|${a.kind}`.localeCompare(`${b.projectId}|${b.kind}`))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-text-markers.json'), {
+      fileName: 'crm-text-markers.json',
+      count: records.length,
+      fallbackPurpose: 'Manual text/SMS sent markers, mirrored from Supabase.',
+    })
+    // On-disk key order: markers FIRST, then _meta.
+    writeJson(targetDir, 'crm-text-markers.json', { markers: records, _meta: meta })
+    written.push(`crm-text-markers.json (${records.length})`)
+  }
+
+  // ---- 13. crm-invoices.json ----
+  // { invoices: { [projectId]: ref }, _meta } from the row-per-project jsonb rows.
+  {
+    const map = keyedMap(invoices, 'project_id', 'data')
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-invoices.json'), {
+      fileName: 'crm-invoices.json',
+      count: Object.keys(map).length,
+      fallbackPurpose: 'Per-project QuickBooks invoice references, mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-invoices.json', { invoices: map, _meta: meta })
+    written.push(`crm-invoices.json (${Object.keys(map).length})`)
+  }
+
+  // ---- 14. crm-contracts.json ----
+  // { contracts: { [projectId]: [versions] }, _meta } from the row-per-project `versions` jsonb rows.
+  {
+    const map = keyedMap(contracts, 'project_id', 'versions')
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-contracts.json'), {
+      fileName: 'crm-contracts.json',
+      count: Object.keys(map).length,
+      fallbackPurpose: 'Per-project contract versions, mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-contracts.json', { contracts: map, _meta: meta })
+    written.push(`crm-contracts.json (${Object.keys(map).length})`)
+  }
+
+  // ---- 15. crm-questionnaire.json ----
+  // { questionnaires: { [projectId]: {...} }, _meta, template? }. The per-project map comes from the
+  // questionnaires rows; the GLOBAL default template lives in crm_settings.questionnaire_template.
+  // On-disk key order: questionnaires, _meta, template (template emitted only when present).
+  {
+    const map = keyedMap(questionnaires, 'project_id', 'data')
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-questionnaire.json'), {
+      fileName: 'crm-questionnaire.json',
+      count: Object.keys(map).length,
+      fallbackPurpose: 'Per-project client questionnaires + the global default template, mirrored from Supabase.',
+    })
+    const out = { questionnaires: map, _meta: meta }
+    const template = crmSettings?.questionnaire_template
+    if (template != null) out.template = template
+    writeJson(targetDir, 'crm-questionnaire.json', out)
+    written.push(`crm-questionnaire.json (${Object.keys(map).length})`)
+  }
+
+  // ---- 16. crm-portal.json ----
+  // { portals: { [projectId]: {...} }, _meta } from the row-per-project jsonb rows.
+  {
+    const map = keyedMap(portals, 'project_id', 'data')
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-portal.json'), {
+      fileName: 'crm-portal.json',
+      count: Object.keys(map).length,
+      fallbackPurpose: 'Per-project client-portal settings, mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-portal.json', { portals: map, _meta: meta })
+    written.push(`crm-portal.json (${Object.keys(map).length})`)
+  }
+
+  // ---- 17. crm-recipients.json ----
+  // { recipients: { [projectId]: {...} }, _meta } from the row-per-project jsonb rows.
+  {
+    const map = keyedMap(recipients, 'project_id', 'data')
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-recipients.json'), {
+      fileName: 'crm-recipients.json',
+      count: Object.keys(map).length,
+      fallbackPurpose: 'Per-project document recipients (signer + bill-to), mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-recipients.json', { recipients: map, _meta: meta })
+    written.push(`crm-recipients.json (${Object.keys(map).length})`)
+  }
+
+  // ---- 18. crm-inquiries.json ----
+  // { inquiries: { [id]: {...} }, _meta } from the row-per-inquiry jsonb rows (includes dismissed).
+  {
+    const map = keyedMap(inquiries, 'id', 'data')
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-inquiries.json'), {
+      fileName: 'crm-inquiries.json',
+      count: Object.keys(map).length,
+      fallbackPurpose: 'Website contact-form inquiries + dismissal state, mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-inquiries.json', { inquiries: map, _meta: meta })
+    written.push(`crm-inquiries.json (${Object.keys(map).length})`)
+  }
+
+  // ---- 19. crm-config.json ----
+  // The single crm_config row's { data } payload (the config minus _meta) plus a _meta block. The
+  // DB stores only the config data; the _meta doc block is carried forward from the existing file (or
+  // synthesized). Key order is not preserved by jsonb, but the verify compares CONTENT (order + _meta
+  // insensitive), so this is a faithful mirror.
+  {
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-config.json'), {
+      fileName: 'crm-config.json',
+      count: Object.keys(crmConfig || {}).length,
+      fallbackPurpose: 'CRM editable settings (Settings page), mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-config.json', { ...(crmConfig || {}), _meta: meta })
+    written.push(`crm-config.json (${Object.keys(crmConfig || {}).length} keys)`)
+  }
+
+  // ---- 20. crm-calendar-map.json ----
+  // { calendars, projects, tasks, _meta } from the single calendar_map row (id=1).
+  {
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-calendar-map.json'), {
+      fileName: 'crm-calendar-map.json',
+      count:
+        Object.keys(calendarMap?.projects || {}).length + Object.keys(calendarMap?.tasks || {}).length,
+      fallbackPurpose: 'Project/task -> Google Calendar event id map, mirrored from Supabase.',
+    })
+    // On-disk key order: calendars, projects, tasks, then _meta.
+    writeJson(targetDir, 'crm-calendar-map.json', {
+      calendars: calendarMap?.calendars || {},
+      projects: calendarMap?.projects || {},
+      tasks: calendarMap?.tasks || {},
+      _meta: meta,
+    })
+    written.push(`crm-calendar-map.json (${Object.keys(calendarMap?.projects || {}).length} projects, ${Object.keys(calendarMap?.tasks || {}).length} tasks)`)
+  }
+
   return { targetDir, written }
 }
 
@@ -305,7 +759,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const targetDir = targetArg
     ? path.resolve(targetArg)
     : fs.mkdtempSync(path.join(os.tmpdir(), 'crm-backup-export-'))
-  const isReal = path.resolve(targetDir) === path.resolve(REAL_RECORDS_DIR)
+  // Case-insensitive compare: macOS paths are case-insensitive, and the launchd arg / REAL_RECORDS_DIR
+  // can differ only in the "Claude"/"claude" casing while pointing at the same real directory.
+  const isReal = path.resolve(targetDir).toLowerCase() === path.resolve(REAL_RECORDS_DIR).toLowerCase()
   exportBackup({ targetDir })
     .then(({ written }) => {
       console.log(`Exported ${written.length} files to:`)

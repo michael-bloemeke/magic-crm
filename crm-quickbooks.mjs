@@ -11,6 +11,12 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
+import {
+  CRM_STORE,
+  getCachedInvoices,
+  upsertInvoice as sbUpsertInvoice,
+  cacheUpsertInvoice,
+} from './crm-store.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CRED_FILE = path.join(HERE, 'quickbooks-credentials.json')
@@ -176,7 +182,14 @@ async function ensureServiceItem(name) {
 }
 
 // --- Per-project invoice references (so the project page can show status) ----
+// Read the whole { invoices: { [projectId]: ref } } object. Under supabase it is reconstructed from
+// the row-per-project jsonb cache; under files it is the JSON file. Lookups in the writers use this.
 function readInvoices() {
+  if (CRM_STORE === 'supabase') {
+    const invoices = {}
+    for (const r of getCachedInvoices()) invoices[r.project_id] = r.data
+    return { invoices }
+  }
   let d
   try {
     d = JSON.parse(fs.readFileSync(INVOICES_FILE, 'utf8'))
@@ -197,6 +210,17 @@ function writeInvoices(d) {
   }
   fs.writeFileSync(INVOICES_FILE, JSON.stringify(d, null, 2) + '\n')
 }
+// Persist ONE project's invoice ref. Supabase: upsert its jsonb row (+ cache). Files: rewrite the
+// whole file. `d` is the whole-map object the writer already mutated (used only for the files path).
+async function persistInvoice(projectId, ref, d) {
+  if (CRM_STORE === 'supabase') {
+    const row = { project_id: projectId, data: ref }
+    cacheUpsertInvoice(row)
+    await sbUpsertInvoice(row)
+    return
+  }
+  writeInvoices(d)
+}
 export function loadInvoices() {
   return readInvoices().invoices
 }
@@ -214,7 +238,7 @@ export async function refreshInvoiceStatus(projectId) {
   ref.balance = Number(inv.Balance != null ? inv.Balance : ref.balance || 0)
   if (ref.balance === 0 && !ref.paidAt) ref.paidAt = new Date().toISOString()
   d.invoices[projectId] = ref
-  writeInvoices(d)
+  await persistInvoice(projectId, ref, d)
   return ref
 }
 
@@ -277,7 +301,7 @@ export async function createInvoiceForProject(projectId, opts = {}) {
   }
   const d = readInvoices()
   d.invoices[projectId] = ref
-  writeInvoices(d)
+  await persistInvoice(projectId, ref, d)
   return ref
 }
 
@@ -296,7 +320,7 @@ export async function sendInvoiceForProject(projectId, overrideEmail) {
   ref.sentAt = new Date().toISOString()
   ref.email = to
   d.invoices[projectId] = ref
-  writeInvoices(d)
+  await persistInvoice(projectId, ref, d)
   return ref
 }
 

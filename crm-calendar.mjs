@@ -17,6 +17,12 @@ import path from 'node:path'
 import { google } from 'googleapis'
 import { authedClient, isConnected, hasCalendarScope } from './crm-gmail.mjs'
 import { RECORDS_DIR, loadAll, loadTasks, isProjectBooked } from './crm-data-core.mjs'
+import {
+  CRM_STORE,
+  getCachedCalendarMap,
+  setCalendarMap as sbSetCalendarMap,
+  cacheSetCalendarMap,
+} from './crm-store.mjs'
 
 const MAP_FILE = path.join(RECORDS_DIR, 'crm-calendar-map.json')
 const TIMEZONE = 'America/New_York' // Michael is in Durham, NC
@@ -36,7 +42,14 @@ function api() {
 
 // ---- The event-id map (crm-calendar-map.json) -------------------------------
 
+// The single { calendars, projects, tasks } event-id map for the current backend. Under supabase it
+// comes from the single calendar_map row (id=1), served synchronously from the cache; under files
+// from crm-calendar-map.json. The three maps always exist (defaulting to {}).
 function readMap() {
+  if (CRM_STORE === 'supabase') {
+    const m = getCachedCalendarMap() || {}
+    return { calendars: m.calendars || {}, projects: m.projects || {}, tasks: m.tasks || {} }
+  }
   try {
     const d = JSON.parse(fs.readFileSync(MAP_FILE, 'utf8'))
     if (d && typeof d === 'object') {
@@ -50,7 +63,14 @@ function readMap() {
   }
   return { calendars: {}, projects: {}, tasks: {} }
 }
-function writeMap(map) {
+async function writeMap(map) {
+  if (CRM_STORE === 'supabase') {
+    // Persist all three maps into the single calendar_map row (id=1). No _meta (DB-side).
+    const patch = { calendars: map.calendars || {}, projects: map.projects || {}, tasks: map.tasks || {} }
+    cacheSetCalendarMap(patch)
+    await sbSetCalendarMap(patch)
+    return
+  }
   try {
     map._meta = {
       file: 'crm-calendar-map.json',
@@ -256,7 +276,7 @@ async function upsertEvent(cal, calId, bucket, key, body) {
     }
     const map = readMap()
     map[bucket][key] = res.data.id
-    writeMap(map)
+    await writeMap(map)
     return res.data.id
   })
 }
@@ -272,7 +292,7 @@ async function removeEvent(cal, calId, bucket, key) {
     }
     const map = readMap()
     delete map[bucket][key]
-    writeMap(map)
+    await writeMap(map)
   })
 }
 

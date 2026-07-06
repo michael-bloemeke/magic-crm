@@ -10,8 +10,22 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR } from './crm-data-core.mjs'
+import {
+  CRM_STORE,
+  getCachedRecipients,
+  upsertRecipient as sbUpsertRecipient,
+  cacheUpsertRecipient,
+} from './crm-store.mjs'
 
 const FILE = path.join(RECORDS_DIR, 'crm-recipients.json')
+
+// Rebuild the { [projectId]: recipientData } map from the cached row-per-project jsonb blobs, so a
+// supabase read returns the exact same shape the files path's recipients object holds.
+function recipientsMapFromCache() {
+  const map = {}
+  for (const r of getCachedRecipients()) map[r.project_id] = r.data
+  return map
+}
 
 function meta() {
   return {
@@ -40,13 +54,29 @@ function write(d) {
 }
 
 export function loadRecipients() {
-  return read().recipients
+  return CRM_STORE === 'supabase' ? recipientsMapFromCache() : read().recipients
 }
 export function loadRecipient(projectId) {
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedRecipients().find((r) => r.project_id === projectId)
+    return row ? row.data : null
+  }
   return read().recipients[projectId] || null
 }
-export function saveRecipient(projectId, patch = {}) {
+export async function saveRecipient(projectId, patch = {}) {
   if (!projectId) throw new Error('projectId is required')
+  if (CRM_STORE === 'supabase') {
+    const existing = getCachedRecipients().find((r) => r.project_id === projectId)
+    const cur = existing ? existing.data : { signerId: '', billToId: '', billToName: '' }
+    const next = { ...cur }
+    if (patch.signerId !== undefined) next.signerId = String(patch.signerId || '')
+    if (patch.billToId !== undefined) next.billToId = String(patch.billToId || '')
+    if (patch.billToName !== undefined) next.billToName = String(patch.billToName || '')
+    const row = { project_id: projectId, data: next }
+    cacheUpsertRecipient(row)
+    await sbUpsertRecipient(row)
+    return next
+  }
   const d = read()
   const cur = d.recipients[projectId] || { signerId: '', billToId: '', billToName: '' }
   const next = { ...cur }

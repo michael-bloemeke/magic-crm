@@ -6,8 +6,45 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR } from './crm-data-core.mjs'
+import {
+  CRM_STORE,
+  getCachedTextMarkers,
+  upsertTextMarker as sbUpsertTextMarker,
+  deleteTextMarker as sbDeleteTextMarker,
+  cacheUpsertTextMarker,
+  cacheRemoveTextMarker,
+} from './crm-store.mjs'
 
 const FILE = path.join(RECORDS_DIR, 'crm-text-markers.json')
+
+// Postgres returns timestamptz in offset form; the files store the JS "...Z" form. Collapse both to
+// the identical instant so a supabase read matches the files byte-for-byte.
+function isoZ(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toISOString()
+}
+// Raw DB marker row -> file-shape record (same object clean() produces from a file row).
+function markerFromRow(r) {
+  return {
+    projectId: String(r.project_id || ''),
+    kind: String(r.kind || ''),
+    sent: !!r.sent,
+    date: typeof r.date === 'string' ? r.date : '',
+    updatedAt: isoZ(r.updated_at),
+  }
+}
+// File-shape record -> raw DB row.
+function markerToRow(m) {
+  return {
+    project_id: String(m.projectId || ''),
+    kind: String(m.kind || ''),
+    sent: !!m.sent,
+    date: typeof m.date === 'string' ? m.date : '',
+    updated_at: m.updatedAt || null,
+  }
+}
 
 function meta() {
   return {
@@ -50,19 +87,34 @@ function clean(m) {
 }
 
 export function loadTextMarkers(projectId) {
-  const all = readFileJson().markers.map(clean)
+  const all =
+    CRM_STORE === 'supabase' ? getCachedTextMarkers().map(markerFromRow) : readFileJson().markers.map(clean)
   return projectId ? all.filter((m) => m.projectId === projectId) : all
 }
 
 // Upsert a marker for (projectId, kind). An "empty" marker (not sent, no date) is removed so the
 // store doesn't accumulate dead rows when a text flag is toggled back off.
-export function saveTextMarker({ projectId, kind, sent, date } = {}) {
+export async function saveTextMarker({ projectId, kind, sent, date } = {}) {
   if (!projectId || !kind) throw new Error('projectId and kind are required')
-  const data = readFileJson()
   const now = new Date().toISOString()
   const d = typeof date === 'string' ? date.trim() : ''
   const wantSent = !!sent
 
+  if (CRM_STORE === 'supabase') {
+    // Empty marker -> remove any existing row (matches the files path, which drops dead rows).
+    if (!wantSent && !d) {
+      cacheRemoveTextMarker(projectId, kind)
+      await sbDeleteTextMarker(projectId, kind)
+      return clean({ projectId, kind, sent: false, date: '', updatedAt: now })
+    }
+    const rec = { projectId, kind, sent: wantSent, date: d, updatedAt: now }
+    const row = markerToRow(rec)
+    cacheUpsertTextMarker(row)
+    await sbUpsertTextMarker(row)
+    return clean(rec)
+  }
+
+  const data = readFileJson()
   const existing = data.markers.find((m) => m.projectId === projectId && m.kind === kind)
   if (!wantSent && !d) {
     if (existing) data.markers = data.markers.filter((m) => m !== existing)

@@ -292,25 +292,25 @@ export function crmDataPlugin() {
 
       server.middlewares.use('/api/tasks/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const task = addTask(b)
+        withbody(req, res, async (b) => {
+          const task = await addTask(b)
           void syncTask(task.id)
           return { task }
         })
       })
       server.middlewares.use('/api/tasks/update', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          const task = updateTask(b)
+        withbody(req, res, async (b) => {
+          const task = await updateTask(b)
           void syncTask(task.id) // date/time/done change -> upsert or remove the Work-calendar event
           return { task }
         })
       })
       server.middlewares.use('/api/tasks/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
+        withbody(req, res, async (b) => {
           void removeTaskEvent(b.id)
-          return deleteTask(b.id)
+          return await deleteTask(b.id)
         })
       })
       server.middlewares.use('/api/tasks', (req, res, next) => {
@@ -433,8 +433,8 @@ export function crmDataPlugin() {
             .filter((t) => t.projectId === b.id)
             .map((t) => t.id)
           const result = await deleteProject(b)
-          deletePaymentsForProject(b.id)
-          deleteTripsForProject(b.id)
+          await deletePaymentsForProject(b.id)
+          await deleteTripsForProject(b.id)
           await deleteProjectLinks(b.id)
           void removeProjectEvent(b.id) // gone from the CRM -> gone from the calendar
           for (const tid of taskIds) void removeTaskEvent(tid)
@@ -512,11 +512,11 @@ export function crmDataPlugin() {
       // --- Email templates (specific paths before the generic GET) ---
       server.middlewares.use('/api/templates/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ template: saveTemplate(b) }))
+        withbody(req, res, async (b) => ({ template: await saveTemplate(b) }))
       })
       server.middlewares.use('/api/templates/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deleteTemplate(b.id))
+        withbody(req, res, async (b) => await deleteTemplate(b.id))
       })
       server.middlewares.use('/api/templates', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -532,7 +532,7 @@ export function crmDataPlugin() {
       // --- Composed per-project emails (thank-you, etc.) ---
       server.middlewares.use('/api/emails/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ email: saveProjectEmail(b) }))
+        withbody(req, res, async (b) => ({ email: await saveProjectEmail(b) }))
       })
       server.middlewares.use('/api/emails/send', (req, res, next) => {
         if (req.method !== 'POST') return next()
@@ -540,7 +540,7 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/emails/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deleteProjectEmail(b.id))
+        withbody(req, res, async (b) => await deleteProjectEmail(b.id))
       })
       // One-off email attachment uploads (kept out of the Files page). Raw body = file bytes.
       server.middlewares.use('/api/email-attachments/upload', (req, res, next) => {
@@ -596,7 +596,7 @@ export function crmDataPlugin() {
       // --- "Text sent" markers (manual SMS flags per email slot, no message content) ---
       server.middlewares.use('/api/text-markers/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ marker: saveTextMarker(b) }))
+        withbody(req, res, async (b) => ({ marker: await saveTextMarker(b) }))
       })
       server.middlewares.use('/api/text-markers', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -612,13 +612,13 @@ export function crmDataPlugin() {
       // --- Client portal (settings + curated bundle preview) ---
       server.middlewares.use('/api/portal/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ portal: savePortal(b) }))
+        withbody(req, res, async (b) => ({ portal: await savePortal(b) }))
       })
       // Publish = save the latest config, write the curated bundle, push it live.
       server.middlewares.use('/api/portal/publish', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
-          const portal = savePortal({ projectId: b.projectId, patch: { ...(b.patch || {}), published: true } })
+          const portal = await savePortal({ projectId: b.projectId, patch: { ...(b.patch || {}), published: true } })
           writeBundleFile(b.projectId)
           const deploy = await deployPortal()
           return { portal, bundle: buildBundle(b.projectId), baseUrl: PORTAL_BASE_URL, deploy }
@@ -628,7 +628,7 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/portal/unpublish', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
-          const portal = unpublishPortal(b.projectId)
+          const portal = await unpublishPortal(b.projectId)
           writeBundleFile(b.projectId)
           const deploy = await deployPortal()
           return { portal, baseUrl: PORTAL_BASE_URL, deploy }
@@ -664,9 +664,9 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/questionnaire/set', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
-          const questionnaire = setQuestionnaire(b.projectId, { enabled: b.enabled, intro: b.intro })
+          const questionnaire = await setQuestionnaire(b.projectId, { enabled: b.enabled, intro: b.intro })
           let portal = loadPortal(b.projectId)
-          if (b.enabled) portal = savePortal({ projectId: b.projectId, patch: { published: true } })
+          if (b.enabled) portal = await savePortal({ projectId: b.projectId, patch: { published: true } })
           writeBundleFile(b.projectId)
           const deploy = await deployPortal()
           const token = portal?.token || ''
@@ -727,8 +727,8 @@ export function crmDataPlugin() {
       // Acknowledge a submission (clears its notification). Returns the remaining unseen ones.
       server.middlewares.use('/api/questionnaire/seen', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => {
-          markSubmissionSeen(b.projectId)
+        withbody(req, res, async (b) => {
+          await markSubmissionSeen(b.projectId)
           return { submissions: submissionsWithNames() }
         })
       })
@@ -736,7 +736,7 @@ export function crmDataPlugin() {
       // --- Document recipients (contract signer + invoice bill-to) ---
       server.middlewares.use('/api/recipients/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ recipient: saveRecipient(b.projectId, b) }))
+        withbody(req, res, async (b) => ({ recipient: await saveRecipient(b.projectId, b) }))
       })
       server.middlewares.use('/api/recipients', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -772,7 +772,7 @@ export function crmDataPlugin() {
       // --- Global questionnaire template (Settings editor) ---
       server.middlewares.use('/api/questionnaire-template/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ template: saveQuestionnaireTemplate(b) }))
+        withbody(req, res, async (b) => ({ template: await saveQuestionnaireTemplate(b) }))
       })
       server.middlewares.use('/api/questionnaire-template', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -818,8 +818,8 @@ export function crmDataPlugin() {
             try {
               const ref = await refreshSignature(projectId, v.id)
               const ne = (ref && ref.esign) || {}
-              if (!had.viewed && ne.viewedAt) addNotification(projectId, 'contract-viewed', v.id)
-              if (!had.signed && ne.signedAt) addNotification(projectId, 'contract-signed', v.id)
+              if (!had.viewed && ne.viewedAt) await addNotification(projectId, 'contract-viewed', v.id)
+              if (!had.signed && ne.signedAt) await addNotification(projectId, 'contract-signed', v.id)
             } catch {
               /* SignWell unreachable / not configured for this one; skip */
             }
@@ -835,7 +835,7 @@ export function crmDataPlugin() {
           if (!active.has(projectId) || !ref || !ref.invoiceId || ref.paidAt) continue
           try {
             const updated = await qbRefreshInvoice(projectId)
-            if (updated && updated.paidAt) addNotification(projectId, 'invoice-paid', ref.invoiceId)
+            if (updated && updated.paidAt) await addNotification(projectId, 'invoice-paid', ref.invoiceId)
           } catch {
             /* QuickBooks unreachable / not connected; skip */
           }
@@ -847,7 +847,7 @@ export function crmDataPlugin() {
           const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
           for (const t of loadTasks()) {
             if (t.done || !t.dueDate) continue
-            if (t.dueDate <= today && active.has(t.projectId)) addNotification(t.projectId, 'task-due', t.id)
+            if (t.dueDate <= today && active.has(t.projectId)) await addNotification(t.projectId, 'task-due', t.id)
           }
         } catch {
           /* tasks unreadable; skip */
@@ -861,7 +861,7 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/notifications/seen', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ notifications: withNotifNames(markNotificationSeen(b.id)) }))
+        withbody(req, res, async (b) => ({ notifications: withNotifNames(await markNotificationSeen(b.id)) }))
       })
       server.middlewares.use('/api/notifications', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -1026,7 +1026,7 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/inquiries/dismiss', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => dismissInquiry(b.blockId))
+        withbody(req, res, async (b) => await dismissInquiry(b.blockId))
       })
       server.middlewares.use('/api/inquiries', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -1118,11 +1118,11 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/contracts/status', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ contract: setContractStatus(b.projectId, b.id, b.status) }))
+        withbody(req, res, async (b) => ({ contract: await setContractStatus(b.projectId, b.id, b.status) }))
       })
       server.middlewares.use('/api/contracts/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deleteContract(b.projectId, b.id))
+        withbody(req, res, async (b) => await deleteContract(b.projectId, b.id))
       })
       server.middlewares.use('/api/contracts/pdf', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -1211,8 +1211,8 @@ export function crmDataPlugin() {
         }
         if (req.method !== 'POST') return next()
         // Empty template resets to the built-in default.
-        withbody(req, res, (b) => {
-          saveConfig({ contractTemplate: b.template == null ? '' : String(b.template) })
+        withbody(req, res, async (b) => {
+          await saveConfig({ contractTemplate: b.template == null ? '' : String(b.template) })
           return { ok: true }
         })
       })
@@ -1238,7 +1238,7 @@ export function crmDataPlugin() {
           return
         }
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ contract: createContract(b.projectId, { body: b.body, includeMedia: b.includeMedia }) }))
+        withbody(req, res, async (b) => ({ contract: await createContract(b.projectId, { body: b.body, includeMedia: b.includeMedia }) }))
       })
 
       // --- Business files (upload raw bytes; specific paths before generic GET) ---
@@ -1331,7 +1331,7 @@ export function crmDataPlugin() {
           return
         }
         if (req.method === 'POST') {
-          withbody(req, res, (b) => saveConfig(b))
+          withbody(req, res, async (b) => await saveConfig(b))
           return
         }
         next()
@@ -1340,15 +1340,15 @@ export function crmDataPlugin() {
       // --- Finance (specific paths before the generic GET) ---
       server.middlewares.use('/api/finance/payments/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ payment: addPayment(b) }))
+        withbody(req, res, async (b) => ({ payment: await addPayment(b) }))
       })
       server.middlewares.use('/api/finance/payments/update', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ payment: updatePayment(b) }))
+        withbody(req, res, async (b) => ({ payment: await updatePayment(b) }))
       })
       server.middlewares.use('/api/finance/payments/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deletePayment(b.id))
+        withbody(req, res, async (b) => await deletePayment(b.id))
       })
       server.middlewares.use('/api/finance/payments', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -1357,15 +1357,15 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/finance/expenses/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ expense: addExpense(b) }))
+        withbody(req, res, async (b) => ({ expense: await addExpense(b) }))
       })
       server.middlewares.use('/api/finance/expenses/update', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ expense: updateExpense(b) }))
+        withbody(req, res, async (b) => ({ expense: await updateExpense(b) }))
       })
       server.middlewares.use('/api/finance/expenses/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deleteExpense(b.id))
+        withbody(req, res, async (b) => await deleteExpense(b.id))
       })
       server.middlewares.use('/api/finance/expenses', (req, res, next) => {
         if (req.method !== 'GET') return next()
@@ -1374,15 +1374,15 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/finance/mileage/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => ({ trip: addTrip(b) }))
+        withbody(req, res, async (b) => ({ trip: await addTrip(b) }))
       })
       server.middlewares.use('/api/finance/mileage/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => deleteTrip(b.id))
+        withbody(req, res, async (b) => await deleteTrip(b.id))
       })
       server.middlewares.use('/api/finance/mileage/rate', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => setMileageRate(b.rate))
+        withbody(req, res, async (b) => await setMileageRate(b.rate))
       })
       server.middlewares.use('/api/finance/mileage', (req, res, next) => {
         if (req.method !== 'GET') return next()

@@ -16,6 +16,12 @@ import { questionnaireForBundle } from './crm-questionnaire.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
 import { loadConfig } from './crm-finance.mjs'
 import { loadCustomValues } from './crm-custom-fields.mjs'
+import {
+  CRM_STORE,
+  getCachedPortals,
+  upsertPortal as sbUpsertPortal,
+  cacheUpsertPortal,
+} from './crm-store.mjs'
 
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
 
@@ -76,6 +82,11 @@ function meta() {
 }
 
 function readPortalFile() {
+  if (CRM_STORE === 'supabase') {
+    const portals = {}
+    for (const r of getCachedPortals()) portals[r.project_id] = r.data
+    return { portals }
+  }
   let data
   try {
     data = JSON.parse(fs.readFileSync(PORTAL_FILE, 'utf8'))
@@ -112,7 +123,7 @@ export function loadPortal(projectId) {
 
 // Upsert settings for a project. A token is generated once and never changes (so a
 // shared link stays valid). Only whitelisted field ids are accepted into sharedFields.
-export function savePortal({ projectId, patch = {} } = {}) {
+export async function savePortal({ projectId, patch = {} } = {}) {
   if (!projectId) throw new Error('projectId is required')
   const data = readPortalFile()
   const cur = data.portals[projectId] || defaults()
@@ -132,7 +143,13 @@ export function savePortal({ projectId, patch = {} } = {}) {
   }
   if (!next.token) next.token = genToken()
   data.portals[projectId] = next
-  writePortalFile(data)
+  if (CRM_STORE === 'supabase') {
+    const row = { project_id: projectId, data: next }
+    cacheUpsertPortal(row)
+    await sbUpsertPortal(row)
+  } else {
+    writePortalFile(data)
+  }
   return next
 }
 

@@ -13,6 +13,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, createProject, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
 import { sendMessage, isConnected as gmailConnected } from './crm-gmail.mjs'
+import {
+  CRM_STORE,
+  getCachedInquiries,
+  upsertInquiry as sbUpsertInquiry,
+  cacheUpsertInquiry,
+} from './crm-store.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CRED_FILE = path.join(HERE, 'portal-credentials.json')
@@ -31,7 +37,14 @@ export function isConfigured() {
 }
 
 // --- store -----------------------------------------------------------------
+// Read the whole { inquiries: { [id]: {...} } } object. Under supabase it is rebuilt from the
+// row-per-inquiry jsonb cache (keyed by the relay inquiry id); under files it is the JSON file.
 function readStore() {
+  if (CRM_STORE === 'supabase') {
+    const inquiries = {}
+    for (const r of getCachedInquiries()) inquiries[r.id] = r.data
+    return { inquiries }
+  }
   let d
   try {
     d = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'))
@@ -40,6 +53,13 @@ function readStore() {
   }
   if (!d || typeof d.inquiries !== 'object' || d.inquiries === null) d = { inquiries: {} }
   return d
+}
+// Persist ONE inquiry record. Supabase: upsert its jsonb row (+ cache). Used by the write paths
+// instead of writeStore under supabase (which rewrites the whole file).
+async function persistInquiry(id, data) {
+  const row = { id, data }
+  cacheUpsertInquiry(row)
+  await sbUpsertInquiry(row)
 }
 function writeStore(d) {
   d._meta = {
@@ -235,10 +255,19 @@ async function runImport() {
     const emailed = await notifyByEmail(inq, projectId)
     store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note, emailed, form: cleanForm(inq) }
     created.push({ id: inq.id, ...store.inquiries[inq.id] })
+    // Supabase: persist each new inquiry as its own row as it's created (files: one write below).
+    if (CRM_STORE === 'supabase') await persistInquiry(inq.id, store.inquiries[inq.id])
   }
 
-  writeStore(store)
+  if (CRM_STORE !== 'supabase') writeStore(store)
   return { ok: true, created, importedCount: created.filter((c) => c.projectId).length }
+}
+
+// The whole { [id]: inquiryRecord } map (includes dismissed). Symmetric with loadPortals/
+// loadRecipients/loadInvoices/loadContracts/loadQuestionnaires; used by the backup exporter and the
+// parity gate to see every stored inquiry, not just the undismissed subset.
+export function loadInquiries() {
+  return readStore().inquiries
 }
 
 // Undismissed inquiry notifications, newest first.
@@ -250,11 +279,12 @@ export function listNotifications() {
     .sort((a, b) => (b.importedAt || '').localeCompare(a.importedAt || ''))
 }
 
-export function dismissNotification(id) {
+export async function dismissNotification(id) {
   const store = readStore()
   if (store.inquiries[id]) {
     store.inquiries[id].dismissed = true
-    writeStore(store)
+    if (CRM_STORE === 'supabase') await persistInquiry(id, store.inquiries[id])
+    else writeStore(store)
   }
   return { ok: true }
 }

@@ -11,8 +11,66 @@ import { RECORDS_DIR, appendActivityLog } from './crm-data-core.mjs'
 import { sendEmail } from './crm-comms.mjs'
 import { readAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { readFile as readBusinessFile } from './crm-files.mjs'
+import {
+  CRM_STORE,
+  getCachedEmails,
+  upsertEmail as sbUpsertEmail,
+  deleteEmail as sbDeleteEmail,
+  cacheUpsertEmail,
+  cacheRemoveEmail,
+} from './crm-store.mjs'
 
 const EMAILS_FILE = path.join(RECORDS_DIR, 'crm-emails.json')
+
+// Postgres returns timestamptz in offset form (e.g. "2026-06-20T00:49:19.605+00:00"); the files store
+// the JS toISOString() "...Z" form. Re-serialize through Date so the supabase read yields the identical
+// createdAt/updatedAt string the files path produces (mirrors isoZ in crm-finance.mjs).
+function isoZ(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toISOString()
+}
+
+// Raw DB email row -> the app's file-shape email record (same object clean() produces from a file row).
+// timestamps collapse to the "...Z" form so a supabase read matches the files byte-for-byte.
+function emailFromRow(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    kind: r.kind || 'thankyou',
+    to: Array.isArray(r.to) ? r.to.filter(Boolean) : [],
+    subject: String(r.subject || ''),
+    body: String(r.body || ''),
+    format: r.format === 'html' ? 'html' : 'text',
+    attachments: normalizeAttachments(r.attachments),
+    threadId: String(r.thread_id || ''),
+    threadSubject: String(r.thread_subject || ''),
+    status: r.status === 'sent' ? 'sent' : 'draft',
+    createdAt: isoZ(r.created_at),
+    updatedAt: isoZ(r.updated_at),
+    sentAt: r.sent_at == null ? '' : String(r.sent_at),
+  }
+}
+// A cleaned file-shape email record -> raw DB row (snake_case + jsonb to/attachments).
+function emailToRow(e) {
+  return {
+    id: e.id,
+    project_id: e.projectId || '',
+    kind: e.kind || 'thankyou',
+    to: Array.isArray(e.to) ? e.to.filter(Boolean) : [],
+    subject: String(e.subject || ''),
+    body: String(e.body || ''),
+    status: e.status === 'sent' ? 'sent' : 'draft',
+    format: e.format === 'html' ? 'html' : 'text',
+    attachments: normalizeAttachments(e.attachments),
+    thread_id: e.threadId || '',
+    thread_subject: e.threadSubject || '',
+    created_at: e.createdAt || null,
+    updated_at: e.updatedAt || null,
+    sent_at: e.sentAt || '',
+  }
+}
 
 // Reply subject for threading. Gmail only adds a message to an existing thread when the Subject
 // matches that thread's subject (we set no In-Reply-To/References headers), so when an email targets
@@ -121,7 +179,7 @@ function kindLabel(kind) {
 }
 
 export function loadEmails(projectId) {
-  const all = readEmailsFile().emails.map(clean)
+  const all = CRM_STORE === 'supabase' ? getCachedEmails().map(emailFromRow) : readEmailsFile().emails.map(clean)
   return projectId ? all.filter((e) => e.projectId === projectId) : all
 }
 
@@ -129,11 +187,76 @@ export function loadEmails(projectId) {
 // leaves the record as a draft (sending is a separate call). A previously sent email is a
 // permanent record: it is returned unchanged (any save is a no-op), never edited or reverted
 // to a draft.
-export function saveProjectEmail({ id, projectId, kind, to, subject, body, format, attachments, threadId, threadSubject } = {}) {
+export async function saveProjectEmail({ id, projectId, kind, to, subject, body, format, attachments, threadId, threadSubject } = {}) {
   if (!projectId && !id) throw new Error('projectId is required')
-  const data = readEmailsFile()
   const now = new Date().toISOString()
   const toList = normalizeTo(to)
+
+  if (CRM_STORE === 'supabase') {
+    if (id) {
+      const existing = getCachedEmails().find((x) => x.id === id)
+      if (!existing) throw new Error('email not found')
+      const e = emailFromRow(existing)
+      // A sent email is a permanent record: never edit it or revert it to a draft.
+      if (e.status === 'sent') return e
+      if (kind != null) e.kind = String(kind)
+      e.to = toList
+      e.subject = String(subject ?? e.subject ?? '')
+      e.body = String(body ?? e.body ?? '')
+      if (format != null) e.format = format === 'html' ? 'html' : 'text'
+      if (attachments != null) e.attachments = normalizeAttachments(attachments)
+      if (threadId !== undefined) e.threadId = String(threadId || '')
+      if (threadSubject !== undefined) e.threadSubject = String(threadSubject || '')
+      e.status = 'draft'
+      e.sentAt = ''
+      e.updatedAt = now
+      const row = emailToRow(e)
+      cacheUpsertEmail(row)
+      await sbUpsertEmail(row)
+      return clean(e)
+    }
+    // Converge concurrent id-less reply autosaves to a single draft (same rule as the files path).
+    if (projectId && /^reply-/.test(String(kind || ''))) {
+      const dupRow = getCachedEmails().find(
+        (x) => x.project_id === projectId && x.kind === kind && x.status !== 'sent',
+      )
+      if (dupRow) {
+        const dup = emailFromRow(dupRow)
+        dup.to = toList
+        dup.subject = String(subject ?? dup.subject ?? '')
+        dup.body = String(body ?? dup.body ?? '')
+        if (format != null) dup.format = format === 'html' ? 'html' : 'text'
+        if (attachments != null) dup.attachments = normalizeAttachments(attachments)
+        dup.updatedAt = now
+        const row = emailToRow(dup)
+        cacheUpsertEmail(row)
+        await sbUpsertEmail(row)
+        return clean(dup)
+      }
+    }
+    const e = {
+      id: crypto.randomUUID(),
+      projectId,
+      kind: String(kind || 'thankyou'),
+      to: toList,
+      subject: String(subject || ''),
+      body: String(body || ''),
+      format: format === 'html' ? 'html' : 'text',
+      attachments: normalizeAttachments(attachments),
+      threadId: String(threadId || ''),
+      threadSubject: String(threadSubject || ''),
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+      sentAt: '',
+    }
+    const row = emailToRow(e)
+    cacheUpsertEmail(row)
+    await sbUpsertEmail(row)
+    return clean(e)
+  }
+
+  const data = readEmailsFile()
 
   if (id) {
     const e = data.emails.find((x) => x.id === id)
@@ -194,7 +317,19 @@ export function saveProjectEmail({ id, projectId, kind, to, subject, body, forma
   return clean(e)
 }
 
-export function deleteProjectEmail(id) {
+export async function deleteProjectEmail(id) {
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedEmails().find((x) => x.id === id)
+    // Clean up any one-off uploaded attachments this email owned, so they don't orphan on disk.
+    if (row) {
+      for (const a of normalizeAttachments(row.attachments)) {
+        if (a.source === 'upload' && a.id) deleteAttachment(a.id)
+      }
+    }
+    cacheRemoveEmail(id)
+    await sbDeleteEmail(id)
+    return { ok: true }
+  }
   const data = readEmailsFile()
   const e = data.emails.find((x) => x.id === id)
   // Clean up any one-off uploaded attachments this email owned, so they don't orphan on disk.
@@ -212,8 +347,27 @@ export function deleteProjectEmail(id) {
 // { ok, demo, email }. When Gmail isn't connected the send is a no-op demo and the
 // record stays a draft (so nothing reads as sent that wasn't).
 export async function sendProjectEmail({ id } = {}) {
-  const data = readEmailsFile()
-  const e = data.emails.find((x) => x.id === id)
+  const supa = CRM_STORE === 'supabase'
+  // Under supabase we operate on a mutable file-shape record read from the cache; under files we mutate
+  // the record inside the whole-file object and write it back. `persist` hides that difference.
+  let data = null
+  let e
+  if (supa) {
+    const row = getCachedEmails().find((x) => x.id === id)
+    e = row ? emailFromRow(row) : null
+  } else {
+    data = readEmailsFile()
+    e = data.emails.find((x) => x.id === id)
+  }
+  const persist = async () => {
+    if (supa) {
+      const row = emailToRow(e)
+      cacheUpsertEmail(row)
+      await sbUpsertEmail(row)
+    } else {
+      writeEmailsFile(data)
+    }
+  }
   if (!e) throw new Error('email not found')
   // Already sent? No-op. A sent email is a permanent record; never re-send or re-stamp it.
   // Guards against a double-click race or a stray duplicate POST (the UI never reaches here
@@ -254,7 +408,7 @@ export async function sendProjectEmail({ id } = {}) {
   e.status = 'sent'
   e.sentAt = now
   e.updatedAt = now
-  writeEmailsFile(data)
+  await persist()
   try {
     await appendActivityLog(e.projectId, `Sent ${kindLabel(e.kind)} to ${to.join(', ')}.`)
   } catch {

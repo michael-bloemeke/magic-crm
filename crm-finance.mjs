@@ -7,6 +7,37 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
+import {
+  CRM_STORE,
+  // cached sync getters
+  getCachedPayments,
+  getCachedExpenses,
+  getCachedMileageTrips,
+  getCachedCrmSettings,
+  // async DB writers
+  upsertPayment as sbUpsertPayment,
+  deletePayment as sbDeletePayment,
+  deletePaymentsForProject as sbDeletePaymentsForProject,
+  upsertExpense as sbUpsertExpense,
+  deleteExpense as sbDeleteExpense,
+  upsertMileageTrip as sbUpsertMileageTrip,
+  deleteMileageTrip as sbDeleteMileageTrip,
+  deleteMileageTripsForProject as sbDeleteMileageTripsForProject,
+  setCrmSettings as sbSetCrmSettings,
+  getCachedCrmConfig,
+  setCrmConfig as sbSetCrmConfig,
+  cacheSetCrmConfig,
+  // sync cache mutators
+  cacheUpsertPayment,
+  cacheRemovePayment,
+  cacheRemovePaymentsForProject,
+  cacheUpsertExpense,
+  cacheRemoveExpense,
+  cacheUpsertMileageTrip,
+  cacheRemoveMileageTrip,
+  cacheRemoveMileageTripsForProject,
+  cacheSetCrmSettings,
+} from './crm-store.mjs'
 
 const PAYMENTS_FILE = path.join(RECORDS_DIR, 'crm-payments.json')
 const EXPENSES_FILE = path.join(RECORDS_DIR, 'crm-expenses.json')
@@ -55,6 +86,104 @@ function ymd(d) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${d.getFullYear()}-${m}-${day}`
 }
+
+// Postgres returns timestamptz in offset form (e.g. "2026-06-18T03:38:04.514+00:00"); the files
+// store the JS toISOString() "...Z" form. Re-serialize through Date so the supabase read yields the
+// identical createdAt string the files path produces (mirrors isoZ in crm-contacts.mjs).
+function isoZ(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const d = new Date(s)
+  return Number.isNaN(d.getTime()) ? s : d.toISOString()
+}
+
+// ---- Supabase row <-> app record mappers (payments / expenses / mileage) ----
+// The app record shapes use camelCase (projectId, dateReceived, createdAt); the DB columns are
+// snake_case with a numeric-companion text column. amount_text preserves any non-numeric value.
+
+// Raw DB payment row -> the app's payment record. Always emits the full canonical key set the app's
+// own addPayment() writes (id, projectId, amount, dateReceived, pending, type, method, note,
+// createdAt), so downstream (computeFinance, the payment gate) sees the identical shape.
+function paymentFromRow(r) {
+  return {
+    id: r.id,
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    amount: r.amount_text != null && r.amount_text !== '' ? String(r.amount_text) : num(r.amount),
+    dateReceived: r.date_received == null ? '' : String(r.date_received),
+    pending: !!r.pending,
+    type: r.type == null ? 'deposit' : String(r.type),
+    method: r.method == null ? '' : String(r.method),
+    note: r.note == null ? '' : String(r.note),
+    createdAt: isoZ(r.created_at),
+  }
+}
+// App payment record -> raw DB row (numeric amount + companion amount_text guard).
+function paymentToRow(p) {
+  const amtNum = typeof p.amount === 'number' ? p.amount : Number(String(p.amount).replace(/[^0-9.\-]/g, ''))
+  const numeric = Number.isFinite(amtNum) ? amtNum : null
+  return {
+    id: p.id,
+    project_id: p.projectId || '',
+    amount: numeric,
+    amount_text: numeric === null ? String(p.amount) : null,
+    date_received: p.dateReceived || '',
+    pending: !!p.pending,
+    type: p.type || 'deposit',
+    method: p.method || '',
+    note: p.note || '',
+    created_at: p.createdAt || null,
+  }
+}
+
+function expenseFromRow(r) {
+  return {
+    id: r.id,
+    name: r.name == null ? '' : String(r.name),
+    amount: r.amount_text != null && r.amount_text !== '' ? String(r.amount_text) : num(r.amount),
+    cadence: r.cadence == null ? 'monthly' : String(r.cadence),
+    category: r.category == null ? '' : String(r.category),
+    note: r.note == null ? '' : String(r.note),
+    createdAt: isoZ(r.created_at),
+  }
+}
+function expenseToRow(e) {
+  const amtNum = typeof e.amount === 'number' ? e.amount : Number(String(e.amount).replace(/[^0-9.\-]/g, ''))
+  const numeric = Number.isFinite(amtNum) ? amtNum : null
+  return {
+    id: e.id,
+    name: e.name || '',
+    amount: numeric,
+    amount_text: numeric === null ? String(e.amount) : null,
+    cadence: e.cadence || 'monthly',
+    category: e.category || '',
+    note: e.note || '',
+    created_at: e.createdAt || null,
+  }
+}
+
+function tripFromRow(r) {
+  return {
+    id: r.id,
+    date: r.date == null ? '' : String(r.date),
+    miles: r.miles_text != null && r.miles_text !== '' ? String(r.miles_text) : num(r.miles),
+    purpose: r.purpose == null ? '' : String(r.purpose),
+    projectId: r.project_id == null ? '' : String(r.project_id),
+    createdAt: isoZ(r.created_at),
+  }
+}
+function tripToRow(t) {
+  const mNum = typeof t.miles === 'number' ? t.miles : Number(String(t.miles).replace(/[^0-9.\-]/g, ''))
+  const numeric = Number.isFinite(mNum) ? mNum : null
+  return {
+    id: t.id,
+    date: t.date || '',
+    miles: numeric,
+    miles_text: numeric === null ? String(t.miles) : null,
+    purpose: t.purpose || '',
+    project_id: t.projectId || '',
+    created_at: t.createdAt || null,
+  }
+}
 function metaBlock(file, purpose, shape) {
   return {
     file,
@@ -82,8 +211,15 @@ function uniqStrings(arr) {
   return out
 }
 
+// The raw config object (minus the _meta doc block) for the current backend. Files: crm-config.json.
+// Supabase: the single crm_config row's { data } payload, served synchronously from the cache.
+function configData() {
+  if (CRM_STORE === 'supabase') return getCachedCrmConfig() || {}
+  return readJson(CONFIG_FILE, {})
+}
+
 export function loadConfig() {
-  const d = readJson(CONFIG_FILE, {})
+  const d = configData()
   const goals = Array.isArray(d.incomeGoals) && d.incomeGoals.length ? d.incomeGoals.map(num).filter((n) => n > 0) : DEFAULT_GOALS
   const reasons =
     Array.isArray(d.archiveReasons) && d.archiveReasons.length
@@ -124,8 +260,11 @@ export function loadConfig() {
     signatureHtml,
   }
 }
-export function saveConfig(patch) {
-  const cur = readJson(CONFIG_FILE, {})
+export async function saveConfig(patch) {
+  const supa = CRM_STORE === 'supabase'
+  // Supabase stores the config data payload (no _meta); files store the same fields plus a _meta doc
+  // block. Start from the current data (a copy of the cached payload under supabase) and merge.
+  const cur = supa ? { ...(getCachedCrmConfig() || {}) } : readJson(CONFIG_FILE, {})
   if (patch.incomeGoals != null) {
     cur.incomeGoals = (patch.incomeGoals || []).map(num).filter((n) => n > 0)
   }
@@ -166,6 +305,12 @@ export function saveConfig(patch) {
   if (patch.signatureHtml != null) {
     cur.signatureHtml = String(patch.signatureHtml)
   }
+  if (supa) {
+    // The DB row holds the config data payload only (never the _meta doc block).
+    cacheSetCrmConfig(cur)
+    await sbSetCrmConfig(cur)
+    return loadConfig()
+  }
   cur._meta = metaBlock(
     'crm-config.json',
     'CRM editable settings: income goal tiers, a monthly income goal (drives the Finance month-block fill), the archive-reason list, the reusable contact-tag library, the editable default contract template HTML, event-field label overrides + hidden + deleted event fields, user-defined custom event fields, and the email signature (Settings page).',
@@ -178,6 +323,7 @@ export function saveConfig(patch) {
 // --- Payments ledger (cash received) ----------------------------------------
 
 export function loadPayments() {
+  if (CRM_STORE === 'supabase') return getCachedPayments().map(paymentFromRow)
   const d = readJson(PAYMENTS_FILE, { payments: [] })
   if (!Array.isArray(d.payments)) d.payments = []
   return d.payments
@@ -189,9 +335,7 @@ function paymentsMeta() {
     'id, projectId, amount, dateReceived, pending, type, method, note, createdAt',
   )
 }
-export function addPayment({ projectId, amount, dateReceived, pending, type, method, note }) {
-  const d = readJson(PAYMENTS_FILE, { payments: [] })
-  if (!Array.isArray(d.payments)) d.payments = []
+export async function addPayment({ projectId, amount, dateReceived, pending, type, method, note }) {
   const isPending = !!pending
   const p = {
     id: crypto.randomUUID(),
@@ -204,13 +348,38 @@ export function addPayment({ projectId, amount, dateReceived, pending, type, met
     note: String(note || ''),
     createdAt: new Date().toISOString(),
   }
+  if (CRM_STORE === 'supabase') {
+    const row = paymentToRow(p)
+    cacheUpsertPayment(row)
+    await sbUpsertPayment(row)
+    return p
+  }
+  const d = readJson(PAYMENTS_FILE, { payments: [] })
+  if (!Array.isArray(d.payments)) d.payments = []
   d.payments.push(p)
   d._meta = paymentsMeta()
   writeJson(PAYMENTS_FILE, d)
   return p
 }
 // Edit an existing payment (e.g. finalize a pending one by giving it a date).
-export function updatePayment({ id, amount, dateReceived, pending, type, method, note }) {
+export async function updatePayment({ id, amount, dateReceived, pending, type, method, note }) {
+  if (CRM_STORE === 'supabase') {
+    const existing = getCachedPayments().find((x) => x.id === id)
+    if (!existing) throw new Error('payment not found')
+    const p = paymentFromRow(existing)
+    if (amount != null && amount !== '') p.amount = num(amount)
+    if (pending != null) p.pending = !!pending
+    if (dateReceived != null) p.dateReceived = String(dateReceived)
+    // Setting a date finalizes a pending payment; clearing it makes it pending.
+    if (dateReceived != null) p.pending = String(dateReceived) ? false : p.pending
+    if (type != null && ['deposit', 'balance', 'full', 'other'].includes(type)) p.type = type
+    if (method != null) p.method = String(method)
+    if (note != null) p.note = String(note)
+    const row = paymentToRow(p)
+    cacheUpsertPayment(row)
+    await sbUpsertPayment(row)
+    return p
+  }
   const d = readJson(PAYMENTS_FILE, { payments: [] })
   const p = (d.payments || []).find((x) => x.id === id)
   if (!p) throw new Error('payment not found')
@@ -226,14 +395,25 @@ export function updatePayment({ id, amount, dateReceived, pending, type, method,
   writeJson(PAYMENTS_FILE, d)
   return p
 }
-export function deletePayment(id) {
+export async function deletePayment(id) {
+  if (CRM_STORE === 'supabase') {
+    cacheRemovePayment(id)
+    await sbDeletePayment(id)
+    return { ok: true }
+  }
   const d = readJson(PAYMENTS_FILE, { payments: [] })
   d.payments = (d.payments || []).filter((x) => x.id !== id)
   writeJson(PAYMENTS_FILE, d)
   return { ok: true }
 }
 // Drop every payment tied to a project (called when a project is deleted).
-export function deletePaymentsForProject(projectId) {
+export async function deletePaymentsForProject(projectId) {
+  if (CRM_STORE === 'supabase') {
+    const before = getCachedPayments().filter((x) => x.project_id === projectId).length
+    cacheRemovePaymentsForProject(projectId)
+    await sbDeletePaymentsForProject(projectId)
+    return { ok: true, removed: before }
+  }
   const d = readJson(PAYMENTS_FILE, { payments: [] })
   if (!Array.isArray(d.payments)) return { ok: true, removed: 0 }
   const before = d.payments.length
@@ -248,13 +428,19 @@ export function deletePaymentsForProject(projectId) {
 const CADENCES = ['monthly', 'quarterly', 'yearly', 'weekly', 'one-time']
 
 export function loadExpenses() {
+  if (CRM_STORE === 'supabase') return getCachedExpenses().map(expenseFromRow)
   const d = readJson(EXPENSES_FILE, { expenses: [] })
   if (!Array.isArray(d.expenses)) d.expenses = []
   return d.expenses
 }
-export function addExpense({ name, amount, cadence, category, note }) {
-  const d = readJson(EXPENSES_FILE, { expenses: [] })
-  if (!Array.isArray(d.expenses)) d.expenses = []
+function expensesMeta() {
+  return metaBlock(
+    'crm-expenses.json',
+    'Recurring / known business expenses. amount + cadence (monthly/quarterly/yearly/weekly/one-time). The Finance page rolls these into a monthly + annual overhead figure. This is NOT a full transaction ledger (Michael uses a dedicated budgeting app for that).',
+    'id, name, amount, cadence, category, note, createdAt',
+  )
+}
+export async function addExpense({ name, amount, cadence, category, note }) {
   const e = {
     id: crypto.randomUUID(),
     name: String(name || 'Expense'),
@@ -264,16 +450,34 @@ export function addExpense({ name, amount, cadence, category, note }) {
     note: String(note || ''),
     createdAt: new Date().toISOString(),
   }
+  if (CRM_STORE === 'supabase') {
+    const row = expenseToRow(e)
+    cacheUpsertExpense(row)
+    await sbUpsertExpense(row)
+    return e
+  }
+  const d = readJson(EXPENSES_FILE, { expenses: [] })
+  if (!Array.isArray(d.expenses)) d.expenses = []
   d.expenses.push(e)
-  d._meta = metaBlock(
-    'crm-expenses.json',
-    'Recurring / known business expenses. amount + cadence (monthly/quarterly/yearly/weekly/one-time). The Finance page rolls these into a monthly + annual overhead figure. This is NOT a full transaction ledger (Michael uses a dedicated budgeting app for that).',
-    'id, name, amount, cadence, category, note, createdAt',
-  )
+  d._meta = expensesMeta()
   writeJson(EXPENSES_FILE, d)
   return e
 }
-export function updateExpense({ id, name, amount, cadence, category, note }) {
+export async function updateExpense({ id, name, amount, cadence, category, note }) {
+  if (CRM_STORE === 'supabase') {
+    const existing = getCachedExpenses().find((x) => x.id === id)
+    if (!existing) throw new Error('expense not found')
+    const e = expenseFromRow(existing)
+    if (name != null) e.name = String(name)
+    if (amount != null) e.amount = num(amount)
+    if (cadence != null && CADENCES.includes(cadence)) e.cadence = cadence
+    if (category != null) e.category = String(category)
+    if (note != null) e.note = String(note)
+    const row = expenseToRow(e)
+    cacheUpsertExpense(row)
+    await sbUpsertExpense(row)
+    return e
+  }
   const d = readJson(EXPENSES_FILE, { expenses: [] })
   const e = (d.expenses || []).find((x) => x.id === id)
   if (!e) throw new Error('expense not found')
@@ -285,7 +489,12 @@ export function updateExpense({ id, name, amount, cadence, category, note }) {
   writeJson(EXPENSES_FILE, d)
   return e
 }
-export function deleteExpense(id) {
+export async function deleteExpense(id) {
+  if (CRM_STORE === 'supabase') {
+    cacheRemoveExpense(id)
+    await sbDeleteExpense(id)
+    return { ok: true }
+  }
   const d = readJson(EXPENSES_FILE, { expenses: [] })
   d.expenses = (d.expenses || []).filter((x) => x.id !== id)
   writeJson(EXPENSES_FILE, d)
@@ -294,7 +503,20 @@ export function deleteExpense(id) {
 
 // --- Mileage log -------------------------------------------------------------
 
+// The per-mile rate. Files: crm-mileage.json ratePerMile. Supabase: crm_settings.mileage_rate_per_mile.
+function ratePerMile() {
+  if (CRM_STORE === 'supabase') {
+    const r = getCachedCrmSettings()?.mileage_rate_per_mile
+    return typeof r === 'number' ? r : DEFAULT_MILEAGE_RATE
+  }
+  const d = readJson(MILEAGE_FILE, { ratePerMile: DEFAULT_MILEAGE_RATE })
+  return typeof d.ratePerMile === 'number' ? d.ratePerMile : DEFAULT_MILEAGE_RATE
+}
+
 export function loadMileage() {
+  if (CRM_STORE === 'supabase') {
+    return { trips: getCachedMileageTrips().map(tripFromRow), ratePerMile: ratePerMile() }
+  }
   const d = readJson(MILEAGE_FILE, { trips: [], ratePerMile: DEFAULT_MILEAGE_RATE })
   if (!Array.isArray(d.trips)) d.trips = []
   if (typeof d.ratePerMile !== 'number') d.ratePerMile = DEFAULT_MILEAGE_RATE
@@ -308,8 +530,7 @@ function writeMileage(data) {
   )
   writeJson(MILEAGE_FILE, data)
 }
-export function addTrip({ date, miles, purpose, projectId }) {
-  const d = loadMileage()
+export async function addTrip({ date, miles, purpose, projectId }) {
   const t = {
     id: crypto.randomUUID(),
     date: String(date || ''),
@@ -318,18 +539,36 @@ export function addTrip({ date, miles, purpose, projectId }) {
     projectId: String(projectId || ''),
     createdAt: new Date().toISOString(),
   }
+  if (CRM_STORE === 'supabase') {
+    const row = tripToRow(t)
+    cacheUpsertMileageTrip(row)
+    await sbUpsertMileageTrip(row)
+    return t
+  }
+  const d = loadMileage()
   d.trips.push(t)
   writeMileage(d)
   return t
 }
-export function deleteTrip(id) {
+export async function deleteTrip(id) {
+  if (CRM_STORE === 'supabase') {
+    cacheRemoveMileageTrip(id)
+    await sbDeleteMileageTrip(id)
+    return { ok: true }
+  }
   const d = loadMileage()
   d.trips = d.trips.filter((x) => x.id !== id)
   writeMileage(d)
   return { ok: true }
 }
 // Drop every mileage trip tied to a project (called when a project is deleted).
-export function deleteTripsForProject(projectId) {
+export async function deleteTripsForProject(projectId) {
+  if (CRM_STORE === 'supabase') {
+    const before = getCachedMileageTrips().filter((x) => x.project_id === projectId).length
+    cacheRemoveMileageTripsForProject(projectId)
+    await sbDeleteMileageTripsForProject(projectId)
+    return { ok: true, removed: before }
+  }
   const d = loadMileage()
   const before = d.trips.length
   d.trips = d.trips.filter((x) => x.projectId !== projectId)
@@ -337,9 +576,15 @@ export function deleteTripsForProject(projectId) {
   if (removed) writeMileage(d)
   return { ok: true, removed }
 }
-export function setMileageRate(rate) {
+export async function setMileageRate(rate) {
+  const r = num(rate) || DEFAULT_MILEAGE_RATE
+  if (CRM_STORE === 'supabase') {
+    cacheSetCrmSettings({ mileage_rate_per_mile: r })
+    await sbSetCrmSettings({ mileage_rate_per_mile: r })
+    return { ok: true, ratePerMile: r }
+  }
   const d = loadMileage()
-  d.ratePerMile = num(rate) || DEFAULT_MILEAGE_RATE
+  d.ratePerMile = r
   writeMileage(d)
   return { ok: true, ratePerMile: d.ratePerMile }
 }

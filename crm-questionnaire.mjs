@@ -18,6 +18,15 @@ import path from 'node:path'
 import { RECORDS_DIR, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
 import { loadConfig } from './crm-finance.mjs'
 import { setCustomValue } from './crm-custom-fields.mjs'
+import {
+  CRM_STORE,
+  getCachedQuestionnaires,
+  getCachedCrmSettings,
+  upsertQuestionnaire as sbUpsertQuestionnaire,
+  setCrmSettings as sbSetCrmSettings,
+  cacheUpsertQuestionnaire,
+  cacheSetCrmSettings,
+} from './crm-store.mjs'
 
 const QUESTIONNAIRE_FILE = path.join(RECORDS_DIR, 'crm-questionnaire.json')
 const PORTAL_FILE = path.join(RECORDS_DIR, 'crm-portal.json')
@@ -58,7 +67,18 @@ function meta() {
   }
 }
 
+// Read the whole { questionnaires: { [projectId]: {...} }, template? } object. Under supabase the
+// per-project map is rebuilt from the `questionnaires` jsonb cache and the GLOBAL template from
+// crm_settings.questionnaire_template, so callers see the identical file shape either way.
 function readFile() {
+  if (CRM_STORE === 'supabase') {
+    const questionnaires = {}
+    for (const r of getCachedQuestionnaires()) questionnaires[r.project_id] = r.data
+    const template = getCachedCrmSettings()?.questionnaire_template
+    const d = { questionnaires }
+    if (template != null) d.template = template
+    return d
+  }
   let d
   try {
     d = JSON.parse(fs.readFileSync(QUESTIONNAIRE_FILE, 'utf8'))
@@ -71,6 +91,26 @@ function readFile() {
 function writeFile(d) {
   d._meta = meta()
   fs.writeFileSync(QUESTIONNAIRE_FILE, JSON.stringify(d, null, 2) + '\n')
+}
+// Persist ONE project's questionnaire record (supabase) or rewrite the whole file (files). `d` is the
+// whole-object the caller already mutated (used for the files path).
+async function persistQuestionnaire(projectId, d) {
+  if (CRM_STORE === 'supabase') {
+    const row = { project_id: projectId, data: d.questionnaires[projectId] }
+    cacheUpsertQuestionnaire(row)
+    await sbUpsertQuestionnaire(row)
+    return
+  }
+  writeFile(d)
+}
+// Persist the GLOBAL template (supabase: crm_settings.questionnaire_template; files: the whole file).
+async function persistTemplate(d) {
+  if (CRM_STORE === 'supabase') {
+    cacheSetCrmSettings({ questionnaire_template: d.template })
+    await sbSetCrmSettings({ questionnaire_template: d.template })
+    return
+  }
+  writeFile(d)
 }
 
 const QUESTION_TYPES = ['text', 'textarea', 'date', 'tel', 'number', 'select']
@@ -85,7 +125,7 @@ export function loadTemplate() {
     t && Array.isArray(t.questions) && t.questions.length ? t.questions : DEFAULT_QUESTIONS.map((x) => ({ ...x }))
   return { intro, questions }
 }
-export function saveTemplate({ intro, questions } = {}) {
+export async function saveTemplate({ intro, questions } = {}) {
   const d = readFile()
   const clean = Array.isArray(questions)
     ? questions
@@ -103,7 +143,7 @@ export function saveTemplate({ intro, questions } = {}) {
     intro: intro != null ? String(intro) : DEFAULT_INTRO,
     questions: clean.length ? clean : DEFAULT_QUESTIONS.map((x) => ({ ...x })),
   }
-  writeFile(d)
+  await persistTemplate(d)
   return loadTemplate()
 }
 
@@ -150,13 +190,13 @@ function ensure(d, projectId) {
 
 // Turn the questionnaire on/off and edit its intro. (Question editing can come later; the
 // default set is good out of the box.) Returns the saved record.
-export function setQuestionnaire(projectId, { enabled, intro } = {}) {
+export async function setQuestionnaire(projectId, { enabled, intro } = {}) {
   if (!projectId) throw new Error('projectId is required')
   const d = readFile()
   const q = ensure(d, projectId)
   if (typeof enabled === 'boolean') q.enabled = enabled
   if (intro != null) q.intro = String(intro)
-  writeFile(d)
+  await persistQuestionnaire(projectId, d)
   return q
 }
 
@@ -251,7 +291,7 @@ export async function pullResponse(projectId) {
     appliedFields: filled,
     seen: false,
   }
-  writeFile(d)
+  await persistQuestionnaire(projectId, d)
   if (filled.length) await appendActivityLog(projectId, `Client filled the questionnaire. Auto-filled: ${filled.join(', ')}.`)
   else await appendActivityLog(projectId, 'Client filled the questionnaire.')
   return { ok: true, response: q.response, filledFields: filled, fresh: true }
@@ -273,12 +313,12 @@ export function loadUnseenSubmissions() {
 
 // Mark a project's submission as acknowledged (clears its notification). Returns the remaining
 // unseen submissions.
-export function markSubmissionSeen(projectId) {
+export async function markSubmissionSeen(projectId) {
   const d = readFile()
   const q = d.questionnaires[projectId]
   if (q && q.response && q.response.seen === false) {
     q.response.seen = true
-    writeFile(d)
+    await persistQuestionnaire(projectId, d)
   }
   return loadUnseenSubmissions()
 }

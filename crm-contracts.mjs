@@ -14,6 +14,14 @@ import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES, fmtDate } from './crm-contract-template.mjs'
 import { loadConfig } from './crm-finance.mjs'
 import * as esign from './crm-esign.mjs'
+import {
+  CRM_STORE,
+  getCachedContracts,
+  upsertContract as sbUpsertContract,
+  deleteContract as sbDeleteContract,
+  cacheUpsertContract,
+  cacheRemoveContract,
+} from './crm-store.mjs'
 
 // pdfmake (server build), html-to-pdfmake, and jsdom are CommonJS; the ESM default of
 // 'pdfmake' resolves to its browser build, so load all three via createRequire.
@@ -24,7 +32,14 @@ const { JSDOM } = require('jsdom')
 
 const CONTRACTS_FILE = path.join(RECORDS_DIR, 'crm-contracts.json')
 
+// Read the whole { contracts: { [projectId]: [versions] } } object. Under supabase it is rebuilt from
+// the row-per-project `versions` jsonb cache; under files it is the JSON file.
 function readContracts() {
+  if (CRM_STORE === 'supabase') {
+    const contracts = {}
+    for (const r of getCachedContracts()) contracts[r.project_id] = r.versions
+    return { contracts }
+  }
   let d
   try {
     d = JSON.parse(fs.readFileSync(CONTRACTS_FILE, 'utf8'))
@@ -33,6 +48,24 @@ function readContracts() {
   }
   if (!d || typeof d.contracts !== 'object' || d.contracts === null) d = { contracts: {} }
   return d
+}
+// Persist ONE project's version array. Supabase: upsert its `versions` jsonb row (or delete the row
+// when the array is empty, matching the files path which drops the empty key). Files: rewrite the
+// whole file. `d` is the whole-map object the writer already mutated (used only for the files path).
+async function persistContract(projectId, d) {
+  if (CRM_STORE === 'supabase') {
+    const list = d.contracts[projectId]
+    if (!list || list.length === 0) {
+      cacheRemoveContract(projectId)
+      await sbDeleteContract(projectId)
+      return
+    }
+    const row = { project_id: projectId, versions: list }
+    cacheUpsertContract(row)
+    await sbUpsertContract(row)
+    return
+  }
+  writeContracts(d)
 }
 function writeContracts(d) {
   d._meta = {
@@ -109,7 +142,7 @@ export function draftContract(projectId) {
 }
 
 // Save a new version from the (possibly edited) rich HTML body.
-export function createContract(projectId, { body, includeMedia = false, format = 'html' }) {
+export async function createContract(projectId, { body, includeMedia = false, format = 'html' }) {
   const html = String(body || '').trim()
   if (!html) throw new Error('The contract is empty.')
   const d = readContracts()
@@ -126,11 +159,11 @@ export function createContract(projectId, { body, includeMedia = false, format =
     sentAt: '',
   }
   d.contracts[projectId] = [...list, ref]
-  writeContracts(d)
+  await persistContract(projectId, d)
   return ref
 }
 
-export function setContractStatus(projectId, id, status) {
+export async function setContractStatus(projectId, id, status) {
   const allowed = ['draft', 'sent']
   if (!allowed.includes(status)) throw new Error('Invalid status.')
   const d = readContracts()
@@ -139,16 +172,16 @@ export function setContractStatus(projectId, id, status) {
   if (!ref) throw new Error('Contract version not found.')
   ref.status = status
   ref.sentAt = status === 'sent' ? ref.sentAt || new Date().toISOString() : ref.sentAt
-  writeContracts(d)
+  await persistContract(projectId, d)
   return ref
 }
 
-export function deleteContract(projectId, id) {
+export async function deleteContract(projectId, id) {
   const d = readContracts()
   const list = d.contracts[projectId] || []
   d.contracts[projectId] = list.filter((c) => c.id !== id)
   if (d.contracts[projectId].length === 0) delete d.contracts[projectId]
-  writeContracts(d)
+  await persistContract(projectId, d)
   return { ok: true }
 }
 
@@ -348,7 +381,7 @@ export async function sendForSignature(projectId, id, { signerName, signerEmail 
     signedAt: '',
   }
   if (ref.status === 'draft') ref.status = 'sent'
-  writeContracts(d)
+  await persistContract(projectId, d)
   return ref
 }
 
@@ -414,7 +447,7 @@ export async function sendContractFromTemplate(projectId, { templateId, template
     },
   }
   d.contracts[projectId] = [...list, ref]
-  writeContracts(d)
+  await persistContract(projectId, d)
   return ref
 }
 
@@ -430,7 +463,7 @@ export async function refreshSignature(projectId, id) {
   if (viewed && !ref.esign.viewedAt) ref.esign.viewedAt = new Date().toISOString()
   const done = st === 'completed' || st === 'signed' || doc.completed === true
   if (done && !ref.esign.signedAt) ref.esign.signedAt = new Date().toISOString()
-  writeContracts(d)
+  await persistContract(projectId, d)
   return ref
 }
 
