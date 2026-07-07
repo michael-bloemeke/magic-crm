@@ -10,9 +10,9 @@
 import {
   loadEverything, getSession, signIn, signOut, currentUserEmail,
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
-  reloadPaymentsFinance,
+  reloadPaymentsFinance, savePushSubscription,
 } from './supabase-data.js'
-import { VAPID_PUBLIC_KEY, PUSH_SUBSCRIBE_CODE } from './config.js'
+import { VAPID_PUBLIC_KEY } from './config.js'
 
 var SNAP = null
 var TAB = 'pipeline'
@@ -711,9 +711,10 @@ function pushSupported() {
 function updatePushButton() {
   var btn = $('#enable-push')
   if (!btn) return
-  // Show the bell only when push is usable AND the subscribe endpoint is wired (a passcode is set in
-  // config.js). Until the deploy configures that, keep it hidden.
-  var show = pushSupported() && VAPID_PUBLIC_KEY && PUSH_SUBSCRIBE_CODE &&
+  // Show the bell when push is usable, we have the VAPID key, and this device isn't already subscribed
+  // (or permission hasn't been permanently denied). Once subscribed (localStorage flag), hide it. No
+  // passcode gate anymore: the subscribe write is authenticated by the logged-in Supabase session.
+  var show = pushSupported() && VAPID_PUBLIC_KEY &&
     localStorage.getItem('mcrm_push') !== '1' && window.Notification && Notification.permission !== 'denied'
   btn.classList.toggle('hidden', !show)
 }
@@ -725,29 +726,39 @@ function urlB64ToUint8(base64) {
   for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
   return arr
 }
+// Turn on lock-screen notifications: ask permission, subscribe this device with pushManager, then
+// UPSERT the subscription into Supabase's push_subscriptions (authenticated by the logged-in session).
+// Handles "already subscribed" (reuse the existing subscription and just re-save it) and a denied /
+// dismissed permission gracefully.
 function enablePush() {
   if (!pushSupported()) {
     alert('To get notifications, add this app to your Home Screen first (Share, then Add to Home Screen), then open it from there and try again.')
     return
   }
-  if (!VAPID_PUBLIC_KEY || !PUSH_SUBSCRIBE_CODE) {
-    alert('Notifications are not set up yet on the server side.')
+  if (!VAPID_PUBLIC_KEY) {
+    alert('Notifications are not set up yet (missing key).')
     return
   }
   Notification.requestPermission().then(function (perm) {
     if (perm !== 'granted') {
-      alert('Notifications were not allowed.')
+      updatePushButton() // if permanently denied, this hides the bell
+      alert(perm === 'denied'
+        ? 'Notifications are blocked for this app. Turn them back on in your phone Settings, then tap the bell again.'
+        : 'Notifications were not allowed.')
       return
     }
     return navigator.serviceWorker.ready
       .then(function (reg) {
-        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC_KEY) })
+        // Reuse an existing subscription if this device already has one (avoids an InvalidStateError
+        // from re-subscribing with the same key); otherwise create a fresh one.
+        return reg.pushManager.getSubscription().then(function (existing) {
+          return existing || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC_KEY) })
+        })
       })
       .then(function (sub) {
-        return fetch('./api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: PUSH_SUBSCRIBE_CODE, subscription: sub }) })
+        return savePushSubscription(sub)
       })
-      .then(function (r) {
-        if (!r.ok) throw new Error('register failed')
+      .then(function () {
         localStorage.setItem('mcrm_push', '1')
         updatePushButton()
         alert('Notifications are on. Alerts will show up here on your lock screen.')

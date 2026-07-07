@@ -8,19 +8,14 @@ export const SUPABASE_URL = 'https://yfmacqvcmkogvkcxfjkr.supabase.co'
 export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_QxnnWa1SGJrCaS2XEQY3wA_Klw0HlHF'
 
 // Web-push VAPID PUBLIC key (safe to embed; a public key by design). Used to subscribe this device to
-// lock-screen notifications. The snapshot used to carry this; now it's a constant. Value taken from
-// the desktop's push-vapid.json publicKey. If the key is ever rotated, update it here.
+// lock-screen notifications. Value taken from the desktop's push-vapid.json publicKey. This is the key
+// the phone subscribes with; the Mac signs each push with the matching PRIVATE key. Do NOT rotate it
+// without re-subscribing every device (existing subs would break). If ever rotated, update it here.
 export const VAPID_PUBLIC_KEY = 'BJ-kKbuNb4748FiB5n4x2Y9f2B89QuyRMvxFt66iovJOG2xO1ADGCNA3srgky4UbZiISFrpquq5ae6AjWB86eoI'
 
-// PUSH DECISION (2026-07-06, Stage D): web-push SUBSCRIBE from the app is left DISABLED for now.
-// Reason: the old /api/subscribe is passcode-gated (it authorizes against the snapshot blob's stored
-// hash, `snap.auth`, which is unrelated to Supabase auth), and the new Supabase-login app has no
-// passcode to source. Lock-screen push from the Mac still works via ntfy (independent, already
-// running), so nothing is lost day-to-day. Re-enabling in-app subscribe is a later, Supabase-based
-// rework (e.g. a small edge function that verifies the user's session JWT and stores the subscription
-// in a `push_subscriptions` table), NOT a passcode.
-//
-// To flip it back on the OLD way in the meantime: set this to the same passcode the desktop uploads
-// with the snapshot, and the "Enable push" bell reappears (updatePushButton() gates on this being
-// non-empty). Left '' keeps the bell hidden.
-export const PUSH_SUBSCRIBE_CODE = ''
+// PUSH (2026-07-07): web-push SUBSCRIBE from the app is now Supabase-backed and login-authenticated.
+// Tapping the bell requests Notification permission, subscribes via pushManager with VAPID_PUBLIC_KEY,
+// and UPSERTs the subscription into the `push_subscriptions` table using the logged-in supabase-js
+// session (RLS-gated; the anon key alone can't write). The old passcode-gated /api/subscribe is no
+// longer used. The Mac reads push_subscriptions (crm-webpush.mjs) to deliver lock-screen push, so this
+// replaces the separate ntfy path.

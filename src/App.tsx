@@ -477,6 +477,72 @@ function App() {
       .catch(() => {})
   }
 
+  // --- Live refresh from Supabase (edits made on the phone / in Cowork / via Claude Code) ----------
+  // The server keeps its cache ~15s fresh; the UI pulls that fresh data on window-focus and on a slow
+  // interval so it reflects external changes without a manual reload. This runs in the BACKGROUND, so
+  // it must never yank the user: we skip a tick entirely while a modal is open, the pipeline is in
+  // edit mode, or focus is in an editable field (an in-progress inline edit or rename would otherwise
+  // get clobbered when its `value` prop changes). When it does run it only refreshes list/collection
+  // data and re-syncs any open pane BY ID (never opening/closing panes or moving scroll).
+  const modalOpen =
+    !!archiveTarget ||
+    !!completeTarget ||
+    !!deleteTarget ||
+    !!depositTarget ||
+    !!callTarget ||
+    !!contactPickerProject ||
+    !!deleteBlock ||
+    newProjectOpen ||
+    searchOpen
+  // Latest values the background refresh needs, without re-subscribing its effect on every change.
+  const bgGuards = useRef({ modalOpen, editMode })
+  bgGuards.current = { modalOpen, editMode }
+
+  // True while the user is actively typing/focused in a text field (so a refresh won't overwrite it).
+  const isEditingActive = () => {
+    const el = document.activeElement as HTMLElement | null
+    if (!el) return false
+    const tag = el.tagName
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable
+  }
+
+  // Pull the live collections and merge them into state without disturbing the current view. Open
+  // panes are re-synced by id (same as reloadProjects); the structure is only refreshed when the
+  // pipeline is NOT in edit mode (so a rename in progress on the board is never clobbered).
+  const backgroundRefresh = () => {
+    const g = bgGuards.current
+    if (g.modalOpen || isEditingActive()) return
+    loadProjects()
+      .then((fresh) => {
+        setProjects(fresh)
+        setSelected((prev) => (prev ? fresh.find((p) => p.id === prev.id) ?? null : prev))
+        setFullProject((prev) => (prev ? fresh.find((p) => p.id === prev.id) ?? prev : prev))
+      })
+      .catch(() => {})
+    loadTasks().then(setTasks).catch(() => {})
+    loadPayments().then(setPayments).catch(() => {})
+    loadContacts().then(setContacts).catch(() => {})
+    loadLinks().then(setLinks).catch(() => {})
+    loadUnreadByProject().then(setUnread).catch(() => {})
+    if (!g.editMode) loadStructure().then(setStructure).catch(() => {})
+  }
+
+  useEffect(() => {
+    // Refresh on a ~20s interval and whenever the window regains focus / the tab becomes visible
+    // (the common case: Michael edited something on his phone, then comes back to the Mac).
+    const timer = setInterval(backgroundRefresh, 20 * 1000)
+    const onFocus = () => backgroundRefresh()
+    const onVisible = () => { if (document.visibilityState === 'visible') backgroundRefresh() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Poll Notion for new HoneyBook inquiries: import any new ones (server-side), refresh the
   // in-app notification list, and reload projects when some were created so they show up in the
   // pipeline. Quietly does nothing if the Notion sync isn't configured.

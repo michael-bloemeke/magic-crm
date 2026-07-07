@@ -590,6 +590,26 @@ export async function reloadPaymentsFinance(projects, config) {
   return { payments, finance }
 }
 
+// ---------- web push ----------
+// savePushSubscription: UPSERT this device's Web Push subscription into push_subscriptions so the Mac
+// can send lock-screen notifications to it. Keyed by endpoint (unique), so re-subscribing the same
+// device just refreshes the row instead of piling up duplicates. RLS requires a logged-in session
+// (the anon/publishable key alone can't touch this table). `sub` is the PushSubscription (its .toJSON()
+// or the object itself); we store the full JSON in `subscription` and its endpoint in `endpoint`.
+export async function savePushSubscription(sub) {
+  const s = sub && typeof sub.toJSON === 'function' ? sub.toJSON() : sub
+  const endpoint = s && s.endpoint
+  if (!endpoint) throw new Error('Subscription has no endpoint.')
+  const row = {
+    endpoint,
+    subscription: s,
+    user_agent: (typeof navigator !== 'undefined' && navigator.userAgent) || '',
+  }
+  const { error } = await sb.from('push_subscriptions').upsert(row, { onConflict: 'endpoint' })
+  if (error) throw error
+  return { ok: true, endpoint }
+}
+
 // One call that pulls everything a load-and-render needs, and assembles the exact `SNAP`-shaped
 // object the view code consumes. This is the single seam the boot code hits after login.
 export async function loadEverything() {

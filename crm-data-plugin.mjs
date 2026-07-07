@@ -187,9 +187,27 @@ export function crmDataPlugin() {
       // Under CRM_STORE=supabase every synchronous read funnel (loadAll/loadContacts/loadLinks/
       // loadStructure) serves from the in-memory cache, so prime it ONCE before handling requests.
       // Under files this is a no-op. If it throws (bad creds/network), fail loudly at startup.
+      let cacheRefreshTimer = null
       if (CRM_STORE === 'supabase') {
         await initStore()
         console.log('[crm-data] Supabase store initialized (CRM_STORE=supabase).')
+        // Supabase is the shared source of truth (phone, Cowork, Claude Code all write to it), but the
+        // sync read funnels serve from the in-memory cache primed above. Re-prime it on a timer so edits
+        // made elsewhere show up here without restarting the app. Non-overlapping (a slow refresh skips
+        // the next tick rather than stacking) and best-effort (a failed refresh just logs and the next
+        // tick retries; it never crashes the server). Keeps the cache at most ~15s stale.
+        let refreshing = false
+        cacheRefreshTimer = setInterval(async () => {
+          if (refreshing) return
+          refreshing = true
+          try {
+            await initStore({ force: true })
+          } catch (e) {
+            console.error('[crm-data] cache refresh failed (will retry next tick):', e?.message || e)
+          } finally {
+            refreshing = false
+          }
+        }, 15 * 1000)
       }
       // Back up shortly after the app starts, then every 4 hours it stays running.
       const t1 = setTimeout(runBackup, 90_000)
@@ -203,6 +221,7 @@ export function crmDataPlugin() {
         clearInterval(t2)
         clearTimeout(t3)
         clearInterval(t4)
+        if (cacheRefreshTimer) clearInterval(cacheRefreshTimer)
       })
 
       server.middlewares.use('/api/projects', (req, res, next) => {
