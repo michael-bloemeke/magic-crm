@@ -6,25 +6,33 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Magic CRM" />
-    <meta name="theme-color" content="#0a0d14" />
+    <meta name="theme-color" content="#14151c" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Magic CRM</title>
     <style>
-      /* FISM theme (royal navy + medal gold), matching the desktop CRM's default. */
+      /* App color system (phone). Independent of the desktop's theme. */
       :root {
-        --bg: #0a0d14;
-        --surface: #0e1220;
-        --surface2: #141a2b;
-        --line: rgba(200, 214, 255, 0.08);
-        --line-strong: rgba(200, 214, 255, 0.16);
-        --parchment: #f1f3f9;
-        --muted: #a7adc0;
-        --faint: #6a7187;
-        --brass: #cda85f;
-        --brass-bright: #ecc879;
-        --green: #5fcf8f;
-        --red: #e8866b;
+        /* "Indigo Nocturne": a cool graphite base with an electric indigo primary, plus green / amber /
+           coral / teal semantics so blocks, buttons, and sections stay visually distinct. */
+        --bg: #14151c;
+        --surface: #1c1e28;      /* cards */
+        --surface2: #252834;     /* inputs / raised */
+        --surface3: #30343f;     /* active / hover */
+        --line: rgba(196, 201, 224, 0.10);
+        --line-strong: rgba(196, 201, 224, 0.20);
+        --parchment: #eef0f7;    /* primary text (name kept for compatibility) */
+        --muted: #a6abbb;
+        --faint: #6e7382;
+        --brass: #7d8cff;        /* primary accent (indigo) */
+        --brass-bright: #9aa6ff;
+        --brass-dim: #464b7d;
+        --green: #46d189;        /* money / booked / done / yes */
+        --amber: #f4b65c;        /* pending / due today / maybe */
+        --red: #f26d63;          /* overdue / danger / no */
+        --teal: #38ccda;         /* secondary / info */
+        --violet: #c885e8;       /* extra category accent */
+        --ink-on-accent: #12131d; /* dark text on a light accent button */
         --safe-top: env(safe-area-inset-top, 0px);
         --safe-bot: env(safe-area-inset-bottom, 0px);
       }
@@ -36,8 +44,8 @@
         line-height: 1.45;
         overscroll-behavior-y: none;
         background-image:
-          radial-gradient(120% 80% at 50% -10%, rgba(201, 169, 97, 0.1) 0%, rgba(201, 169, 97, 0.03) 32%, transparent 60%),
-          radial-gradient(90% 60% at 85% 0%, rgba(40, 70, 140, 0.2) 0%, transparent 55%);
+          radial-gradient(120% 80% at 50% -10%, rgba(125, 140, 255, 0.11) 0%, rgba(125, 140, 255, 0.03) 34%, transparent 62%),
+          radial-gradient(90% 60% at 88% 2%, rgba(56, 204, 218, 0.10) 0%, transparent 55%);
         background-attachment: fixed;
       }
       button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
@@ -94,7 +102,7 @@
 
       /* --- editing UI (Stage C) --- */
       /* Buttons */
-      .btn-gold { background: var(--brass); color: #20180a; font-weight: 700; padding: 10px 14px; border-radius: 10px; font-size: 14px; }
+      .btn-gold { background: var(--brass); color: var(--ink-on-accent); font-weight: 700; padding: 10px 14px; border-radius: 10px; font-size: 14px; }
       .btn-gold:active { filter: brightness(1.1); }
       .btn-ghost { border: 1px solid var(--line-strong); color: var(--muted); padding: 10px 14px; border-radius: 10px; font-size: 14px; background: var(--surface); }
       .btn-ghost:active { background: var(--surface2); }
@@ -126,7 +134,7 @@
       .taskrow { display: flex; align-items: flex-start; gap: 11px; }
       .taskrow .taskbody { flex: 1; min-width: 0; }
       .taskrow.done .name { text-decoration: line-through; color: var(--muted); }
-      .check { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; color: #20180a; margin-top: 1px; }
+      .check { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid var(--line-strong); display: grid; place-items: center; color: var(--ink-on-accent); margin-top: 1px; }
       .taskrow.done .check { background: var(--brass); border-color: var(--brass); }
       .taskdel { flex: none; color: var(--faint); width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; }
       .taskdel:active { background: var(--surface2); color: var(--red); }
@@ -161,7 +169,7 @@
       .pill.arch { color: var(--muted); border-color: var(--line-strong); }
 
       /* Floating New-project button */
-      #fab { position: fixed; right: 16px; bottom: calc(24px + var(--safe-bot)); z-index: 30; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(160deg, var(--brass-bright), var(--brass)); color: #20180a; display: grid; place-items: center; box-shadow: 0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px color-mix(in oklab, var(--brass) 60%, transparent); }
+      #fab { position: fixed; right: 16px; bottom: calc(24px + var(--safe-bot)); z-index: 30; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(160deg, var(--brass-bright), var(--brass)); color: var(--ink-on-accent); display: grid; place-items: center; box-shadow: 0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px color-mix(in oklab, var(--brass) 60%, transparent); }
       #fab:active { filter: brightness(1.08); transform: translateY(1px); }
 
       /* Lifecycle actions (project detail) */
@@ -189,7 +197,7 @@
       .drawer-nav button svg { width: 20px; height: 20px; flex: none; }
       .drawer-nav button.on { background: var(--surface2); color: var(--brass-bright); }
       .drawer-nav button.on svg { color: var(--brass); }
-      .drawer-nav .navbadge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--red); color: #1a0f0a; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+      .drawer-nav .navbadge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--red); color: var(--ink-on-accent); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
       .drawer-foot { padding: 12px 18px 0; border-top: 1px solid var(--line); }
       .drawer-foot button { display: flex; align-items: center; gap: 11px; color: var(--faint); font-size: 14px; padding: 8px 0; }
       .drawer-foot button:active { color: var(--muted); }
@@ -202,7 +210,16 @@
       .statcard:active { background: var(--surface2); }
       .statcard .n { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--parchment); }
       .statcard .l { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
-      .statcard.alert .n { color: var(--red); }
+      /* Per-category accent (a left bar + tinted number) so each metric reads distinctly. */
+      .statcard { border-left: 3px solid var(--line-strong); }
+      .statcard.s-money { border-left-color: var(--green); }
+      .statcard.s-money .n { color: var(--green); }
+      .statcard.s-over { border-left-color: var(--red); }
+      .statcard.s-over .n { color: var(--red); }
+      .statcard.s-due { border-left-color: var(--amber); }
+      .statcard.s-due .n { color: var(--amber); }
+      .statcard.s-gigs { border-left-color: var(--brass); }
+      .statcard.s-gigs .n { color: var(--brass-bright); }
 
       /* Contacts */
       .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -211,7 +228,19 @@
       .reldot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; vertical-align: middle; }
       .relrow { display: flex; gap: 7px; }
       .relchip { flex: 1; text-align: center; padding: 9px 4px; border-radius: 9px; border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
-      .relchip.on { color: #10141f; font-weight: 700; border-color: transparent; }
+      .relchip.on { color: var(--ink-on-accent); font-weight: 700; border-color: transparent; }
+
+      /* Collapsible, color-coded pipeline sections (--sec = the section's umbrella color) */
+      .psection { margin-bottom: 12px; }
+      .psection-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in oklab, var(--sec) 15%, var(--surface)); border: 1px solid color-mix(in oklab, var(--sec) 32%, var(--line)); }
+      .psection-head:active { filter: brightness(1.1); }
+      .psection-bar { width: 4px; height: 18px; border-radius: 2px; background: var(--sec); flex: none; }
+      .psection-name { flex: 1; text-align: left; font-size: 13.5px; font-weight: 700; color: var(--parchment); letter-spacing: 0.02em; }
+      .psection-count { font-size: 12px; font-weight: 700; color: var(--sec); background: color-mix(in oklab, var(--sec) 20%, transparent); border-radius: 999px; padding: 2px 9px; font-variant-numeric: tabular-nums; }
+      .psection-chev { color: var(--muted); display: inline-flex; transform: rotate(90deg); transition: transform 0.15s; }
+      .psection-chev.col { transform: rotate(0deg); }
+      .psection-body { padding-top: 9px; }
+      .card.accented { border-left: 3px solid var(--acc, var(--line-strong)); }
 
       /* Login screen (Supabase Auth: email + password) */
       #login { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: grid; place-items: center; padding: 24px; }
@@ -220,7 +249,7 @@
       #login p { color: var(--faint); font-size: 13px; margin: 0 0 22px; }
       #login input { width: 100%; font-size: 16px; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--parchment); margin-bottom: 10px; }
       #login input::placeholder { color: var(--faint); }
-      #login .signinbtn { width: 100%; margin-top: 4px; padding: 13px; border-radius: 12px; background: var(--brass); color: #20180a; font-weight: 700; font-size: 15px; }
+      #login .signinbtn { width: 100%; margin-top: 4px; padding: 13px; border-radius: 12px; background: var(--brass); color: var(--ink-on-accent); font-weight: 700; font-size: 15px; }
       #login .signinbtn:active { filter: brightness(1.1); }
       #login .signinbtn:disabled { opacity: 0.6; }
       #login .err { color: var(--red); font-size: 12.5px; margin-top: 12px; min-height: 16px; }

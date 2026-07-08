@@ -20,6 +20,7 @@ var SNAP = null
 var TAB = 'home' // current page (drawer destination)
 var BUCKET = 'active' // which pipeline segment is showing: 'active' | 'completed' | 'archived'
 var CONTACT_FILTER = 'all' // contacts page relationship filter
+var COLLAPSED = {} // pipeline section label -> collapsed? (persists per session)
 var STAGE = {} // stageId -> { name, umbrella, color }
 var DETAIL_ID = null // when non-null, the detail view for this project is on screen (not a tab)
 
@@ -27,10 +28,10 @@ var PAGE_TITLES = { home: 'Home', pipeline: 'Pipeline', contacts: 'Contacts', ta
 
 // Contact relationship options (mirrors src/contacts.ts RELATIONSHIP_OPTIONS; FISM colors).
 var CONTACT_REL = [
-  { v: 'active', label: 'Active', color: '#5b8fe0' },
-  { v: 'yes', label: 'Yes', color: '#5fcf8f' },
-  { v: 'maybe', label: 'Maybe', color: '#ecc879' },
-  { v: 'no', label: 'No', color: '#e08a6b' },
+  { v: 'active', label: 'Active', color: '#38ccda' },
+  { v: 'yes', label: 'Yes', color: '#46d189' },
+  { v: 'maybe', label: 'Maybe', color: '#f4b65c' },
+  { v: 'no', label: 'No', color: '#f26d63' },
 ]
 function relColor(v) { for (var i = 0; i < CONTACT_REL.length; i++) if (CONTACT_REL[i].v === v) return CONTACT_REL[i].color; return 'var(--faint)' }
 
@@ -191,7 +192,16 @@ function renderPipeline() {
   ensureFab() // the "New project" button belongs to the pipeline tab
 }
 
-// Active projects: grouped by pipeline umbrella, in structure order.
+// A phone-palette color per umbrella (the structure's own colors are desktop CSS vars, unavailable
+// here). Keyed by role, then by position, so the sections stay visually distinct in the app palette.
+function umbrellaColor(u, i) {
+  var byRole = { first: '#38ccda', booked: '#46d189', postshow: '#c885e8' }
+  if (u && u.role && byRole[u.role]) return byRole[u.role]
+  var ramp = ['#38ccda', '#f4b65c', '#46d189', '#c885e8', '#7d8cff']
+  return ramp[i % ramp.length]
+}
+
+// Active projects: one collapsible, color-coded section per pipeline umbrella, in structure order.
 function drawActive(list, items) {
   var groups = {}
   items.forEach(function (p) {
@@ -199,14 +209,34 @@ function drawActive(list, items) {
     var key = si.umbrella || 'Other'
     ;(groups[key] = groups[key] || []).push(p)
   })
-  var seen = {}
-  ;(SNAP.structure.umbrellas || []).forEach(function (u) {
-    var g = groups[u.label]; if (!g) return
-    seen[u.label] = true
-    list.appendChild(sectionLabel(u.label + '  ·  ' + g.length))
-    g.forEach(function (p) { list.appendChild(projectCard(p)) })
+  var umbrellas = SNAP.structure.umbrellas || []
+  var order = umbrellas.map(function (u) { return u.label })
+  Object.keys(groups).forEach(function (k) { if (order.indexOf(k) < 0) order.push(k) })
+  order.forEach(function (label, i) {
+    var g = groups[label]; if (!g || !g.length) return
+    var u = umbrellas.find(function (x) { return x.label === label })
+    list.appendChild(stageSection(label, umbrellaColor(u, i), g))
   })
-  Object.keys(groups).forEach(function (k) { if (!seen[k]) { list.appendChild(sectionLabel(k)); groups[k].forEach(function (p) { list.appendChild(projectCard(p)) }) } })
+}
+
+// A collapsible pipeline section: a colored header (tinted by the section color) + count + chevron,
+// with the projects (each carrying a matching colored left edge) below. Collapse persists per session.
+function stageSection(label, color, projects) {
+  var wrap = el('<div class="psection"></div>')
+  var head = el('<button class="psection-head"><span class="psection-bar"></span><span class="psection-name">' + esc(label) + '</span><span class="psection-count">' + projects.length + '</span><span class="psection-chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>')
+  head.style.setProperty('--sec', color)
+  var body = el('<div class="psection-body"></div>')
+  projects.forEach(function (p) { body.appendChild(projectCard(p, color)) })
+  function apply() {
+    var col = !!COLLAPSED[label]
+    body.style.display = col ? 'none' : ''
+    head.querySelector('.psection-chev').classList.toggle('col', col)
+  }
+  apply()
+  head.addEventListener('click', function () { COLLAPSED[label] = !COLLAPSED[label]; apply() })
+  wrap.appendChild(head)
+  wrap.appendChild(body)
+  return wrap
 }
 
 // Completed / archived records: newest first by event date (fallback completed date), grouped by year.
@@ -306,15 +336,22 @@ function cardPill(p) {
   var si = stageInfo(p.stageId)
   return si.name ? { text: si.name, cls: '' } : null
 }
-function projectCard(p) {
+function projectCard(p, accent) {
   var pill = cardPill(p)
+  var pillHtml = ''
+  if (pill) {
+    // Tint an active-stage pill with the section accent; done/arch pills keep their semantic color.
+    var pillStyle = (accent && !pill.cls) ? ' style="color:' + accent + ';border-color:color-mix(in oklab,' + accent + ' 45%, var(--line))"' : ''
+    pillHtml = '<span class="pill ' + pill.cls + '"' + pillStyle + '>' + esc(pill.text) + '</span>'
+  }
   var c = el(
-    '<button class="card">' +
+    '<button class="card' + (accent ? ' accented' : '') + '">' +
       '<div class="row1"><span class="name">' + esc(p.client) + '</span><span class="fee">' + esc(money(p.totalFee)) + '</span></div>' +
       '<div class="meta">' + esc([p.eventType, p.eventDate ? fmtDate(p.eventDate) : ''].filter(Boolean).join('  ·  ')) + '</div>' +
-      (pill ? '<span class="pill ' + pill.cls + '">' + esc(pill.text) + '</span>' : '') +
+      pillHtml +
     '</button>'
   )
+  if (accent) c.style.setProperty('--acc', accent)
   c.addEventListener('click', function () { renderDetail(p.id) })
   return c
 }
@@ -1043,10 +1080,10 @@ function renderHome() {
     '<span class="sub2">' + esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })) + '</span></div>'))
 
   var grid = el('<div class="statgrid"></div>')
-  grid.appendChild(statCard(money(earned) || '$0', 'Earned this month', 'money', ''))
-  grid.appendChild(statCard(String(overdue.length), 'Overdue tasks', 'tasks', overdue.length ? 'alert' : ''))
-  grid.appendChild(statCard(String(dueToday.length), 'Due today', 'tasks', ''))
-  grid.appendChild(statCard(String(gigs.length), 'Gigs next 7 days', 'pipeline', ''))
+  grid.appendChild(statCard(money(earned) || '$0', 'Earned this month', 'money', 's-money'))
+  grid.appendChild(statCard(String(overdue.length), 'Overdue tasks', 'tasks', 's-over'))
+  grid.appendChild(statCard(String(dueToday.length), 'Due today', 'tasks', 's-due'))
+  grid.appendChild(statCard(String(gigs.length), 'Gigs next 7 days', 'pipeline', 's-gigs'))
   v.appendChild(grid)
 
   var attention = overdue.concat(dueToday)
