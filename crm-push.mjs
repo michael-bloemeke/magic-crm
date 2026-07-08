@@ -102,11 +102,21 @@ export async function pushNotification(ev, count) {
   } catch {
     /* fall back to generic */
   }
+  // A brand-new website inquiry carries the lead's name on the event itself (the project's client
+  // name may not be set yet at push time); prefer that, then fall back to the project client lookup.
+  const lead = (ev && ev.name && String(ev.name).trim()) || (who !== 'a client' ? who : '')
   let title = 'Magic CRM'
   let message = `Update for ${who}`
   let tags
   let priority = 3
   switch (ev.kind) {
+    case 'new-inquiry':
+      title = 'New inquiry!'
+      message = lead ? `New website inquiry from ${lead}.` : 'A new inquiry just came in through the website.'
+      // sparkles + party grab attention; max priority so it breaks through on the lock screen.
+      tags = ['sparkles', 'tada']
+      priority = 5
+      break
     case 'contract-signed':
       title = 'Contract signed'
       message = `${who} signed their contract.`

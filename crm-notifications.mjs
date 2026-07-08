@@ -32,9 +32,9 @@ function meta() {
     file: 'crm-notifications.json',
     owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
     purpose:
-      'Status-change notifications surfaced in the bell: invoice paid, contract viewed, contract signed. One event per transition (deduped by kind + sourceId), each with a seen flag.',
+      'Status-change notifications surfaced in the bell: invoice paid, contract viewed, contract signed, task due, new inquiry. One event per transition (deduped by kind + sourceId), each with a seen flag.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT delete or overwrite.',
-    shape: 'events[] = { id, projectId, kind (invoice-paid|contract-viewed|contract-signed), sourceId, createdAt, seen }',
+    shape: 'events[] = { id, projectId, kind (invoice-paid|contract-viewed|contract-signed|task-due|new-inquiry), sourceId, createdAt, seen }',
   }
 }
 
@@ -96,14 +96,17 @@ export function loadUnseenNotifications() {
   return allEvents().filter((e) => e.seen === false)
 }
 // Add an event unless one for this kind+sourceId already exists. Returns the new event or null.
-export async function addNotification(projectId, kind, sourceId) {
+// `pushExtra` (optional) is merged onto the event passed to the lock-screen push ONLY (not persisted);
+// it lets a caller hand the pusher extra context, e.g. { name } so a new-inquiry push can name the lead
+// before the project's client_name is queryable.
+export async function addNotification(projectId, kind, sourceId, pushExtra) {
   if (CRM_STORE === 'supabase') {
     if (getCachedNotifications().some((e) => e.kind === kind && String(e.source_id) === String(sourceId))) return null
     const ev = { id: newId(), projectId, kind, sourceId: String(sourceId), createdAt: new Date().toISOString(), seen: false }
     const row = eventToRow(ev)
     cacheUpsertNotification(row)
     await sbUpsertNotification(row)
-    pushNotification(ev, loadUnseenNotifications().length + dueTaskCount()).catch(() => {})
+    pushNotification({ ...ev, ...(pushExtra || {}) }, loadUnseenNotifications().length + dueTaskCount()).catch(() => {})
     return ev
   }
   const d = read()
@@ -113,7 +116,7 @@ export async function addNotification(projectId, kind, sourceId) {
   write(d)
   // Mirror every new bell event to the phone's lock screen (best-effort). The count is the current
   // unseen total, used to set the number on the phone app's icon.
-  pushNotification(ev, loadUnseenNotifications().length + dueTaskCount()).catch(() => {})
+  pushNotification({ ...ev, ...(pushExtra || {}) }, loadUnseenNotifications().length + dueTaskCount()).catch(() => {})
   return ev
 }
 export async function markNotificationSeen(id) {

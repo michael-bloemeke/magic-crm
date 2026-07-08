@@ -13,6 +13,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, createProject, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
 import { sendMessage, isConnected as gmailConnected } from './crm-gmail.mjs'
+import { addNotification } from './crm-notifications.mjs'
+// addNotification() itself fires the lock-screen push (with the {name} extra we pass), so we do NOT
+// call pushNotification directly here — that would send two alerts for one inquiry.
 import {
   CRM_STORE,
   getCachedInquiries,
@@ -255,6 +258,17 @@ async function runImport() {
     const emailed = await notifyByEmail(inq, projectId)
     store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note, emailed, form: cleanForm(inq) }
     created.push({ id: inq.id, ...store.inquiries[inq.id] })
+    // Raise the SPECIAL new-inquiry bell event (deduped by the relay inquiry id) and fire the
+    // high-priority lock-screen push with the lead's name. Only when a project was actually created,
+    // so a duplicate-name failure doesn't leave a bell event pointing at no project. Best-effort:
+    // a notification/push problem never blocks the import.
+    if (projectId) {
+      try {
+        await addNotification(projectId, 'new-inquiry', inq.id, { name: name || email })
+      } catch (e) {
+        console.warn('[crm-inquiries] new-inquiry notification failed:', e?.message || e)
+      }
+    }
     // Supabase: persist each new inquiry as its own row as it's created (files: one write below).
     if (CRM_STORE === 'supabase') await persistInquiry(inq.id, store.inquiries[inq.id])
   }

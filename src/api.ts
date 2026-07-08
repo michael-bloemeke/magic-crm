@@ -622,7 +622,10 @@ export type StatusNotification = {
   projectId: string
   projectName: string
   kind: string
+  // For task-due this is now the task's real title (resolved server-side); for new-inquiry it's
+  // "New inquiry"; otherwise a static kind label ("Invoice paid", etc.).
   label: string
+  sourceId: string
   createdAt: string
   seen: boolean
 }

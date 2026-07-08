@@ -621,11 +621,21 @@ function renderMoney() {
 }
 
 function alertCard(n) {
+  // A brand-new website inquiry is Michael's top-priority alert: render it with a distinct gold
+  // border + sparkle + gold title so it visibly stands out from routine alerts (contract/invoice/task).
+  var isInquiry = n.kind === 'new-inquiry'
+  var cardStyle = isInquiry
+    ? ' style="border-color:var(--brass);box-shadow:0 0 0 1px var(--brass);background:color-mix(in oklab, var(--brass) 12%, transparent)"'
+    : ''
+  var titleText = isInquiry ? ('✨ New inquiry') : (n.label || 'Update')
+  var titleStyle = isInquiry
+    ? 'font-size:14.5px;color:var(--brass-bright);font-weight:700'
+    : 'font-size:14.5px'
   var c = el(
-    '<button class="card">' +
-      '<div class="row1"><span class="name" style="font-size:14.5px">' + esc(n.label || 'Update') + '</span>' +
+    '<button class="card"' + cardStyle + '>' +
+      '<div class="row1"><span class="name" style="' + titleStyle + '">' + esc(titleText) + '</span>' +
       '<span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(timeAgo(n.createdAt)) + '</span></div>' +
-      (n.projectName ? '<div class="meta">' + esc(n.projectName) + '</div>' : '') +
+      (n.projectName ? '<div class="meta"' + (isInquiry ? ' style="color:var(--brass-bright);font-weight:600"' : '') + '>' + esc(n.projectName) + '</div>' : '') +
     '</button>'
   )
   if (n.projectId) c.addEventListener('click', function () { renderDetail(n.projectId) })

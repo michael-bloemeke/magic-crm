@@ -98,10 +98,31 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, su
                         Updates · {statusNotifications.length}
                       </p>
                       <div className="space-y-1.5">
-                        {statusNotifications.map((n) => (
-                          <div key={n.id} className="rounded-lg border border-line bg-surface-2/50 px-3 py-2">
+                        {statusNotifications.map((n) => {
+                          // A brand-new website inquiry is Michael's top-priority alert: give it a
+                          // distinct gold-emphasized card + a sparkle so it stands out from routine
+                          // status updates (which stay in the muted style).
+                          const isInquiry = n.kind === 'new-inquiry'
+                          return (
+                          <div
+                            key={n.id}
+                            className={
+                              isInquiry
+                                ? 'rounded-lg border border-brass/70 bg-brass/10 px-3 py-2 shadow-[0_0_0_1px_var(--color-brass)]'
+                                : 'rounded-lg border border-line bg-surface-2/50 px-3 py-2'
+                            }
+                          >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="min-w-0 truncate text-[12.5px] font-medium text-parchment">{n.projectName}</span>
+                              <span
+                                className={
+                                  isInquiry
+                                    ? 'min-w-0 truncate text-[12.5px] font-semibold text-brass-bright'
+                                    : 'min-w-0 truncate text-[12.5px] font-medium text-parchment'
+                                }
+                              >
+                                {isInquiry ? '✨ ' : ''}
+                                {n.projectName}
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => onDismissStatus(n.id)}
@@ -111,7 +132,9 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, su
                               </button>
                             </div>
                             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-faint">
-                              <span>{n.label}</span>
+                              <span className={isInquiry ? 'font-semibold text-brass' : undefined}>
+                                {isInquiry ? 'New website inquiry' : n.label}
+                              </span>
                               {byId.has(n.projectId) && (
                                 <button
                                   type="button"
@@ -123,7 +146,8 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, su
                               )}
                             </div>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </section>
                   )}

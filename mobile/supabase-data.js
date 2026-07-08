@@ -137,12 +137,15 @@ export function formatPhoneField(raw) {
   return s.replace(PHONE_RUN, (run) => fmtDigits(run.replace(/\D/g, '')) || run)
 }
 
-// The bell's labels, matching NOTIF_LABELS in crm-snapshot.mjs.
+// The bell's labels, matching NOTIF_LABELS in crm-data-plugin.mjs. task-due is resolved to the
+// task's real title in loadNotifications (this map is only the fallback); new-inquiry gets special
+// styling in the Alerts view.
 const NOTIF_LABELS = {
   'invoice-paid': 'Invoice paid',
   'contract-viewed': 'Contract viewed',
   'contract-signed': 'Contract signed',
   'task-due': 'Task due',
+  'new-inquiry': 'New inquiry',
 }
 
 // ---------- loaders (one per tab; the seams for later writes) ----------
@@ -182,22 +185,32 @@ export async function loadTasks() {
 }
 
 // Alerts: unseen notifications, newest handled by the view. Attaches the friendly label + the client
-// name (resolved from the projects map), matching what crm-snapshot.mjs produced.
-export async function loadNotifications(projectsById) {
+// name (resolved from the projects map), matching what crm-data-plugin.mjs produces. For task-due,
+// the source_id is resolved to the task's REAL title (via tasksById) so the alert shows the task name
+// instead of the generic "Task due"; the raw kind is kept so the view can style new-inquiry specially.
+export async function loadNotifications(projectsById, tasksById) {
   const { data, error } = await sb
     .from('notifications')
     .select('id,project_id,kind,source_id,seen,created_at')
     .eq('seen', false)
   if (error) throw error
   const byId = projectsById || new Map()
+  const tById = tasksById || new Map()
   return (data || []).map((r) => {
     const kind = str(r.kind)
     const projectId = str(r.project_id)
+    const sourceId = str(r.source_id)
+    let label = NOTIF_LABELS[kind] || kind
+    if (kind === 'task-due') {
+      const t = tById.get(sourceId)
+      if (t && t.title) label = String(t.title)
+    }
     return {
       id: str(r.id),
       projectId,
       kind,
-      label: NOTIF_LABELS[kind] || kind,
+      sourceId,
+      label,
       createdAt: isoZ(r.created_at),
       projectName: byId.get(projectId) || projectId,
     }
@@ -624,7 +637,8 @@ export async function loadEverything() {
   if (paymentsRaw.error) throw paymentsRaw.error
   const payments = (paymentsRaw.data || []).map(paymentFromRow)
   const byIdName = new Map(projects.map((p) => [p.id, p.client]))
-  const notifications = await loadNotifications(byIdName)
+  const tasksById = new Map(tasks.map((t) => [t.id, t]))
+  const notifications = await loadNotifications(byIdName, tasksById)
   const finance = computeFinance(projects, payments, config)
   return {
     generatedAt: new Date().toISOString(),

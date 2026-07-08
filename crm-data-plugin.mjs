@@ -804,16 +804,33 @@ export function crmDataPlugin() {
         }
       })
 
-      // --- Status-change notifications (invoice paid, contract viewed, contract signed) ---
+      // --- Status-change notifications (invoice paid, contract viewed, contract signed, task due,
+      // new inquiry) ---
       const NOTIF_LABELS = {
         'invoice-paid': 'Invoice paid',
         'contract-viewed': 'Contract viewed',
         'contract-signed': 'Contract signed',
         'task-due': 'Task due',
+        'new-inquiry': 'New inquiry',
       }
       const withNotifNames = (events) => {
         const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))
-        return events.map((e) => ({ ...e, projectName: byId.get(e.projectId) || e.projectId, label: NOTIF_LABELS[e.kind] || e.kind }))
+        // For task-due, resolve the source_id to the actual task so the bell shows the task's title
+        // instead of the generic "Task due". Falls back to the generic label if the task is gone.
+        let tasksById = new Map()
+        try {
+          tasksById = new Map(loadTasks().map((t) => [String(t.id), t]))
+        } catch {
+          tasksById = new Map()
+        }
+        return events.map((e) => {
+          let label = NOTIF_LABELS[e.kind] || e.kind
+          if (e.kind === 'task-due') {
+            const t = tasksById.get(String(e.sourceId))
+            if (t && t.title) label = String(t.title)
+          }
+          return { ...e, projectName: byId.get(e.projectId) || e.projectId, label }
+        })
       }
       // Poll SignWell + QuickBooks for status transitions and record any NEWLY detected ones (only a
       // transition that happens during this sweep fires, so pre-existing signed/paid states do not
