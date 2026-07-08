@@ -837,6 +837,28 @@ export async function deleteProject(id) {
   return { ok: true, id }
 }
 
+// ---------- templates + contact links ----------
+// Email templates (name / subject / body). Body is stored as HTML with merge-field spans; the phone
+// renders it to readable text. Mirrors crm-templates.
+export async function loadTemplates() {
+  const { data, error } = await sb.from('templates').select('id,name,subject,body').order('name')
+  if (error) throw error
+  return (data || []).map((t) => ({ id: str(t.id), name: str(t.name), subject: str(t.subject), body: str(t.body) }))
+}
+
+// Contact links: { [projectId]: [contactId, ...] }. Powers "linked projects" on a contact and (later)
+// contacts-on-a-project. Mirrors crm-links.
+export async function loadLinks() {
+  const { data, error } = await sb.from('contact_links').select('project_id,contact_id')
+  if (error) throw error
+  const links = {}
+  ;(data || []).forEach((r) => {
+    const p = str(r.project_id)
+    ;(links[p] = links[p] || []).push(str(r.contact_id))
+  })
+  return links
+}
+
 // Refresh just the payments ledger + recompute finance (used after addPayment). Returns { payments,
 // finance } so the Money tab and the stage gate stay in sync without a full loadEverything().
 export async function reloadPaymentsFinance(projects, config) {
@@ -870,12 +892,14 @@ export async function savePushSubscription(sub) {
 // One call that pulls everything a load-and-render needs, and assembles the exact `SNAP`-shaped
 // object the view code consumes. This is the single seam the boot code hits after login.
 export async function loadEverything() {
-  const [projects, structure, tasks, config, contacts, paymentsRaw] = await Promise.all([
+  const [projects, structure, tasks, config, contacts, templates, links, paymentsRaw] = await Promise.all([
     loadProjects(),
     loadStructure(),
     loadTasks(),
     loadConfig(),
     loadContacts(),
+    loadTemplates(),
+    loadLinks(),
     sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at'),
   ])
   if (paymentsRaw.error) throw paymentsRaw.error
@@ -896,6 +920,8 @@ export async function loadEverything() {
     payments,
     config,
     contacts,
+    templates,
+    links,
     customFields: config.customFields,
     customValues: {}, // custom values are desktop-file-only; the phone has none
     eventFieldLabels: config.eventFieldLabels,

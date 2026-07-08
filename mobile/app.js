@@ -12,14 +12,27 @@ import {
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
+  updateContact,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
 var SNAP = null
-var TAB = 'pipeline'
+var TAB = 'home' // current page (drawer destination)
 var BUCKET = 'active' // which pipeline segment is showing: 'active' | 'completed' | 'archived'
+var CONTACT_FILTER = 'all' // contacts page relationship filter
 var STAGE = {} // stageId -> { name, umbrella, color }
 var DETAIL_ID = null // when non-null, the detail view for this project is on screen (not a tab)
+
+var PAGE_TITLES = { home: 'Home', pipeline: 'Pipeline', contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money', templates: 'Templates' }
+
+// Contact relationship options (mirrors src/contacts.ts RELATIONSHIP_OPTIONS; FISM colors).
+var CONTACT_REL = [
+  { v: 'active', label: 'Active', color: '#5b8fe0' },
+  { v: 'yes', label: 'Yes', color: '#5fcf8f' },
+  { v: 'maybe', label: 'Maybe', color: '#ecc879' },
+  { v: 'no', label: 'No', color: '#e08a6b' },
+]
+function relColor(v) { for (var i = 0; i < CONTACT_REL.length; i++) if (CONTACT_REL[i].v === v) return CONTACT_REL[i].color; return 'var(--faint)' }
 
 // Re-render whatever is currently on screen: the open project detail, else the active tab. Used after
 // a write so the change shows immediately without kicking the user out of a detail view.
@@ -144,6 +157,7 @@ function renderPipeline() {
   DETAIL_ID = null
   var v = $('#view')
   v.innerHTML = ''
+  var pt = $('#pagetitle'); if (pt) pt.textContent = 'Pipeline'
 
   // Segmented bucket switch: Active / Completed / Archived (with live counts). Completed + Archived
   // are the history the phone was previously blind to.
@@ -459,6 +473,7 @@ function renderDetail(id) {
   DETAIL_ID = id
   removeFab()
   var v = $('#view'); v.innerHTML = ''
+  var pt = $('#pagetitle'); if (pt) pt.textContent = p.client || 'Project'
   var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Pipeline</button>')
   back.addEventListener('click', renderPipeline)
   v.appendChild(back)
@@ -954,8 +969,8 @@ function updateCounts() {
   if (!SNAP) return
   var alerts = (SNAP.notifications || []).length
   var due = dueCount()
-  setTabCount('count-alerts', alerts)
-  setTabCount('count-tasks', due)
+  setTabCount('nav-badge-alerts', alerts)
+  setTabCount('nav-badge-tasks', due)
   // Number on the home-screen app icon = new alerts + tasks needing attention.
   try {
     if (navigator.setAppBadge) {
@@ -967,13 +982,280 @@ function updateCounts() {
 }
 
 function render() {
-  if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline tab
-  if (TAB === 'pipeline') renderPipeline()
-  else if (TAB === 'alerts') renderAlerts()
+  if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
+  if (TAB === 'home') renderHome()
+  else if (TAB === 'pipeline') renderPipeline()
+  else if (TAB === 'contacts') renderContacts()
   else if (TAB === 'tasks') renderTasks()
+  else if (TAB === 'alerts') renderAlerts()
   else if (TAB === 'money') renderMoney()
+  else if (TAB === 'templates') renderTemplates()
+  var title = $('#pagetitle'); if (title) title.textContent = PAGE_TITLES[TAB] || 'Magic CRM'
   updateCounts()
-  document.querySelectorAll('nav.tabbar button').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === TAB) })
+  updateDrawerActive()
+}
+
+// ---------- drawer navigation ----------
+function openDrawer() { var d = $('#drawer'); if (d) { d.classList.remove('hidden'); updateDrawerActive() } }
+function closeDrawer() { var d = $('#drawer'); if (d) d.classList.add('hidden') }
+function updateDrawerActive() {
+  document.querySelectorAll('#drawer-nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.page === TAB) })
+}
+function navigate(page) {
+  DETAIL_ID = null
+  TAB = page
+  closeDrawer()
+  render()
+  window.scrollTo(0, 0)
+}
+
+// ---------- Home dashboard ----------
+function greetingText() {
+  var h = new Date().getHours()
+  var g = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+  return g + ', Michael'
+}
+// Shift a YYYY-MM-DD string by n days (local).
+function addDays(dateStr, n) {
+  var d = parseDate(dateStr); if (!d) return dateStr
+  d.setDate(d.getDate() + n)
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+function statCard(n, label, page, cls) {
+  var c = el('<button class="statcard ' + (cls || '') + '"><div class="n">' + esc(n) + '</div><div class="l">' + esc(label) + '</div></button>')
+  c.addEventListener('click', function () { navigate(page) })
+  return c
+}
+function renderHome() {
+  var v = $('#view'); v.innerHTML = ''
+  var today = todayStr()
+  var open = (SNAP.tasks || []).filter(function (t) { return !t.done })
+  var overdue = open.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'overdue' })
+  var dueToday = open.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'due' })
+  var end7 = addDays(today, 7)
+  var gigs = (SNAP.projects || []).filter(function (p) {
+    return p.bucket === 'active' && p.eventDate && p.eventDate >= today && p.eventDate <= end7
+  }).sort(function (a, b) { return a.eventDate < b.eventDate ? -1 : 1 })
+  var earned = (SNAP.finance && SNAP.finance.thisMonth && SNAP.finance.thisMonth.earned) || 0
+  var alerts = (SNAP.notifications || []).length
+
+  v.appendChild(el('<div class="greeting">' + esc(greetingText()) +
+    '<span class="sub2">' + esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })) + '</span></div>'))
+
+  var grid = el('<div class="statgrid"></div>')
+  grid.appendChild(statCard(money(earned) || '$0', 'Earned this month', 'money', ''))
+  grid.appendChild(statCard(String(overdue.length), 'Overdue tasks', 'tasks', overdue.length ? 'alert' : ''))
+  grid.appendChild(statCard(String(dueToday.length), 'Due today', 'tasks', ''))
+  grid.appendChild(statCard(String(gigs.length), 'Gigs next 7 days', 'pipeline', ''))
+  v.appendChild(grid)
+
+  var attention = overdue.concat(dueToday)
+  if (attention.length) {
+    v.appendChild(sectionLabel('Needs attention · ' + attention.length))
+    attention.forEach(function (t) { v.appendChild(taskCard(t, true)) })
+  }
+  if (gigs.length) {
+    v.appendChild(sectionLabel('Next 7 days · ' + gigs.length))
+    gigs.forEach(function (p) { v.appendChild(projectCard(p)) })
+  }
+  if (!attention.length && !gigs.length) {
+    v.appendChild(el('<div class="empty" style="padding:38px 10px">Nothing needs you right now. Enjoy it.</div>'))
+  }
+  if (alerts) {
+    v.appendChild(sectionLabel('Alerts'))
+    var ac = el('<button class="card"><div class="row1"><span class="name" style="font-size:14.5px">' + alerts + ' new alert' + (alerts > 1 ? 's' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">View</span></div></button>')
+    ac.addEventListener('click', function () { navigate('alerts') })
+    v.appendChild(ac)
+  }
+}
+
+// ---------- Contacts ----------
+function phoneMatch(c, f) {
+  var digits = f.replace(/\D/g, '')
+  if (digits.length < 3) return false
+  return (c.phones || []).some(function (p) { return String(p).replace(/\D/g, '').indexOf(digits) >= 0 })
+}
+// Projects a contact is linked to (from the stored contact_links).
+function linkedProjectsFor(c) {
+  var links = SNAP.links || {}
+  return (SNAP.projects || []).filter(function (p) { return (links[p.id] || []).indexOf(c.id) >= 0 })
+}
+function contactCard(c) {
+  var rel = c.relationship
+  var meta = [(c.emails || [])[0], (c.phones || [])[0]].filter(Boolean).join('  ·  ')
+  var b = el('<button class="card"><div class="row1"><span class="name">' +
+    (rel ? '<span class="reldot" style="background:' + relColor(rel) + ';margin-right:7px"></span>' : '') +
+    esc(c.name || '(no name)') + '</span>' +
+    (c.type ? '<span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(c.type) + '</span>' : '') +
+    '</div>' + (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') + '</button>')
+  b.addEventListener('click', function () { openContactSheet(c) })
+  return b
+}
+function renderContacts() {
+  var v = $('#view'); v.innerHTML = ''
+  v.appendChild(el('<input class="search" id="cq" placeholder="Search contacts…" />'))
+  var chips = el('<div class="chips"></div>')
+  ;[['all', 'All'], ['active', 'Active'], ['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No']].forEach(function (f) {
+    var b = el('<button class="chip' + (CONTACT_FILTER === f[0] ? ' on' : '') + '">' + f[1] + '</button>')
+    b.addEventListener('click', function () { CONTACT_FILTER = f[0]; renderContacts() })
+    chips.appendChild(b)
+  })
+  v.appendChild(chips)
+  var list = el('<div id="clist"></div>')
+  v.appendChild(list)
+  var all = SNAP.contacts || []
+  function draw(filter) {
+    var f = (filter || '').toLowerCase().trim()
+    var items = all.filter(function (c) {
+      if (CONTACT_FILTER !== 'all' && c.relationship !== CONTACT_FILTER) return false
+      if (!f) return true
+      var hay = (c.name + ' ' + (c.emails || []).join(' ') + ' ' + (c.tags || []).join(' ')).toLowerCase()
+      return hay.indexOf(f) >= 0 || phoneMatch(c, f)
+    })
+    items.sort(function (a, b) { return (a.name || '').toLowerCase() < (b.name || '').toLowerCase() ? -1 : 1 })
+    list.innerHTML = ''
+    if (!items.length) { list.appendChild(el('<div class="empty">No matching contacts.</div>')); return }
+    list.appendChild(sectionLabel((CONTACT_FILTER === 'all' ? 'All' : CONTACT_FILTER) + '  ·  ' + items.length))
+    items.forEach(function (c) { list.appendChild(contactCard(c)) })
+  }
+  draw('')
+  $('#cq').addEventListener('input', function (e) { draw(e.target.value) })
+}
+// One editable contact field, inline (email/phone/tag arrays are comma-joined). Saves via updateContact.
+function contactField(c, field, label, kind, onSaved) {
+  var isArr = field === 'emails' || field === 'phones' || field === 'tags'
+  var cur = isArr ? (c[field] || []).join(', ') : (c[field] || '')
+  var wrap = el('<div class="item kv-tap" style="cursor:pointer"></div>')
+  wrap.appendChild(el('<div class="k">' + esc(label) + '</div><div class="v">' + (String(cur).trim() ? esc(cur) : '<span style="color:var(--faint)">Tap to add</span>') + '</div>'))
+  wrap.addEventListener('click', function () {
+    wrap.innerHTML = ''
+    wrap.appendChild(el('<div class="k" style="margin-bottom:5px">' + esc(label) + '</div>'))
+    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+    input.className = 'field-input'; input.value = cur; if (kind === 'textarea') input.rows = 3
+    wrap.appendChild(input)
+    var save = function () {
+      var nv = input.value
+      if (nv === cur) { onSaved(); return }
+      var patch = {}; patch[field] = nv
+      doWrite(updateContact(c.id, patch), 'Saved', function () {
+        if (isArr) c[field] = nv.split(/[,;\n]/).map(function (s) { return s.trim() }).filter(Boolean)
+        else c[field] = nv
+        onSaved()
+      }).catch(function () { onSaved() })
+    }
+    if (kind === 'textarea') {
+      var bar = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+      bar.children[0].addEventListener('click', function (e) { e.stopPropagation(); onSaved() })
+      bar.children[1].addEventListener('click', function (e) { e.stopPropagation(); save() })
+      wrap.appendChild(bar)
+    } else {
+      input.addEventListener('blur', save)
+    }
+    setTimeout(function () { input.focus() }, 30)
+  })
+  return wrap
+}
+function openContactSheet(c) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  function rebuild() {
+    card.innerHTML = ''
+    card.appendChild(el('<div class="sheet-title">' + esc(c.name || 'Contact') + (c.type ? ' <span style="font-size:12px;color:var(--faint);font-weight:400">· ' + esc(c.type) + '</span>' : '') + '</div>'))
+    card.appendChild(el('<div class="k" style="margin:2px 0 5px">Relationship</div>'))
+    var relrow = el('<div class="relrow"></div>')
+    CONTACT_REL.forEach(function (r) {
+      var on = c.relationship === r.v
+      var b = el('<button class="relchip' + (on ? ' on' : '') + '"' + (on ? ' style="background:' + r.color + '"' : '') + '>' + r.label + '</button>')
+      b.addEventListener('click', function () {
+        var next = c.relationship === r.v ? '' : r.v
+        doWrite(updateContact(c.id, { relationship: next }), 'Saved', function () { c.relationship = next; rebuild() })
+      })
+      relrow.appendChild(b)
+    })
+    card.appendChild(relrow)
+    var email0 = (c.emails || [])[0], phone0 = (c.phones || [])[0]
+    var act = el('<div class="contact" style="margin-top:12px"></div>')
+    if (phone0) act.appendChild(el('<a href="tel:' + esc(phone0) + '">Call</a>'))
+    if (phone0) act.appendChild(el('<a href="sms:' + esc(phone0) + '">Text</a>'))
+    if (email0) act.appendChild(el('<a href="mailto:' + esc(email0) + '">Email</a>'))
+    if (act.children.length) card.appendChild(act)
+    var kv = el('<div class="kv" style="margin-top:10px"></div>')
+    kv.appendChild(contactField(c, 'name', 'Name', 'text', rebuild))
+    kv.appendChild(contactField(c, 'emails', 'Emails', 'text', rebuild))
+    kv.appendChild(contactField(c, 'phones', 'Phones', 'text', rebuild))
+    kv.appendChild(contactField(c, 'tags', 'Tags', 'text', rebuild))
+    kv.appendChild(contactField(c, 'notes', 'Notes', 'textarea', rebuild))
+    card.appendChild(kv)
+    var linked = linkedProjectsFor(c)
+    if (linked.length) {
+      card.appendChild(el('<div class="k" style="margin:16px 0 6px">Linked projects · ' + linked.length + '</div>'))
+      linked.forEach(function (p) {
+        var pill = p.bucket === 'completed' ? 'done' : p.bucket === 'archived' ? 'arch' : ''
+        var row = el('<button class="card" style="margin-bottom:7px"><div class="row1"><span class="name" style="font-size:14px">' + esc(p.client) + '</span><span class="pill ' + pill + '">' + esc(p.bucket) + '</span></div></button>')
+        row.addEventListener('click', function () { close(); BUCKET = p.bucket; TAB = 'pipeline'; renderDetail(p.id) })
+        card.appendChild(row)
+      })
+    }
+    var done = el('<button class="btn-gold" style="width:100%;margin-top:16px">Done</button>')
+    done.addEventListener('click', close)
+    card.appendChild(done)
+  }
+  rebuild()
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// ---------- Templates (read-only view + copy) ----------
+// Render a stored HTML email template body to readable plain text: merge-field spans become [field],
+// block tags become line breaks, remaining tags are stripped, entities decoded.
+function templateToText(html) {
+  var s = String(html || '')
+  s = s.replace(/<span[^>]*data-field="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi, function (m, f) { return '[' + f + ']' })
+  s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n').replace(/<li[^>]*>/gi, '• ')
+  s = s.replace(/<[^>]+>/g, '')
+  var ta = document.createElement('textarea'); ta.innerHTML = s; s = ta.value
+  return s.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim()
+}
+function renderTemplates() {
+  var v = $('#view'); v.innerHTML = ''
+  v.appendChild(el('<input class="search" id="tq" placeholder="Search templates…" />'))
+  var list = el('<div id="tlist"></div>')
+  v.appendChild(list)
+  var all = SNAP.templates || []
+  function draw(filter) {
+    var f = (filter || '').toLowerCase().trim()
+    var items = all.filter(function (t) { return !f || (t.name + ' ' + t.subject).toLowerCase().indexOf(f) >= 0 })
+    list.innerHTML = ''
+    if (!items.length) { list.appendChild(el('<div class="empty">No templates.</div>')); return }
+    items.forEach(function (t) {
+      var c = el('<button class="card"><div class="name" style="font-size:14.5px">' + esc(t.name) + '</div>' + (t.subject ? '<div class="meta">' + esc(t.subject) + '</div>' : '') + '</button>')
+      c.addEventListener('click', function () { openTemplateSheet(t) })
+      list.appendChild(c)
+    })
+  }
+  draw('')
+  $('#tq').addEventListener('input', function (e) { draw(e.target.value) })
+}
+function openTemplateSheet(t) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  card.appendChild(el('<div class="sheet-title">' + esc(t.name) + '</div>'))
+  if (t.subject) card.appendChild(el('<div class="k" style="margin-bottom:4px">Subject</div><div class="v" style="margin-bottom:12px">' + esc(t.subject) + '</div>'))
+  card.appendChild(el('<div class="k" style="margin-bottom:4px">Body</div>'))
+  card.appendChild(el('<div class="v" style="white-space:pre-wrap;font-size:14px;line-height:1.55">' + esc(templateToText(t.body)) + '</div>'))
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="tcopy">Copy</button><button class="btn-gold">Done</button></div>')
+  bar.children[1].addEventListener('click', close)
+  bar.children[0].addEventListener('click', function () {
+    var text = (t.subject ? t.subject + '\n\n' : '') + templateToText(t.body)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast('Copied') }).catch(function () { toast('Could not copy', 'err') })
+    } else { toast('Copy not supported here', 'err') }
+  })
+  card.appendChild(bar)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
 }
 
 // ---------- data ----------
@@ -1120,14 +1402,15 @@ var wired = false
 function wireUI() {
   if (wired) return
   wired = true
-  document.querySelectorAll('nav.tabbar button').forEach(function (b) {
-    b.addEventListener('click', function () { DETAIL_ID = null; TAB = b.dataset.tab; render(); window.scrollTo(0, 0) })
+  var mb = $('#menu-btn'); if (mb) mb.addEventListener('click', openDrawer)
+  var bd = $('#drawer-backdrop'); if (bd) bd.addEventListener('click', closeDrawer)
+  document.querySelectorAll('#drawer-nav button').forEach(function (b) {
+    b.addEventListener('click', function () { navigate(b.dataset.page) })
   })
+  var dlo = $('#drawer-logout'); if (dlo) dlo.addEventListener('click', function () { closeDrawer(); doLogout() })
   $('#refresh').addEventListener('click', loadAndRender)
   var ep = $('#enable-push')
   if (ep) ep.addEventListener('click', enablePush)
-  var lo = $('#logout')
-  if (lo) lo.addEventListener('click', doLogout)
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {})
 }
 
