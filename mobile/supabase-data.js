@@ -221,6 +221,20 @@ export async function loadNotifications(projectsById, tasksById) {
 // event-field label overrides / hidden / deleted lists that the finance + detail views use.
 const DEFAULT_GOALS = [80000, 100000, 150000]
 const DEFAULT_MONTHLY_GOAL = 10000
+// The desktop's starter archive-reason list (src/pipeline.ts ARCHIVE_REASONS). Used to populate the
+// Archive sheet on the phone when the config has no custom list saved.
+export const DEFAULT_ARCHIVE_REASONS = [
+  'Booked elsewhere',
+  'Went with someone else',
+  'Decided against having a magician',
+  'Outside budget',
+  'No response / Ghosted',
+  'Date no longer available',
+  'Event cancelled',
+  'Not the right fit',
+  'Duplicate inquiry',
+  'Other',
+]
 export async function loadConfig() {
   const { data, error } = await sb.from('crm_config').select('data').limit(1).single()
   if (error) throw error
@@ -229,9 +243,13 @@ export async function loadConfig() {
     ? d.incomeGoals.map(num).filter((n) => n > 0)
     : DEFAULT_GOALS
   const monthlyGoal = num(d.monthlyGoal) > 0 ? num(d.monthlyGoal) : DEFAULT_MONTHLY_GOAL
+  const archiveReasons = Array.isArray(d.archiveReasons) && d.archiveReasons.length
+    ? d.archiveReasons.map(String).filter(Boolean)
+    : DEFAULT_ARCHIVE_REASONS
   return {
     incomeGoals: [...goals].sort((a, b) => a - b),
     monthlyGoal,
+    archiveReasons,
     eventFieldLabels: d.eventFieldLabels && typeof d.eventFieldLabels === 'object' ? d.eventFieldLabels : {},
     eventFieldHidden: Array.isArray(d.eventFieldHidden) ? d.eventFieldHidden.map(String) : [],
     eventFieldDeleted: Array.isArray(d.eventFieldDeleted) ? d.eventFieldDeleted.map(String) : [],
@@ -617,6 +635,206 @@ export async function loadContacts() {
     tags: Array.isArray(c.tags) ? c.tags.map(String) : [],
     notes: str(c.notes),
   }))
+}
+
+// ============================================================================
+// PROJECT LIFECYCLE (create / archive / complete / restore / delete). The phone writes straight to
+// Supabase, so every rule the desktop's crm-data-core.mjs enforces is replicated HERE, client-side,
+// before the write. Faithful to the CRM_STORE==='supabase' branches of createProject/archiveProject/
+// completeProject/restoreProject/deleteProject. Each returns enough to optimistically patch SNAP.
+// ============================================================================
+
+// slugify(): the project id is the slug of client_name and is the STABLE join key for
+// stage/tasks/payments/mileage/links. Byte-identical to crm-data-core.slugify so ids match the desktop.
+export function slugify(name) {
+  return (
+    String(name == null ? '' : name)
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'project'
+  )
+}
+
+const ORPHAN_STAGE = 'inquiry' // where a new/orphaned/restored active project lands (crm-data-core)
+const EVENT_TYPES = new Set(['Wedding', 'Corporate', 'Private Event', 'Bachelor(ette) Party', 'Other'])
+
+// Fee / mileage input coercion, matching createProject in crm-data-core.mjs: strip to digits+dot,
+// null for empty/non-numeric.
+function numOrNullInput(raw) {
+  if (raw === '' || raw == null) return null
+  const n = Number(String(raw).replace(/[^0-9.]/g, ''))
+  return Number.isNaN(n) ? null : n
+}
+
+// Total of RECEIVED payments (non-pending, dated, positive) for a project, from the loaded ledger.
+// Mirrors receivedTotalFor() in crm-data-core.mjs (the paid-in-full completion gate).
+function receivedTotalForPayments(payments, projectId) {
+  return (payments || []).reduce(
+    (s, pm) =>
+      pm.projectId === projectId && !pm.pending && String(pm.dateReceived || '').trim() !== '' ? s + num(pm.amount) : s,
+    0,
+  )
+}
+
+// createProject: insert one active projects row, mirroring crm-data-core.createProject's supabase
+// branch (all columns filled so normalize() reads it like an imported row). Only the name is required.
+// The slug must be unique (checked against the DB). Stage is clamped to a valid, non-Booked, non-Post
+// Show stage (a brand-new project has no payment yet), defaulting to Inquiry. Returns the app record.
+export async function createProject(input = {}, structure = { umbrellas: [] }) {
+  const name = String(input.clientName == null ? '' : input.clientName).trim()
+  if (!name) throw new Error('Project name is required.')
+  const id = slugify(name)
+
+  const { data: existing, error: exErr } = await sb.from('projects').select('id').eq('id', id).limit(1)
+  if (exErr) throw exErr
+  if (existing && existing.length) throw new Error(`A project named "${name}" already exists.`)
+
+  const total_fee = numOrNullInput(input.totalFee)
+  const mileage = numOrNullInput(input.mileage)
+
+  const valid = validStageIds(structure)
+  const booked = stageIdsForRole(structure, 'booked')
+  const postshow = stageIdsForRole(structure, 'postshow')
+  let stageId = valid.has(input.stageId) ? input.stageId : ORPHAN_STAGE
+  if (booked.has(stageId) || postshow.has(stageId)) stageId = ORPHAN_STAGE
+
+  const row = {
+    id,
+    client_name: name,
+    project_name: name, // editable display name; client_name stays the id key
+    bucket: 'active',
+    stage_id: stageId,
+    event_type: EVENT_TYPES.has(String(input.eventType)) ? String(input.eventType) : '',
+    event_date: String(input.eventDate == null ? '' : input.eventDate),
+    event_location: String(input.eventLocation == null ? '' : input.eventLocation),
+    venue_type: null,
+    indoors_or_outdoors: null,
+    arrival_time: null,
+    event_start_time: null,
+    show_start_time: null,
+    number_of_guests: null,
+    age_of_guests: null,
+    performance_style: null,
+    total_fee,
+    tips: null,
+    tips_method: null,
+    mileage,
+    vips: null,
+    av: null,
+    contact_names: String(input.contactNames == null ? '' : input.contactNames),
+    contact_emails: String(input.contactEmails == null ? '' : input.contactEmails),
+    contact_phones: formatPhoneField(String(input.contactPhones == null ? '' : input.contactPhones)),
+    booking_source: null,
+    event_summary: null,
+    event_description: null,
+    project_notes: String(input.projectNotes == null ? '' : input.projectNotes),
+    how_it_went: null,
+    assets: null,
+    status: 'open',
+    flags: [],
+    activity_log: [`${logDate()}: Project created in the CRM.`],
+    archive_reason: null,
+    why_archived: null,
+    completed_date: null,
+    // The desktop seeds a contact + link the next time it loads (seedLinksIfNeeded keys off this flag),
+    // so leaving it false means the phone-created project gets its contact reconciled on the Mac.
+    links_seeded: false,
+  }
+  const { error } = await sb.from('projects').insert(row)
+  if (error) throw error
+  return projectFromRow(row)
+}
+
+// archiveProject: active -> archived. Ungated (a lost/ghosted lead has $0 collected and must still be
+// archivable). Prepends a dated log line, records the reason, clears the stage. Mirrors the supabase
+// branch of crm-data-core.archiveProject.
+export async function archiveProject(id, reason) {
+  if (!id) throw new Error('Project id is required.')
+  const r = String(reason == null ? '' : reason).trim()
+  const { data: cur, error: rErr } = await sb.from('projects').select('bucket,activity_log').eq('id', id).single()
+  if (rErr) throw rErr
+  if ((str(cur.bucket) || 'active') !== 'active') throw new Error('Only an active project can be archived.')
+  const existing = Array.isArray(cur.activity_log) ? cur.activity_log.map(String) : []
+  const activity_log = [`${logDate()}: Project archived in CRM.${r ? ` Reason: ${r}.` : ''}`, ...existing]
+  const patch = { bucket: 'archived', stage_id: null, activity_log }
+  if (r) patch.archive_reason = r
+  const { error } = await sb.from('projects').update(patch).eq('id', id)
+  if (error) throw error
+  return { ok: true, id, bucket: 'archived', archiveReason: r, activityLog: activity_log }
+}
+
+// completeProject: active -> completed. GATED paid-in-full (received payments must cover the total
+// fee), matching crm-data-core.completeProject. The desktop's Complete modal also requires event date
+// + mileage; the caller passes them and they're written here before the move. Reads the fee + current
+// log fresh from the DB; the paid-in-full check uses the loaded payments ledger (same data the UI shows).
+export async function completeProject(id, opts = {}, payments = []) {
+  if (!id) throw new Error('Project id is required.')
+  const { data: cur, error: rErr } = await sb
+    .from('projects')
+    .select('bucket,total_fee,total_fee_text,activity_log')
+    .eq('id', id)
+    .single()
+  if (rErr) throw rErr
+  if ((str(cur.bucket) || 'active') !== 'active') throw new Error('Only an active project can be completed.')
+  const feeRaw = cur.total_fee
+  const fee =
+    feeRaw == null || feeRaw === ''
+      ? null
+      : Number(typeof feeRaw === 'number' ? feeRaw : String(feeRaw).replace(/[^0-9.]/g, ''))
+  if (fee == null || Number.isNaN(fee)) {
+    throw new Error('Set a total fee before completing, so its payments can be reconciled to it.')
+  }
+  const received = receivedTotalForPayments(payments, id)
+  if (received + 0.005 < fee) {
+    throw new Error(
+      `Cannot complete: $${Math.round(fee - received)} still outstanding (received $${Math.round(received)} of the $${Math.round(fee)} fee). Log the remaining payment first.`,
+    )
+  }
+  const patch = { bucket: 'completed', stage_id: null, completed_date: new Date().toISOString().slice(0, 10) }
+  if (opts.mileage != null && String(opts.mileage) !== '') {
+    const m = Number(String(opts.mileage).replace(/[^0-9.]/g, ''))
+    if (Number.isFinite(m)) patch.mileage = m
+  }
+  if (opts.eventDate != null && String(opts.eventDate) !== '') patch.event_date = String(opts.eventDate)
+  const existing = Array.isArray(cur.activity_log) ? cur.activity_log.map(String) : []
+  patch.activity_log = [`${logDate()}: Project marked complete in CRM.`, ...existing]
+  const { error } = await sb.from('projects').update(patch).eq('id', id)
+  if (error) throw error
+  return { ok: true, id, bucket: 'completed', completedDate: patch.completed_date, mileage: patch.mileage, eventDate: patch.event_date, activityLog: patch.activity_log }
+}
+
+// restoreProject: archived/completed -> active. Clears the archive/complete markers and lands the
+// project back in Inquiry. The desktop clears stage_id and re-derives to Inquiry on its next load; we
+// set Inquiry directly so the phone is correct immediately even with the Mac off. Mirrors the supabase
+// branch of crm-data-core.restoreProject.
+export async function restoreProject(id) {
+  if (!id) throw new Error('Project id is required.')
+  const { data: cur, error: rErr } = await sb.from('projects').select('bucket,activity_log').eq('id', id).single()
+  if (rErr) throw rErr
+  if ((str(cur.bucket) || 'active') === 'active') throw new Error('Project is already active.')
+  const existing = Array.isArray(cur.activity_log) ? cur.activity_log.map(String) : []
+  const activity_log = [`${logDate()}: Project returned to the active pipeline.`, ...existing]
+  const patch = { bucket: 'active', stage_id: ORPHAN_STAGE, archive_reason: null, completed_date: null, activity_log }
+  const { error } = await sb.from('projects').update(patch).eq('id', id)
+  if (error) throw error
+  return { ok: true, id, bucket: 'active', stageId: ORPHAN_STAGE, activityLog: activity_log }
+}
+
+// deleteProject: permanent, no undo. Purges the project's overlay data (tasks / payments / mileage
+// trips) then deletes the project row; contact_links rows cascade via their FK (ON DELETE CASCADE).
+// Mirrors deleteProject + deletePaymentsForProject + deleteTripsForProject on the desktop.
+export async function deleteProject(id) {
+  if (!id) throw new Error('Project id is required.')
+  const child = await Promise.all([
+    sb.from('tasks').delete().eq('project_id', id),
+    sb.from('payments').delete().eq('project_id', id),
+    sb.from('mileage_trips').delete().eq('project_id', id),
+  ])
+  for (const c of child) if (c && c.error) throw c.error
+  const { error } = await sb.from('projects').delete().eq('id', id)
+  if (error) throw error
+  return { ok: true, id }
 }
 
 // Refresh just the payments ledger + recompute finance (used after addPayment). Returns { payments,

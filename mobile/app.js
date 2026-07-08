@@ -11,11 +11,13 @@ import {
   loadEverything, getSession, signIn, signOut, currentUserEmail,
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
+  createProject, archiveProject, completeProject, restoreProject, deleteProject,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
 var SNAP = null
 var TAB = 'pipeline'
+var BUCKET = 'active' // which pipeline segment is showing: 'active' | 'completed' | 'archived'
 var STAGE = {} // stageId -> { name, umbrella, color }
 var DETAIL_ID = null // when non-null, the detail view for this project is on screen (not a tab)
 
@@ -131,58 +133,331 @@ function fieldRows(p) {
 function stageInfo(id) { return STAGE[id] || { name: '', umbrella: '', color: 'var(--brass)' } }
 
 // ---------- views ----------
+// Count projects per bucket for the segmented control.
+function bucketCounts() {
+  var c = { active: 0, completed: 0, archived: 0 }
+  ;(SNAP && SNAP.projects ? SNAP.projects : []).forEach(function (p) { if (c[p.bucket] != null) c[p.bucket]++ })
+  return c
+}
+
 function renderPipeline() {
   DETAIL_ID = null
   var v = $('#view')
-  var active = SNAP.projects.filter(function (p) { return p.bucket === 'active' })
   v.innerHTML = ''
-  v.appendChild(el('<input class="search" id="q" placeholder="Search clients, venues…" />'))
+
+  // Segmented bucket switch: Active / Completed / Archived (with live counts). Completed + Archived
+  // are the history the phone was previously blind to.
+  var counts = bucketCounts()
+  var seg = el('<div class="seg"></div>')
+  ;[['active', 'Active'], ['completed', 'Completed'], ['archived', 'Archived']].forEach(function (b) {
+    var btn = el('<button' + (BUCKET === b[0] ? ' class="on"' : '') + '>' + b[1] + '<span class="segn">' + counts[b[0]] + '</span></button>')
+    btn.addEventListener('click', function () { if (BUCKET !== b[0]) { BUCKET = b[0]; renderPipeline() } })
+    seg.appendChild(btn)
+  })
+  v.appendChild(seg)
+
+  v.appendChild(el('<input class="search" id="q" placeholder="Search ' + BUCKET + ' projects…" />'))
   var list = el('<div id="plist"></div>')
   v.appendChild(list)
+
+  var pool = SNAP.projects.filter(function (p) { return p.bucket === BUCKET })
   function draw(filter) {
     var f = (filter || '').toLowerCase().trim()
-    var items = active.filter(function (p) {
+    var items = pool.filter(function (p) {
       if (!f) return true
-      return (p.client + ' ' + (p.eventLocation || '') + ' ' + (p.eventType || '')).toLowerCase().indexOf(f) >= 0
+      return (p.client + ' ' + (p.eventLocation || '') + ' ' + (p.eventType || '') + ' ' + (p.contactNames || '')).toLowerCase().indexOf(f) >= 0
     })
-    // group by umbrella in structure order
     list.innerHTML = ''
     if (!items.length) { list.appendChild(el('<div class="empty">No matching projects.</div>')); return }
-    var groups = {}
-    items.forEach(function (p) {
-      var si = stageInfo(p.stageId)
-      var key = si.umbrella || 'Other'
-      ;(groups[key] = groups[key] || []).push(p)
-    })
-    var seen = {}
-    ;(SNAP.structure.umbrellas || []).forEach(function (u) {
-      var g = groups[u.label]; if (!g) return
-      seen[u.label] = true
-      list.appendChild(sectionLabel(u.label + '  ·  ' + g.length))
-      g.forEach(function (p) { list.appendChild(projectCard(p)) })
-    })
-    Object.keys(groups).forEach(function (k) { if (!seen[k]) { list.appendChild(sectionLabel(k)); groups[k].forEach(function (p) { list.appendChild(projectCard(p)) }) } })
+    if (BUCKET === 'active') drawActive(list, items)
+    else drawRecords(list, items)
   }
   draw('')
   $('#q').addEventListener('input', function (e) { draw(e.target.value) })
+  ensureFab() // the "New project" button belongs to the pipeline tab
+}
+
+// Active projects: grouped by pipeline umbrella, in structure order.
+function drawActive(list, items) {
+  var groups = {}
+  items.forEach(function (p) {
+    var si = stageInfo(p.stageId)
+    var key = si.umbrella || 'Other'
+    ;(groups[key] = groups[key] || []).push(p)
+  })
+  var seen = {}
+  ;(SNAP.structure.umbrellas || []).forEach(function (u) {
+    var g = groups[u.label]; if (!g) return
+    seen[u.label] = true
+    list.appendChild(sectionLabel(u.label + '  ·  ' + g.length))
+    g.forEach(function (p) { list.appendChild(projectCard(p)) })
+  })
+  Object.keys(groups).forEach(function (k) { if (!seen[k]) { list.appendChild(sectionLabel(k)); groups[k].forEach(function (p) { list.appendChild(projectCard(p)) }) } })
+}
+
+// Completed / archived records: newest first by event date (fallback completed date), grouped by year.
+function drawRecords(list, items) {
+  var sorted = items.slice().sort(function (a, b) {
+    var ad = a.eventDate || a.completedDate || ''
+    var bd = b.eventDate || b.completedDate || ''
+    return bd < ad ? -1 : bd > ad ? 1 : 0
+  })
+  var groups = {}, order = []
+  sorted.forEach(function (p) {
+    var d = p.eventDate || p.completedDate || ''
+    var yr = /^\d{4}/.test(d) ? d.slice(0, 4) : 'Undated'
+    if (!groups[yr]) { groups[yr] = []; order.push(yr) }
+    groups[yr].push(p)
+  })
+  order.forEach(function (yr) {
+    list.appendChild(sectionLabel(yr + '  ·  ' + groups[yr].length))
+    groups[yr].forEach(function (p) { list.appendChild(projectCard(p)) })
+  })
+}
+
+// The floating "New project" button (pipeline tab only). Idempotent; removed when leaving the tab.
+function ensureFab() {
+  if ($('#fab')) return
+  var fab = el('<button id="fab" aria-label="New project"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>')
+  fab.addEventListener('click', openNewProject)
+  document.body.appendChild(fab)
+}
+function removeFab() { var f = $('#fab'); if (f) f.remove() }
+
+// New-project sheet. Only the name is required; a new project is always active and defaults to Inquiry
+// (createProject clamps any Booked/Post Show pick down to Inquiry, since it has no payment yet).
+function openNewProject() {
+  var stageOpts = ''
+  ;(SNAP.structure.umbrellas || []).forEach(function (u) {
+    stageOpts += '<optgroup label="' + esc(u.label) + '">'
+    ;(u.stages || []).forEach(function (st) {
+      stageOpts += '<option value="' + esc(st.id) + '"' + (st.id === 'inquiry' ? ' selected' : '') + '>' + esc(st.name) + '</option>'
+    })
+    stageOpts += '</optgroup>'
+  })
+  var typeOpts = ['', 'Wedding', 'Corporate', 'Private Event', 'Bachelor(ette) Party', 'Other']
+    .map(function (t) { return '<option value="' + esc(t) + '">' + esc(t || 'Event type…') + '</option>' }).join('')
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card">' +
+      '<div class="sheet-title">New project</div>' +
+      '<input class="field-input" id="np-name" placeholder="Project / client name  *" />' +
+      '<div class="addrow" style="margin-top:8px"><select class="field-input" id="np-type">' + typeOpts + '</select>' +
+      '<select class="stagesel" id="np-stage">' + stageOpts + '</select></div>' +
+      '<div class="addrow"><input class="field-input" id="np-date" type="date" /><input class="field-input" id="np-fee" inputmode="decimal" placeholder="Fee" /></div>' +
+      '<input class="field-input" id="np-loc" placeholder="Location" style="margin-top:8px" />' +
+      '<input class="field-input" id="np-cname" placeholder="Contact name" style="margin-top:8px" />' +
+      '<div class="addrow"><input class="field-input" id="np-cemail" inputmode="email" placeholder="Contact email" /><input class="field-input" id="np-cphone" inputmode="tel" placeholder="Contact phone" /></div>' +
+      '<textarea class="field-input" id="np-notes" rows="2" placeholder="Notes" style="margin-top:8px"></textarea>' +
+      '<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="np-cancel">Cancel</button><button class="btn-gold" id="np-save">Create project</button></div>' +
+    '</div></div>'
+  )
+  var close = function () { sheet.remove() }
+  sheet.querySelector('#np-cancel').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  sheet.querySelector('#np-cphone').addEventListener('blur', function (e) { /* light hint; server normalizes on save */ })
+  sheet.querySelector('#np-save').addEventListener('click', function () {
+    var name = sheet.querySelector('#np-name').value.trim()
+    if (!name) { toast('Enter a project name.', 'err'); return }
+    var input = {
+      clientName: name,
+      eventType: sheet.querySelector('#np-type').value,
+      stageId: sheet.querySelector('#np-stage').value,
+      eventDate: sheet.querySelector('#np-date').value,
+      totalFee: sheet.querySelector('#np-fee').value,
+      eventLocation: sheet.querySelector('#np-loc').value,
+      contactNames: sheet.querySelector('#np-cname').value,
+      contactEmails: sheet.querySelector('#np-cemail').value,
+      contactPhones: sheet.querySelector('#np-cphone').value,
+      projectNotes: sheet.querySelector('#np-notes').value,
+    }
+    doWrite(createProject(input, SNAP.structure), 'Project created', function (proj) {
+      SNAP.projects.push(proj)
+      close()
+      BUCKET = 'active'
+      renderDetail(proj.id)
+    })
+  })
+  document.body.appendChild(sheet)
+  setTimeout(function () { var e = sheet.querySelector('#np-name'); if (e) e.focus() }, 40)
 }
 function sectionLabel(text) { return el('<div class="section-label"><span class="dot"></span>' + esc(text) + '</div>') }
-function projectCard(p) {
+// The status pill for a project card, by bucket: active -> its stage; completed -> "Done · <date>";
+// archived -> the archive reason (or "Archived").
+function cardPill(p) {
+  if (p.bucket === 'completed') {
+    var d = p.completedDate || p.eventDate
+    return { text: 'Done' + (d ? '  ·  ' + fmtShort(d) : ''), cls: 'done' }
+  }
+  if (p.bucket === 'archived') return { text: p.archiveReason || 'Archived', cls: 'arch' }
   var si = stageInfo(p.stageId)
+  return si.name ? { text: si.name, cls: '' } : null
+}
+function projectCard(p) {
+  var pill = cardPill(p)
   var c = el(
     '<button class="card">' +
       '<div class="row1"><span class="name">' + esc(p.client) + '</span><span class="fee">' + esc(money(p.totalFee)) + '</span></div>' +
       '<div class="meta">' + esc([p.eventType, p.eventDate ? fmtDate(p.eventDate) : ''].filter(Boolean).join('  ·  ')) + '</div>' +
-      (si.name ? '<span class="pill">' + esc(si.name) + '</span>' : '') +
+      (pill ? '<span class="pill ' + pill.cls + '">' + esc(pill.text) + '</span>' : '') +
     '</button>'
   )
   c.addEventListener('click', function () { renderDetail(p.id) })
   return c
 }
 
+// One-line status for a completed/archived project (shown above its actions).
+function statusText(p) {
+  if (p.bucket === 'completed') return 'Completed' + (p.completedDate ? '  ·  ' + fmtDate(p.completedDate) : '')
+  if (p.bucket === 'archived') return 'Archived' + (p.archiveReason ? '  ·  ' + p.archiveReason : '')
+  return ''
+}
+
+// The lifecycle action block at the top of a project detail. Active: Complete (gold) + Archive
+// (ghost). Completed/archived: a status line + Return to pipeline. Both: a subdued Delete (confirm-
+// gated, no undo).
+function lifecycleActions(p) {
+  var wrap = el('<div class="actions"></div>')
+  if (p.bucket !== 'active') wrap.appendChild(el('<div class="statusline">' + esc(statusText(p)) + '</div>'))
+  var row = el('<div class="actrow"></div>')
+  if (p.bucket === 'active') {
+    var comp = el('<button class="btn-gold" style="flex:1">Complete</button>')
+    comp.addEventListener('click', function () { openCompleteSheet(p) })
+    var arch = el('<button class="btn-ghost" style="flex:1">Archive</button>')
+    arch.addEventListener('click', function () { openArchiveSheet(p) })
+    row.appendChild(comp); row.appendChild(arch)
+  } else {
+    var rest = el('<button class="btn-gold" style="flex:1">Return to pipeline</button>')
+    rest.addEventListener('click', function () { doRestore(p) })
+    row.appendChild(rest)
+  }
+  wrap.appendChild(row)
+  var del = el('<button class="btn-danger">Delete permanently</button>')
+  del.addEventListener('click', function () { doDelete(p) })
+  wrap.appendChild(del)
+  return wrap
+}
+
+// Total RECEIVED (non-pending, dated) payments for a project, from the loaded ledger.
+function receivedFor(projectId) {
+  var sum = 0
+  ;(SNAP.payments || []).forEach(function (pm) {
+    if (pm.projectId === projectId && !pm.pending && String(pm.dateReceived || '').trim() !== '') {
+      var a = Number(String(pm.amount).replace(/[^0-9.\-]/g, '')); if (isFinite(a)) sum += a
+    }
+  })
+  return sum
+}
+
+// Complete sheet: requires event date + mileage + paid-in-full (the desktop's Complete gate). Shows the
+// live paid/outstanding math and only enables Complete when all three are satisfied.
+function openCompleteSheet(p) {
+  var received = receivedFor(p.id)
+  var feeNum = (typeof p.totalFee === 'number') ? p.totalFee : Number(String(p.totalFee == null ? '' : p.totalFee).replace(/[^0-9.]/g, ''))
+  var hasFee = isFinite(feeNum) && String(p.totalFee == null ? '' : p.totalFee).trim() !== ''
+  var remaining = hasFee ? Math.max(0, feeNum - received) : null
+  var paidInFull = hasFee && remaining <= 0.005
+
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  card.appendChild(el('<div class="sheet-title">Complete ' + esc(p.client) + '</div>'))
+  card.appendChild(el('<div class="hint" style="margin:-4px 0 10px">Moves to Completed. Confirm the details for the books.</div>'))
+  card.appendChild(el('<div class="k" style="margin-bottom:4px">Event date</div>'))
+  var dateIn = document.createElement('input'); dateIn.className = 'field-input'; dateIn.type = 'date'; dateIn.value = p.eventDate || ''
+  card.appendChild(dateIn)
+  card.appendChild(el('<div class="k" style="margin:12px 0 4px">Round-trip mileage</div>'))
+  var mileIn = document.createElement('input'); mileIn.className = 'field-input'; mileIn.inputMode = 'decimal'; mileIn.placeholder = 'Miles'; mileIn.value = (p.mileage == null ? '' : String(p.mileage))
+  card.appendChild(mileIn)
+  var payLine = el('<div class="payline"></div>'); card.appendChild(payLine)
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Complete</button></div>')
+  var confirmBtn = bar.children[1]
+  var close = function () { sheet.remove() }
+  bar.children[0].addEventListener('click', close)
+  function refresh() {
+    if (!hasFee) payLine.innerHTML = '<span style="color:var(--red)">Set a total fee on the project first, so payments can be reconciled to it.</span>'
+    else if (!paidInFull) payLine.innerHTML = 'Paid ' + esc(money(received)) + ' of ' + esc(money(feeNum)) + '. <span style="color:var(--red)">' + esc(money(remaining)) + ' still outstanding.</span> Must be paid in full to complete.'
+    else payLine.innerHTML = '<span style="color:var(--green)">Paid in full — ' + esc(money(received)) + ' received.</span>'
+    var ok = paidInFull && dateIn.value.trim() !== '' && mileIn.value.trim() !== ''
+    confirmBtn.disabled = !ok
+    confirmBtn.style.opacity = ok ? '1' : '0.45'
+  }
+  dateIn.addEventListener('input', refresh)
+  mileIn.addEventListener('input', refresh)
+  refresh()
+  confirmBtn.addEventListener('click', function () {
+    if (confirmBtn.disabled) return
+    doWrite(completeProject(p.id, { mileage: mileIn.value, eventDate: dateIn.value }, SNAP.payments || []), 'Completed', function (r) {
+      p.bucket = 'completed'; p.stageId = ''; p.completedDate = r.completedDate
+      if (r.mileage != null) p.mileage = r.mileage
+      if (r.eventDate) p.eventDate = r.eventDate
+      p.activityLog = r.activityLog
+      close(); renderDetail(p.id)
+    })
+  })
+  card.appendChild(bar)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// Archive sheet: an optional reason (from the config list; "Other" reveals a free-text field). Archive
+// is deliberately ungated (a lost/ghosted lead has no payment and must still be archivable).
+function openArchiveSheet(p) {
+  var reasons = (SNAP.config && SNAP.config.archiveReasons) || []
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  card.appendChild(el('<div class="sheet-title">Archive ' + esc(p.client) + '</div>'))
+  card.appendChild(el('<div class="hint" style="margin:-4px 0 10px">Removes it from the pipeline. You can return it anytime.</div>'))
+  var sel = document.createElement('select'); sel.className = 'field-input'
+  sel.appendChild(el('<option value="">Reason (optional)…</option>'))
+  reasons.forEach(function (r) { var o = document.createElement('option'); o.value = r; o.textContent = r; sel.appendChild(o) })
+  card.appendChild(sel)
+  var otherIn = document.createElement('input'); otherIn.className = 'field-input'; otherIn.placeholder = 'Reason'; otherIn.style.marginTop = '8px'; otherIn.style.display = 'none'
+  card.appendChild(otherIn)
+  sel.addEventListener('change', function () {
+    var isOther = sel.value === 'Other'
+    otherIn.style.display = isOther ? 'block' : 'none'
+    if (isOther) setTimeout(function () { otherIn.focus() }, 20)
+  })
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Archive</button></div>')
+  var close = function () { sheet.remove() }
+  bar.children[0].addEventListener('click', close)
+  bar.children[1].addEventListener('click', function () {
+    var reason = sel.value === 'Other' ? otherIn.value.trim() : sel.value
+    doWrite(archiveProject(p.id, reason), 'Archived', function (r) {
+      p.bucket = 'archived'; p.stageId = ''; p.archiveReason = r.archiveReason || reason || ''
+      p.activityLog = r.activityLog
+      close(); renderDetail(p.id)
+    })
+  })
+  card.appendChild(bar)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// Return an archived/completed project to the active pipeline (lands in Inquiry).
+function doRestore(p) {
+  doWrite(restoreProject(p.id), 'Back in the pipeline', function (r) {
+    p.bucket = 'active'; p.stageId = r.stageId || 'inquiry'; p.archiveReason = ''; p.completedDate = ''
+    p.activityLog = r.activityLog
+    renderDetail(p.id)
+  })
+}
+
+// Permanent delete (project + its tasks / payments / mileage). Confirm-gated, no undo.
+function doDelete(p) {
+  if (!confirm('Delete "' + p.client + '" permanently?\n\nThis removes the project and its tasks, payments, and mileage. There is no undo.')) return
+  doWrite(deleteProject(p.id), 'Deleted', function () {
+    SNAP.projects = SNAP.projects.filter(function (x) { return x.id !== p.id })
+    SNAP.tasks = (SNAP.tasks || []).filter(function (t) { return t.projectId !== p.id })
+    SNAP.payments = (SNAP.payments || []).filter(function (pm) { return pm.projectId !== p.id })
+    DETAIL_ID = null
+    renderPipeline()
+  })
+}
+
 function renderDetail(id) {
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
   DETAIL_ID = id
+  removeFab()
   var v = $('#view'); v.innerHTML = ''
   var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Pipeline</button>')
   back.addEventListener('click', renderPipeline)
@@ -195,9 +470,14 @@ function renderDetail(id) {
     '</div>'
   ))
 
-  // ---- stage picker (with the desktop gates) ----
-  v.appendChild(sectionLabel('Stage'))
-  v.appendChild(stagePicker(p))
+  // ---- lifecycle actions (Complete / Archive for active; Return for completed/archived; Delete) ----
+  v.appendChild(lifecycleActions(p))
+
+  // ---- stage picker (with the desktop gates) — active projects only ----
+  if (p.bucket === 'active') {
+    v.appendChild(sectionLabel('Stage'))
+    v.appendChild(stagePicker(p))
+  }
 
   // ---- contacts (Call/Text/Email + inline edit) ----
   var emails = (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
@@ -687,6 +967,7 @@ function updateCounts() {
 }
 
 function render() {
+  if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline tab
   if (TAB === 'pipeline') renderPipeline()
   else if (TAB === 'alerts') renderAlerts()
   else if (TAB === 'tasks') renderTasks()
