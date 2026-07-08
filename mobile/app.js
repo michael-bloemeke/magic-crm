@@ -52,11 +52,22 @@ function todayStr() {
   var n = new Date()
   return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0')
 }
-function dueState(dateStr) {
+function dueState(dateStr, dueTime) {
   if (!dateStr) return null
   var t = todayStr()
   if (dateStr < t) return 'overdue'
-  if (dateStr === t) return 'due'
+  if (dateStr === t) {
+    // Due today: overdue once a set time has passed; otherwise still "due today".
+    if (dueTime) {
+      var parts = String(dueTime).split(':')
+      var h = Number(parts[0]), m = Number(parts[1])
+      if (isFinite(h) && isFinite(m)) {
+        var n = new Date()
+        if (n.getHours() > h || (n.getHours() === h && n.getMinutes() >= m)) return 'overdue'
+      }
+    }
+    return 'due'
+  }
   return null
 }
 function timeAgo(iso) {
@@ -497,7 +508,7 @@ function openContactEditor(p) {
 // body opens the project when showProject), and a delete (x) on the right. Toggling checks it off
 // (crm rule: done=true), which removes it from the open lists on the next render.
 function taskCard(t, showProject) {
-  var st = dueState(t.dueDate)
+  var st = dueState(t.dueDate, t.dueTime)
   var pName = ''
   if (showProject) { var pr = SNAP.projects.find(function (x) { return x.id === t.projectId }); pName = pr ? pr.client : t.projectId }
   var c = el(
@@ -586,9 +597,9 @@ function renderTasks() {
   var open = SNAP.tasks.filter(function (t) { return !t.done })
   var dated = open.filter(function (t) { return t.dueDate })
   dated.sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : 1 })
-  var overdue = dated.filter(function (t) { return dueState(t.dueDate) === 'overdue' })
-  var today = dated.filter(function (t) { return dueState(t.dueDate) === 'due' })
-  var upcoming = dated.filter(function (t) { return !dueState(t.dueDate) })
+  var overdue = dated.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'overdue' })
+  var today = dated.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'due' })
+  var upcoming = dated.filter(function (t) { return !dueState(t.dueDate, t.dueTime) })
   var nodate = open.filter(function (t) { return !t.dueDate })
   if (!open.length) { v.appendChild(el('<div class="empty">No open tasks. Nice.</div>')); return }
   if (overdue.length) { v.appendChild(sectionLabel('Overdue · ' + overdue.length)); overdue.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }

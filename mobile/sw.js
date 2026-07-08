@@ -8,7 +8,7 @@
 // new app.js/supabase-data.js take effect.
 // (v8 re-enabled in-app web-push subscribe on the Supabase login flow; v7 added writes; v6 was the
 // passcode+snapshot -> Supabase login + live-reads switchover.)
-var CACHE = 'mcrm-v9'
+var CACHE = 'mcrm-v10'
 var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {

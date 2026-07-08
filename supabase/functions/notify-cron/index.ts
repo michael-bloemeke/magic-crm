@@ -319,8 +319,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       console.error("[notify-cron] task/project query error:", taskErr?.message ?? projErr?.message);
     } else {
       for (const t of (taskRows ?? []) as Array<Record<string, unknown>>) {
-        const proj = activeProjects.get(String(t.project_id ?? ""));
-        if (!proj) continue; // task's project isn't in the active bucket -> skip
+        const pid = String(t.project_id ?? "").trim();
+        const proj = pid ? activeProjects.get(pid) : undefined;
+        // Fire for STANDALONE tasks (no project) AND active-project tasks. Skip only tasks whose
+        // project is non-active (completed/archived) or an unknown id, so resolved gigs don't nag.
+        if (pid && !proj) continue;
 
         const alarmMs = taskAlarmUtcMs(String(t.due_date ?? ""), String(t.due_time ?? ""));
         if (alarmMs === null) continue; // malformed / no date -> not an alarm
@@ -328,7 +331,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         const taskId = String(t.id);
         const title = String(t.title ?? "").trim() || "Task";
-        const who = projectDisplayName(proj);
+        const who = proj ? projectDisplayName(proj) : "";
 
         // Insert the task-due notification unless one already exists for (kind, source_id=task.id).
         const { data: existing } = await sb
@@ -340,7 +343,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         if (!existing || existing.length === 0) {
           await sb.from("notifications").insert({
             id: newNotificationId(),
-            project_id: String(t.project_id ?? proj.id ?? ""),
+            project_id: pid,
             kind: "task-due",
             source_id: taskId,
             seen: false,
@@ -356,7 +359,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           subs,
           {
             title: "Task due",
-            body: `${title} - ${who}`,
+            body: who ? `${title} - ${who}` : title,
             url: cfg.app_url,
             tag: "task-due",
             count,

@@ -32,8 +32,23 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
   }
 
   const active = tasks.filter((t) => !t.done)
-  const overdue = active.filter((t) => t.dueDate && t.dueDate < today).sort(byDueAsc)
-  const dueToday = active.filter((t) => t.dueDate === today).sort(byDueAsc)
+  // A task is overdue if its due date already passed, OR it's due today with a set time that's passed.
+  const nowMs = Date.now()
+  const isOverdue = (t: Task) => {
+    if (!t.dueDate) return false
+    if (t.dueDate < today) return true
+    if (t.dueDate === today && t.dueTime) {
+      const [h, m] = t.dueTime.split(':').map(Number)
+      if (Number.isFinite(h) && Number.isFinite(m)) {
+        const d = new Date()
+        d.setHours(h, m, 0, 0)
+        return d.getTime() < nowMs
+      }
+    }
+    return false
+  }
+  const overdue = active.filter(isOverdue).sort(byDueAsc)
+  const dueToday = active.filter((t) => t.dueDate === today && !isOverdue(t)).sort(byDueAsc)
   const upcoming = active.filter((t) => !t.dueDate || t.dueDate > today).sort(byDueAsc)
   const completed = tasks.filter((t) => t.done).sort(byDueAsc)
 
