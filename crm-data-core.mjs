@@ -907,11 +907,19 @@ export async function updateTask({ id, done, title, dueDate, dueTime }) {
     const existing = getCachedTasks().find((x) => x.id === id)
     if (!existing) throw new Error('task not found')
     const task = taskFromRow(existing)
+    // Remember the pre-edit alarm time so we can tell if the reschedule actually moved it.
+    const prevDate = task.dueDate
+    const prevTime = task.dueTime
     if (typeof done === 'boolean') task.done = done
     if (title != null) task.title = String(title)
     if (dueDate != null) task.dueDate = String(dueDate)
     if (dueTime != null) task.dueTime = normalizeTime(dueTime)
     const row = taskToRow(task)
+    // Rescheduled? Clear the cloud alarm stamp so notify-cron will alarm this task again at its new
+    // time. taskToRow omits notified_at (so a plain edit like toggling done leaves it untouched); we
+    // add an explicit null only when the date or time really changed. Not a normalized column here,
+    // just passed straight through to the upsert.
+    if (task.dueDate !== prevDate || task.dueTime !== prevTime) row.notified_at = null
     cacheUpsertTask(row)
     await sbUpsertTask(row)
     return task
