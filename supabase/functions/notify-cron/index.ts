@@ -296,23 +296,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // -------------------------------------------------------------------------
   try {
     const nowMs = Date.now();
-    // Active-bucket, not-done, not-yet-notified tasks joined to their project (for the display name
-    // and the bucket filter). PostgREST embeds the project via the FK on tasks.project_id.
+    // Candidate tasks: not done, not yet notified. We filter to the ACTIVE bucket in code below
+    // rather than via a PostgREST embed, because tasks.project_id has no declared FK to projects.id
+    // (verified against the live schema), so `projects!inner(...)` embedding is not available here.
     const { data: taskRows, error: taskErr } = await sb
       .from("tasks")
-      .select("id,project_id,title,due_date,due_time,done,notified_at,projects!inner(id,client_name,project_name,bucket)")
+      .select("id,project_id,title,due_date,due_time,done,notified_at")
       .eq("done", false)
-      .is("notified_at", null)
-      .eq("projects.bucket", "active");
+      .is("notified_at", null);
 
-    if (taskErr) {
-      console.error("[notify-cron] task query error:", taskErr.message);
+    // Active-bucket projects, keyed by id (the slug). Gives us the bucket filter + display name.
+    const { data: projRows, error: projErr } = await sb
+      .from("projects")
+      .select("id,client_name,project_name")
+      .eq("bucket", "active");
+    const activeProjects = new Map<string, { id: string; client_name?: string; project_name?: string }>();
+    for (const p of (projRows ?? []) as Array<{ id: string; client_name?: string; project_name?: string }>) {
+      activeProjects.set(String(p.id), p);
+    }
+
+    if (taskErr || projErr) {
+      console.error("[notify-cron] task/project query error:", taskErr?.message ?? projErr?.message);
     } else {
       for (const t of (taskRows ?? []) as Array<Record<string, unknown>>) {
-        const proj = (Array.isArray(t.projects) ? t.projects[0] : t.projects) as
-          | { id?: string; client_name?: string; project_name?: string }
-          | undefined;
-        if (!proj) continue;
+        const proj = activeProjects.get(String(t.project_id ?? ""));
+        if (!proj) continue; // task's project isn't in the active bucket -> skip
 
         const alarmMs = taskAlarmUtcMs(String(t.due_date ?? ""), String(t.due_time ?? ""));
         if (alarmMs === null) continue; // malformed / no date -> not an alarm
