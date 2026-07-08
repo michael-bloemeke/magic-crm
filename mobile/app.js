@@ -714,6 +714,51 @@ function loadAndRender() {
   })
 }
 
+// ---------- background auto-refresh (mirrors the desktop's focus + interval live refresh) ----------
+// The desktop got auto-refresh; the phone did not, so a task made on the Mac didn't show on the phone
+// until a manual pull. This re-pulls the same LIVE data loadAndRender uses, but NON-DISRUPTIVELY:
+//   - it never touches DETAIL_ID (so it won't kick you out of an open project),
+//   - it re-renders in place via refreshView() (keeps the open detail or current tab), and
+//   - it SKIPS a tick entirely while a modal sheet / add-form is open or a field is focused, so an
+//     in-progress edit is never clobbered (mirrors the desktop's modalOpen + isEditingActive guard).
+
+// True while the user is actively typing in / focused on an editable field.
+function isEditingActive() {
+  var a = document.activeElement
+  if (!a) return false
+  var tag = a.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || a.isContentEditable === true
+}
+// True while a modal sheet or an inline add/edit form is on screen (a refresh mid-edit would lose it).
+function editorOpen() {
+  return !!document.querySelector('.sheet, .addform, .editing')
+}
+// One non-disruptive background pull. Skipped if we're not logged in, offline-with-no-data, or the
+// user is mid-edit. Best-effort: any error is swallowed (the manual Refresh button surfaces real ones).
+function backgroundRefresh() {
+  if (!SNAP) return // not loaded yet / logged out: the normal load path handles the first fetch
+  if (editorOpen() || isEditingActive()) return
+  loadEverything().then(function (s) {
+    applySnapshot(s)
+    $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)
+    refreshView() // re-render the open detail or the active tab, in place (DETAIL_ID untouched)
+    updatePushButton()
+  }).catch(function () { /* keep whatever's on screen; the manual button reports errors */ })
+}
+
+// Set up the ~30s interval + focus/visibility triggers exactly once (the common case: Michael added a
+// task on the Mac, then picks up his phone). Idempotent so re-entering the app doesn't stack timers.
+var autoRefreshWired = false
+function startAutoRefresh() {
+  if (autoRefreshWired) return
+  autoRefreshWired = true
+  setInterval(backgroundRefresh, 30 * 1000)
+  window.addEventListener('focus', backgroundRefresh)
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') backgroundRefresh()
+  })
+}
+
 // ---------- web push (notifications from this app) ----------
 function pushSupported() {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
@@ -800,6 +845,7 @@ function enterApp() {
   $('#app').classList.remove('hidden')
   wireUI()
   loadAndRender()
+  startAutoRefresh() // keep the phone's data live (interval + focus/visibility), like the desktop
 }
 
 // Log out: end the Supabase session (clears the persisted token) and return to the login screen.

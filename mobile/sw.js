@@ -2,12 +2,13 @@
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
-// v8: re-enables in-app web-push subscribe on a Supabase-backed, login-authenticated flow (the bell
-// now UPSERTs the subscription into push_subscriptions instead of the old passcode-gated /api/subscribe).
-// Bumping the cache name forces every client to drop the old shell on activate so the new push code
-// (app.js/config.js/supabase-data.js) takes effect.
-// (v7 added writes; v6 was the passcode+snapshot -> Supabase login + live-reads switchover.)
-var CACHE = 'mcrm-v8'
+// v9: phone auto-refresh (interval + focus/visibility live pull, guarded against mid-edit), Alerts now
+// show a task's real title instead of "Task due", and a special high-priority new-inquiry alert with
+// distinct styling. Bumping the cache name forces every client to drop the old shell on activate so the
+// new app.js/supabase-data.js take effect.
+// (v8 re-enabled in-app web-push subscribe on the Supabase login flow; v7 added writes; v6 was the
+// passcode+snapshot -> Supabase login + live-reads switchover.)
+var CACHE = 'mcrm-v9'
 var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {

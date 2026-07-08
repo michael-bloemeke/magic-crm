@@ -27,6 +27,7 @@ const NOTIF_LABELS = {
   'contract-viewed': 'Contract viewed',
   'contract-signed': 'Contract signed',
   'task-due': 'Task due',
+  'new-inquiry': 'New inquiry',
 }
 
 // Curated per-project fields for the phone (drops nothing client-facing-sensitive beyond what the
@@ -88,11 +89,21 @@ export function buildSnapshot() {
     finance = null
   }
 
-  const notifications = loadUnseenNotifications().map((e) => ({
-    ...e,
-    label: NOTIF_LABELS[e.kind] || e.kind,
-    projectName: byId.get(e.projectId) || e.projectId,
-  }))
+  // task-due resolves to the task's real title (fallback to the generic label if the task is gone),
+  // matching crm-data-plugin's withNotifNames so the phone shows the same alert text everywhere.
+  const tasksById = new Map(loadTasks().map((t) => [String(t.id), t]))
+  const notifications = loadUnseenNotifications().map((e) => {
+    let label = NOTIF_LABELS[e.kind] || e.kind
+    if (e.kind === 'task-due') {
+      const t = tasksById.get(String(e.sourceId))
+      if (t && t.title) label = String(t.title)
+    }
+    return {
+      ...e,
+      label,
+      projectName: byId.get(e.projectId) || e.projectId,
+    }
+  })
 
   return {
     generatedAt: new Date().toISOString(),
