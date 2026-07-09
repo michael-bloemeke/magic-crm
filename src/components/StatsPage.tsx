@@ -173,6 +173,13 @@ export function StatsPage({ projects }: { projects: Project[]; onOpenProject?: (
         .sort((a, b) => b.leads - a.leads)
     }
 
+    const monthMap = new Map<string, number>()
+    for (const p of leads) {
+      const d = dateOf(p, basis)
+      if (/^\d{4}-\d{2}/.test(d)) monthMap.set(d.slice(0, 7), (monthMap.get(d.slice(0, 7)) || 0) + 1)
+    }
+    const months = [...monthMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, n]) => ({ k, n }))
+
     return {
       total: leads.length,
       won: won.length,
@@ -181,6 +188,8 @@ export function StatsPage({ projects }: { projects: Project[]; onOpenProject?: (
       closeRate,
       bookedRevenue,
       avgValue,
+      months,
+      datedCount: leads.filter((p) => /^\d{4}-\d{2}/.test(dateOf(p, basis))).length,
       sources: tally(leads, (p) => normalizeSource(p.bookingSource)),
       leadTypes: tally(leads, (p) => p.eventType),
       bookedTypes: tally(won, (p) => p.eventType),
@@ -188,7 +197,7 @@ export function StatsPage({ projects }: { projects: Project[]; onOpenProject?: (
       rateBySource: rateBy((p) => normalizeSource(p.bookingSource)),
       rateByType: rateBy((p) => p.eventType),
     }
-  }, [projects, period])
+  }, [projects, period, basis])
 
   const typeColor = (k: string) => EVENT_TYPE_ACCENT[k as EventType] || 'var(--color-faint)'
 
@@ -199,34 +208,57 @@ export function StatsPage({ projects }: { projects: Project[]; onOpenProject?: (
       transition={{ duration: 0.35 }}
       className="board-scroll h-full overflow-y-auto px-8 pb-12"
     >
-      {/* Period toggle */}
-      <div className="mb-5 flex items-center gap-1 rounded-xl border border-line bg-surface/60 p-1 w-fit">
-        {(
-          [
-            ['year', `This year (${THIS_YEAR})`],
-            ['last12', 'Last 12 months'],
-            ['last30', 'Last 30 days'],
-            ['all', 'All-time'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setPeriod(id)}
-            className={[
-              'rounded-lg px-4 py-1.5 text-[12.5px] font-semibold transition-colors duration-200',
-              period === id ? 'bg-surface-3 text-brass-bright shadow-[inset_0_0_0_1px_var(--color-brass-dim)]' : 'text-muted hover:text-parchment',
-            ].join(' ')}
-          >
-            {label}
-          </button>
-        ))}
+      {/* Period + date-basis toggles */}
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-xl border border-line bg-surface/60 p-1">
+          {(
+            [
+              ['year', `This year (${THIS_YEAR})`],
+              ['last12', 'Last 12 months'],
+              ['last30', 'Last 30 days'],
+              ['all', 'All-time'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setPeriod(id)}
+              className={[
+                'rounded-lg px-4 py-1.5 text-[12.5px] font-semibold transition-colors duration-200',
+                period === id ? 'bg-surface-3 text-brass-bright shadow-[inset_0_0_0_1px_var(--color-brass-dim)]' : 'text-muted hover:text-parchment',
+              ].join(' ')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-xl border border-line bg-surface/60 p-1">
+          {(
+            [
+              ['event', 'By event date'],
+              ['lead', 'By lead date'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setBasis(id)}
+              className={[
+                'rounded-lg px-4 py-1.5 text-[12.5px] font-semibold transition-colors duration-200',
+                basis === id ? 'bg-surface-3 text-brass-bright shadow-[inset_0_0_0_1px_var(--color-brass-dim)]' : 'text-muted hover:text-parchment',
+              ].join(' ')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Data caveats */}
       <div className="mb-6 rounded-lg border border-line bg-surface/50 px-4 py-2.5 text-[12px] leading-relaxed text-muted">
         Heads up: most historical lost/archived leads from HoneyBook aren't loaded yet, so the close rate reads high and the lost-reason
-        mix is thin. Periods filter by <span className="text-parchment">event date</span> (inquiry dates aren't tracked yet).
+        mix is thin. Lead dates are backfilled from your inquiry emails; the <span className="text-parchment">by lead date</span> view only
+        includes leads that have one ({s.datedCount} of {s.total} in view).
       </div>
 
       {/* Overview numbers */}
@@ -237,6 +269,14 @@ export function StatsPage({ projects }: { projects: Project[]; onOpenProject?: (
         <StatCard label="Still open" value={String(s.open)} accent="var(--color-umb-inquiry)" />
         <StatCard label="Booked revenue" value={money(s.bookedRevenue)} accent="var(--color-brass)" />
         <StatCard label="Avg booking" value={money(s.avgValue)} accent="var(--color-brass)" />
+      </div>
+
+      {/* Leads over time */}
+      <div className="mb-8">
+        <div className={CARD}>
+          <div className={SECTION}>Leads over time · by {basis === 'lead' ? 'lead date' : 'event date'}</div>
+          <MonthBars rows={s.months} />
+        </div>
       </div>
 
       {/* Sources */}

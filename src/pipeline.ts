@@ -21,6 +21,7 @@ export type Project = {
   eventType: EventType
   eventDate: string // ISO yyyy-mm-dd, or '' if unknown
   leadDate: string // when the lead/inquiry came in (ISO yyyy-mm-dd), or '' if unknown
+  signedOff: boolean // Michael has audited this project's stat fields (temporary audit flag)
   eventLocation: string
   venueType: string
   indoorsOrOutdoors: string

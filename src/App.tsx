@@ -418,10 +418,12 @@ function App() {
 
   // Inline edit of a project detail field: optimistic update + persist to JSON.
   const saveField = (id: string, field: string, value: string) => {
-    let v: string | number | null = value
+    let v: string | number | boolean | null = value
     if (field === 'totalFee' || field === 'mileage' || field === 'tips') {
       const n = Number(String(value).replace(/[^0-9.]/g, ''))
       v = value === '' || Number.isNaN(n) ? null : n
+    } else if (field === 'signedOff') {
+      v = value === 'true' || value === true
     }
     const apply = (p: Project) => (p.id === id ? ({ ...p, [field]: v } as Project) : p)
     setProjects((prev) => (prev ? prev.map(apply) : prev))
@@ -1125,7 +1127,7 @@ function App() {
               ) : page === 'finance' ? (
                 <FinancePage projects={allProjects} onOpenProject={openFull} />
               ) : page === 'stats' ? (
-                <StatsPage projects={allProjects} onOpenProject={openFull} />
+                <StatsPage projects={allProjects} onOpenProject={openFull} onSaveField={saveField} />
               ) : page === 'contacts' ? (
                 <ContactsPage
                   projects={allProjects}

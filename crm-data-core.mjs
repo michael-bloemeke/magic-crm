@@ -407,6 +407,7 @@ function normalize(p, bucket) {
     eventType: coerceType(p.event_type),
     eventDate: str(p.event_date),
     leadDate: str(p.lead_date),
+    signedOff: !!p.stat_signed_off,
     eventLocation: str(p.event_location),
     venueType: str(p.venue_type),
     indoorsOrOutdoors: str(p.indoors_or_outdoors),
@@ -966,6 +967,7 @@ const EDITABLE_FIELDS = {
   eventType: 'event_type',
   eventDate: 'event_date',
   leadDate: 'lead_date',
+  signedOff: 'stat_signed_off',
   eventLocation: 'event_location',
   venueType: 'venue_type',
   indoorsOrOutdoors: 'indoors_or_outdoors',
@@ -992,6 +994,9 @@ const EDITABLE_FIELDS = {
 
 // Coerce an inbound field value to the stored form, exactly as the files path does inline.
 function coerceFieldValue(jsonField, value) {
+  if (jsonField === 'stat_signed_off') {
+    return value === true || value === 'true' || value === 1 || value === '1'
+  }
   if (jsonField === 'total_fee' || jsonField === 'mileage' || jsonField === 'tips') {
     const n = Number(String(value ?? '').replace(/[^0-9.]/g, ''))
     return value === '' || value == null || Number.isNaN(n) ? null : n
