@@ -714,28 +714,106 @@ function openBookingPanel(p) {
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   document.body.appendChild(sheet)
 }
-// Read one email: subject + readable body + Copy (to send from the phone's mail app for now).
-function openEmailViewer(p, em, title) {
+// The project's primary contact first name (for merge fields like [firstName]).
+function firstNameFor(p) {
+  var n = (p.contactNames || '').split(/[,;]/)[0].trim()
+  return n ? n.split(/\s+/)[0] : ''
+}
+// Fill [firstName] merge tokens in a template's text with the contact's first name.
+function mergeText(text, p) {
+  var fn = firstNameFor(p)
+  return String(text || '').replace(/\[firstName\]/gi, fn || 'there')
+}
+// Reflect a saved/sent email in SNAP.emails so the card + hint update without a full reload.
+function updateLocalEmail(projectId, kind, rec, status) {
+  SNAP.emails = SNAP.emails || []
+  var i = -1
+  for (var j = 0; j < SNAP.emails.length; j++) {
+    var e = SNAP.emails[j]
+    if (e.projectId === projectId && e.kind === kind && (status === 'sent' ? true : e.status !== 'sent')) { i = j; break }
+  }
+  var out = {
+    id: (rec && rec.id) || (i >= 0 ? SNAP.emails[i].id : ''),
+    projectId: projectId, kind: kind,
+    to: (rec && rec.to) || [], subject: (rec && rec.subject) || '', body: (rec && rec.body) || '',
+    status: status, sentAt: (rec && rec.sentAt) || '',
+  }
+  if (i >= 0) SNAP.emails[i] = out
+  else SNAP.emails.push(out)
+}
+
+// Compose + SEND an email for a booking step. Prefills from an existing draft/sent email or from the
+// step's default subject; a template picker fills subject + body (with [firstName] merged). Send goes
+// through the cloud Gmail function (works with the Mac off); Save draft writes to the emails table.
+function openEmailComposer(p, kind, title, em) {
   var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
   var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove() }
-  var statusTxt = em.status === 'sent' ? ('Sent' + (em.sentAt ? ' · ' + timeAgo(em.sentAt) : '')) : 'Draft'
+  var close = function () { sheet.remove(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
   card.appendChild(el('<div class="sheet-title">' + esc(title) + '</div>'))
-  card.appendChild(el('<span class="ec-status ' + (em.status === 'sent' ? 'sent' : 'draft') + '" style="display:inline-block;margin:-4px 0 12px">' + esc(statusTxt) + '</span>'))
-  if (em.subject) card.appendChild(el('<div class="k" style="margin-bottom:4px">Subject</div><div class="v" style="margin-bottom:12px">' + esc(em.subject) + '</div>'))
-  card.appendChild(el('<div class="k" style="margin-bottom:4px">Body</div>'))
-  card.appendChild(el('<div class="v" style="white-space:pre-wrap;font-size:14px;line-height:1.55">' + esc(templateToText(em.body)) + '</div>'))
-  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="ev-copy">Copy</button><button class="btn-gold">Close</button></div>')
-  bar.children[1].addEventListener('click', close)
-  bar.children[0].addEventListener('click', function () {
-    var text = (em.subject ? em.subject + '\n\n' : '') + templateToText(em.body)
+  if (em && em.status === 'sent') {
+    card.appendChild(el('<span class="ec-status sent" style="display:inline-block;margin:-4px 0 10px">Already sent' + (em.sentAt ? ' · ' + esc(timeAgo(em.sentAt)) : '') + '. Sending again makes a new email.</span>'))
+  }
+  card.appendChild(el('<div class="k" style="margin-bottom:4px">To</div>'))
+  var toIn = document.createElement('input'); toIn.className = 'field-input'; toIn.inputMode = 'email'
+  toIn.value = em && em.to && em.to.length ? em.to.join(', ') : (p.contactEmails || '')
+  toIn.placeholder = 'name@email.com'
+  card.appendChild(toIn)
+
+  var tsel = document.createElement('select'); tsel.className = 'field-input'; tsel.style.marginTop = '8px'
+  tsel.appendChild(el('<option value="">Insert a template…</option>'))
+  ;(SNAP.templates || []).forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; tsel.appendChild(o) })
+  card.appendChild(tsel)
+
+  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Subject</div>'))
+  var subjIn = document.createElement('input'); subjIn.className = 'field-input'; subjIn.value = em ? em.subject : defaultSubjectFor(kind)
+  card.appendChild(subjIn)
+
+  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Message</div>'))
+  var bodyIn = document.createElement('textarea'); bodyIn.className = 'field-input'; bodyIn.rows = 9
+  bodyIn.value = em ? templateToText(em.body) : ''
+  card.appendChild(bodyIn)
+
+  tsel.addEventListener('change', function () {
+    var t = (SNAP.templates || []).find(function (x) { return x.id === tsel.value }); if (!t) { return }
+    if (t.subject) subjIn.value = mergeText(t.subject, p)
+    bodyIn.value = mergeText(templateToText(t.body), p)
+    tsel.value = ''
+  })
+
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="ec-save">Save draft</button><button class="btn-gold" id="ec-send">Send</button></div>')
+  card.appendChild(bar)
+  var bar2 = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost" id="ec-copy" style="flex:1">Copy</button><button class="btn-ghost" id="ec-close" style="flex:1">Close</button></div>')
+  card.appendChild(bar2)
+  card.appendChild(el('<div class="hint" style="margin-top:10px">Sends from michael@michaelbloemeke.com through Gmail, even with your Mac off.</div>'))
+
+  bar2.querySelector('#ec-close').addEventListener('click', close)
+  bar2.querySelector('#ec-copy').addEventListener('click', function () {
+    var text = (subjIn.value ? subjIn.value + '\n\n' : '') + bodyIn.value
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied') }).catch(function () { toast('Could not copy', 'err') })
     else toast('Copy not supported here', 'err')
   })
-  card.appendChild(bar)
-  card.appendChild(el('<div class="hint" style="margin-top:10px">Editing and sending land with cloud email. For now, copy this to send from your phone\'s mail app.</div>'))
+  bar.querySelector('#ec-save').addEventListener('click', function () {
+    doWrite(saveEmailDraft({ projectId: p.id, kind: kind, to: toIn.value, subject: subjIn.value, body: bodyIn.value }), 'Draft saved', function (saved) {
+      updateLocalEmail(p.id, kind, saved, 'draft')
+      close()
+    })
+  })
+  var sendBtn = bar.querySelector('#ec-send')
+  sendBtn.addEventListener('click', function () {
+    var toArr = toIn.value.split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
+    if (!toArr.length) { toast('Add a recipient.', 'err'); return }
+    if (!subjIn.value.trim()) { toast('Add a subject.', 'err'); return }
+    if (!bodyIn.value.trim()) { toast('Write a message.', 'err'); return }
+    if (!confirm('Send to ' + toArr.join(', ') + '?')) return
+    sendBtn.disabled = true; sendBtn.textContent = 'Sending…'
+    doWrite(sendEmail({ to: toArr, subject: subjIn.value, body: bodyIn.value, projectId: p.id, kind: kind }), 'Email sent', function (r) {
+      updateLocalEmail(p.id, kind, { id: r.emailId, to: toArr, subject: subjIn.value, body: bodyIn.value, sentAt: r.sentAt }, 'sent')
+      close()
+    }).catch(function () { sendBtn.disabled = false; sendBtn.textContent = 'Send' })
+  })
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   document.body.appendChild(sheet)
+  setTimeout(function () { if (!toIn.value) toIn.focus(); else bodyIn.focus() }, 40)
 }
 
 // ---- project-detail panels (bottom sheets = the mobile form of the Mac's side panels) ----

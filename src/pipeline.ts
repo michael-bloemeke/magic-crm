@@ -20,6 +20,7 @@ export type Project = {
   bucket: 'active' | 'completed' | 'archived'
   eventType: EventType
   eventDate: string // ISO yyyy-mm-dd, or '' if unknown
+  leadDate: string // when the lead/inquiry came in (ISO yyyy-mm-dd), or '' if unknown
   eventLocation: string
   venueType: string
   indoorsOrOutdoors: string

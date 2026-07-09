@@ -8,6 +8,7 @@ export type Page =
   | 'tasks'
   | 'calendar'
   | 'finance'
+  | 'stats'
   | 'contacts'
   | 'templates'
   | 'files'
@@ -109,6 +110,16 @@ const GROUPS: NavGroup[] = [
           <>
             <path d="M3 17l5-5 3 3 7-7" />
             <path d="M16 8h4v4" />
+          </>,
+        ),
+      },
+      {
+        id: 'stats',
+        label: 'Stats',
+        enabled: true,
+        icon: icon(
+          <>
+            <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
           </>,
         ),
       },
