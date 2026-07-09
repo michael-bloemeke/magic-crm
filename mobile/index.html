@@ -180,6 +180,33 @@
       .btn-danger:active { background: color-mix(in oklab, var(--red) 12%, transparent); }
       .payline { font-size: 12.5px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
 
+      /* Project-detail panel buttons */
+      .panelbar { display: flex; gap: 8px; margin: 8px 0 4px; }
+      .panelchip { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border-radius: 11px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600; }
+      .panelchip:active { background: var(--surface2); }
+      .panelchip svg { color: var(--brass-bright); }
+      .panelrow { width: 100%; display: flex; align-items: center; gap: 10px; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); margin-bottom: 9px; }
+      .panelrow:active { background: var(--surface2); }
+      .pr-label { font-size: 14.5px; font-weight: 600; color: var(--parchment); }
+      .pr-hint { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+      .pr-chev { color: var(--faint); flex: none; }
+      .actstack { display: flex; flex-direction: column; gap: 9px; }
+
+      /* Booking workflow (phase sections + email cards) */
+      .bk-sec { margin-bottom: 16px; }
+      .bk-head { display: flex; align-items: center; gap: 9px; margin: 0 0 9px; }
+      .emailcard { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); margin-bottom: 7px; text-align: left; }
+      .emailcard:active { background: var(--surface2); }
+      .emailcard:disabled { opacity: 0.55; }
+      .emailcard.placeholder { border-style: dashed; }
+      .ec-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--parchment); }
+      .emailcard:disabled .ec-title { color: var(--muted); font-weight: 500; }
+      .ec-status { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; flex: none; }
+      .ec-status.sent { color: var(--green); background: color-mix(in oklab, var(--green) 15%, transparent); }
+      .ec-status.draft { color: var(--amber); background: color-mix(in oklab, var(--amber) 15%, transparent); }
+      .ec-status.none { color: var(--faint); border: 1px solid var(--line); }
+      .ec-status.muted { color: var(--faint); }
+
       /* Topbar title (between the menu button and the actions) */
       .topbar-title { flex: 1; min-width: 0; }
       .topbar-title h1 { font-size: 17px; margin: 0; letter-spacing: 0.2px; }

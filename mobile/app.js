@@ -12,7 +12,7 @@ import {
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
-  updateContact,
+  updateContact, sendEmail, saveEmailDraft,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
@@ -34,6 +34,59 @@ var CONTACT_REL = [
   { v: 'no', label: 'No', color: '#f26d63' },
 ]
 function relColor(v) { for (var i = 0; i < CONTACT_REL.length; i++) if (CONTACT_REL[i].v === v) return CONTACT_REL[i].color; return 'var(--faint)' }
+
+// The booking workflow, by phase, mirroring the desktop project view. Each phase holds its standard
+// email steps (the "email cards"); the Booking phase also carries the document actions (placeholders
+// on the phone for now). Follow-up / check-in emails that exist in the DB are added dynamically.
+var BOOKING_PHASES = [
+  { key: 'inquiry', label: 'Inquiry', color: '#38ccda', emails: [
+    { kind: 'inquiry-response', title: 'Inquiry response', subject: 'Re: Your inquiry' },
+    { kind: 'inquiry-shark', title: 'Shark email', subject: 'Checking In' },
+    { kind: 'inquiry-breakup', title: 'Break-up email', subject: 'Following Up' },
+  ] },
+  { key: 'postcall', label: 'Post Call', color: '#f4b65c', emails: [
+    { kind: 'postcall', title: 'Post-call email', subject: 'Magician Information - Please Reply' },
+    { kind: 'shark', title: 'Shark email', subject: 'Checking In' },
+    { kind: 'breakup', title: 'Break-up email', subject: 'Following Up' },
+  ] },
+  { key: 'booking', label: 'Booking', color: '#46d189', docs: ['Invoice', 'Contract', 'Questionnaire'], emails: [
+    { kind: 'questionnaire-invite', title: 'Questionnaire invite', subject: 'A few details for your event' },
+  ] },
+  { key: 'booked', label: 'Booked', color: '#7d8cff', emails: [
+    { kind: 'booking-confirmation', title: 'Booking confirmation', subject: 'Booking Confirmed' },
+    { kind: 'checkin-1', title: 'Check-in', subject: 'Checking In' },
+  ] },
+  { key: 'postshow', label: 'Post show', color: '#c885e8', emails: [
+    { kind: 'thankyou', title: 'Thank-you email', subject: 'Thank you!' },
+  ] },
+]
+// Default subject for a step (from the phase map above; falls back by kind pattern).
+function defaultSubjectFor(kind) {
+  for (var i = 0; i < BOOKING_PHASES.length; i++) {
+    var e = BOOKING_PHASES[i].emails.find(function (x) { return x.kind === kind })
+    if (e) return e.subject || ''
+  }
+  if (/^(followup|inquiry-followup|checkin)/.test(kind)) return 'Checking In'
+  return ''
+}
+// Which phase a stored email kind belongs to (so DB follow-ups/check-ins land in the right section).
+function phaseForKind(kind) {
+  if (/^inquiry/.test(kind)) return 'inquiry'
+  if (kind === 'postcall' || kind === 'shark' || kind === 'breakup' || /^followup-/.test(kind)) return 'postcall'
+  if (kind === 'questionnaire-invite') return 'booking'
+  if (kind === 'booking-confirmation' || /^checkin-/.test(kind)) return 'booked'
+  if (kind === 'thankyou') return 'postshow'
+  return 'other'
+}
+// A human title for a dynamic email kind (followup-1 -> "Follow-up #1", etc.).
+function prettyKind(kind) {
+  var m
+  if ((m = kind.match(/^inquiry-followup-(\d+)$/))) return 'Inquiry follow-up #' + m[1]
+  if ((m = kind.match(/^followup-(\d+)$/))) return 'Follow-up #' + m[1]
+  if ((m = kind.match(/^checkin-(\d+)$/))) return 'Check-in #' + m[1]
+  if (kind === 'custom') return 'Custom email'
+  return kind
+}
 
 // Re-render whatever is currently on screen: the open project detail, else the active tab. Used after
 // a write so the change shows immediately without kicking the user out of a detail view.
@@ -505,7 +558,34 @@ function doDelete(p) {
   })
 }
 
-function renderDetail(id) {
+// A small top-bar "panel" chip (Notes / Activity / Actions).
+function panelChip(label, svgInner, onClick) {
+  var b = el('<button class="panelchip"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + svgInner + '</svg><span>' + esc(label) + '</span></button>')
+  b.addEventListener('click', onClick)
+  return b
+}
+// A full-width row button that opens a panel, with an optional right-aligned hint (count / total).
+function panelRow(label, hint, onClick) {
+  var b = el('<button class="panelrow"><span class="pr-label">' + esc(label) + '</span>' + (hint ? '<span class="pr-hint">' + esc(hint) + '</span>' : '') + '<svg class="pr-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>')
+  b.addEventListener('click', onClick)
+  return b
+}
+// Compact, read-only summary of a project's key facts (shown inline; full editing is in the panel).
+function eventSummary(p) {
+  var rows = []
+  if (p.eventDate) rows.push(['Date', fmtDate(p.eventDate)])
+  if (p.eventLocation) rows.push(['Location', p.eventLocation])
+  if (p.numberOfGuests) rows.push(['Guests', p.numberOfGuests])
+  if (p.venueType) rows.push(['Venue', p.venueType])
+  if (p.performanceStyle) rows.push(['Performance', p.performanceStyle])
+  if (p.eventDescription) rows.push(['Description', p.eventDescription])
+  if (!rows.length) return el('<div class="empty" style="padding:6px 2px;text-align:left">No details yet. Tap below to add.</div>')
+  var kv = el('<div class="kv"></div>')
+  rows.forEach(function (r) { kv.appendChild(el('<div class="item"><div class="k">' + esc(r[0]) + '</div><div class="v">' + esc(r[1]) + '</div></div>')) })
+  return kv
+}
+
+function renderDetail(id, keepScroll) {
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
   DETAIL_ID = id
   removeFab()
@@ -519,19 +599,24 @@ function renderDetail(id) {
     '<div class="detail-head"><div class="client">' + esc(p.client) + '</div>' +
     '<div class="line">' + esc([p.eventType, si.name].filter(Boolean).join('  ·  ')) + '</div>' +
     (p.totalFee != null && p.totalFee !== '' ? '<div class="line" style="color:var(--brass-bright);margin-top:6px">' + esc(money(p.totalFee)) + '</div>' : '') +
+    (p.bucket !== 'active' ? '<div class="statusline" style="margin-top:8px">' + esc(statusText(p)) + '</div>' : '') +
     '</div>'
   ))
 
-  // ---- lifecycle actions (Complete / Archive for active; Return for completed/archived; Delete) ----
-  v.appendChild(lifecycleActions(p))
+  // ---- top panel bar: Notes / Activity / Actions (Actions holds Complete·Archive·Delete·Restore) ----
+  var bar = el('<div class="panelbar"></div>')
+  bar.appendChild(panelChip('Notes', '<path d="M4 7h16M4 12h11M4 17h14"/>', function () { openNotesPanel(p) }))
+  bar.appendChild(panelChip('Activity', '<path d="M3 12h4l2.5 7 5-14 2.5 7h4"/>', function () { openActivityPanel(p) }))
+  bar.appendChild(panelChip('Actions', '<circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/>', function () { openActionsPanel(p) }))
+  v.appendChild(bar)
 
-  // ---- stage picker (with the desktop gates) — active projects only ----
+  // ---- stage picker (with the desktop gates) — active projects only, kept inline (core action) ----
   if (p.bucket === 'active') {
     v.appendChild(sectionLabel('Stage'))
     v.appendChild(stagePicker(p))
   }
 
-  // ---- contacts (Call/Text/Email + inline edit) ----
+  // ---- contact: kept inline (Call / Text / Email is a primary phone action) ----
   var emails = (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
   var phones = (p.contactPhones || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
   v.appendChild(sectionLabel('Contact'))
@@ -545,59 +630,292 @@ function renderDetail(id) {
   if (phones[0]) actions.appendChild(el('<a href="sms:' + esc(phones[0]) + '">Text</a>'))
   if (emails[0]) actions.appendChild(el('<a href="mailto:' + esc(emails[0]) + '">Email</a>'))
   if (actions.children.length) v.appendChild(actions)
-  // Edit the project's contact fields (names/emails/phones on the PROJECT row; phones get normalized).
   var editContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">Edit contact info</button>')
   editContactBtn.addEventListener('click', function () { openContactEditor(p) })
   v.appendChild(editContactBtn)
 
-  // ---- event details (tap any row to edit; only the safe/allow-listed fields are editable) ----
-  v.appendChild(sectionLabel('Event details'))
-  v.appendChild(detailFieldsEditor(p))
+  // ---- details: compact inline summary, full editing behind a panel ----
+  v.appendChild(sectionLabel('Details'))
+  v.appendChild(eventSummary(p))
+  v.appendChild(panelRow('Edit all details', '', function () { openDetailsPanel(p) }))
 
-  // ---- notes: the free-text project_notes field (editable) ----
-  v.appendChild(sectionLabel('Notes'))
-  v.appendChild(editableField(p, 'projectNotes', 'Notes', p.projectNotes || '', 'textarea', true))
+  // ---- booking workflow (phase-organized email cards + document placeholders) ----
+  v.appendChild(panelRow('Emails & booking', bookingHint(p), function () { openBookingPanel(p) }))
 
-  // ---- activity log + add a dated note entry ----
-  v.appendChild(sectionLabel('Activity'))
-  v.appendChild(addNoteBox(p))
+  // ---- tasks + payments: panel buttons with at-a-glance hints ----
+  var openTasks = SNAP.tasks.filter(function (t) { return t.projectId === id && !t.done }).length
+  v.appendChild(panelRow('Tasks', openTasks ? openTasks + ' open' : 'None', function () { openTasksPanel(p) }))
+  var recv = receivedFor(id)
+  var pend = (SNAP.payments || []).some(function (x) { return x.projectId === id && x.pending })
+  v.appendChild(panelRow('Payments', recv ? money(recv) + ' received' + (pend ? ' · pending' : '') : (pend ? 'Pending' : 'None logged'), function () { openPaymentsPanel(p) }))
+
+  if (!keepScroll) window.scrollTo(0, 0)
+}
+
+// ---- booking / emails ----
+
+// The saved email (if any) for a project + step.
+function emailFor(p, kind) {
+  return (SNAP.emails || []).find(function (e) { return e.projectId === p.id && e.kind === kind })
+}
+// A one-line hint for the Emails & booking row: how many are sent vs drafted.
+function bookingHint(p) {
+  var mine = (SNAP.emails || []).filter(function (e) { return e.projectId === p.id })
+  if (!mine.length) return 'Not started'
+  var sent = mine.filter(function (e) { return e.status === 'sent' }).length
+  var draft = mine.length - sent
+  return [sent ? sent + ' sent' : '', draft ? draft + ' draft' + (draft > 1 ? 's' : '') : ''].filter(Boolean).join(' · ')
+}
+// DB emails for a phase that aren't one of its fixed steps (follow-ups, extra check-ins).
+function dynamicEmailsForPhase(p, ph) {
+  var fixed = ph.emails.map(function (e) { return e.kind })
+  return (SNAP.emails || [])
+    .filter(function (e) { return e.projectId === p.id && phaseForKind(e.kind) === ph.key && fixed.indexOf(e.kind) < 0 })
+    .map(function (e) { return { kind: e.kind, title: prettyKind(e.kind) } })
+}
+// One email card: title + status (Sent / Draft / Not started). Tapping an existing one opens it.
+function emailCard(p, kind, title) {
+  var em = emailFor(p, kind)
+  var status = em ? (em.status === 'sent' ? 'Sent' : 'Draft') : 'Not started'
+  var scls = em ? (em.status === 'sent' ? 'sent' : 'draft') : 'none'
+  var c = el('<button class="emailcard"><span class="ec-title">' + esc(title) + '</span><span class="ec-status ' + scls + '">' + status + '</span></button>')
+  c.addEventListener('click', function () { openEmailComposer(p, kind, title, em) })
+  return c
+}
+// Booking panel: the whole workflow by phase, each phase's email cards, doc placeholders for Booking.
+function openBookingPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  card.appendChild(el('<div class="sheet-title">Emails & booking</div>'))
+  card.appendChild(el('<div class="hint" style="margin:-4px 0 14px">The booking workflow by stage. Tap an email to read and copy it. Editing and sending land with cloud email.</div>'))
+  BOOKING_PHASES.forEach(function (ph) {
+    var sec = el('<div class="bk-sec"></div>')
+    sec.style.setProperty('--sec', ph.color)
+    sec.appendChild(el('<div class="bk-head"><span class="psection-bar"></span><span class="psection-name">' + esc(ph.label) + '</span></div>'))
+    ph.emails.forEach(function (em) { sec.appendChild(emailCard(p, em.kind, em.title)) })
+    dynamicEmailsForPhase(p, ph).forEach(function (em) { sec.appendChild(emailCard(p, em.kind, em.title)) })
+    ;(ph.docs || []).forEach(function (d) {
+      sec.appendChild(el('<div class="emailcard placeholder"><span class="ec-title" style="color:var(--muted);font-weight:500">' + esc(d) + '</span><span class="ec-status muted">On desktop</span></div>'))
+    })
+    card.appendChild(sec)
+  })
+  var others = (SNAP.emails || []).filter(function (e) { return e.projectId === p.id && phaseForKind(e.kind) === 'other' })
+  if (others.length) {
+    var osec = el('<div class="bk-sec"></div>')
+    osec.style.setProperty('--sec', 'var(--faint)')
+    osec.appendChild(el('<div class="bk-head"><span class="psection-bar"></span><span class="psection-name">Other</span></div>'))
+    others.forEach(function (e) { osec.appendChild(emailCard(p, e.kind, prettyKind(e.kind))) })
+    card.appendChild(osec)
+  }
+  var done = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Close</button>')
+  done.addEventListener('click', close)
+  card.appendChild(done)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+// Read one email: subject + readable body + Copy (to send from the phone's mail app for now).
+function openEmailViewer(p, em, title) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  var statusTxt = em.status === 'sent' ? ('Sent' + (em.sentAt ? ' · ' + timeAgo(em.sentAt) : '')) : 'Draft'
+  card.appendChild(el('<div class="sheet-title">' + esc(title) + '</div>'))
+  card.appendChild(el('<span class="ec-status ' + (em.status === 'sent' ? 'sent' : 'draft') + '" style="display:inline-block;margin:-4px 0 12px">' + esc(statusTxt) + '</span>'))
+  if (em.subject) card.appendChild(el('<div class="k" style="margin-bottom:4px">Subject</div><div class="v" style="margin-bottom:12px">' + esc(em.subject) + '</div>'))
+  card.appendChild(el('<div class="k" style="margin-bottom:4px">Body</div>'))
+  card.appendChild(el('<div class="v" style="white-space:pre-wrap;font-size:14px;line-height:1.55">' + esc(templateToText(em.body)) + '</div>'))
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="ev-copy">Copy</button><button class="btn-gold">Close</button></div>')
+  bar.children[1].addEventListener('click', close)
+  bar.children[0].addEventListener('click', function () {
+    var text = (em.subject ? em.subject + '\n\n' : '') + templateToText(em.body)
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied') }).catch(function () { toast('Could not copy', 'err') })
+    else toast('Copy not supported here', 'err')
+  })
+  card.appendChild(bar)
+  card.appendChild(el('<div class="hint" style="margin-top:10px">Editing and sending land with cloud email. For now, copy this to send from your phone\'s mail app.</div>'))
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// ---- project-detail panels (bottom sheets = the mobile form of the Mac's side panels) ----
+
+// Actions: the lifecycle buttons, consolidated behind one button to save space at the top.
+function openActionsPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  card.appendChild(el('<div class="sheet-title">Actions</div>'))
+  if (p.bucket !== 'active') card.appendChild(el('<div class="statusline" style="margin:-4px 0 12px">' + esc(statusText(p)) + '</div>'))
+  var stack = el('<div class="actstack"></div>')
+  if (p.bucket === 'active') {
+    var comp = el('<button class="btn-gold" style="width:100%">Complete project</button>')
+    comp.addEventListener('click', function () { close(); openCompleteSheet(p) })
+    var arch = el('<button class="btn-ghost" style="width:100%">Archive project</button>')
+    arch.addEventListener('click', function () { close(); openArchiveSheet(p) })
+    stack.appendChild(comp); stack.appendChild(arch)
+  } else {
+    var rest = el('<button class="btn-gold" style="width:100%">Return to pipeline</button>')
+    rest.addEventListener('click', function () { close(); doRestore(p) })
+    stack.appendChild(rest)
+  }
+  var del = el('<button class="btn-danger">Delete permanently</button>')
+  del.addEventListener('click', function () { close(); doDelete(p) })
+  stack.appendChild(del)
+  card.appendChild(stack)
+  var cancel = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
+  cancel.addEventListener('click', close)
+  card.appendChild(cancel)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// Notes: the free-text project_notes field.
+function openNotesPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  card.appendChild(el('<div class="sheet-title">Notes</div>'))
+  var ta = document.createElement('textarea'); ta.className = 'field-input'; ta.rows = 8; ta.value = p.projectNotes || ''; ta.placeholder = 'Notes about this project…'
+  card.appendChild(ta)
+  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Close</button><button class="btn-gold">Save</button></div>')
+  bar.children[0].addEventListener('click', close)
+  bar.children[1].addEventListener('click', function () {
+    var nv = ta.value
+    if (nv === (p.projectNotes || '')) { close(); return }
+    doWrite(updateProjectField(p.id, 'projectNotes', nv), 'Saved', function (r) { p.projectNotes = r.value; close() })
+  })
+  card.appendChild(bar)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// Activity: add a dated note + read the activity log.
+function openActivityPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove() }
+  card.appendChild(el('<div class="sheet-title">Activity</div>'))
+  card.appendChild(addNoteBox(p))
   var logWrap = el('<div id="log-' + esc(p.id) + '"></div>')
   renderLog(logWrap, p)
-  v.appendChild(logWrap)
+  card.appendChild(logWrap)
+  var done = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
+  done.addEventListener('click', close)
+  card.appendChild(done)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
 
-  // ---- tasks for this project (toggle / delete / add) ----
-  var thead = el('<div class="tabhead" style="margin-top:18px"><div class="section-label" style="margin:0"><span class="dot"></span>Tasks</div><button class="addbtn" id="add-ptask"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add</button></div>')
-  v.appendChild(thead)
-  var pFormSlot = el('<div></div>')
-  v.appendChild(pFormSlot)
-  thead.querySelector('#add-ptask').addEventListener('click', function () {
-    if (pFormSlot.firstChild) { pFormSlot.innerHTML = ''; return }
-    pFormSlot.appendChild(addTaskForm(p.id))
+// One editable project field, inline within a panel (mirrors contactField but writes a project field).
+function projectFieldRow(p, key, label, kind, onSaved) {
+  var cur = key === 'projectName' ? (p.client || '') : (p[key] == null ? '' : String(p[key]))
+  var disp = (key === 'eventDate' && cur) ? fmtDate(cur) : cur
+  var wrap = el('<div class="item kv-tap" style="cursor:pointer"></div>')
+  wrap.appendChild(el('<div class="k">' + esc(label) + '</div><div class="v">' + (String(cur).trim() ? esc(disp) : '<span style="color:var(--faint)">Tap to add</span>') + '</div>'))
+  wrap.addEventListener('click', function () {
+    wrap.innerHTML = ''
+    wrap.appendChild(el('<div class="k" style="margin-bottom:5px">' + esc(label) + '</div>'))
+    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+    input.className = 'field-input'; if (kind === 'date') input.type = 'date'; input.value = cur; if (kind === 'textarea') input.rows = 3
+    wrap.appendChild(input)
+    var save = function () {
+      var nv = input.value
+      if (nv === cur) { onSaved(); return }
+      doWrite(updateProjectField(p.id, key, nv), 'Saved', function (r) {
+        if (key === 'projectName') p.client = r.value; else p[key] = r.value
+        onSaved()
+      }).catch(function () { onSaved() })
+    }
+    if (kind === 'textarea') {
+      var bar = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+      bar.children[0].addEventListener('click', function (e) { e.stopPropagation(); onSaved() })
+      bar.children[1].addEventListener('click', function (e) { e.stopPropagation(); save() })
+      wrap.appendChild(bar)
+    } else {
+      input.addEventListener('blur', save)
+    }
+    setTimeout(function () { input.focus() }, 30)
   })
-  var ptasks = SNAP.tasks.filter(function (t) { return t.projectId === id && !t.done })
-  ptasks.sort(function (a, b) { return (a.dueDate || '') < (b.dueDate || '') ? -1 : 1 })
-  if (ptasks.length) ptasks.forEach(function (t) { v.appendChild(taskCard(t, false)) })
-  else v.appendChild(el('<div class="empty" style="padding:12px">No open tasks.</div>'))
+  return wrap
+}
 
-  // ---- payments: log a deposit / balance for this project ----
-  var mhead = el('<div class="tabhead" style="margin-top:18px"><div class="section-label" style="margin:0"><span class="dot"></span>Payments</div><button class="addbtn" id="add-pay"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Log payment</button></div>')
-  v.appendChild(mhead)
-  var payFormSlot = el('<div></div>')
-  v.appendChild(payFormSlot)
-  mhead.querySelector('#add-pay').addEventListener('click', function () {
-    if (payFormSlot.firstChild) { payFormSlot.innerHTML = ''; return }
-    payFormSlot.appendChild(addPaymentForm(p))
-  })
-  var pays = (SNAP.payments || []).filter(function (x) { return x.projectId === id })
-    .sort(function (a, b) { return String(b.dateReceived || '').localeCompare(String(a.dateReceived || '')) })
-  if (pays.length) {
-    pays.forEach(function (pm) {
-      var lbl = [pm.type, pm.method].filter(Boolean).join(' · ')
-      v.appendChild(el('<div class="card" style="pointer-events:none"><div class="row1"><span class="name" style="font-size:14.5px">' + esc(money(pm.amount) || String(pm.amount)) + (pm.pending ? ' <span style="color:var(--faint);font-size:12px">(pending)</span>' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(pm.dateReceived ? fmtShort(pm.dateReceived) : '') + '</span></div>' + (lbl ? '<div class="meta">' + esc(lbl) + '</div>' : '') + '</div>'))
+// Details: all the editable event fields.
+function openDetailsPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove(); renderDetail(p.id, true) }
+  function rebuild() {
+    card.innerHTML = ''
+    card.appendChild(el('<div class="sheet-title">Edit details</div>'))
+    var kv = el('<div class="kv"></div>')
+    EDITABLE_DETAIL_FIELDS.forEach(function (f) { kv.appendChild(projectFieldRow(p, f[0], f[1], f[2], rebuild)) })
+    card.appendChild(kv)
+    var done = el('<button class="btn-gold" style="width:100%;margin-top:14px">Done</button>')
+    done.addEventListener('click', close)
+    card.appendChild(done)
+  }
+  rebuild()
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
+
+// Tasks for this project (toggle / delete / add).
+function openTasksPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove(); renderDetail(p.id, true) }
+  function rebuild() {
+    card.innerHTML = ''
+    var head = el('<div class="tabhead" style="margin:0 0 8px"><div class="sheet-title" style="margin:0">Tasks</div><button class="addbtn" id="pt-add"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add</button></div>')
+    card.appendChild(head)
+    var slot = el('<div></div>'); card.appendChild(slot)
+    head.querySelector('#pt-add').addEventListener('click', function () {
+      if (slot.firstChild) { slot.innerHTML = ''; return }
+      slot.appendChild(addTaskForm(p.id, function () { rebuild() }))
     })
-  } else v.appendChild(el('<div class="empty" style="padding:12px">No payments logged.</div>'))
+    var ptasks = SNAP.tasks.filter(function (t) { return t.projectId === p.id && !t.done })
+    ptasks.sort(function (a, b) { return (a.dueDate || '') < (b.dueDate || '') ? -1 : 1 })
+    if (ptasks.length) ptasks.forEach(function (t) { card.appendChild(taskCard(t, false, rebuild)) })
+    else card.appendChild(el('<div class="empty" style="padding:12px">No open tasks.</div>'))
+    var done = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
+    done.addEventListener('click', close)
+    card.appendChild(done)
+  }
+  rebuild()
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
+}
 
-  window.scrollTo(0, 0)
+// Payments for this project (log deposit / balance / pending).
+function openPaymentsPanel(p) {
+  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+  var card = sheet.querySelector('.sheet-card')
+  var close = function () { sheet.remove(); renderDetail(p.id, true) }
+  function rebuild() {
+    card.innerHTML = ''
+    var head = el('<div class="tabhead" style="margin:0 0 8px"><div class="sheet-title" style="margin:0">Payments</div><button class="addbtn" id="pay-add"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Log</button></div>')
+    card.appendChild(head)
+    var slot = el('<div></div>'); card.appendChild(slot)
+    head.querySelector('#pay-add').addEventListener('click', function () {
+      if (slot.firstChild) { slot.innerHTML = ''; return }
+      slot.appendChild(addPaymentForm(p, function () { rebuild() }))
+    })
+    var pays = (SNAP.payments || []).filter(function (x) { return x.projectId === p.id })
+      .sort(function (a, b) { return String(b.dateReceived || '').localeCompare(String(a.dateReceived || '')) })
+    if (pays.length) {
+      pays.forEach(function (pm) {
+        var lbl = [pm.type, pm.method].filter(Boolean).join(' · ')
+        card.appendChild(el('<div class="card" style="pointer-events:none"><div class="row1"><span class="name" style="font-size:14.5px">' + esc(money(pm.amount) || String(pm.amount)) + (pm.pending ? ' <span style="color:var(--faint);font-size:12px">(pending)</span>' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(pm.dateReceived ? fmtShort(pm.dateReceived) : '') + '</span></div>' + (lbl ? '<div class="meta">' + esc(lbl) + '</div>' : '') + '</div>'))
+      })
+    } else card.appendChild(el('<div class="empty" style="padding:12px">No payments logged.</div>'))
+    var done = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
+    done.addEventListener('click', close)
+    card.appendChild(done)
+  }
+  rebuild()
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  document.body.appendChild(sheet)
 }
 
 // Render (or re-render) a project's activity log into `wrap`.
@@ -645,44 +963,6 @@ function stagePicker(p) {
   return wrap
 }
 
-// A single editable field. Tapping the value turns it into an input/textarea; saving on blur (or the
-// Save button for textareas) writes via updateProjectField and patches the project object in place.
-// `field` is the camelCase key on the project AND the key updateProjectField expects.
-function editableField(p, field, label, value, kind, fullCard) {
-  var container = el('<div class="' + (fullCard ? 'card' : 'kv-edit') + '"></div>')
-  var display = el('<div class="edit-display"><div class="k">' + esc(label) + '</div><div class="v">' + (String(value).trim() ? esc(value) : '<span style="color:var(--faint)">Tap to add</span>') + '</div><span class="pencil">✎</span></div>')
-  container.appendChild(display)
-  display.addEventListener('click', function () {
-    container.innerHTML = ''
-    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
-    input.className = 'field-input'
-    if (kind === 'date') input.type = 'date'
-    if (kind === 'number') { input.type = 'text'; input.inputMode = 'decimal' }
-    input.value = value == null ? '' : String(value)
-    if (kind === 'textarea') input.rows = 4
-    container.appendChild(el('<div class="k" style="margin-bottom:5px">' + esc(label) + '</div>'))
-    container.appendChild(input)
-    var save = function () {
-      var nv = input.value
-      if (nv === String(value == null ? '' : value)) { renderDetail(p.id); return }
-      doWrite(updateProjectField(p.id, field, nv), 'Saved', function (r) {
-        p[field] = r.value
-        renderDetail(p.id)
-      }).catch(function () { renderDetail(p.id) })
-    }
-    if (kind === 'textarea') {
-      var bar = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
-      bar.children[0].addEventListener('click', function () { renderDetail(p.id) })
-      bar.children[1].addEventListener('click', save)
-      container.appendChild(bar)
-    } else {
-      input.addEventListener('blur', save)
-    }
-    setTimeout(function () { input.focus() }, 30)
-  })
-  return container
-}
-
 // The allow-listed editable event fields, in a sensible order. Each maps a camelCase project key to a
 // label + input kind. Only SAFE fields (never client_name).
 var EDITABLE_DETAIL_FIELDS = [
@@ -701,51 +981,6 @@ var EDITABLE_DETAIL_FIELDS = [
   ['bookingSource', 'Booking source', 'text'],
   ['eventDescription', 'Description', 'textarea'],
 ]
-function detailFieldsEditor(p) {
-  var wrap = el('<div class="kv"></div>')
-  EDITABLE_DETAIL_FIELDS.forEach(function (f) {
-    var key = f[0]
-    var val = key === 'projectName' ? (p.client || '') : (p[key] == null ? '' : p[key])
-    var display = key === 'eventDate' && val ? fmtDate(val) : val
-    var item = el('<div class="item kv-tap"><div class="k">' + esc(f[1]) + '</div><div class="v">' + (String(val).trim() ? esc(display) : '<span style="color:var(--faint)">Tap to add</span>') + '</div></div>')
-    item.addEventListener('click', function () { openFieldSheet(p, key, f[1], f[2]) })
-    wrap.appendChild(item)
-  })
-  return wrap
-}
-
-// A tiny modal sheet to edit one field (used by the event-details rows). Writes on Save.
-function openFieldSheet(p, field, label, kind) {
-  var curVal = field === 'projectName' ? (p.client || '') : (p[field] == null ? '' : String(p[field]))
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  card.appendChild(el('<div class="sheet-title">' + esc(label) + '</div>'))
-  var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
-  input.className = 'field-input'
-  if (kind === 'date') input.type = 'date'
-  input.value = curVal
-  if (kind === 'textarea') input.rows = 4
-  card.appendChild(input)
-  if (field === 'contactPhones') card.appendChild(el('<div class="hint">Phone numbers get auto-formatted on save.</div>'))
-  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
-  var close = function () { sheet.remove() }
-  bar.children[0].addEventListener('click', close)
-  bar.children[1].addEventListener('click', function () {
-    var nv = input.value
-    if (nv === curVal) { close(); return }
-    doWrite(updateProjectField(p.id, field, nv), 'Saved', function (r) {
-      if (field === 'projectName') p.client = r.value
-      else p[field] = r.value
-      close()
-      renderDetail(p.id)
-    })
-  })
-  card.appendChild(bar)
-  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
-  setTimeout(function () { input.focus() }, 40)
-}
-
 // The "add a note" box: appends a dated line to the activity log (newest first).
 function addNoteBox(p) {
   var wrap = el('<div class="addform"><textarea class="field-input" id="note-in" rows="2" placeholder="Add a note to the activity log…"></textarea><div class="addrow"><span></span><button class="btn-gold" id="note-save">Add note</button></div></div>')
@@ -763,7 +998,8 @@ function addNoteBox(p) {
 }
 
 // The "log a payment" form: amount + date + type + method. A dated payment satisfies the Booked gate.
-function addPaymentForm(p) {
+// onDone (optional) runs after the ledger refresh instead of a full page re-render (used by the panel).
+function addPaymentForm(p, onDone) {
   var wrap = el(
     '<div class="addform">' +
       '<input class="field-input" id="pay-amt" inputmode="decimal" placeholder="Amount (e.g. 500)" />' +
@@ -792,12 +1028,13 @@ function addPaymentForm(p) {
       method: wrap.querySelector('#pay-method').value,
       pending: pending,
     }), 'Payment logged', function () {
-      // Refresh the ledger + finance so the Money tab and the stage gate see the new payment.
+      // Refresh the ledger + finance so Money, the stage gate, and the caller see the new payment.
+      var after = onDone || function () { renderDetail(p.id) }
       reloadPaymentsFinance(SNAP.projects, SNAP.config).then(function (r) {
         SNAP.payments = r.payments
         SNAP.finance = r.finance
-        renderDetail(p.id)
-      }).catch(function () { renderDetail(p.id) })
+        after()
+      }).catch(after)
     })
   })
   return wrap
@@ -829,7 +1066,7 @@ function openContactEditor(p) {
     if (emIn.value !== (p.contactEmails || '')) writes.push(updateProjectField(p.id, 'contactEmails', emIn.value).then(function (r) { p.contactEmails = r.value }))
     if (phIn.value !== (p.contactPhones || '')) writes.push(updateProjectField(p.id, 'contactPhones', phIn.value).then(function (r) { p.contactPhones = r.value }))
     if (!writes.length) { close(); return }
-    doWrite(Promise.all(writes), 'Contact updated', function () { close(); renderDetail(p.id) })
+    doWrite(Promise.all(writes), 'Contact updated', function () { close(); renderDetail(p.id, true) })
   })
   card.appendChild(bar)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
@@ -839,7 +1076,8 @@ function openContactEditor(p) {
 // A task row with a tap-to-toggle checkbox on the left, the title/meta in the middle (tapping the
 // body opens the project when showProject), and a delete (x) on the right. Toggling checks it off
 // (crm rule: done=true), which removes it from the open lists on the next render.
-function taskCard(t, showProject) {
+function taskCard(t, showProject, onChange) {
+  var after = onChange || refreshView
   var st = dueState(t.dueDate, t.dueTime)
   var pName = ''
   if (showProject) { var pr = SNAP.projects.find(function (x) { return x.id === t.projectId }); pName = pr ? pr.client : t.projectId }
@@ -862,7 +1100,7 @@ function taskCard(t, showProject) {
     var next = !t.done
     doWrite(toggleTask(t.id, next), next ? 'Task done' : 'Task reopened', function () {
       t.done = next // optimistic; SNAP.tasks holds the same object reference
-      refreshView()
+      after()
     })
   })
   var del = c.querySelector('.taskdel')
@@ -871,7 +1109,7 @@ function taskCard(t, showProject) {
     if (!confirm('Delete this task?')) return
     doWrite(deleteTask(t.id), 'Task deleted', function () {
       SNAP.tasks = SNAP.tasks.filter(function (x) { return x.id !== t.id })
-      refreshView()
+      after()
     })
   })
   if (showProject) {

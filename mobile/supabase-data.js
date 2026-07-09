@@ -846,6 +846,56 @@ export async function loadTemplates() {
   return (data || []).map((t) => ({ id: str(t.id), name: str(t.name), subject: str(t.subject), body: str(t.body) }))
 }
 
+// Per-project, per-step emails (the booking workflow's email cards). kind = the step (postcall,
+// inquiry-response, followup-1, thankyou, ...); status = draft | sent. Body is HTML.
+export async function loadEmails() {
+  const { data, error } = await sb.from('emails').select('id,project_id,kind,to,subject,body,status,sent_at')
+  if (error) throw error
+  return (data || []).map((e) => ({
+    id: str(e.id),
+    projectId: str(e.project_id),
+    kind: str(e.kind),
+    to: Array.isArray(e.to) ? e.to.map(String) : [],
+    subject: str(e.subject),
+    body: str(e.body),
+    status: str(e.status) || 'draft',
+    sentAt: isoZ(e.sent_at),
+  }))
+}
+
+// Send an email as Michael via the send-email Edge Function (cloud Gmail; works with the Mac off).
+// supabase-js attaches the logged-in session JWT, which the function verifies. The function also flips
+// the matching draft in `emails` to sent. Returns { ok, id, emailId, sentAt }.
+export async function sendEmail({ to, subject, body, projectId, kind } = {}) {
+  const { data, error } = await sb.functions.invoke('send-email', { body: { to, subject, body, projectId, kind } })
+  if (error) {
+    let msg = error.message || 'Could not send.'
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error } catch (_) { /* keep msg */ }
+    throw new Error(msg)
+  }
+  if (data && data.ok === false) throw new Error(data.error || 'Could not send.')
+  return data || {}
+}
+
+// Save (or update) a draft email for a project + step, directly in `emails` (status draft). Phone-side,
+// so drafts are stored as plain text (format 'text'); the cloud send re-stores as HTML on send.
+export async function saveEmailDraft({ projectId, kind, to, subject, body } = {}) {
+  if (!projectId) throw new Error('Project id is required.')
+  const toArr = Array.isArray(to) ? to : String(to || '').split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+  const nowIso = new Date().toISOString()
+  const row = { project_id: projectId, kind: String(kind || 'custom'), to: toArr, subject: String(subject || ''), body: String(body || ''), format: 'text', status: 'draft', updated_at: nowIso }
+  const { data: ex } = await sb.from('emails').select('id').eq('project_id', projectId).eq('kind', kind).neq('status', 'sent').order('updated_at', { ascending: false }).limit(1)
+  if (ex && ex.length) {
+    const { error } = await sb.from('emails').update(row).eq('id', ex[0].id)
+    if (error) throw error
+    return { id: ex[0].id, subject: row.subject, body: row.body, to: toArr }
+  }
+  const id = uuid()
+  const { error } = await sb.from('emails').insert({ id, created_at: nowIso, ...row })
+  if (error) throw error
+  return { id, subject: row.subject, body: row.body, to: toArr }
+}
+
 // Contact links: { [projectId]: [contactId, ...] }. Powers "linked projects" on a contact and (later)
 // contacts-on-a-project. Mirrors crm-links.
 export async function loadLinks() {
@@ -892,7 +942,7 @@ export async function savePushSubscription(sub) {
 // One call that pulls everything a load-and-render needs, and assembles the exact `SNAP`-shaped
 // object the view code consumes. This is the single seam the boot code hits after login.
 export async function loadEverything() {
-  const [projects, structure, tasks, config, contacts, templates, links, paymentsRaw] = await Promise.all([
+  const [projects, structure, tasks, config, contacts, templates, links, emails, paymentsRaw] = await Promise.all([
     loadProjects(),
     loadStructure(),
     loadTasks(),
@@ -900,6 +950,7 @@ export async function loadEverything() {
     loadContacts(),
     loadTemplates(),
     loadLinks(),
+    loadEmails(),
     sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at'),
   ])
   if (paymentsRaw.error) throw paymentsRaw.error
@@ -922,6 +973,7 @@ export async function loadEverything() {
     contacts,
     templates,
     links,
+    emails,
     customFields: config.customFields,
     customValues: {}, // custom values are desktop-file-only; the phone has none
     eventFieldLabels: config.eventFieldLabels,
