@@ -10,6 +10,7 @@ import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { EmailBuilderCard } from './EmailBuilderCard'
 import { InvoiceCard } from './InvoiceCard'
 import { ContractCard } from './ContractCard'
+import { CalendarInviteCard } from './CalendarInviteCard'
 import { QuestionnaireCard } from './QuestionnaireCard'
 import { RecipientsCard } from './RecipientsCard'
 import { contactsForProject } from '../contacts'
@@ -444,6 +445,7 @@ export function ProjectDetailsBody({
               onEmailSaved={upsertEmail}
               onEmailDiscard={discardEmail}
             />
+            <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
         </div>
       </DetailSection>
