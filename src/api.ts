@@ -1265,6 +1265,30 @@ export async function syncCalendar(): Promise<{ ok: boolean; projects?: number; 
   return (await res.json()) as { ok: boolean; projects?: number; tasks?: number; errors?: string[]; error?: string }
 }
 
+// Send a one-off Google Calendar invite (on the "Work" calendar) to the attendees.
+// Creates the event + emails the invitation; logs the send on the project.
+export type CalendarInviteInput = {
+  projectId?: string
+  summary: string
+  date: string // YYYY-MM-DD
+  startTime?: string // "HH:MM" (24h) or "" for an all-day invite
+  durationMin?: number
+  attendees: string[]
+  location?: string
+  description?: string
+  allDay?: boolean
+}
+export async function sendCalendarInvite(
+  input: CalendarInviteInput,
+): Promise<{ ok: boolean; eventId?: string; htmlLink?: string; summary?: string; attendees?: string[]; error?: string }> {
+  const res = await fetch('/api/calendar/invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  return (await res.json()) as { ok: boolean; eventId?: string; htmlLink?: string; summary?: string; attendees?: string[]; error?: string }
+}
+
 // Unread email counts per project id (for the flow-view badges).
 export async function loadUnreadByProject(): Promise<Record<string, number>> {
   try {

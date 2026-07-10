@@ -34,6 +34,7 @@ import {
   loadStructure,
   saveStructure,
   reassignStage,
+  appendActivityLog,
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
@@ -45,6 +46,7 @@ import {
   removeTaskEvent,
   syncAll as syncCalendarAll,
   calendarStatus,
+  sendCalendarInvite,
 } from './crm-calendar.mjs'
 import {
   loadPortals,
@@ -1447,6 +1449,28 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/calendar/sync', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, () => syncCalendarAll())
+      })
+      server.middlewares.use('/api/calendar/invite', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          const result = await sendCalendarInvite({
+            summary: b.summary,
+            dateISO: b.date,
+            startTime: b.startTime,
+            durationMin: b.durationMin,
+            attendees: Array.isArray(b.attendees) ? b.attendees : [],
+            location: b.location,
+            description: b.description,
+            allDay: b.allDay,
+          })
+          // Log the send on the project so it shows in the activity timeline.
+          if (result.ok && b.projectId) {
+            const who = (result.attendees || []).join(', ')
+            const when = `${b.date}${b.startTime ? ' ' + b.startTime : ''}`
+            await appendActivityLog(b.projectId, `Sent calendar invite "${result.summary}" (${when})${who ? ' to ' + who : ''}.`)
+          }
+          return result
+        })
       })
       server.middlewares.use('/api/calendar', (req, res, next) => {
         if (req.method !== 'GET') return next()

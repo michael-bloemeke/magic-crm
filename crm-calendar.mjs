@@ -391,6 +391,56 @@ export async function syncAll() {
   return { ok: true, projects: projectCount, tasks: taskCount, errors: [...errors] }
 }
 
+// ---- One-off calendar invite (project Booking section) ----------------------
+
+// Create a standalone event on the "Work" calendar and email an invitation to the
+// attendees (sendUpdates:'all', so Google adds it to their calendars too). Unlike
+// syncProject/syncTask this is NOT tracked in the event-id map: it's a fire-once
+// invite Michael sends by hand from a project's Booking section, so the background
+// sync never updates or removes it. Returns the created event (or an error).
+export async function sendCalendarInvite({
+  summary,
+  dateISO,
+  startTime = '',
+  durationMin = 30,
+  attendees = [],
+  location = '',
+  description = '',
+  allDay = false,
+}) {
+  if (!isCalendarConnected()) return { ok: false, error: 'Not connected to Google Calendar. Connect it in Settings first.' }
+  if (!isValidDate(dateISO)) return { ok: false, error: 'Pick a valid date.' }
+  const emails = [...new Set((attendees || []).map((e) => String(e || '').trim()).filter((e) => /.+@.+\..+/.test(e)))]
+  try {
+    const cal = api()
+    const calId = await resolveCalendarId(cal, WORK_CALENDAR)
+    if (!calId) return { ok: false, error: `Calendar "${WORK_CALENDAR}" not found in your Google account.` }
+    const body = {
+      summary: String(summary || 'Appointment').trim() || 'Appointment',
+      location: String(location || '').trim() || undefined,
+      description: String(description || '').trim() || undefined,
+      attendees: emails.map((email) => ({ email })),
+      reminders: { useDefault: true },
+    }
+    const t = allDay ? null : parseTime(startTime)
+    if (t) {
+      const mins = Math.max(5, Math.min(720, Number(durationMin) || 30))
+      body.start = { dateTime: dateTimeAt(dateISO, t), timeZone: TIMEZONE }
+      body.end = { dateTime: dateTimeAt(dateISO, t, mins), timeZone: TIMEZONE }
+    } else {
+      // No usable start time -> an all-day event.
+      body.start = { date: dateISO }
+      body.end = { date: shiftDate(dateISO, 1) }
+    }
+    // sendUpdates:'all' is what actually emails the invitation to the attendees.
+    const res = await cal.events.insert({ calendarId: calId, requestBody: body, sendUpdates: 'all' })
+    return { ok: true, eventId: res.data.id, htmlLink: res.data.htmlLink, summary: body.summary, attendees: emails }
+  } catch (e) {
+    console.error('[crm-calendar] sendCalendarInvite failed:', e?.message || e)
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 // Connection + calendar-availability status for the Settings UI.
 export async function calendarStatus() {
   const connected = isConnected()
