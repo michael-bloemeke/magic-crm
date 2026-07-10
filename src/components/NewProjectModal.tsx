@@ -56,12 +56,25 @@ export function NewProjectModal({ open, projects, categories, onClose, onCreated
 
   // Unique existing contacts (first contact of each project).
   const contacts = useMemo(() => {
+    // Defensive: some legacy records stored a contact field as a JSON-array string
+    // (e.g. `["Dakota Tilley"]`). Unwrap those so we never render stray brackets/quotes.
+    const clean = (v: string) => {
+      const s = (v || '').trim()
+      if (!s.startsWith('[')) return s
+      try {
+        const arr = JSON.parse(s)
+        if (Array.isArray(arr)) return arr.map(String).join(', ')
+      } catch {
+        return s.replace(/^\[|\]$/g, '').replace(/^"|"$/g, '')
+      }
+      return s
+    }
     const seen = new Set<string>()
     const out: { key: string; label: string; name: string; email: string; phone: string }[] = []
     for (const p of projects) {
-      const cn = (p.contactNames || '').split(/[,;]/)[0].trim()
-      const ce = (p.contactEmails || '').split(/[,;]/)[0].trim()
-      const cp = (p.contactPhones || '').split(/[,;]/)[0].trim()
+      const cn = clean(p.contactNames).split(/[,;]/)[0].trim()
+      const ce = clean(p.contactEmails).split(/[,;]/)[0].trim()
+      const cp = clean(p.contactPhones).split(/[,;]/)[0].trim()
       if (!cn && !ce) continue
       const key = `${cn}|${ce}`.toLowerCase()
       if (seen.has(key)) continue
@@ -70,14 +83,6 @@ export function NewProjectModal({ open, projects, categories, onClose, onCreated
     }
     return out.sort((a, b) => a.label.localeCompare(b.label))
   }, [projects])
-
-  const pickContact = (key: string) => {
-    const c = contacts.find((x) => x.key === key)
-    if (!c) return
-    setContactName(c.name)
-    setContactEmail(c.email)
-    setContactPhone(c.phone)
-  }
 
   const create = async () => {
     if (!name.trim()) return
@@ -171,28 +176,21 @@ export function NewProjectModal({ open, projects, categories, onClose, onCreated
 
               {/* Contact (optional) */}
               <div className="rounded-xl border border-line bg-surface-2/40 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="mb-2 flex items-center">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-faint">Contact (optional)</span>
-                  {contacts.length > 0 && (
-                    <div className="relative">
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value) pickContact(e.target.value)
-                          e.currentTarget.selectedIndex = 0
-                        }}
-                        className="input cursor-pointer py-1 pr-7 text-[11.5px]"
-                      >
-                        <option value="">Use existing…</option>
-                        {contacts.map((c) => (
-                          <option key={c.key} value={c.key}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </div>
+                {contacts.length > 0 && (
+                  <div className="mb-2">
+                    <ContactSearchPicker
+                      contacts={contacts}
+                      onPick={(c) => {
+                        setContactName(c.name)
+                        setContactEmail(c.email)
+                        setContactPhone(c.phone)
+                      }}
+                    />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Contact name" className="input w-full" />
                   <div className="grid grid-cols-2 gap-2">
@@ -236,6 +234,125 @@ export function NewProjectModal({ open, projects, categories, onClose, onCreated
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+type ContactOpt = { key: string; label: string; name: string; email: string; phone: string }
+
+// A search-as-you-type picker for reusing an existing contact. Replaces the old native
+// <select> (which, with hundreds of contacts, was an unusable wall of options whose only
+// "search" was first-letter jump). Filters by name, email, or phone digits and is
+// keyboard-navigable, mirroring the global Cmd-K search.
+function ContactSearchPicker({ contacts, onPick }: { contacts: ContactOpt[]; onPick: (c: ContactOpt) => void }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const [hi, setHi] = useState(0)
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return contacts.slice(0, 8)
+    const tokens = q.split(/\s+/)
+    const qDigits = q.replace(/\D/g, '')
+    const matches = contacts.filter((c) => {
+      const hay = `${c.name} ${c.email}`.toLowerCase()
+      const phoneDigits = c.phone.replace(/\D/g, '')
+      const byTokens = tokens.every((t) => {
+        const td = t.replace(/\D/g, '')
+        return hay.includes(t) || (td.length >= 2 && phoneDigits.includes(td))
+      })
+      return byTokens || (qDigits.length >= 3 && phoneDigits.includes(qDigits))
+    })
+    return matches.slice(0, 8)
+  }, [query, contacts])
+
+  useEffect(() => {
+    setHi(0)
+  }, [query])
+
+  const choose = (c: ContactOpt) => {
+    onPick(c)
+    setQuery('')
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <svg
+          viewBox="0 0 24 24"
+          className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-3.6-3.6" />
+        </svg>
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              if (open) {
+                e.stopPropagation() // close the dropdown, not the whole modal
+                setOpen(false)
+              }
+              return
+            }
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              if (!open) setOpen(true)
+              else setHi((h) => Math.min(h + 1, results.length - 1))
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setHi((h) => Math.max(h - 1, 0))
+            } else if (e.key === 'Enter') {
+              if (open && results[hi]) {
+                e.preventDefault()
+                choose(results[hi])
+              }
+            }
+          }}
+          placeholder="Search existing contacts…"
+          className="input w-full"
+          style={{ paddingLeft: '2rem' }}
+        />
+      </div>
+      {open && results.length > 0 && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-3 py-1 shadow-[0_20px_44px_-20px_rgba(0,0,0,0.9)]">
+          {results.map((c, i) => (
+            <button
+              key={c.key}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()} // keep input focus so onBlur doesn't beat the click
+              onMouseEnter={() => setHi(i)}
+              onClick={() => choose(c)}
+              className={[
+                'flex w-full flex-col items-start px-3 py-1.5 text-left transition-colors',
+                i === hi ? 'bg-surface-2' : 'hover:bg-surface-2',
+              ].join(' ')}
+            >
+              <span className="text-[12.5px] text-parchment">{c.name || '(no name)'}</span>
+              {(c.email || c.phone) && (
+                <span className="text-[10.5px] text-faint">{[c.email, c.phone].filter(Boolean).join(' · ')}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && query.trim() && results.length === 0 && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 rounded-lg border border-line-strong bg-surface-3 px-3 py-2 text-[11.5px] text-faint shadow-[0_20px_44px_-20px_rgba(0,0,0,0.9)]">
+          No matches.
+        </div>
+      )}
+    </div>
   )
 }
 
