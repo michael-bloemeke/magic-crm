@@ -4,6 +4,7 @@ import { Sidebar, type Page } from './components/Sidebar'
 import { SettingsPage } from './components/SettingsPage'
 import { PipelineBoard } from './components/PipelineBoard'
 import { PipelineFlow } from './components/PipelineFlow'
+import { PipelineCards } from './components/PipelineCards'
 import { ProjectDetail } from './components/ProjectDetail'
 import { ProjectView } from './components/ProjectView'
 import { ContactDetail } from './components/ContactDetail'
@@ -96,7 +97,7 @@ import {
 } from './api'
 import { linkedProjectsFor, contactsForProject } from './contacts'
 
-type View = 'flow' | 'board'
+type View = 'flow' | 'board' | 'cards'
 
 const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   home: { kicker: 'Home', title: 'Home' },
@@ -114,12 +115,14 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   settings: { kicker: 'System', title: 'Settings' },
 }
 
+// Back-button history tracks only real SCREENS (page / view / full-page project),
+// never side panes or popups. Opening/closing a contact or project side pane must
+// not create a history entry, otherwise closing a pane leaves an entry that Back
+// would immediately re-open (an infinite loop). Panes are closed on Back instead.
 type NavSnap = {
   page: Page
   view: View
   fullProjectId: string | null
-  selectedId: string | null
-  contactPaneId: string | null
 }
 
 function App() {
@@ -127,7 +130,7 @@ function App() {
   // was instead of bouncing to Home.
   const [view, setView] = useState<View>(() => {
     const saved = localStorage.getItem('crm:view')
-    return saved === 'board' || saved === 'flow' ? saved : 'flow'
+    return saved === 'board' || saved === 'flow' || saved === 'cards' ? saved : 'flow'
   })
   const [page, setPage] = useState<Page>(() => {
     const saved = localStorage.getItem('crm:page')
@@ -246,8 +249,10 @@ function App() {
       setPage(prev.page)
       setView(prev.view)
       setFullProject(prev.fullProjectId ? (projects ?? []).find((p) => p.id === prev.fullProjectId) ?? null : null)
-      setSelected(prev.selectedId ? (projects ?? []).find((p) => p.id === prev.selectedId) ?? null : null)
-      setContactPane(prev.contactPaneId ? contacts.find((c) => c.id === prev.contactPaneId) ?? null : null)
+      // Back navigates screens only. Always close any open side/contact pane so a
+      // pane can never be re-opened by Back.
+      setSelected(null)
+      setContactPane(null)
       return h.slice(0, -1)
     })
   }
@@ -258,8 +263,6 @@ function App() {
       page,
       view,
       fullProjectId: fullProject?.id ?? null,
-      selectedId: selected?.id ?? null,
-      contactPaneId: contactPane?.id ?? null,
     }
     const prev = lastNav.current
     lastNav.current = snap
@@ -271,14 +274,12 @@ function App() {
       prev &&
       (prev.page !== snap.page ||
         prev.view !== snap.view ||
-        prev.fullProjectId !== snap.fullProjectId ||
-        prev.selectedId !== snap.selectedId ||
-        prev.contactPaneId !== snap.contactPaneId)
+        prev.fullProjectId !== snap.fullProjectId)
     ) {
       setHistory((h) => [...h.slice(-49), prev])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, view, fullProject, selected, contactPane])
+  }, [page, view, fullProject])
 
   // After returning from a project view, restore the previous scroll position.
   useEffect(() => {
@@ -980,7 +981,7 @@ function App() {
                 {page === 'pipeline' && (
                   <>
                     <div className="flex items-center gap-1 rounded-xl border border-line bg-surface/60 p-1">
-                      {(['flow', 'board'] as const).map((v) => (
+                      {(['flow', 'board', 'cards'] as const).map((v) => (
                         <button
                           key={v}
                           type="button"
@@ -1168,6 +1169,14 @@ function App() {
                   onRecolorCategory={recolorCategoryTo}
                   onDeleteCategory={requestDeleteCategory}
                   onReorderCategory={reorderCategoryBy}
+                />
+              ) : view === 'cards' ? (
+                <PipelineCards
+                  pipeline={pipeline}
+                  onOpenFull={openFull}
+                  onOpenSide={openSide}
+                  unread={unread}
+                  pendingPaymentIds={pendingPaymentIds}
                 />
               ) : (
                 <PipelineFlow
