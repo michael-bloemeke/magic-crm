@@ -14,6 +14,7 @@ import { TasksPage } from './components/TasksPage'
 import { InboxPage } from './components/InboxPage'
 import { CalendarPage } from './components/CalendarPage'
 import { FinancePage } from './components/FinancePage'
+import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { TemplatesPage } from './components/TemplatesPage'
@@ -107,6 +108,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   calendar: { kicker: 'Calendar', title: 'Calendar' },
   finance: { kicker: 'Finance', title: 'Finance' },
   stats: { kicker: 'Stats', title: 'Lead Stats' },
+  website: { kicker: 'Website', title: 'Website Analytics' },
   contacts: { kicker: 'Contacts', title: 'Contacts' },
   templates: { kicker: 'Library', title: 'Templates' },
   files: { kicker: 'Library', title: 'Files' },
@@ -424,7 +426,7 @@ function App() {
       const n = Number(String(value).replace(/[^0-9.]/g, ''))
       v = value === '' || Number.isNaN(n) ? null : n
     } else if (field === 'signedOff') {
-      v = value === 'true' || value === true
+      v = value === 'true'
     }
     const apply = (p: Project) => (p.id === id ? ({ ...p, [field]: v } as Project) : p)
     setProjects((prev) => (prev ? prev.map(apply) : prev))
@@ -1129,6 +1131,8 @@ function App() {
                 <FinancePage projects={allProjects} onOpenProject={openFull} />
               ) : page === 'stats' ? (
                 <StatsPage projects={allProjects} onOpenProject={openFull} onSaveField={saveField} />
+              ) : page === 'website' ? (
+                <WebsiteAnalyticsPage />
               ) : page === 'contacts' ? (
                 <ContactsPage
                   projects={allProjects}

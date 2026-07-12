@@ -9,6 +9,7 @@ export type Page =
   | 'calendar'
   | 'finance'
   | 'stats'
+  | 'website'
   | 'contacts'
   | 'templates'
   | 'files'
@@ -120,6 +121,18 @@ const GROUPS: NavGroup[] = [
         icon: icon(
           <>
             <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+          </>,
+        ),
+      },
+      {
+        id: 'website',
+        label: 'Website',
+        enabled: true,
+        icon: icon(
+          <>
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <path d="M12 3c2.6 2.6 2.6 15.4 0 18M12 3c-2.6 2.6-2.6 15.4 0 18" />
           </>,
         ),
       },
