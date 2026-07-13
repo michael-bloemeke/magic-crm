@@ -1421,3 +1421,63 @@ export async function checkInquiries(): Promise<{ ok: boolean; importedCount?: n
 export async function dismissInquiry(blockId: string): Promise<void> {
   await postJson('/api/inquiries/dismiss', { blockId })
 }
+
+// --- Live website analytics (GA4 + Search Console via the website-analytics edge function) ----
+export type AnalyticsSummary = {
+  users: number
+  sessions: number
+  newUsers: number
+  avgSessionDuration: number // seconds
+  pageViews: number
+}
+export type Analytics = {
+  ok: boolean
+  // false = the Google credential (GOOGLE_SA_KEY secret) isn't set yet, or the function is unreachable.
+  connected: boolean
+  generatedAt: string
+  property?: string
+  error?: string
+  errors?: string[]
+  realtime?: {
+    activeUsers: number
+    byCity: { city: string; users: number }[]
+    byPage: { page: string; users: number }[]
+  } | null
+  visitors?: {
+    last7: AnalyticsSummary
+    last28: AnalyticsSummary
+    trend: { date: string; users: number }[]
+  } | null
+  sources?: {
+    channels: { channel: string; sessions: number; users: number }[]
+    top: { source: string; sessions: number; users: number }[]
+  } | null
+  locations?: {
+    countries: { country: string; users: number }[]
+    cities: { city: string; region: string; country: string; users: number }[]
+  } | null
+  devices?: {
+    categories: { device: string; users: number }[]
+    browsers: { browser: string; users: number }[]
+    os: { os: string; users: number }[]
+  } | null
+  pages?: { path: string; views: number; avgTime: number }[] | null
+  search?: {
+    startDate: string
+    endDate: string
+    totals: { clicks: number; impressions: number; ctr: number; queries: number }
+    queries: { query: string; clicks: number; impressions: number; ctr: number; position: number }[]
+  } | null
+  conversions?: {
+    leads7: number
+    leads28: number
+    rate7: number | null
+    rate28: number | null
+  } | null
+}
+
+export async function loadAnalytics(): Promise<Analytics> {
+  const res = await fetch('/api/analytics')
+  if (!res.ok) throw new Error(`Failed to load analytics (${res.status})`)
+  return (await res.json()) as Analytics
+}

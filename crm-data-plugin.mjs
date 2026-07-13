@@ -98,6 +98,7 @@ import {
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
+import { loadAnalytics } from './crm-analytics.mjs'
 import { buildSnapshot } from './crm-snapshot.mjs'
 import { syncMobileSnapshot, isMobileConfigured } from './crm-mobile-sync.mjs'
 import {
@@ -1075,6 +1076,20 @@ export function crmDataPlugin() {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
         }
+      })
+
+      // --- Live website analytics (proxies + caches the website-analytics edge function). ---
+      server.middlewares.use('/api/analytics', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        loadAnalytics()
+          .then((data) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(data))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
       })
 
       // --- QuickBooks (OAuth connect + invoices). Specific paths before generic. ---
