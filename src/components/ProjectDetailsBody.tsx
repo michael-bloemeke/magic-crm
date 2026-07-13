@@ -200,12 +200,13 @@ export function ProjectDetailsBody({
   const hlOverride = currentUmbrella ? sectionHighlights[currentUmbrella.id] : undefined
   const highlightedSection = hlOverride === 'none' ? null : hlOverride || defaultSectionFor(currentUmbrella)
 
-  // The highlighted section opens by default; the rest collapse. Re-derives when the project or its
-  // stage changes; manual toggles persist until then.
-  const [openSections, setOpenSections] = useState<Set<string>>(new Set())
+  // All collapsible sections start OPEN. Nothing auto-collapses based on the project's stage; the
+  // stage still HIGHLIGHTS its section (a brass ring), it just no longer hides the others. Sections
+  // can still be collapsed by hand, and those manual toggles persist until you switch projects.
+  const [openSections, setOpenSections] = useState<Set<string>>(() => new Set(['inquiry', 'postcall', 'booked', 'postshow']))
   useEffect(() => {
-    setOpenSections(new Set(highlightedSection ? [highlightedSection] : []))
-  }, [project.id, highlightedSection])
+    setOpenSections(new Set(['inquiry', 'postcall', 'booked', 'postshow']))
+  }, [project.id])
   const toggleSection = (id: string) =>
     setOpenSections((s) => {
       const n = new Set(s)

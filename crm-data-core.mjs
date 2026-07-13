@@ -445,6 +445,7 @@ function normalize(p, bucket) {
     eventSummary: str(p.event_summary),
     eventDescription: str(p.event_description),
     projectNotes: str(p.project_notes),
+    initialInquiry: str(p.initial_inquiry),
     howItWent: str(p.how_it_went),
     assets: str(p.assets),
     status: str(p.status),
@@ -990,6 +991,7 @@ const EDITABLE_FIELDS = {
   eventSummary: 'event_summary',
   eventDescription: 'event_description',
   projectNotes: 'project_notes',
+  initialInquiry: 'initial_inquiry',
 }
 
 // Coerce an inbound field value to the stored form, exactly as the files path does inline.

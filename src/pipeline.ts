@@ -44,6 +44,7 @@ export type Project = {
   eventSummary: string // a brief 1-2 sentence blurb shown in Event details
   eventDescription: string // the fuller write-up shown in the Notes side panel
   projectNotes: string
+  initialInquiry: string // the raw content the client typed into the website inquiry form
   howItWent: string
   assets: string
   status: string

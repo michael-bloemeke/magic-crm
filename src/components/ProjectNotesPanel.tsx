@@ -32,6 +32,18 @@ export function ProjectNotesPanel({
   return (
     <div className="space-y-8">
       <section>
+        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">Initial inquiry</h3>
+        <div className="rounded-xl border border-line bg-surface-2/30 px-3 py-2">
+          <EditableField
+            value={project.initialInquiry}
+            onSave={(v) => onSaveField('initialInquiry', v)}
+            multiline
+            placeholder="What the client typed into the website inquiry form."
+          />
+        </div>
+      </section>
+
+      <section>
         <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">Full description</h3>
         <EditableField value={project.eventDescription} onSave={(v) => onSaveField('eventDescription', v)} multiline />
       </section>
