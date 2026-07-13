@@ -344,6 +344,39 @@ Deno.serve(async (req) => {
     errors.push(`reports-b: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  // --- Google Ads spend (only populated if the GA4 property is linked to Google Ads). ---
+  // The advertiser* cost metrics require a compatible dimension, so pull them by campaign and sum
+  // the rows for the totals.
+  try {
+    const AD_METRICS = [metric("advertiserAdCost"), metric("advertiserAdClicks"), metric("advertiserAdImpressions")];
+    const adsBatch = await batchRunReports(token, [
+      { dateRanges: D7, dimensions: [dim("sessionCampaignName")], metrics: AD_METRICS },
+      { dateRanges: D28, dimensions: [dim("sessionCampaignName")], metrics: AD_METRICS, orderBys: byMetricDesc("advertiserAdCost"), limit: 25 },
+    ]);
+    const totalOf = (rows: { d: string[]; m: number[] }[]) =>
+      rows.reduce(
+        (a, r) => ({ cost: a.cost + (r.m[0] ?? 0), clicks: a.clicks + (r.m[1] ?? 0), impressions: a.impressions + (r.m[2] ?? 0) }),
+        { cost: 0, clicks: 0, impressions: 0 },
+      );
+    const rows7 = rowsOf(adsBatch[0]);
+    const rows28 = rowsOf(adsBatch[1]);
+    const t7 = totalOf(rows7);
+    const t28 = totalOf(rows28);
+    const campaigns = rows28
+      .filter((r) => (r.m[0] ?? 0) > 0)
+      .map((r) => ({ name: r.d[0] || "(unknown)", cost: r.m[0], clicks: r.m[1] }));
+    out.ads = {
+      // linked=true only when GA4 actually has Ads cost data flowing in.
+      linked: t28.cost > 0 || t7.cost > 0,
+      last7: t7,
+      last28: t28,
+      campaigns,
+    };
+  } catch (e) {
+    out.ads = null;
+    errors.push(`ads: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   // --- Search Console (top queries). Best-effort; has a 2-3 day lag. ---
   try {
     out.search = await searchConsole(token);

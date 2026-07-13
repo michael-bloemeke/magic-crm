@@ -1462,6 +1462,13 @@ export type Analytics = {
     os: { os: string; users: number }[]
   } | null
   pages?: { path: string; views: number; avgTime: number }[] | null
+  ads?: {
+    // false = the GA4 property isn't linked to Google Ads yet (so no cost data flows in).
+    linked: boolean
+    last7: { cost: number; clicks: number; impressions: number }
+    last28: { cost: number; clicks: number; impressions: number }
+    campaigns: { name: string; cost: number; clicks: number }[]
+  } | null
   search?: {
     startDate: string
     endDate: string

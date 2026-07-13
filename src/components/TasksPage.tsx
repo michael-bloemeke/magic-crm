@@ -31,9 +31,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
     setNewTime('')
   }
 
-  const active = tasks.filter((t) => !t.done)
   // A task is overdue if its due date already passed, OR it's due today with a set time that's passed.
-  const nowMs = Date.now()
   const isOverdue = (t: Task) => {
     if (!t.dueDate) return false
     if (t.dueDate < today) return true
@@ -41,34 +39,52 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
       const [h, m] = t.dueTime.split(':').map(Number)
       if (Number.isFinite(h) && Number.isFinite(m)) {
         const d = new Date()
+        const nowMs = d.getTime()
         d.setHours(h, m, 0, 0)
         return d.getTime() < nowMs
       }
     }
     return false
   }
-  const overdue = active.filter(isOverdue).sort(byDueAsc)
-  const dueToday = active.filter((t) => t.dueDate === today && !isOverdue(t)).sort(byDueAsc)
-  const upcoming = active.filter((t) => !t.dueDate || t.dueDate > today).sort(byDueAsc)
-  const completed = tasks.filter((t) => t.done).sort(byDueAsc)
+
+  // Bucket any task list into the same four groups. The overdue / due-date logic and the
+  // notifications that read these tasks are unchanged; this only splits WHERE they render.
+  const bucket = (list: Task[]) => {
+    const active = list.filter((t) => !t.done)
+    return {
+      overdue: active.filter(isOverdue).sort(byDueAsc),
+      dueToday: active.filter((t) => t.dueDate === today && !isOverdue(t)).sort(byDueAsc),
+      upcoming: active.filter((t) => !t.dueDate || t.dueDate > today).sort(byDueAsc),
+      completed: list.filter((t) => t.done).sort(byDueAsc),
+      openCount: active.length,
+    }
+  }
+
+  // A task belongs to a project when it has a projectId; empty projectId = standalone.
+  const projectData = bucket(tasks.filter((t) => t.projectId))
+  const soloData = bucket(tasks.filter((t) => !t.projectId))
 
   const open = (projectId: string) => {
     const p = byId.get(projectId)
     if (p) onOpenProject(p)
   }
 
-  const Section = ({
-    title,
-    color,
-    items,
-  }: {
-    title: string
-    color: string
-    items: Task[]
-  }) => {
+  const taskRow = (t: Task) => (
+    <TaskRow
+      key={t.id}
+      task={t}
+      projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
+      onToggle={(done) => onToggle(t.id, done)}
+      onDelete={() => onDelete(t.id)}
+      onEdit={(patch) => onEdit(t.id, patch)}
+      onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
+    />
+  )
+
+  const Section = ({ title, color, items }: { title: string; color: string; items: Task[] }) => {
     if (items.length === 0) return null
     return (
-      <section className="mb-7">
+      <section className="mb-6">
         <div className="mb-2.5 flex items-center gap-2.5">
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
           <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em]" style={{ color }}>
@@ -76,22 +92,47 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
           </h3>
           <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
         </div>
-        <div className="space-y-2">
-          {items.map((t) => (
-            <TaskRow
-              key={t.id}
-              task={t}
-              projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
-              onToggle={(done) => onToggle(t.id, done)}
-              onDelete={() => onDelete(t.id)}
-              onEdit={(patch) => onEdit(t.id, patch)}
-              onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
-            />
-          ))}
-        </div>
+        <div className="space-y-2">{items.map(taskRow)}</div>
       </section>
     )
   }
+
+  const CompletedSection = ({ items }: { items: Task[] }) => {
+    if (items.length === 0) return null
+    return (
+      <section className="mt-2 opacity-70">
+        <div className="mb-2.5 flex items-center gap-2.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-faint" />
+          <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-faint">Completed</h3>
+          <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
+        </div>
+        <div className="space-y-2">{items.map(taskRow)}</div>
+      </section>
+    )
+  }
+
+  // One column = a labeled header + the same four sections, filtered to that group.
+  const column = (label: string, sub: string, data: ReturnType<typeof bucket>) => (
+    <div>
+      <div className="mb-4 flex items-baseline justify-between gap-2 border-b border-line pb-2.5">
+        <div>
+          <h2 className="font-display text-[17px] leading-tight text-parchment">{label}</h2>
+          <p className="text-[11px] text-faint">{sub}</p>
+        </div>
+        <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{data.openCount} open</span>
+      </div>
+      {data.openCount === 0 && data.completed.length === 0 ? (
+        <p className="py-10 text-center text-[12.5px] text-faint">Nothing here.</p>
+      ) : (
+        <>
+          <Section title="Overdue" color="#e08a6b" items={data.overdue} />
+          <Section title="Due today" color="var(--color-brass)" items={data.dueToday} />
+          <Section title="Upcoming" color="var(--color-umb-postcall)" items={data.upcoming} />
+          <CompletedSection items={data.completed} />
+        </>
+      )}
+    </div>
+  )
 
   const isEmpty = tasks.length === 0
 
@@ -101,7 +142,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="max-w-3xl"
+        className="max-w-6xl"
       >
         <div className="mb-7 flex flex-wrap items-center gap-2">
           <input
@@ -146,35 +187,10 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             </p>
           </div>
         ) : (
-          <>
-            <Section title="Overdue" color="#e08a6b" items={overdue} />
-            <Section title="Due today" color="var(--color-brass)" items={dueToday} />
-            <Section title="Upcoming" color="var(--color-umb-postcall)" items={upcoming} />
-            {completed.length > 0 && (
-              <section className="mt-2 opacity-70">
-                <div className="mb-2.5 flex items-center gap-2.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-faint" />
-                  <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-faint">
-                    Completed
-                  </h3>
-                  <span className="text-[11px] tabular-nums text-faint">{completed.length}</span>
-                </div>
-                <div className="space-y-2">
-                  {completed.map((t) => (
-                    <TaskRow
-                      key={t.id}
-                      task={t}
-                      projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
-                      onToggle={(done) => onToggle(t.id, done)}
-                      onDelete={() => onDelete(t.id)}
-                      onEdit={(patch) => onEdit(t.id, patch)}
-                      onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
+          <div className="grid gap-8 lg:grid-cols-2">
+            {column('Project tasks', 'Linked to a project', projectData)}
+            {column('Standalone tasks', 'Not tied to a project', soloData)}
+          </div>
         )}
       </motion.div>
     </div>

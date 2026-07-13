@@ -33,6 +33,9 @@ anthropic-key.txt
 supabase-credentials.json
 store-config.json
 supabase/backup.log
+# Google service-account key (analytics). NEVER commit. Delete the local copy once GOOGLE_SA_KEY is set.
+wide-ceiling-*.json
+*-service-account*.json
 
 # Uploaded business files (Files page) — local working assets, not source
 crm-files/
