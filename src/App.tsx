@@ -363,14 +363,26 @@ function App() {
   const deletedProjects = useMemo(() => allProjects.filter((p) => p.bucket === 'deleted'), [allProjects])
   // Everything except the trash: what Stats and global search should consider.
   const liveProjects = useMemo(() => allProjects.filter((p) => p.bucket !== 'deleted'), [allProjects])
+  const deletedProjectIds = useMemo(() => new Set(deletedProjects.map((p) => p.id)), [deletedProjects])
+  // Tasks and notifications tied to a trashed project are hidden from the global lists,
+  // calendar, badges, and the bell (they still show on the deleted project itself, and
+  // come back on restore). A task/notification with no project is always live.
+  const liveTasks = useMemo(
+    () => allTasks.filter((t) => !t.projectId || !deletedProjectIds.has(t.projectId)),
+    [allTasks, deletedProjectIds],
+  )
+  const liveStatusNotifs = useMemo(
+    () => statusNotifs.filter((n) => !n.projectId || !deletedProjectIds.has(n.projectId)),
+    [statusNotifs, deletedProjectIds],
+  )
   const activeCount = activeProjects.length
   const inboxUnread = useMemo(() => Object.values(unread).reduce((a, b) => a + b, 0), [unread])
 
   const today = todayISO()
-  const taskAlerts = allTasks.filter((t) => !t.done && t.dueDate && t.dueDate <= today).length
-  const overdueCount = allTasks.filter((t) => !t.done && t.dueDate && t.dueDate < today).length
-  const dueTodayCount = allTasks.filter((t) => !t.done && t.dueDate === today).length
-  const upcomingCount = allTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
+  const taskAlerts = liveTasks.filter((t) => !t.done && t.dueDate && t.dueDate <= today).length
+  const overdueCount = liveTasks.filter((t) => !t.done && t.dueDate && t.dueDate < today).length
+  const dueTodayCount = liveTasks.filter((t) => !t.done && t.dueDate === today).length
+  const upcomingCount = liveTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
   // The dock badge is the in-app bell total PLUS unread client mail: status updates + questionnaire
   // submissions + new inquiries + overdue + due-today + unread emails. It is deliberately a superset
@@ -378,9 +390,9 @@ function App() {
   // any of those change. No-op in a plain browser.
   useEffect(() => {
     window.crm?.setBadge?.(
-      statusNotifs.length + submissions.length + inquiries.length + overdueCount + dueTodayCount + inboxUnread,
+      liveStatusNotifs.length + submissions.length + inquiries.length + overdueCount + dueTodayCount + inboxUnread,
     )
-  }, [statusNotifs.length, submissions.length, inquiries.length, overdueCount, dueTodayCount, inboxUnread])
+  }, [liveStatusNotifs.length, submissions.length, inquiries.length, overdueCount, dueTodayCount, inboxUnread])
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -880,13 +892,13 @@ function App() {
 
   const notifications = (
     <Notifications
-      tasks={allTasks}
-      projects={allProjects}
+      tasks={liveTasks}
+      projects={liveProjects}
       inquiries={inquiries}
       onDismissInquiry={dismissInquiryNotif}
       submissions={submissions}
       onDismissSubmission={dismissSubmissionNotif}
-      statusNotifications={statusNotifs}
+      statusNotifications={liveStatusNotifs}
       onDismissStatus={dismissStatusNotif}
       onToggle={toggleTask}
       onDelete={deleteTask}
@@ -1120,8 +1132,8 @@ function App() {
                 </div>
               ) : page === 'home' ? (
                 <HomePage
-                  projects={allProjects}
-                  tasks={allTasks}
+                  projects={liveProjects}
+                  tasks={liveTasks}
                   unread={unread}
                   onToggleTask={toggleTask}
                   onDeleteTask={deleteTask}
@@ -1138,8 +1150,8 @@ function App() {
                 />
               ) : page === 'tasks' ? (
                 <TasksPage
-                  tasks={allTasks}
-                  projects={allProjects}
+                  tasks={liveTasks}
+                  projects={liveProjects}
                   onAdd={(title, dueDate, dueTime) => addTaskFor('', title, dueDate, dueTime)}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
@@ -1151,7 +1163,7 @@ function App() {
               ) : page === 'calendar' ? (
                 <CalendarPage
                   projects={liveProjects}
-                  tasks={allTasks}
+                  tasks={liveTasks}
                   onOpenProject={openFull}
                   onOpenProjectById={openProjectById}
                 />

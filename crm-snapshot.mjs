@@ -92,7 +92,10 @@ export function buildSnapshot() {
   // task-due resolves to the task's real title (fallback to the generic label if the task is gone),
   // matching crm-data-plugin's withNotifNames so the phone shows the same alert text everywhere.
   const tasksById = new Map(loadTasks().map((t) => [String(t.id), t]))
-  const notifications = loadUnseenNotifications().map((e) => {
+  const deletedIds = new Set(all.projects.filter((p) => p.bucket === 'deleted').map((p) => p.id))
+  const notifications = loadUnseenNotifications()
+    .filter((e) => !e.projectId || !deletedIds.has(e.projectId))
+    .map((e) => {
     let label = NOTIF_LABELS[e.kind] || e.kind
     if (e.kind === 'task-due') {
       const t = tasksById.get(String(e.sourceId))
