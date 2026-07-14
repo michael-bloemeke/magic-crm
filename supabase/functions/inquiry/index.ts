@@ -71,6 +71,28 @@ function describe(inq: Record<string, string>): string {
   return lines.join("\n\n");
 }
 
+// The raw website-form submission, formatted for the project's "Initial inquiry" field. Mirrors the
+// alert email body so the CRM shows exactly what the client typed/selected in the form.
+function formSummary(inq: Record<string, string>, showTypes: string): string {
+  const rows: [string, string][] = [
+    ["Name", inq.name],
+    ["Email", inq.email],
+    ["Phone", inq.phone],
+    ["Event date", inq.eventDate],
+    ["Event time", inq.eventTime],
+    ["Venue", inq.venue],
+    ["Guests", inq.guests],
+    ["Guest ages", inq.ages],
+    ["Show type", showTypes],
+    ["Heard about Michael via", inq.source],
+  ];
+  const lines: string[] = [];
+  lines.push(`Submitted via the website contact form${inq.formLocation ? ` (${inq.formLocation})` : ""} on ${logDate()}.`, "");
+  for (const [label, value] of rows) if (value) lines.push(`${label}: ${value}`);
+  if (inq.message) lines.push("", "Message:", inq.message);
+  return lines.join("\n");
+}
+
 // ---- VAPID key conversion helpers (copied from notify-cron; raw base64url <-> P-256 JWK) ----
 function b64url(bytes: Uint8Array): string {
   let bin = "";
@@ -295,6 +317,7 @@ Deno.serve(async (req) => {
       performance_style: showTypes,
       booking_source: inq.source,
       event_description: describe(inq),
+      initial_inquiry: formSummary(inq, showTypes),
       contact_names: inq.name,
       contact_emails: inq.email,
       contact_phones: inq.phone,
