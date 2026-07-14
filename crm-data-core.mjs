@@ -25,6 +25,7 @@ import {
   insertProject as sbInsertProject,
   updateProject as sbUpdateProject,
   deleteProject as sbDeleteProject,
+  purgeProjectData as sbPurgeProjectData,
   setProjectStage as sbSetProjectStage,
   reassignStage as sbReassignStage,
   setPipelineMeta as sbSetPipelineMeta,
@@ -131,6 +132,8 @@ function allBuckets() {
   for (const f of files.filter((f) => /^archived-\d{4}\.json$/.test(f)).sort()) out.push({ file: f, bucket: 'archived' })
   // Legacy single archived file (pre the 2026-06-19 per-year split); read if present.
   if (files.includes('archived-projects.json')) out.push({ file: 'archived-projects.json', bucket: 'archived' })
+  // Soft-deleted projects (30-day trash). Per-year like completed/archived.
+  for (const f of files.filter((f) => /^deleted-\d{4}\.json$/.test(f)).sort()) out.push({ file: f, bucket: 'deleted' })
   return out
 }
 
@@ -454,6 +457,7 @@ function normalize(p, bucket) {
     archiveReason: str(p.archive_reason),
     whyArchived: str(p.why_archived),
     completedDate: str(p.completed_date),
+    deletedAt: str(p.deleted_at),
   }
 }
 
@@ -544,6 +548,9 @@ export function loadAll() {
 // stage in memory and return it; we do NOT persist derived changes in this reads-only pass
 // (that is the write pass). Rows are raw snake_case, so normalize() runs on them unchanged.
 function loadAllSupabase() {
+  // Ride-along maintenance: permanently purge any soft-deleted projects past 30 days.
+  // Throttled + fire-and-forget; removes them from the cache before the loop below.
+  autoPurgeExpiredDeleted()
   const projects = []
   // Dedup by id (slug), keeping the first row per id. The cache is a flat list of rows across
   // all buckets; project ids are unique in Supabase (id is the PK), so this is a belt-and-braces
@@ -1376,7 +1383,7 @@ export async function restoreProject({ id }) {
     ]
     // Back to active with archive/complete markers cleared and stage cleared, so the next load
     // re-derives its stage into Inquiry (matching the files path's clearStageEntry -> re-infer).
-    const patch = { bucket: 'active', stage_id: null, archive_reason: null, completed_date: null, activity_log }
+    const patch = { bucket: 'active', stage_id: null, archive_reason: null, completed_date: null, deleted_at: null, activity_log }
     cachePatchProject(id, patch)
     await sbUpdateProject(id, patch)
     return { ok: true, id, to: 'active' }
@@ -1396,6 +1403,7 @@ export async function restoreProject({ id }) {
   if (!rec) throw new Error(`project not found in archived/completed: ${id}`)
   delete rec.archive_reason
   delete rec.completed_date
+  delete rec.deleted_at
   appendLog(rec, `${logDate()}: Project returned to the active pipeline.`)
 
   const active = projData('active-projects.json')
@@ -1408,13 +1416,13 @@ export async function restoreProject({ id }) {
   return { ok: true, id, to: 'active' }
 }
 
-// --- Deleting a project (permanent) ------------------------------------------
-// Removes the project's record from whatever bucket(s) hold it AND purges the
-// CRM-owned overlay data keyed by its slug (stage + tasks). Payments and mileage
-// (owned by crm-finance.mjs) are cleaned up by the caller. There is no undo: the
-// canonical record is gone, so this is gated behind a confirm in the UI. Used for
-// duplicates, mistakes, or projects Michael doesn't want kept (e.g. a no-budget
-// inquiry he won't revisit).
+// --- Deleting a project (SOFT: 30-day trash) ---------------------------------
+// Delete is now a soft move to the 'deleted' bucket, stamped with deleted_at. The
+// project leaves the pipeline immediately but nothing is destroyed: it shows on the
+// Deleted page for 30 days, can be restored, and is permanently purged (see
+// purgeProject) either by the "Delete permanently" action or the auto-sweep once the
+// 30 days elapse. Restoring is restoreProject (which already handles any non-active
+// bucket). No data is touched here beyond the bucket flip, so a restore is lossless.
 export async function deleteProject({ id } = {}) {
   if (!id) throw new Error('project id is required')
 
@@ -1423,15 +1431,67 @@ export async function deleteProject({ id } = {}) {
     if (!row) throw new Error(`project not found: ${id}`)
     const name = str(row.client_name)
     const fromBucket = str(row.bucket) || 'active'
-    cacheRemoveProject(id) // also drops its link entry from the cached map
-    await sbDeleteProject(id) // contact_links cascade via FK
-    // Keep the CRM-owned, files-based purges (tasks stay on files even under supabase).
+    if (fromBucket === 'deleted') return { ok: true, id, from: fromBucket, to: 'deleted', name } // already trashed
+    const activity_log = [
+      `${logDate()}: Project moved to Deleted.`,
+      ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
+    ]
+    const patch = { bucket: 'deleted', stage_id: null, deleted_at: new Date().toISOString(), activity_log }
+    cachePatchProject(id, patch)
+    await sbUpdateProject(id, patch)
+    return { ok: true, id, from: fromBucket, to: 'deleted', name }
+  }
+
+  // FILES path: move the record out of whatever bucket holds it into deleted-<year>.json.
+  let rec = null
+  let fromBucket = null
+  const touched = []
+  for (const b of allBuckets()) {
+    if (b.bucket === 'deleted') continue
+    const data = projData(b.file)
+    const idx = data.projects.findIndex((p) => slugify(p.client_name) === id)
+    if (idx !== -1) {
+      const [pulled] = data.projects.splice(idx, 1)
+      if (!rec) {
+        rec = pulled
+        fromBucket = b.bucket
+      }
+      touched.push([b.file, data])
+    }
+  }
+  if (!rec) throw new Error(`project not found: ${id}`)
+  rec.deleted_at = new Date().toISOString()
+  appendLog(rec, `${logDate()}: Project moved to Deleted.`)
+  const toFile = `deleted-${recordYear(rec)}.json`
+  const target = projData(toFile)
+  target.projects = target.projects.filter((p) => slugify(p.client_name) !== id)
+  target.projects.push(rec)
+  writeProjData(toFile, target) // write target first so a mid-way failure duplicates rather than loses
+  for (const [file, data] of touched) writeProjData(file, data)
+  clearStageEntry(id)
+  return { ok: true, id, from: fromBucket, to: toFile, name: str(rec.client_name) }
+}
+
+// --- Permanently deleting a project (full cascade, NO undo) -------------------
+// Removes the project row AND every per-project record across all tables (payments,
+// mileage, emails, notifications, invoices, contracts, questionnaires, portals,
+// recipients, text-markers, inquiries), plus the CRM overlay (stage + tasks). Nothing
+// is left orphaned. Called by the explicit "Delete permanently" action and by the
+// 30-day auto-purge sweep.
+export async function purgeProject({ id } = {}) {
+  if (!id) throw new Error('project id is required')
+
+  if (CRM_STORE === 'supabase') {
+    const row = getCachedProjects().find((p) => p.id === id)
+    const name = row ? str(row.client_name) : id
+    if (row) cacheRemoveProject(id) // drop from cache + its link entry
+    await sbPurgeProjectData(id) // every per-project table (contact_links cascades with the row below)
+    await sbDeleteProject(id) // the project row itself
     purgeTasksForProject(id)
-    return { ok: true, id, from: [fromBucket], name }
+    return { ok: true, id, name }
   }
 
   let removed = null
-  const fromBuckets = []
   for (const b of allBuckets()) {
     const file = path.join(RECORDS_DIR, b.file)
     const data = readJson(file)
@@ -1441,14 +1501,31 @@ export async function deleteProject({ id } = {}) {
     if (!removed) removed = match
     data.projects = data.projects.filter((p) => slugify(p.client_name) !== id)
     fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n')
-    fromBuckets.push(b.bucket)
   }
-  if (!removed) throw new Error(`project not found: ${id}`)
-
   clearStageEntry(id)
   purgeTasksForProject(id)
+  return { ok: true, id, name: removed ? str(removed.client_name) : id }
+}
 
-  return { ok: true, id, from: fromBuckets, name: str(removed.client_name) }
+// --- 30-day auto-purge sweep -------------------------------------------------
+// Permanently purge soft-deleted projects whose 30-day window has elapsed. Throttled
+// to once/hour and fire-and-forget so it rides along a normal load without blocking or
+// re-running on every read. Supabase only (the live store); the files path is legacy.
+const DELETED_TTL_MS = 30 * 86400000
+let _lastDeletedSweep = 0
+export function autoPurgeExpiredDeleted() {
+  if (CRM_STORE !== 'supabase') return
+  const now = Date.now()
+  if (now - _lastDeletedSweep < 3600_000) return
+  _lastDeletedSweep = now
+  const expired = getCachedProjects().filter((p) => {
+    if ((str(p.bucket) || 'active') !== 'deleted') return false
+    const t = Date.parse(str(p.deleted_at))
+    return Number.isFinite(t) && now - t >= DELETED_TTL_MS
+  })
+  for (const p of expired) {
+    purgeProject({ id: p.id }).catch((e) => console.error(`[crm-data] auto-purge failed for ${p.id}:`, e?.message || e))
+  }
 }
 
 // Purge a deleted project's CRM tasks. Best-effort: a failure here never fails the delete.

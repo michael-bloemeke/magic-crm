@@ -28,6 +28,7 @@ import {
   completeProject,
   restoreProject,
   deleteProject,
+  purgeProject,
   loadTemplates,
   saveTemplate,
   deleteTemplate,
@@ -444,21 +445,34 @@ export function crmDataPlugin() {
           return r
         })
       })
-      // Permanent delete: removes the canonical record AND the CRM's overlay data
-      // (stage, tasks, payments, mileage) for that project. No undo.
+      // Soft delete: move the project to the 30-day trash (the Deleted page). Nothing is
+      // destroyed. Payments, mileage, tasks, links, and inquiries all survive so a restore
+      // is lossless. The only side effect is pulling the gig's calendar event (restore
+      // re-adds it via syncProject) so a trashed gig isn't left on the calendar.
       server.middlewares.use('/api/project/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
-          // Capture this project's task ids BEFORE deleteProject purges them from crm-tasks.json, so
-          // their Work-calendar events can be removed too (otherwise they'd orphan).
+          const result = await deleteProject(b)
+          void removeProjectEvent(b.id)
+          return result
+        })
+      })
+      // Permanent delete (full cascade, NO undo): removes the project row AND every
+      // per-project record across all tables, plus its calendar events. Used by the
+      // "Delete permanently" action; the 30-day sweep calls the same purgeProject path.
+      server.middlewares.use('/api/project/purge', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          // Capture task ids BEFORE the purge clears them, so their calendar events go too.
           const taskIds = loadTasks()
             .filter((t) => t.projectId === b.id)
             .map((t) => t.id)
-          const result = await deleteProject(b)
+          const result = await purgeProject(b)
+          // Belt-and-braces for the files path (under supabase these already cascaded).
           await deletePaymentsForProject(b.id)
           await deleteTripsForProject(b.id)
           await deleteProjectLinks(b.id)
-          void removeProjectEvent(b.id) // gone from the CRM -> gone from the calendar
+          void removeProjectEvent(b.id)
           for (const tid of taskIds) void removeTaskEvent(tid)
           return result
         })

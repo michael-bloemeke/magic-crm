@@ -82,6 +82,36 @@ export async function deleteProject(id) {
   must(error, 'deleteProject')
 }
 
+// Full cascade: remove EVERY per-project record tied to a project id, across every
+// table that keys by it. Called only on a PERMANENT delete (the 30-day purge or an
+// explicit "delete permanently"), so nothing is ever orphaned. Only contact_links
+// cascades in the database; everything else is cleaned here. Each delete is awaited
+// but a single failure is logged and does not abort the rest (best-effort sweep).
+export async function purgeProjectData(projectId) {
+  if (!projectId) return
+  // Tables with a plain `project_id` column.
+  const byProjectId = [
+    'payments',
+    'mileage_trips',
+    'tasks',
+    'emails',
+    'notifications',
+    'text_markers',
+    'invoices',
+    'contracts',
+    'questionnaires',
+    'portals',
+    'recipients',
+  ]
+  for (const table of byProjectId) {
+    const { error } = await sb().from(table).delete().eq('project_id', projectId)
+    if (error) console.error(`[crm-store] purgeProjectData ${table} for ${projectId}:`, error.message)
+  }
+  // inquiries store the project link inside the `data` jsonb (data->>'projectId').
+  const { error: inqErr } = await sb().from('inquiries').delete().eq('data->>projectId', projectId)
+  if (inqErr) console.error(`[crm-store] purgeProjectData inquiries for ${projectId}:`, inqErr.message)
+}
+
 export async function setProjectStage(id, stageId) {
   return updateProject(id, { stage_id: stageId })
 }

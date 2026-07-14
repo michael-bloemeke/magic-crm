@@ -17,7 +17,7 @@ export type Project = {
   id: string
   client: string
   stageId: string
-  bucket: 'active' | 'completed' | 'archived'
+  bucket: 'active' | 'completed' | 'archived' | 'deleted'
   eventType: EventType
   eventDate: string // ISO yyyy-mm-dd, or '' if unknown
   leadDate: string // when the lead/inquiry came in (ISO yyyy-mm-dd), or '' if unknown
@@ -54,6 +54,7 @@ export type Project = {
   archiveReason: string
   whyArchived: string
   completedDate: string
+  deletedAt: string // ISO timestamp when soft-deleted (in the 30-day trash), or '' if not deleted
 }
 
 // Reasons offered when archiving a project. Michael maintains this list;

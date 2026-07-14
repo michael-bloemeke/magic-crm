@@ -26,7 +26,33 @@ const CORS = {
 };
 
 const NOTIFY_TO = "michael@michaelbloemeke.com"; // where the alert email goes
-const FROM = "Michael Bloemeke <michael@michaelbloemeke.com>";
+const FROM = "My CRM <michael@michaelbloemeke.com>";
+
+// --- Email formatting helpers ------------------------------------------------
+function escHtml(s: string): string {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+// "YYYY-MM-DD" -> "Weekday, Month D, YYYY". Parsed by parts so it never shifts a day
+// across timezones. Anything that isn't a plain ISO date is returned untouched.
+function prettyDate(v: string): string {
+  const s = (v || "").trim();
+  const m = /^(\d{1,4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  if (!m) return s;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return s;
+  const dt = new Date(Date.UTC(2000, mo - 1, d));
+  dt.setUTCFullYear(y);
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${days[dt.getUTCDay()]}, ${months[mo - 1]} ${d}, ${y}`;
+}
+// 10-digit US phone -> "(XXX)-XXX-XXXX". Strips a leading 1. Leaves anything else untouched.
+function prettyPhone(v: string): string {
+  const digits = (v || "").replace(/\D/g, "");
+  const d = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  if (d.length !== 10) return v;
+  return `(${d.slice(0, 3)})-${d.slice(3, 6)}-${d.slice(6)}`;
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -228,13 +254,38 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
       ["Show type", showTypes],
       ["Heard about Michael via", inq.source],
     ];
-    const bodyLines = ["A new inquiry just came in through the website contact form.", ""];
-    for (const [label, value] of rows) if (value) bodyLines.push(`${label}: ${value}`);
-    if (inq.message) bodyLines.push("", "Message:", inq.message);
-    bodyLines.push("", projectId
+    const fieldRows = rows
+      .filter(([, value]) => value)
+      .map(([label, value]) => {
+        let v = value;
+        if (label === "Phone") v = prettyPhone(value);
+        else if (label === "Event date") v = prettyDate(value);
+        return `<tr>`
+          + `<td style="padding:8px 20px 8px 0;font-weight:700;color:#111;vertical-align:top;white-space:nowrap;">${escHtml(label)}</td>`
+          + `<td style="padding:8px 0;color:#333;vertical-align:top;">${escHtml(v)}</td>`
+          + `</tr>`;
+      })
+      .join("");
+    const messageBlock = inq.message
+      ? `<p style="margin:26px 0 6px;font-weight:700;color:#111;">Message</p>`
+        + `<p style="margin:0;color:#333;white-space:pre-wrap;">${escHtml(inq.message)}</p>`
+      : "";
+    const crmNote = projectId
       ? "It has been added to your CRM as a new project in the Inquiry stage."
-      : "Heads up: the CRM project could not be auto-created for this one, so add it manually.");
-    if (inq.formLocation) bodyLines.push("", `Sent from: ${inq.formLocation}`);
+      : "Heads up: the CRM project could not be auto-created for this one, so add it manually.";
+    const sentFrom = inq.formLocation
+      ? `<p style="margin:22px 0 0;color:#8a8a8a;font-size:13px;">Submitted from the <strong>${escHtml(inq.formLocation)}</strong> form.</p>`
+      : "";
+    const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f4f4f5;">`
+      + `<div style="max-width:600px;margin:0 auto;padding:32px 28px;background:#ffffff;`
+      + `font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;`
+      + `font-size:15px;line-height:1.7;color:#333;">`
+      + `<p style="margin:0 0 24px;font-size:16px;color:#111;">A new inquiry just came in through the website contact form.</p>`
+      + `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:15px;line-height:1.6;">${fieldRows}</table>`
+      + messageBlock
+      + `<p style="margin:26px 0 0;color:#555;">${crmNote}</p>`
+      + sentFrom
+      + `</div></body></html>`;
 
     const subject = `New website inquiry${inq.formLocation ? ` (${inq.formLocation})` : ""}: ${inq.name || inq.email || "someone"}`;
 
@@ -243,9 +294,10 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
       `To: ${NOTIFY_TO}`,
       inq.email ? `Reply-To: ${inq.email}` : "",
       `Subject: ${subject}`,
-      "Content-Type: text/plain; charset=UTF-8",
+      "MIME-Version: 1.0",
+      "Content-Type: text/html; charset=UTF-8",
     ].filter(Boolean).join("\r\n");
-    const raw = `${headers}\r\n\r\n${bodyLines.join("\n")}`;
+    const raw = `${headers}\r\n\r\n${html}`;
     const b64 = btoa(unescape(encodeURIComponent(raw)))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 

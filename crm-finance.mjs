@@ -616,10 +616,14 @@ export function computeFinance() {
   const byId = new Map(projects.map((p) => [p.id, p]))
   const projName = (id) => byId.get(id)?.client || '(unassigned)'
   const eventMonthOf = (pm) => mKey(byId.get(pm.projectId)?.eventDate || '')
+  // Soft-deleted projects (in the 30-day trash) are excluded from all finance figures:
+  // their money records still exist for a possible restore, but a deleted gig shouldn't
+  // count as income.
+  const deletedIds = new Set(projects.filter((p) => p.bucket === 'deleted').map((p) => p.id))
 
   // Real money received: a logged payment that isn't date-pending. (A pending
   // payment is an expected amount with no date yet, so it isn't money in.)
-  const realPayments = payments.filter((pm) => !pm.pending && num(pm.amount) > 0)
+  const realPayments = payments.filter((pm) => !pm.pending && num(pm.amount) > 0 && !deletedIds.has(pm.projectId))
 
   // Sum a list of {id, amount} per project into [{ id, name, amount }], largest first.
   const groupByProject = (items) => {
@@ -633,7 +637,7 @@ export function computeFinance() {
   // Tips contributing to an event month: one entry per project that has a tip.
   const tipItemsForMonth = (key) =>
     projects
-      .filter((p) => tipOf(p) > 0 && mKey(p.eventDate) === key)
+      .filter((p) => p.bucket !== 'deleted' && tipOf(p) > 0 && mKey(p.eventDate) === key)
       .map((p) => ({ id: p.id, name: p.client, amount: tipOf(p) }))
       .sort((a, b) => b.amount - a.amount)
 

@@ -280,10 +280,15 @@ export function completeProject(id: string): Promise<void> {
 export function restoreProject(id: string): Promise<void> {
   return postJson('/api/project/restore', { id })
 }
-// Permanently delete a project: removes the record from the database and the
-// CRM's overlay data (stage, tasks, payments, mileage). No undo.
+// Soft delete: moves the project to the 30-day trash (the Deleted page). Nothing is
+// destroyed; it can be restored, and is permanently purged after 30 days.
 export function deleteProject(id: string): Promise<void> {
   return postJson('/api/project/delete', { id })
+}
+// Permanent delete (full cascade, no undo): removes the project and every related
+// record across all tables. Used by the "Delete permanently" action on the Deleted page.
+export function purgeProject(id: string): Promise<void> {
+  return postJson('/api/project/purge', { id })
 }
 
 // --- Email templates ---------------------------------------------------------

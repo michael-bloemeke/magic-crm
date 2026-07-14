@@ -15,6 +15,7 @@ export type Page =
   | 'files'
   | 'completed'
   | 'archive'
+  | 'deleted'
   | 'settings'
 
 type NavItem = {
@@ -198,6 +199,16 @@ const GROUPS: NavGroup[] = [
           <>
             <rect x="3" y="4" width="18" height="4" rx="1" />
             <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+          </>,
+        ),
+      },
+      {
+        id: 'deleted',
+        label: 'Deleted',
+        enabled: true,
+        icon: icon(
+          <>
+            <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
           </>,
         ),
       },
