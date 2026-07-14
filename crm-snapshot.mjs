@@ -108,7 +108,8 @@ export function buildSnapshot() {
   return {
     generatedAt: new Date().toISOString(),
     version: 1,
-    projects: all.projects.map(trimProject),
+    // The phone is read-only and has no trash bin, so soft-deleted projects are omitted.
+    projects: all.projects.filter((p) => p.bucket !== 'deleted').map(trimProject),
     tasks: loadTasks(),
     structure: loadStructure(),
     customFields: cfg.customFields || [],

@@ -52,6 +52,7 @@ type Props = {
   onComplete: () => void
   onRestore: () => void
   onDelete: () => void
+  onPurge: () => void
   onLogCall: () => void
   onPaymentsChange?: (payments: Payment[]) => void
   onProjectChanged?: () => void
@@ -79,6 +80,7 @@ export function ProjectView({
   onComplete,
   onRestore,
   onDelete,
+  onPurge,
   onLogCall,
   onPaymentsChange,
   onProjectChanged,
@@ -357,6 +359,7 @@ export function ProjectView({
               onComplete={onComplete}
               onRestore={onRestore}
               onDelete={onDelete}
+              onPurge={onPurge}
               onLogCall={onLogCall}
             />
           </div>

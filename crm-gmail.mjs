@@ -362,12 +362,15 @@ function encodeText(s) {
 // are present everything is wrapped in a multipart/mixed.
 //   attachments:  [{ filename, contentType, contentBase64 }]
 //   inlineImages: [{ cid, contentType, contentBase64, filename? }]  (cid referenced as src="cid:..")
-function makeRaw({ from, to, subject, body, html, attachments, inlineImages }) {
+function makeRaw({ from, to, subject, body, html, attachments, inlineImages, replyTo, date }) {
   const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && a.contentBase64)
   const inlines = (Array.isArray(inlineImages) ? inlineImages : []).filter((a) => a && a.contentBase64 && a.cid)
   const hasHtml = !!(html && String(html).trim())
   const plain = body != null && body !== '' ? String(body) : hasHtml ? htmlToText(String(html)) : ''
-  const headers = [`From: ${from}`, `To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0']
+  const headers = [`From: ${from}`, `To: ${to}`]
+  if (replyTo) headers.push(`Reply-To: ${replyTo}`)
+  headers.push(`Subject: ${subject}`, 'MIME-Version: 1.0')
+  if (date) headers.push(`Date: ${date}`)
 
   // The core content: a single text/plain part, or a multipart/alternative (plain + html).
   // Tracked as { header, body } so it can be nested inside related/mixed wrappers below.
@@ -457,6 +460,24 @@ export async function sendMessage({ to, subject, body, html, attachments, inline
   const res = await api().users.messages.send({
     userId: 'me',
     requestBody: threadId ? { raw, threadId } : { raw },
+  })
+  return { ok: true, id: res.data.id }
+}
+
+// Drop a message straight into the mailbox (like IMAP APPEND) WITHOUT sending it. The key difference
+// from sendMessage: Gmail only rewrites/validates the From header on SEND, so an INSERTED message can
+// carry any From it likes. We use this for the website-inquiry alert: a normal self-addressed send
+// (michael -> michael) always shows as "me" in the inbox list because Gmail ignores the display name
+// on your own send-as address. Inserting with a non-account From (e.g. "Form Fill: Jane" <inquiries@…>)
+// makes the inbox show that sender name instead. Lands as unread in the inbox. Requires the
+// gmail.insert or gmail.modify scope; the token already holds gmail.modify, so no reconnect is needed.
+export async function insertInboxMessage({ from, to, subject, body, html, replyTo, date }) {
+  const recipient = to || (await myEmail())
+  const raw = makeRaw({ from, to: recipient, subject: subject || '(no subject)', body, html, replyTo, date })
+  const res = await api().users.messages.insert({
+    userId: 'me',
+    internalDateSource: 'dateHeader', // sort by the Date header we set, not the moment of insert
+    requestBody: { raw, labelIds: ['INBOX', 'UNREAD'] },
   })
   return { ok: true, id: res.data.id }
 }

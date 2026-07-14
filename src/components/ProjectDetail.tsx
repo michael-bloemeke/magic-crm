@@ -21,6 +21,7 @@ type Props = {
   onComplete: () => void
   onRestore: () => void
   onDelete: () => void
+  onPurge: () => void
   onLogCall: () => void
   onPaymentsChange?: (payments: Payment[]) => void
   onProjectChanged?: () => void
@@ -48,6 +49,7 @@ export function ProjectDetail({
   onComplete,
   onRestore,
   onDelete,
+  onPurge,
   onLogCall,
   onPaymentsChange,
   onProjectChanged,
@@ -148,6 +150,7 @@ export function ProjectDetail({
                   onComplete={onComplete}
                   onRestore={onRestore}
                   onDelete={onDelete}
+                  onPurge={onPurge}
                   onLogCall={onLogCall}
                   compact
                 />

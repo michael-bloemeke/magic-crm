@@ -9,7 +9,8 @@ type Props = {
   onArchive: () => void
   onComplete: () => void
   onRestore: () => void
-  onDelete: () => void
+  onDelete: () => void // soft delete -> move to the 30-day trash
+  onPurge: () => void // permanent delete (only offered on an already-deleted project)
   onLogCall: () => void
   compact?: boolean
 }
@@ -48,15 +49,16 @@ function CallButton({ onLogCall, compact, pad }: { onLogCall: () => void; compac
   )
 }
 
-// A small, muted trash button. Deleting is permanent (record removed from the
-// database), so it's visually de-emphasised and goes through a confirm dialog.
-function DeleteButton({ onDelete, compact }: { onDelete: () => void; compact?: boolean }) {
+// A small, muted trash button. `permanent` marks the irreversible purge (offered on an
+// already-deleted project); otherwise it's a soft move to the 30-day trash. Both go
+// through a confirm dialog, so this stays visually de-emphasised.
+function DeleteButton({ onClick, compact, permanent }: { onClick: () => void; compact?: boolean; permanent?: boolean }) {
   return (
     <button
       type="button"
-      onClick={onDelete}
-      title="Delete this project permanently (removes it from your records)"
-      aria-label="Delete project"
+      onClick={onClick}
+      title={permanent ? 'Delete permanently (cannot be undone)' : 'Delete this project (kept in Deleted for 30 days)'}
+      aria-label={permanent ? 'Delete permanently' : 'Delete project'}
       className={`inline-flex items-center justify-center rounded-lg border border-line text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b] ${
         compact ? 'p-1.5' : 'p-2'
       }`}
@@ -68,22 +70,35 @@ function DeleteButton({ onDelete, compact }: { onDelete: () => void; compact?: b
   )
 }
 
-export function ProjectActions({ project, onArchive, onComplete, onRestore, onDelete, onLogCall, compact }: Props) {
+function trashDaysLeft(iso: string): number {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return 30
+  return Math.max(0, Math.ceil(30 - (Date.now() - t) / 86400000))
+}
+
+export function ProjectActions({ project, onArchive, onComplete, onRestore, onDelete, onPurge, onLogCall, compact }: Props) {
   const pad = compact ? 'px-2.5 py-1.5 text-[11.5px]' : 'px-3 py-2 text-[12.5px]'
 
   if (project.bucket !== 'active') {
+    const deleted = project.bucket === 'deleted'
+    const statusLabel = deleted ? 'Deleted' : project.bucket === 'archived' ? 'Archived' : 'Completed'
+    const left = deleted ? trashDaysLeft(project.deletedAt) : 0
     return (
       <div className="flex items-start gap-2">
         <CallButton onLogCall={onLogCall} compact={compact} pad={pad} />
         <div className="flex flex-col items-end">
           <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-            {project.bucket === 'archived' ? 'Archived' : 'Completed'}
+            {statusLabel}
           </span>
-          {project.bucket === 'archived' && project.archiveReason && (
+          {deleted ? (
+            <span className="mt-1 text-right text-[11px] leading-snug text-faint">
+              {left === 0 ? 'purging soon' : left === 1 ? '1 day left' : `${left} days left`}
+            </span>
+          ) : project.bucket === 'archived' && project.archiveReason ? (
             <span className="mt-1 max-w-[15rem] text-right text-[11px] leading-snug text-faint" title={project.archiveReason}>
               {project.archiveReason}
             </span>
-          )}
+          ) : null}
         </div>
         <button
           type="button"
@@ -95,7 +110,7 @@ export function ProjectActions({ project, onArchive, onComplete, onRestore, onDe
           </svg>
           Return to pipeline
         </button>
-        <DeleteButton onDelete={onDelete} compact={compact} />
+        <DeleteButton onClick={deleted ? onPurge : onDelete} permanent={deleted} compact={compact} />
       </div>
     )
   }
@@ -130,7 +145,7 @@ export function ProjectActions({ project, onArchive, onComplete, onRestore, onDe
         </svg>
         Archive
       </button>
-      <DeleteButton onDelete={onDelete} compact={compact} />
+      <DeleteButton onClick={onDelete} compact={compact} />
     </div>
   )
 }

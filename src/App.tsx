@@ -20,6 +20,7 @@ import { ContactsPage } from './components/ContactsPage'
 import { TemplatesPage } from './components/TemplatesPage'
 import { FilesPage } from './components/FilesPage'
 import { RecordsPage } from './components/RecordsPage'
+import { DeletedPage } from './components/DeletedPage'
 import { ArchiveReasonModal } from './components/ArchiveReasonModal'
 import { CompleteProjectModal, type CompletePayload } from './components/CompleteProjectModal'
 import { NewProjectModal } from './components/NewProjectModal'
@@ -75,6 +76,7 @@ import {
   completeProject as apiComplete,
   restoreProject as apiRestore,
   deleteProject as apiDelete,
+  purgeProject as apiPurge,
   loadConfig,
   saveConfig,
   loadPayments,
@@ -114,6 +116,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
+  deleted: { kicker: 'Records', title: 'Deleted' },
   settings: { kicker: 'System', title: 'Settings' },
 }
 
@@ -151,6 +154,7 @@ function App() {
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
   const [completeTarget, setCompleteTarget] = useState<Project | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
+  const [purgeTarget, setPurgeTarget] = useState<Project | null>(null)
   // The booked-stage move that's waiting on a payment (modal logs one, then proceeds).
   const [depositTarget, setDepositTarget] = useState<{ project: Project; stageId: string } | null>(null)
   // The project whose "Made a call" log flow is open.
@@ -356,6 +360,9 @@ function App() {
   const activeProjects = useMemo(() => allProjects.filter((p) => p.bucket === 'active'), [allProjects])
   const archivedProjects = useMemo(() => allProjects.filter((p) => p.bucket === 'archived'), [allProjects])
   const completedProjects = useMemo(() => allProjects.filter((p) => p.bucket === 'completed'), [allProjects])
+  const deletedProjects = useMemo(() => allProjects.filter((p) => p.bucket === 'deleted'), [allProjects])
+  // Everything except the trash: what Stats and global search should consider.
+  const liveProjects = useMemo(() => allProjects.filter((p) => p.bucket !== 'deleted'), [allProjects])
   const activeCount = activeProjects.length
   const inboxUnread = useMemo(() => Object.values(unread).reduce((a, b) => a + b, 0), [unread])
 
@@ -495,6 +502,7 @@ function App() {
     !!archiveTarget ||
     !!completeTarget ||
     !!deleteTarget ||
+    !!purgeTarget ||
     !!depositTarget ||
     !!callTarget ||
     !!contactPickerProject ||
@@ -701,16 +709,25 @@ function App() {
     applyPatch(id, { bucket: 'active', archiveReason: '', completedDate: '' })
     apiRestore(id).then(reloadProjects).catch(reloadProjects)
   }
-  // Permanent delete: drop the project from the local lists immediately, close any
-  // open pane/full view for it, and purge its tasks + unread badge locally. The
-  // server removes the record + overlay data (stage/tasks/payments/mileage).
+  // Soft delete: move the project to the 30-day trash. It leaves the pipeline (and any
+  // open pane) immediately but stays in allProjects with bucket='deleted', so it shows
+  // on the Deleted page. Nothing is destroyed; a restore is lossless.
   const doDelete = (id: string) => {
+    applyPatch(id, { bucket: 'deleted', stageId: '', deletedAt: new Date().toISOString() })
+    setSelected((prev) => (prev && prev.id === id ? null : prev))
+    setFullProject((prev) => (prev && prev.id === id ? null : prev))
+    dropUnread(id)
+    apiDelete(id).then(reloadProjects).catch(reloadProjects)
+  }
+  // Permanent delete (full cascade, no undo): drop the project + its tasks from the
+  // local lists, close any open view, and tell the server to purge everything.
+  const doPurge = (id: string) => {
     setProjects((prev) => (prev ? prev.filter((p) => p.id !== id) : prev))
     setTasks((prev) => (prev ? prev.filter((t) => t.projectId !== id) : prev))
     setSelected((prev) => (prev && prev.id === id ? null : prev))
     setFullProject((prev) => (prev && prev.id === id ? null : prev))
     dropUnread(id)
-    apiDelete(id).catch(reloadProjects)
+    apiPurge(id).catch(reloadProjects)
   }
 
   // --- Contacts on a project --------------------------------------------------
@@ -911,7 +928,17 @@ function App() {
       <Sidebar
         // While a project is open, highlight the nav item for where that project lives
         // (Pipeline for active, Completed/Archive otherwise) instead of the page we opened it from.
-        page={fullProject ? (fullProject.bucket === 'completed' ? 'completed' : fullProject.bucket === 'archived' ? 'archive' : 'pipeline') : page}
+        page={
+          fullProject
+            ? fullProject.bucket === 'completed'
+              ? 'completed'
+              : fullProject.bucket === 'archived'
+                ? 'archive'
+                : fullProject.bucket === 'deleted'
+                  ? 'deleted'
+                  : 'pipeline'
+            : page
+        }
         onNavigate={(p) => {
           setContactPane(null)
           setFullProject(null)
@@ -940,6 +967,7 @@ function App() {
             onComplete={() => setCompleteTarget(fullProject)}
             onRestore={() => doRestore(fullProject.id)}
             onDelete={() => setDeleteTarget(fullProject)}
+            onPurge={() => setPurgeTarget(fullProject)}
             onLogCall={() => setCallTarget(fullProject)}
             onPaymentsChange={(pmts) => syncPayments(fullProject.id, pmts)}
             onProjectChanged={reloadProjects}
@@ -1122,20 +1150,20 @@ function App() {
                 <InboxPage onOpenProject={openProjectById} onThreadRead={clearProjectUnread} />
               ) : page === 'calendar' ? (
                 <CalendarPage
-                  projects={allProjects}
+                  projects={liveProjects}
                   tasks={allTasks}
                   onOpenProject={openFull}
                   onOpenProjectById={openProjectById}
                 />
               ) : page === 'finance' ? (
-                <FinancePage projects={allProjects} onOpenProject={openFull} />
+                <FinancePage projects={liveProjects} onOpenProject={openFull} />
               ) : page === 'stats' ? (
-                <StatsPage projects={allProjects} onOpenProject={openFull} onSaveField={saveField} />
+                <StatsPage projects={liveProjects} onOpenProject={openFull} onSaveField={saveField} />
               ) : page === 'website' ? (
                 <WebsiteAnalyticsPage />
               ) : page === 'contacts' ? (
                 <ContactsPage
-                  projects={allProjects}
+                  projects={liveProjects}
                   onOpenProject={openProjectById}
                   openContactId={pendingContactId}
                   onContactOpened={() => setPendingContactId(null)}
@@ -1154,6 +1182,14 @@ function App() {
                   projects={completedProjects}
                   onOpenFull={openFull}
                   onOpenSide={openSide}
+                />
+              ) : page === 'deleted' ? (
+                <DeletedPage
+                  projects={deletedProjects}
+                  onOpenFull={openFull}
+                  onOpenSide={openSide}
+                  onRestore={doRestore}
+                  onPurge={(p) => setPurgeTarget(p)}
                 />
               ) : view === 'board' ? (
                 <PipelineBoard
@@ -1211,6 +1247,7 @@ function App() {
         onComplete={() => selected && setCompleteTarget(selected)}
         onRestore={() => selected && doRestore(selected.id)}
         onDelete={() => selected && setDeleteTarget(selected)}
+        onPurge={() => selected && setPurgeTarget(selected)}
         onLogCall={() => selected && setCallTarget(selected)}
         onPaymentsChange={(pmts) => selected && syncPayments(selected.id, pmts)}
         onProjectChanged={reloadProjects}
@@ -1227,6 +1264,7 @@ function App() {
           !completeTarget &&
           !depositTarget &&
           !deleteTarget &&
+          !purgeTarget &&
           !callTarget &&
           !searchOpen &&
           !newProjectOpen
@@ -1321,10 +1359,10 @@ function App() {
         title="Delete this project?"
         message={
           deleteTarget
-            ? `“${deleteTarget.client}” will be permanently removed from your records, along with its tasks, payments, and mileage. This can’t be undone.`
+            ? `“${deleteTarget.client}” will move to Deleted and leave your pipeline. It is kept for 30 days (with all its data) so you can restore it, then it is permanently removed.`
             : ''
         }
-        confirmLabel="Delete project"
+        confirmLabel="Move to Deleted"
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => {
           const t = deleteTarget
@@ -1333,8 +1371,25 @@ function App() {
         }}
       />
 
+      <ConfirmDialog
+        open={!!purgeTarget}
+        title="Delete permanently?"
+        message={
+          purgeTarget
+            ? `“${purgeTarget.client}” and everything tied to it (payments, emails, invoices, contracts, inquiries) will be erased for good. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete permanently"
+        onCancel={() => setPurgeTarget(null)}
+        onConfirm={() => {
+          const t = purgeTarget
+          setPurgeTarget(null)
+          if (t) doPurge(t.id)
+        }}
+      />
+
       <SearchPalette
-        projects={allProjects}
+        projects={liveProjects}
         contacts={contacts}
         categories={structure.umbrellas}
         open={searchOpen}

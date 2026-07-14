@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, createProject, updateProjectField, appendActivityLog } from './crm-data-core.mjs'
-import { sendMessage, isConnected as gmailConnected } from './crm-gmail.mjs'
+import { insertInboxMessage, isConnected as gmailConnected } from './crm-gmail.mjs'
 import { addNotification } from './crm-notifications.mjs'
 // addNotification() itself fires the lock-screen push (with the {name} extra we pass), so we do NOT
 // call pushNotification directly here — that would send two alerts for one inquiry.
@@ -86,6 +86,32 @@ function toISO(raw) {
   return ''
 }
 
+// "18:00" / "18:00:00" -> "6:00 PM"; "09:30" -> "9:30 AM". The website's <input type="time"> posts a
+// 24-hour "HH:MM", which we turn into a friendly 12-hour clock. Anything that isn't a bare HH:MM
+// (already formatted, "6pm", empty) passes through untouched.
+function to12h(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^(\d{1,2}):([0-5]\d)(?::[0-5]\d)?$/)
+  if (!m) return s
+  let h = Number(m[1])
+  if (h > 23) return s
+  const ampm = h < 12 ? 'AM' : 'PM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${m[2]} ${ampm}`
+}
+
+// RFC 5322 display-name as a quoted-string (the sender label carries a colon, and client names carry
+// commas/periods), with any embedded quote or backslash escaped.
+function quotedName(s) {
+  return `"${String(s || '').replace(/[\\"]/g, '\\$&')}"`
+}
+// A Date-header value for an inserted message so it sorts by submission time (falls back to now).
+function mailDate(iso) {
+  const d = new Date(iso)
+  return (isNaN(d.getTime()) ? new Date() : d).toUTCString()
+}
+
 // Fetch the relay's inquiry list (public, always-fresh). Returns [] if not set up or empty.
 async function fetchInquiries() {
   const base = blobBaseUrl()
@@ -104,7 +130,7 @@ function describe(inq) {
   if (inq.message) lines.push(String(inq.message).trim())
   const extras = []
   if (inq.eventDate && !toISO(inq.eventDate)) extras.push(`Date: ${inq.eventDate}`)
-  if (inq.eventTime) extras.push(`Time: ${inq.eventTime}`)
+  if (inq.eventTime) extras.push(`Time: ${to12h(inq.eventTime)}`)
   if (inq.source) extras.push(`Heard about Michael via: ${inq.source}`)
   if (extras.length) lines.push(extras.join(' · '))
   return lines.join('\n\n')
@@ -134,7 +160,7 @@ export function inquiryFormForProject(projectId) {
     if (v && v.projectId === projectId && v.form) { if (!rec || (v.importedAt || '') > (rec.importedAt || '')) rec = v }
   }
   if (!rec || !rec.form) return null
-  const fields = FORM_LABELS.map(([k, label]) => ({ key: k, label, value: rec.form[k] })).filter((x) => x.value)
+  const fields = FORM_LABELS.map(([k, label]) => ({ key: k, label, value: k === 'eventTime' ? to12h(rec.form[k]) : rec.form[k] })).filter((x) => x.value)
   return { submittedAt: rec.form.submittedAt || rec.importedAt || '', formLocation: rec.form.formLocation || '', fields }
 }
 
@@ -157,7 +183,7 @@ async function notifyByEmail(inq, projectId) {
       ['Email', email],
       ['Phone', String(inq.phone || '').trim()],
       ['Event date', String(inq.eventDate || '').trim()],
-      ['Event time', String(inq.eventTime || '').trim()],
+      ['Event time', to12h(inq.eventTime)],
       ['Venue / location', String(inq.venue || '').trim()],
       ['Guests', String(inq.guests || '').trim()],
       ['Guest ages', String(inq.ages || '').trim()],
@@ -178,7 +204,13 @@ async function notifyByEmail(inq, projectId) {
         : 'Note: the CRM could not auto-create a project for this one (most likely a duplicate name). It is in your inquiries list.',
     )
     const subject = `New website inquiry${formLocation ? ` (${formLocation})` : ''}: ${name || email || 'someone'}`
-    await sendMessage({ to: NOTIFY_TO, subject, body: lines.join('\n') })
+    // Make the inbox show "Form Fill: <client>" as the sender instead of Gmail's "me". A normal send
+    // from Michael's address to his own address always renders as "me" (Gmail ignores the display name
+    // on your own send-as address), so we INSERT the message with a non-account From. Reply-To points
+    // at the client so hitting reply reaches them. See insertInboxMessage in crm-gmail.mjs.
+    const from = `${quotedName(`Form Fill: ${name || email || 'Website inquiry'}`)} <inquiries@michaelbloemeke.com>`
+    const replyTo = email ? `${quotedName(name || email)} <${email}>` : undefined
+    await insertInboxMessage({ from, to: NOTIFY_TO, replyTo, subject, body: lines.join('\n'), date: mailDate(inq.submittedAt) })
     return true
   } catch (e) {
     console.warn('[crm-inquiries] email notify failed:', e?.message || e)
@@ -234,7 +266,7 @@ async function runImport() {
       projectId = proj.id
       // Fields createProject doesn't take directly; set them after (best-effort).
       const extra = {
-        eventStartTime: String(inq.eventTime || ''),
+        eventStartTime: to12h(inq.eventTime),
         numberOfGuests: String(inq.guests || ''),
         ageOfGuests: String(inq.ages || ''),
         bookingSource: String(inq.source || ''),
