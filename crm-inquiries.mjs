@@ -164,11 +164,50 @@ export function inquiryFormForProject(projectId) {
   return { submittedAt: rec.form.submittedAt || rec.importedAt || '', formLocation: rec.form.formLocation || '', fields }
 }
 
-// "2026-06-24T19:31:05.883Z" -> "June 24, 2026 at 3:31 PM" in the machine's local time.
-function fmtSubmitted(iso) {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return String(iso || '')
-  return d.toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+// "2026-07-16" / "07/16/2026" -> "Thursday, July 16, 2026" (local, no timezone shift). Free-text or
+// unparseable dates (e.g. "July 12th", a typo'd year) pass through unchanged.
+function fmtEventDate(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  let y, mo, d, m
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) { y = +m[1]; mo = +m[2]; d = +m[3] }
+  else if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) { y = +m[3]; mo = +m[1]; d = +m[2] }
+  else return s
+  if (y < 1000) return s // guard against a mistyped year like "0026-08-15"
+  const dt = new Date(y, mo - 1, d)
+  if (isNaN(dt.getTime())) return s
+  return dt.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+// Escape a value for safe interpolation into the notification HTML.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+}
+
+// The styled inbox alert Michael approved: a white card with a bold-label / value table. Built from
+// the same `rows` as the plain-text fallback so the two never drift apart.
+const INQ_TD_LABEL = 'padding:8px 20px 8px 0;font-weight:700;color:#111;vertical-align:top;white-space:nowrap;'
+const INQ_TD_VALUE = 'padding:8px 0;color:#333;vertical-align:top;'
+function inquiryHtml({ rows, message, crmLine, formLocation }) {
+  const trs = rows
+    .map(([label, value]) => `<tr><td style="${INQ_TD_LABEL}">${esc(label)}</td><td style="${INQ_TD_VALUE}">${esc(value)}</td></tr>`)
+    .join('')
+  const messageBlock = message
+    ? `<p style="margin:26px 0 6px;font-weight:700;color:#111;">Message</p><p style="margin:0;color:#333;white-space:pre-wrap;">${esc(message)}</p>`
+    : ''
+  const footer = formLocation
+    ? `<p style="margin:22px 0 0;color:#8a8a8a;font-size:13px;">Submitted from the <strong>${esc(formLocation)}</strong> form.</p>`
+    : ''
+  return (
+    `<!doctype html><html><body style="margin:0;padding:0;background:#f4f4f5;">` +
+    `<div style="max-width:600px;margin:0 auto;padding:32px 28px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#333;">` +
+    `<p style="margin:0 0 24px;font-size:16px;color:#111;">A new inquiry just came in through the website contact form.</p>` +
+    `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:15px;line-height:1.6;">${trs}</table>` +
+    messageBlock +
+    `<p style="margin:26px 0 0;color:#555;">${esc(crmLine)}</p>` +
+    footer +
+    `</div></body></html>`
+  )
 }
 
 // Email Michael a copy of a fresh inquiry. Best-effort: returns false (never throws) if Gmail
@@ -182,27 +221,28 @@ async function notifyByEmail(inq, projectId) {
       ['Name', name],
       ['Email', email],
       ['Phone', String(inq.phone || '').trim()],
-      ['Event date', String(inq.eventDate || '').trim()],
+      ['Event date', fmtEventDate(inq.eventDate)],
       ['Event time', to12h(inq.eventTime)],
-      ['Venue / location', String(inq.venue || '').trim()],
+      ['Venue', String(inq.venue || '').trim()],
       ['Guests', String(inq.guests || '').trim()],
       ['Guest ages', String(inq.ages || '').trim()],
-      ['Show type(s)', String(inq.showTypes || '').trim()],
+      ['Show type', String(inq.showTypes || '').trim()],
       ['Heard about Michael via', String(inq.source || '').trim()],
     ].filter(([, v]) => v)
     const formLocation = String(inq.formLocation || '').trim()
-    const lines = ['A new inquiry just came in through the website contact form.', '']
-    if (formLocation) lines.push(`Sent from: ${formLocation}`)
-    for (const [label, value] of rows) lines.push(`${label}: ${value}`)
     const message = String(inq.message || '').trim()
+    const crmLine = projectId
+      ? 'It has been added to your CRM as a new project in the Inquiry stage.'
+      : 'Note: the CRM could not auto-create a project for this one (most likely a duplicate name). It is in your inquiries list.'
+
+    // Plain-text fallback (rides along as the multipart/alternative text part), from the same rows.
+    const lines = ['A new inquiry just came in through the website contact form.', '']
+    for (const [label, value] of rows) lines.push(`${label}: ${value}`)
     if (message) lines.push('', 'Message:', message)
-    lines.push('', `Submitted: ${fmtSubmitted(inq.submittedAt)}`)
-    lines.push(
-      '',
-      projectId
-        ? 'It has been added to your CRM as a new project in the Inquiry stage.'
-        : 'Note: the CRM could not auto-create a project for this one (most likely a duplicate name). It is in your inquiries list.',
-    )
+    lines.push('', crmLine)
+    if (formLocation) lines.push('', `Submitted from the ${formLocation} form.`)
+
+    const html = inquiryHtml({ rows, message, crmLine, formLocation })
     const subject = `New website inquiry${formLocation ? ` (${formLocation})` : ''}: ${name || email || 'someone'}`
     // Make the inbox show "Form Fill: <client>" as the sender instead of Gmail's "me". A normal send
     // from Michael's address to his own address always renders as "me" (Gmail ignores the display name
@@ -210,7 +250,7 @@ async function notifyByEmail(inq, projectId) {
     // at the client so hitting reply reaches them. See insertInboxMessage in crm-gmail.mjs.
     const from = `${quotedName(`Form Fill: ${name || email || 'Website inquiry'}`)} <inquiries@michaelbloemeke.com>`
     const replyTo = email ? `${quotedName(name || email)} <${email}>` : undefined
-    await insertInboxMessage({ from, to: NOTIFY_TO, replyTo, subject, body: lines.join('\n'), date: mailDate(inq.submittedAt) })
+    await insertInboxMessage({ from, to: NOTIFY_TO, replyTo, subject, body: lines.join('\n'), html, date: mailDate(inq.submittedAt) })
     return true
   } catch (e) {
     console.warn('[crm-inquiries] email notify failed:', e?.message || e)
