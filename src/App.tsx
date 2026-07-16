@@ -431,6 +431,7 @@ function App() {
   const changeStage = (id: string, stageId: string) => {
     const cur = allProjects.find((p) => p.id === id)
     if (cur && cur.stageId === stageId) return // no change (e.g. dropped on the same column)
+    lastEditAt.current = Date.now()
     // Post Show is auto-only: projects can be moved OUT of it but never INTO it
     // manually (they arrive the day after the event). Silently ignore such a move.
     if (postshowIds.has(stageId)) return
@@ -545,8 +546,14 @@ function App() {
   const backgroundRefresh = () => {
     const g = bgGuards.current
     if (g.modalOpen || isEditingActive()) return
+    // Just made a local edit? Hold off a beat so the write settles and we don't clobber it (this is
+    // what fixes audit sign-offs reverting).
+    if (Date.now() - lastEditAt.current < 2500) return
+    const startedAt = Date.now()
     loadProjects()
       .then((fresh) => {
+        // If an edit landed after this fetch began, the fetched data predates it — discard it.
+        if (lastEditAt.current > startedAt) return
         setProjects(fresh)
         setSelected((prev) => (prev ? fresh.find((p) => p.id === prev.id) ?? null : prev))
         setFullProject((prev) => (prev ? fresh.find((p) => p.id === prev.id) ?? prev : prev))
@@ -679,6 +686,7 @@ function App() {
   }
 
   const applyPatch = (id: string, patch: Partial<Project>) => {
+    lastEditAt.current = Date.now()
     const apply = (p: Project) => (p.id === id ? { ...p, ...patch } : p)
     setProjects((prev) => (prev ? prev.map(apply) : prev))
     setSelected((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev))
@@ -870,23 +878,27 @@ function App() {
   }
 
   const addTaskFor = (projectId: string, title: string, dueDate: string, dueTime = '') => {
+    lastEditAt.current = Date.now()
     apiAddTask({ projectId, title, dueDate, dueTime })
       .then((task) => setTasks((prev) => [...(prev ?? []), task]))
       .catch(() => {})
   }
   const toggleTask = (id: string, done: boolean) => {
+    lastEditAt.current = Date.now()
     setTasks((prev) => (prev ? prev.map((t) => (t.id === id ? { ...t, done } : t)) : prev))
     setTaskDone(id, done).catch(() => {
       loadTasks().then(setTasks).catch(() => {})
     })
   }
   const deleteTask = (id: string) => {
+    lastEditAt.current = Date.now()
     setTasks((prev) => (prev ? prev.filter((t) => t.id !== id) : prev))
     removeTask(id).catch(() => {
       loadTasks().then(setTasks).catch(() => {})
     })
   }
   const editTask = (id: string, patch: { title: string; dueDate: string; dueTime: string }) => {
+    lastEditAt.current = Date.now()
     setTasks((prev) => (prev ? prev.map((t) => (t.id === id ? { ...t, ...patch } : t)) : prev))
     apiEditTask(id, patch).catch(() => {
       loadTasks().then(setTasks).catch(() => {})
