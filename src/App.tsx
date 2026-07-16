@@ -225,6 +225,11 @@ function App() {
   const [history, setHistory] = useState<NavSnap[]>([])
   const lastNav = useRef<NavSnap | null>(null)
   const restoringBack = useRef(false)
+  // Timestamp of the last local optimistic edit. The background refresh uses this so it never
+  // overwrites a just-made change with stale server data (an in-flight fetch that started before the
+  // edit, or the server cache a beat behind the write). This is what made audit sign-offs "pop back
+  // up": a refresh landing right after a click reverted the project to unsigned.
+  const lastEditAt = useRef(0)
 
   // Open a project: full page (primary) or the side pane.
   const openFull = (p: Project) => {
@@ -440,6 +445,7 @@ function App() {
 
   // Inline edit of a project detail field: optimistic update + persist to JSON.
   const saveField = (id: string, field: string, value: string) => {
+    lastEditAt.current = Date.now()
     let v: string | number | boolean | null = value
     if (field === 'totalFee' || field === 'mileage' || field === 'tips') {
       const n = Number(String(value).replace(/[^0-9.]/g, ''))
