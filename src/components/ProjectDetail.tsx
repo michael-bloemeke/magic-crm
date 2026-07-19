@@ -12,6 +12,7 @@ import { DateConflictFlag } from './DateConflictFlag'
 type Props = {
   project: Project | null
   dateConflict?: boolean
+  conflictWith?: string[]
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
@@ -41,6 +42,7 @@ type Props = {
 export function ProjectDetail({
   project,
   dateConflict = false,
+  conflictWith,
   tasks,
   onChangeStage,
   onSaveField,
@@ -119,7 +121,7 @@ export function ProjectDetail({
                   </div>
                   {dateConflict && (
                     <div className="mt-2">
-                      <DateConflictFlag />
+                      <DateConflictFlag conflictWith={conflictWith} />
                     </div>
                   )}
                 </div>

@@ -360,6 +360,10 @@ export function EmailBuilderModal({
       setStatus('Pick a conversation to reply to, or turn off "reply to a thread".')
       return
     }
+    if (!subject.trim()) {
+      setStatus('Add a subject before sending.')
+      return
+    }
     // Fill any placeholders the project can now resolve; warn (once) about any that remain so a
     // raw "[Client name]" doesn't go out unnoticed. The stored/sent body has chip markup stripped.
     const resolved = resolveMergeFields(body, project, customVals)
@@ -494,7 +498,7 @@ export function EmailBuilderModal({
     }
   }
 
-  const canSend = toList().length > 0 && (htmlHasContent(body) || attachments.length > 0) && !busy
+  const canSend = toList().length > 0 && subject.trim().length > 0 && (htmlHasContent(body) || attachments.length > 0) && !busy
 
   // Read-only receipt for a sent email: a distinct render with NO editable controls, so a sent
   // email can never be edited, re-drafted, or re-sent from its block.
@@ -730,11 +734,15 @@ export function EmailBuilderModal({
 
               <div className="flex flex-wrap items-end gap-2">
                 <label className="min-w-[12rem] flex-1">
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject</span>
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject <span className="text-[#ef4444]">*</span></span>
                   <input
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
-                    className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+                    placeholder="Required"
+                    className={[
+                      'w-full rounded-lg border bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:outline-none',
+                      subject.trim() ? 'border-line focus:border-brass-dim' : 'border-[#ef4444]/60 focus:border-[#ef4444]',
+                    ].join(' ')}
                   />
                 </label>
                 <div className="relative">

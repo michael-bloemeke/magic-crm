@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
-import type { Task } from '../api'
+import type { GigEvent, Task } from '../api'
 
 // Month calendar. Each day shows the gigs and tasks that fall on it. Gigs are
 // color-coded by whether they're booked (green) or not yet (blue); tasks are a
@@ -11,6 +11,7 @@ const COLORS = {
   booked: 'var(--color-umb-booked)', // green
   unbooked: 'var(--color-umb-postcall)', // blue / teal
   task: '#e08a6b', // coral
+  gcal: '#c084fc', // manually-added Google "Gigs" calendar events (purple)
 }
 
 const GRID_LINE = 'rgba(255,255,255,0.18)' // calendar grid lines (visible on both dark themes)
@@ -20,16 +21,17 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const pad = (n: number) => String(n).padStart(2, '0')
 const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
-type Entry = { kind: 'gig' | 'task'; label: string; color: string; projectId: string }
+type Entry = { kind: 'gig' | 'task' | 'gcal'; label: string; color: string; projectId: string; href?: string }
 
 type Props = {
   projects: Project[]
   tasks: Task[]
+  gigEvents: GigEvent[]
   onOpenProject: (p: Project) => void
   onOpenProjectById: (id: string) => void
 }
 
-export function CalendarPage({ projects, tasks, onOpenProject, onOpenProjectById }: Props) {
+export function CalendarPage({ projects, tasks, gigEvents, onOpenProject, onOpenProjectById }: Props) {
   const now = new Date()
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() })
 
@@ -50,8 +52,12 @@ export function CalendarPage({ projects, tasks, onOpenProject, onOpenProjectById
       if (t.done || !t.dueDate) continue
       add(t.dueDate, { kind: 'task', label: t.title, color: COLORS.task, projectId: t.projectId })
     }
+    for (const e of gigEvents) {
+      if (!e.date) continue
+      add(e.date, { kind: 'gcal', label: e.title, color: COLORS.gcal, projectId: '', href: e.htmlLink })
+    }
     return map
-  }, [projects, tasks])
+  }, [projects, tasks, gigEvents])
 
   // Grid starting from the Sunday on/before the 1st, only as many weeks as the
   // month actually spans (5 or 6) so there's no empty trailing week.
@@ -114,6 +120,7 @@ export function CalendarPage({ projects, tasks, onOpenProject, onOpenProjectById
         <div className="ml-auto flex items-center gap-4 text-[11px] text-muted">
           <Legend color={COLORS.booked} label="Booked gig" />
           <Legend color={COLORS.unbooked} label="Not booked" />
+          <Legend color={COLORS.gcal} label="Gigs calendar" />
           <Legend color={COLORS.task} label="Task due" />
         </div>
       </div>
@@ -160,23 +167,7 @@ export function CalendarPage({ projects, tasks, onOpenProject, onOpenProjectById
                     </span>
                   </div>
                   {shown.map((e, j) =>
-                    e.kind === 'gig' ? (
-                      // Gigs stand out: a highlighted bar spanning the whole cell,
-                      // with a left color stripe (green = booked, blue = not yet).
-                      <button
-                        key={j}
-                        type="button"
-                        onClick={() => openEntry(e)}
-                        title={`Gig: ${e.label}`}
-                        className="block w-full truncate rounded-md px-1.5 py-[3px] text-left text-[10.5px] font-semibold leading-tight text-parchment transition-opacity hover:opacity-90"
-                        style={{
-                          backgroundColor: `color-mix(in oklab, ${e.color} 26%, transparent)`,
-                          boxShadow: `inset 2px 0 0 ${e.color}`,
-                        }}
-                      >
-                        {e.label}
-                      </button>
-                    ) : (
+                    e.kind === 'task' ? (
                       // Tasks stay as a small dot + label.
                       <button
                         key={j}
@@ -187,6 +178,22 @@ export function CalendarPage({ projects, tasks, onOpenProject, onOpenProjectById
                       >
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: e.color }} />
                         <span className="min-w-0 truncate">{e.label}</span>
+                      </button>
+                    ) : (
+                      // A highlighted bar with a left color stripe. CRM gigs (green = booked, blue = not
+                      // yet) open the project; manual "Gigs calendar" events (purple) open in Google.
+                      <button
+                        key={j}
+                        type="button"
+                        onClick={() => (e.kind === 'gcal' ? (e.href ? window.open(e.href, '_blank') : undefined) : openEntry(e))}
+                        title={e.kind === 'gcal' ? `Gigs calendar: ${e.label}` : `Gig: ${e.label}`}
+                        className="block w-full truncate rounded-md px-1.5 py-[3px] text-left text-[10.5px] font-semibold leading-tight text-parchment transition-opacity hover:opacity-90"
+                        style={{
+                          backgroundColor: `color-mix(in oklab, ${e.color} 26%, transparent)`,
+                          boxShadow: `inset 2px 0 0 ${e.color}`,
+                        }}
+                      >
+                        {e.label}
                       </button>
                     ),
                   )}

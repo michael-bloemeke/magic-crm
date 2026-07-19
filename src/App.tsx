@@ -356,6 +356,7 @@ function App() {
     loadStructure()
       .then((s) => alive && setStructure(s))
       .catch(() => {})
+    loadGigs()
     return () => {
       alive = false
     }
@@ -418,26 +419,41 @@ function App() {
     () => new Set(payments.filter((p) => p.pending && p.amount > 0).map((p) => p.projectId)),
     [payments],
   )
-  // Projects sharing an event date with another still-relevant project (a potential double-booking).
-  // Only active/completed projects with a real date count (archived = lost leads, ignored). A date is
-  // only flagged if at least one project on it is still ACTIVE, so purely-historical same-day completed
-  // gigs don't nag. Every project on such a date gets flagged.
-  const dateConflictIds = useMemo(() => {
-    const byDate = new Map<string, { ids: string[]; hasActive: boolean }>()
+  // For each project, the OTHER commitments on its event date (other CRM projects + manually-added
+  // Google "Gigs" events) = a potential double-booking. Archived leads are ignored. A date is only
+  // flagged when it's actionable: a Gigs event sits on it, or at least one CRM project on it is active
+  // (so purely-historical same-day completed gigs don't nag). The map value is the list of conflicting
+  // names/titles (shown on hover in the open project); dateConflictIds is just its key set (for cards).
+  const dateConflictInfo = useMemo(() => {
+    const byDate = new Map<string, { crm: { id: string; name: string; active: boolean }[]; gigs: string[] }>()
     for (const p of allProjects) {
       if (p.bucket !== 'active' && p.bucket !== 'completed') continue
       if (!/^\d{4}-\d{2}-\d{2}$/.test(p.eventDate || '')) continue
-      const g = byDate.get(p.eventDate) ?? { ids: [], hasActive: false }
-      g.ids.push(p.id)
-      if (p.bucket === 'active') g.hasActive = true
+      const g = byDate.get(p.eventDate) ?? { crm: [], gigs: [] }
+      g.crm.push({ id: p.id, name: p.client, active: p.bucket === 'active' })
       byDate.set(p.eventDate, g)
     }
-    const out = new Set<string>()
-    for (const g of byDate.values()) {
-      if (g.ids.length >= 2 && g.hasActive) for (const id of g.ids) out.add(id)
+    for (const e of gigEvents) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date)) continue
+      const g = byDate.get(e.date) ?? { crm: [], gigs: [] }
+      g.gigs.push(e.title)
+      byDate.set(e.date, g)
     }
-    return out
-  }, [allProjects])
+    const info = new Map<string, string[]>()
+    for (const g of byDate.values()) {
+      const actionable = g.gigs.length > 0 || g.crm.some((c) => c.active)
+      if (!actionable) continue
+      for (const c of g.crm) {
+        const partners = [
+          ...g.crm.filter((o) => o.id !== c.id).map((o) => o.name),
+          ...g.gigs.map((t) => `${t} (Gigs calendar)`),
+        ]
+        if (partners.length > 0) info.set(c.id, partners)
+      }
+    }
+    return info
+  }, [allProjects, gigEvents])
+  const dateConflictIds = useMemo(() => new Set(dateConflictInfo.keys()), [dateConflictInfo])
   const hasReceivedPayment = (projectId: string) =>
     payments.some((p) => p.projectId === projectId && isReceivedPayment(p))
   // Keep the global payments list in sync when a PaymentsEditor mutates a project.
@@ -499,9 +515,19 @@ function App() {
   // The reload also re-syncs any open pane from the canonical record (so a moved
   // or edited project shows the server's fields, e.g. the new activity-log line).
   // Universal refresh: re-pull every data set the app reads on load, without a full reload.
+  // Pull the manually-added Google "Gigs" events over a wide window (last year through +2 years) so
+  // they show on the Calendar and feed the date-conflict check. Best-effort; empty if not connected.
+  const loadGigs = () => {
+    const y = new Date().getFullYear()
+    const from = `${y - 1}-01-01`
+    const to = `${y + 2}-12-31`
+    loadGigsEvents(from, to).then(setGigEvents).catch(() => {})
+  }
+
   const refreshAll = () => {
     loadProjects().then(setProjects).catch(() => {})
     loadTasks().then(setTasks).catch(() => {})
+    loadGigs()
     loadUnreadByProject().then(setUnread).catch(() => {})
     loadConfig()
       .then((c) => {
@@ -587,6 +613,7 @@ function App() {
     loadPayments().then(setPayments).catch(() => {})
     loadContacts().then(setContacts).catch(() => {})
     loadLinks().then(setLinks).catch(() => {})
+    loadGigs()
     loadUnreadByProject().then(setUnread).catch(() => {})
     if (!g.editMode) loadStructure().then(setStructure).catch(() => {})
   }
@@ -1011,6 +1038,7 @@ function App() {
           <ProjectView
             project={fullProject}
             dateConflict={dateConflictIds.has(fullProject.id)}
+            conflictWith={dateConflictInfo.get(fullProject.id)}
             tasks={tasksForFull}
             onChangeStage={(stageId) => changeStage(fullProject.id, stageId)}
             onSaveField={(field, value) => saveField(fullProject.id, field, value)}
@@ -1207,6 +1235,7 @@ function App() {
                 <CalendarPage
                   projects={liveProjects}
                   tasks={liveTasks}
+                  gigEvents={gigEvents}
                   onOpenProject={openFull}
                   onOpenProjectById={openProjectById}
                 />
@@ -1293,6 +1322,7 @@ function App() {
       <ProjectDetail
         project={contactPane ? null : selected}
         dateConflict={!!(selected && dateConflictIds.has(selected.id))}
+        conflictWith={selected ? dateConflictInfo.get(selected.id) : undefined}
         tasks={tasksForSelected}
         contacts={contacts}
         links={links}

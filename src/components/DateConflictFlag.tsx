@@ -13,11 +13,15 @@ function WarnIcon({ className }: { className?: string }) {
   )
 }
 
-export function DateConflictFlag({ variant = 'badge' }: { variant?: 'badge' | 'banner' }) {
+export function DateConflictFlag({ variant = 'badge', conflictWith }: { variant?: 'badge' | 'banner'; conflictWith?: string[] }) {
   const banner = variant === 'banner'
+  const title =
+    conflictWith && conflictWith.length
+      ? `Same date as: ${conflictWith.join('; ')}. Check for a double-booking.`
+      : 'Another project shares this event date. Check for a double-booking.'
   return (
     <span
-      title="Another project shares this event date. Check for a double-booking."
+      title={title}
       className={[
         'inline-flex items-center font-bold uppercase',
         banner ? 'gap-1.5 rounded-lg px-2.5 py-1 text-[12px] tracking-[0.06em]' : 'gap-1 rounded-full px-1.5 py-0.5 text-[9.5px] tracking-[0.06em]',

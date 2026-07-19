@@ -43,6 +43,7 @@ function longDate(iso: string): string {
 type Props = {
   project: Project
   dateConflict?: boolean
+  conflictWith?: string[]
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
@@ -72,6 +73,7 @@ type Props = {
 export function ProjectView({
   project,
   dateConflict = false,
+  conflictWith,
   tasks,
   onChangeStage,
   onSaveField,
@@ -392,7 +394,7 @@ export function ProjectView({
               <span className="max-w-[34rem] truncate text-[14px] text-muted">{project.eventLocation}</span>
             </>
           )}
-          {dateConflict && <DateConflictFlag variant="banner" />}
+          {dateConflict && <DateConflictFlag variant="banner" conflictWith={conflictWith} />}
         </div>
       </div>
 
