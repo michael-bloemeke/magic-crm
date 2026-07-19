@@ -81,6 +81,27 @@ function logDate(): string {
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+// 12-hour time ("16:00" -> "4:00 PM"). Non-HH:MM values pass through unchanged.
+function to12h(t: string): string {
+  const m = String(t || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return String(t || "").trim();
+  let h = parseInt(m[1], 10);
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${m[2]} ${period}`;
+}
+// Written-out date ("2026-10-17" -> "Saturday, October 17th, 2026"). Non-ISO values pass through.
+function writtenDate(iso: string): string {
+  const m = String(iso || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(iso || "").trim();
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  const wd = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getUTCDay()];
+  const mo = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][d.getUTCMonth()];
+  const day = d.getUTCDate();
+  const ord = day % 10 === 1 && day !== 11 ? "st" : day % 10 === 2 && day !== 12 ? "nd" : day % 10 === 3 && day !== 13 ? "rd" : "th";
+  return `${wd}, ${mo} ${day}${ord}, ${m[1]}`;
+}
+
 // notifications.id shape, matching crm-notifications.newId / notify-cron: 'n' + base36 time + 4 rand.
 function newNotificationId(): string {
   return "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -91,7 +112,7 @@ function describe(inq: Record<string, string>): string {
   const lines: string[] = [];
   if (inq.message) lines.push(inq.message.trim());
   const extras: string[] = [];
-  if (inq.eventTime) extras.push(`Time: ${inq.eventTime}`);
+  if (inq.eventTime) extras.push(`Time: ${to12h(inq.eventTime)}`);
   if (inq.source) extras.push(`Heard about Michael via: ${inq.source}`);
   if (extras.length) lines.push(extras.join(" · "));
   return lines.join("\n\n");
@@ -104,8 +125,8 @@ function formSummary(inq: Record<string, string>, showTypes: string): string {
     ["Name", inq.name],
     ["Email", inq.email],
     ["Phone", inq.phone],
-    ["Event date", inq.eventDate],
-    ["Event time", inq.eventTime],
+    ["Event date", writtenDate(inq.eventDate)],
+    ["Event time", to12h(inq.eventTime)],
     ["Venue", inq.venue],
     ["Guests", inq.guests],
     ["Guest ages", inq.ages],
@@ -246,8 +267,8 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
       ["Name", inq.name],
       ["Email", inq.email],
       ["Phone", inq.phone],
-      ["Event date", inq.eventDate],
-      ["Event time", inq.eventTime],
+      ["Event date", writtenDate(inq.eventDate)],
+      ["Event time", to12h(inq.eventTime)],
       ["Venue", inq.venue],
       ["Guests", inq.guests],
       ["Guest ages", inq.ages],
@@ -363,7 +384,7 @@ Deno.serve(async (req) => {
       event_type: "",
       event_date: inq.eventDate,
       event_location: inq.venue,
-      event_start_time: inq.eventTime,
+      event_start_time: to12h(inq.eventTime),
       number_of_guests: inq.guests,
       age_of_guests: inq.ages,
       performance_style: showTypes,

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
 import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, loadTextMarkers, saveCustomValue, saveRecipient, saveTextMarker, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type Payment, type ProjectEmail, type ProjectLinks, type Task, type TextMarker } from '../api'
 import { type CustomField } from '../eventFields'
+import { to12h } from '../format'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
@@ -370,9 +371,9 @@ export function ProjectDetailsBody({
         <div className={fieldGrid}>
           {shown('eventDate') && <EditableField label={lbl('eventDate', 'Event date')} type="date" value={project.eventDate} onSave={save('eventDate')} />}
           <EditableField label="Lead date" type="date" value={project.leadDate} onSave={save('leadDate')} />
-          {shown('arrivalTime') && <EditableField label={lbl('arrivalTime', 'Arrival time')} value={project.arrivalTime} onSave={save('arrivalTime')} />}
-          {shown('eventStartTime') && <EditableField label={lbl('eventStartTime', 'Event start')} value={project.eventStartTime} onSave={save('eventStartTime')} />}
-          {shown('showStartTime') && <EditableField label={lbl('showStartTime', 'Show start')} value={project.showStartTime} onSave={save('showStartTime')} />}
+          {shown('arrivalTime') && <EditableField label={lbl('arrivalTime', 'Arrival time')} value={project.arrivalTime} onSave={save('arrivalTime')} format={to12h} />}
+          {shown('eventStartTime') && <EditableField label={lbl('eventStartTime', 'Event start')} value={project.eventStartTime} onSave={save('eventStartTime')} format={to12h} />}
+          {shown('showStartTime') && <EditableField label={lbl('showStartTime', 'Show start')} value={project.showStartTime} onSave={save('showStartTime')} format={to12h} />}
           {shown('totalFee') && <EditableField label={lbl('totalFee', 'Quote')} prefix="$" value={project.totalFee == null ? '' : String(project.totalFee)} onSave={save('totalFee')} />}
           {shown('numberOfGuests') && <EditableField label={lbl('numberOfGuests', 'Guest Count')} multiline value={project.numberOfGuests} onSave={save('numberOfGuests')} />}
           {shown('ageOfGuests') && <EditableField label={lbl('ageOfGuests', 'Guest ages')} multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} />}

@@ -441,6 +441,50 @@ export async function sendCalendarInvite({
   }
 }
 
+// ---- Reading the Gigs calendar (pull manual events into the CRM) ------------
+
+// List events on the "Gigs" Google calendar in [fromISO, toISO] (YYYY-MM-DD), EXCLUDING the events the
+// CRM itself created for its projects (those are already shown as CRM projects). What's left is what
+// Michael added by hand on his phone/Google. Feeds the CRM Calendar page + the date-conflict flag, so
+// a manual Gigs entry both shows up in the CRM and warns of a double-booking. Best-effort; never throws.
+export async function listGigsEvents(fromISO, toISO) {
+  if (!isCalendarConnected()) return { ok: false, events: [], reason: 'not-connected' }
+  try {
+    const cal = api()
+    const calId = await resolveCalendarId(cal, GIGS_CALENDAR)
+    if (!calId) return { ok: false, events: [], error: `Calendar "${GIGS_CALENDAR}" not found in your account.` }
+    const crmEventIds = new Set(Object.values(readMap().projects || {}))
+    const res = await cal.events.list({
+      calendarId: calId,
+      timeMin: new Date(`${fromISO}T00:00:00Z`).toISOString(),
+      timeMax: new Date(`${toISO}T23:59:59Z`).toISOString(),
+      singleEvents: true, // expand recurring events into individual instances
+      orderBy: 'startTime',
+      maxResults: 2500,
+    })
+    const events = (res.data.items || [])
+      .filter((e) => e.status !== 'cancelled' && !crmEventIds.has(e.id))
+      .map((e) => {
+        const allDay = !!(e.start && e.start.date)
+        const date = allDay ? e.start.date : (e.start && e.start.dateTime ? e.start.dateTime.slice(0, 10) : '')
+        return {
+          id: e.id,
+          title: e.summary || '(untitled)',
+          date,
+          allDay,
+          startTime: !allDay && e.start && e.start.dateTime ? e.start.dateTime : '',
+          location: e.location || '',
+          htmlLink: e.htmlLink || '',
+        }
+      })
+      .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date))
+    return { ok: true, events }
+  } catch (e) {
+    console.error('[crm-calendar] listGigsEvents failed:', e?.message || e)
+    return { ok: false, events: [], error: String(e?.message || e) }
+  }
+}
+
 // Connection + calendar-availability status for the Settings UI.
 export async function calendarStatus() {
   const connected = isConnected()

@@ -1259,6 +1259,20 @@ export type CalendarStatus = {
   workCalendar: boolean
   error?: string
 }
+// Manually-added events on the Google "Gigs" calendar (CRM-created project events excluded server-side),
+// pulled into the CRM for the Calendar page + the date-conflict flag.
+export type GigEvent = { id: string; title: string; date: string; allDay: boolean; startTime: string; location: string; htmlLink: string }
+export async function loadGigsEvents(from: string, to: string): Promise<GigEvent[]> {
+  try {
+    const res = await fetch(`/api/calendar/gigs?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+    if (!res.ok) return []
+    const d = await res.json()
+    return Array.isArray(d?.events) ? (d.events as GigEvent[]) : []
+  } catch {
+    return []
+  }
+}
+
 export async function loadCalendarStatus(): Promise<CalendarStatus> {
   const res = await fetch('/api/calendar')
   if (!res.ok) return { connected: false, hasScope: false, gigsName: 'Gigs', workName: 'Work', gigsCalendar: false, workCalendar: false }

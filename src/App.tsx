@@ -82,6 +82,8 @@ import {
   loadPayments,
   loadContacts,
   loadLinks,
+  loadGigsEvents,
+  type GigEvent,
   linkContact as apiLinkContact,
   unlinkContact as apiUnlinkContact,
   addContact as apiAddContact,
@@ -168,6 +170,8 @@ function App() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [links, setLinks] = useState<ProjectLinks>({})
+  // Manually-added Google "Gigs" calendar events, pulled in for the Calendar page + conflict detection.
+  const [gigEvents, setGigEvents] = useState<GigEvent[]>([])
   const [pendingContactId, setPendingContactId] = useState<string | null>(null)
   const [contactPane, setContactPane] = useState<Contact | null>(null) // a contact open in the side pane
   const [contactPickerProject, setContactPickerProject] = useState<Project | null>(null)

@@ -48,6 +48,7 @@ import {
   syncAll as syncCalendarAll,
   calendarStatus,
   sendCalendarInvite,
+  listGigsEvents,
 } from './crm-calendar.mjs'
 import {
   loadPortals,
@@ -1478,6 +1479,19 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/calendar/sync', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, () => syncCalendarAll())
+      })
+      server.middlewares.use('/api/calendar/gigs', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        listGigsEvents(url.searchParams.get('from') || '', url.searchParams.get('to') || '')
+          .then((r) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(r))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ ok: false, events: [], error: String(e?.message || e) }))
+          })
       })
       server.middlewares.use('/api/calendar/invite', (req, res, next) => {
         if (req.method !== 'POST') return next()
