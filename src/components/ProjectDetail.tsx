@@ -7,9 +7,11 @@ import { EventTypeSelect } from './EventTypeSelect'
 import { ProjectDetailsBody } from './ProjectDetailsBody'
 import { ProjectActions } from './ProjectActions'
 import { EditableTitle } from './EditableTitle'
+import { DateConflictFlag } from './DateConflictFlag'
 
 type Props = {
   project: Project | null
+  dateConflict?: boolean
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
@@ -38,6 +40,7 @@ type Props = {
 
 export function ProjectDetail({
   project,
+  dateConflict = false,
   tasks,
   onChangeStage,
   onSaveField,
@@ -114,6 +117,11 @@ export function ProjectDetail({
                     <span className="h-1 w-1 rounded-full bg-faint" />
                     <span className="font-semibold text-brass">{formatFee(project.totalFee)}</span>
                   </div>
+                  {dateConflict && (
+                    <div className="mt-2">
+                      <DateConflictFlag />
+                    </div>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button

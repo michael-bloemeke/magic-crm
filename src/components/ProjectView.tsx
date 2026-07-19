@@ -26,6 +26,7 @@ import { NotesDrawer } from './NotesDrawer'
 import { EmailBuilderModal } from './EmailBuilderModal'
 import { PortalModal } from './PortalModal'
 import { ProjectActions } from './ProjectActions'
+import { DateConflictFlag } from './DateConflictFlag'
 import { EditableTitle } from './EditableTitle'
 import { ProjectChat } from './ProjectChat'
 import { contactsForProject } from '../contacts'
@@ -41,6 +42,7 @@ function longDate(iso: string): string {
 
 type Props = {
   project: Project
+  dateConflict?: boolean
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
@@ -69,6 +71,7 @@ type Props = {
 
 export function ProjectView({
   project,
+  dateConflict = false,
   tasks,
   onChangeStage,
   onSaveField,
@@ -389,6 +392,7 @@ export function ProjectView({
               <span className="max-w-[34rem] truncate text-[14px] text-muted">{project.eventLocation}</span>
             </>
           )}
+          {dateConflict && <DateConflictFlag variant="banner" />}
         </div>
       </div>
 

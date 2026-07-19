@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project } from '../pipeline'
+import { DateConflictFlag } from './DateConflictFlag'
 
 // One project as a horizontal row: a left button that opens the side pane, the
 // client + event type, an optional badge, an unread-mail pill, the event date,
@@ -12,13 +13,14 @@ type Props = {
   onOpenSide: (p: Project) => void
   unreadCount?: number
   pendingPayment?: boolean
+  dateConflict?: boolean
   badge?: ReactNode
   // Flow-view list: show the event description as the preview line and drop the
   // guest count. Off (records pages) keeps the location line + guest count.
   summary?: boolean
 }
 
-export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, badge, summary = false }: Props) {
+export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, dateConflict = false, badge, summary = false }: Props) {
   const typeColor = EVENT_TYPE_ACCENT[p.eventType]
   return (
     <div
@@ -66,6 +68,7 @@ export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0
             >
               {p.eventType}
             </span>
+            {dateConflict && <DateConflictFlag />}
             {badge}
             {pendingPayment && (
               <span

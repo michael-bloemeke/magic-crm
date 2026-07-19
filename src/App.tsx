@@ -414,6 +414,26 @@ function App() {
     () => new Set(payments.filter((p) => p.pending && p.amount > 0).map((p) => p.projectId)),
     [payments],
   )
+  // Projects sharing an event date with another still-relevant project (a potential double-booking).
+  // Only active/completed projects with a real date count (archived = lost leads, ignored). A date is
+  // only flagged if at least one project on it is still ACTIVE, so purely-historical same-day completed
+  // gigs don't nag. Every project on such a date gets flagged.
+  const dateConflictIds = useMemo(() => {
+    const byDate = new Map<string, { ids: string[]; hasActive: boolean }>()
+    for (const p of allProjects) {
+      if (p.bucket !== 'active' && p.bucket !== 'completed') continue
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.eventDate || '')) continue
+      const g = byDate.get(p.eventDate) ?? { ids: [], hasActive: false }
+      g.ids.push(p.id)
+      if (p.bucket === 'active') g.hasActive = true
+      byDate.set(p.eventDate, g)
+    }
+    const out = new Set<string>()
+    for (const g of byDate.values()) {
+      if (g.ids.length >= 2 && g.hasActive) for (const id of g.ids) out.add(id)
+    }
+    return out
+  }, [allProjects])
   const hasReceivedPayment = (projectId: string) =>
     payments.some((p) => p.projectId === projectId && isReceivedPayment(p))
   // Keep the global payments list in sync when a PaymentsEditor mutates a project.
@@ -986,6 +1006,7 @@ function App() {
         {fullProject ? (
           <ProjectView
             project={fullProject}
+            dateConflict={dateConflictIds.has(fullProject.id)}
             tasks={tasksForFull}
             onChangeStage={(stageId) => changeStage(fullProject.id, stageId)}
             onSaveField={(field, value) => saveField(fullProject.id, field, value)}
@@ -1230,6 +1251,7 @@ function App() {
                   onDropProject={changeStage}
                   unread={unread}
                   pendingPaymentIds={pendingPaymentIds}
+                  dateConflictIds={dateConflictIds}
                   onAddStage={addStageTo}
                   onRenameStage={renameStageTo}
                   onReorderStage={reorderStageBy}
@@ -1247,6 +1269,7 @@ function App() {
                   onOpenSide={openSide}
                   unread={unread}
                   pendingPaymentIds={pendingPaymentIds}
+                  dateConflictIds={dateConflictIds}
                 />
               ) : (
                 <PipelineFlow
@@ -1255,6 +1278,7 @@ function App() {
                   onOpenSide={openSide}
                   unread={unread}
                   pendingPaymentIds={pendingPaymentIds}
+                  dateConflictIds={dateConflictIds}
                 />
               )}
             </div>
@@ -1264,6 +1288,7 @@ function App() {
 
       <ProjectDetail
         project={contactPane ? null : selected}
+        dateConflict={!!(selected && dateConflictIds.has(selected.id))}
         tasks={tasksForSelected}
         contacts={contacts}
         links={links}

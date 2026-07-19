@@ -12,6 +12,7 @@ type Props = {
   onDropProject: (projectId: string, stageId: string) => void
   unread: Record<string, number>
   pendingPaymentIds: Set<string>
+  dateConflictIds: Set<string>
   // Structure-edit handlers (only used in edit mode).
   onAddStage: (categoryId: string) => void
   onRenameStage: (stageId: string, name: string) => void
@@ -85,6 +86,7 @@ export function PipelineBoard({
   onDropProject,
   unread,
   pendingPaymentIds,
+  dateConflictIds,
   onAddStage,
   onRenameStage,
   onReorderStage,
@@ -179,6 +181,7 @@ export function PipelineBoard({
                       onDropProject={onDropProject}
                       unread={unread}
                       pendingPaymentIds={pendingPaymentIds}
+                      dateConflictIds={dateConflictIds}
                       editMode={editMode}
                       canDelete={!isOrphan && !isLastBookedStage && !isProtectedPostshow}
                       canMoveLeft={sIdx > 0}

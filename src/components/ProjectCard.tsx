@@ -1,4 +1,5 @@
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project } from '../pipeline'
+import { DateConflictFlag } from './DateConflictFlag'
 
 type Props = {
   project: Project
@@ -7,9 +8,10 @@ type Props = {
   onOpenSide: (project: Project) => void
   unreadCount?: number
   pendingPayment?: boolean
+  dateConflict?: boolean
 }
 
-export function ProjectCard({ project, accentVar, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false }: Props) {
+export function ProjectCard({ project, accentVar, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, dateConflict = false }: Props) {
   const typeColor = EVENT_TYPE_ACCENT[project.eventType]
 
   return (
@@ -82,6 +84,12 @@ export function ProjectCard({ project, accentVar, onOpenFull, onOpenSide, unread
         </div>
 
         <h4 className="font-display text-[16px] leading-snug text-parchment">{project.client}</h4>
+
+        {dateConflict && (
+          <div className="mt-1.5">
+            <DateConflictFlag />
+          </div>
+        )}
 
         {pendingPayment && (
           <span

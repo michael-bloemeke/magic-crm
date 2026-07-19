@@ -1,4 +1,5 @@
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project, type Umbrella } from '../pipeline'
+import { DateConflictFlag } from './DateConflictFlag'
 
 // The "Cards" pipeline view: the whole active pipeline laid out as a dense, scannable
 // grid of detail cards, grouped by category and then by stage. Bigger than the board
@@ -11,6 +12,7 @@ type Props = {
   onOpenSide: (p: Project) => void
   unread: Record<string, number>
   pendingPaymentIds: Set<string>
+  dateConflictIds: Set<string>
 }
 
 function DisplayCard({
@@ -20,6 +22,7 @@ function DisplayCard({
   onOpenSide,
   unreadCount,
   pendingPayment,
+  dateConflict,
 }: {
   p: Project
   accent: string
@@ -27,6 +30,7 @@ function DisplayCard({
   onOpenSide: (p: Project) => void
   unreadCount: number
   pendingPayment: boolean
+  dateConflict: boolean
 }) {
   const typeColor = EVENT_TYPE_ACCENT[p.eventType]
   const blurb = (p.eventDescription || p.projectNotes || '').trim()
@@ -78,6 +82,12 @@ function DisplayCard({
 
       {/* Client name */}
       <h4 className="font-display text-[15.5px] leading-snug text-parchment">{p.client}</h4>
+
+      {dateConflict && (
+        <div className="mt-1.5">
+          <DateConflictFlag />
+        </div>
+      )}
 
       {pendingPayment && (
         <span
@@ -145,7 +155,7 @@ function DisplayCard({
   )
 }
 
-export function PipelineCards({ pipeline, onOpenFull, onOpenSide, unread, pendingPaymentIds }: Props) {
+export function PipelineCards({ pipeline, onOpenFull, onOpenSide, unread, pendingPaymentIds, dateConflictIds }: Props) {
   const totalActive = pipeline.reduce((n, u) => n + u.stages.reduce((m, s) => m + s.projects.length, 0), 0)
 
   if (totalActive === 0) {
@@ -207,6 +217,7 @@ export function PipelineCards({ pipeline, onOpenFull, onOpenSide, unread, pendin
                       onOpenSide={onOpenSide}
                       unreadCount={unread[p.id] ?? 0}
                       pendingPayment={pendingPaymentIds.has(p.id)}
+                      dateConflict={dateConflictIds.has(p.id)}
                     />
                   ))}
                 </div>

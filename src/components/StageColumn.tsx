@@ -13,6 +13,7 @@ type Props = {
   onDropProject: (projectId: string, stageId: string) => void
   unread: Record<string, number>
   pendingPaymentIds: Set<string>
+  dateConflictIds: Set<string>
   editMode?: boolean
   canDelete?: boolean
   canMoveLeft?: boolean
@@ -32,6 +33,7 @@ export function StageColumn({
   onDropProject,
   unread,
   pendingPaymentIds,
+  dateConflictIds,
   editMode = false,
   canDelete = false,
   canMoveLeft = false,
@@ -172,6 +174,7 @@ export function StageColumn({
                   onOpenSide={onOpenSide}
                   unreadCount={unread[project.id] || 0}
                   pendingPayment={pendingPaymentIds.has(project.id)}
+                  dateConflict={dateConflictIds.has(project.id)}
                 />
               ))}
             </div>

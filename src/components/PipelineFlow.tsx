@@ -66,9 +66,10 @@ type Props = {
   onOpenSide: (project: Project) => void
   unread: Record<string, number>
   pendingPaymentIds: Set<string>
+  dateConflictIds: Set<string>
 }
 
-export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pendingPaymentIds }: Props) {
+export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pendingPaymentIds, dateConflictIds }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const [positions, setPositions] = useState<Record<string, Pos>>({})
@@ -606,6 +607,7 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
                   summary
                   unreadCount={unread[p.id] || 0}
                   pendingPayment={pendingPaymentIds.has(p.id)}
+                  dateConflict={dateConflictIds.has(p.id)}
                   onOpenFull={onOpenFull}
                   onOpenSide={onOpenSide}
                 />
