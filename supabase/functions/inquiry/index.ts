@@ -118,6 +118,18 @@ function describe(inq: Record<string, string>): string {
   return lines.join("\n\n");
 }
 
+// One-line "Description" (event_summary) built ONLY from fields the client actually filled in.
+// Empty parts are skipped; if nothing substantive was provided it returns '' (no forced filler).
+function briefSummary(inq: Record<string, string>, showTypes: string): string {
+  const parts: string[] = [];
+  if (showTypes) parts.push(showTypes);
+  if (inq.venue) parts.push(`at ${inq.venue}`);
+  if (inq.guests) parts.push(`for ${inq.guests} guests`);
+  if (inq.eventDate) parts.push(`on ${writtenDate(inq.eventDate) || inq.eventDate}`);
+  if (!parts.length) return "";
+  return `Website inquiry: ${parts.join(" ")}.`;
+}
+
 // The raw website-form submission, formatted for the project's "Initial inquiry" field. Mirrors the
 // alert email body so the CRM shows exactly what the client typed/selected in the form.
 function formSummary(inq: Record<string, string>, showTypes: string): string {
@@ -389,6 +401,7 @@ Deno.serve(async (req) => {
       age_of_guests: inq.ages,
       performance_style: showTypes,
       booking_source: inq.source,
+      event_summary: briefSummary(inq, showTypes),
       event_description: describe(inq),
       initial_inquiry: formSummary(inq, showTypes),
       contact_names: inq.name,

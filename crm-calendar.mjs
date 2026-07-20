@@ -187,6 +187,8 @@ function projectEventBody(project) {
   const summary = `${booked ? '' : 'Inquiry: '}${project.client}`
 
   let description = ''
+  // The project's Description blurb leads the event details, when there is one.
+  if (String(project.eventSummary || '').trim()) description += `${String(project.eventSummary).trim()}\n\n`
   description += line('Event type', project.eventType)
   description += line('Arrival', project.arrivalTime)
   description += line('Event start', project.eventStartTime)
