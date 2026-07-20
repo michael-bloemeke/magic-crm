@@ -221,11 +221,21 @@ export function crmDataPlugin() {
       const syncMobile = () => { if (isMobileConfigured()) syncMobileSnapshot().catch(() => {}) }
       const t3 = setTimeout(syncMobile, 12_000)
       const t4 = setInterval(syncMobile, 5 * 60 * 1000)
+      // Keep the Gigs calendar in step with EVERY active/completed dated project, including
+      // website inquiries (edge function) and HoneyBook imports (SQL) that never go through the
+      // app's per-action sync. syncAll is idempotent (upsert by stored event id), so re-running is
+      // safe; it also carries the "Inquiry: " prefix for anything not yet booked. Skips fast if the
+      // calendar isn't connected.
+      const syncCal = () => { syncCalendarAll().catch(() => {}) }
+      const t5 = setTimeout(syncCal, 20_000)
+      const t6 = setInterval(syncCal, 5 * 60 * 1000)
       server.httpServer?.on('close', () => {
         clearTimeout(t1)
         clearInterval(t2)
         clearTimeout(t3)
         clearInterval(t4)
+        clearTimeout(t5)
+        clearInterval(t6)
         if (cacheRefreshTimer) clearInterval(cacheRefreshTimer)
       })
 
