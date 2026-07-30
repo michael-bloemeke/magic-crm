@@ -11,7 +11,7 @@ import { exec } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CRM_STORE, initStore } from './crm-store.mjs'
+import { CRM_STORE, initStore, checkDataVersion } from './crm-store.mjs'
 import {
   loadAll,
   setStage,
@@ -201,12 +201,17 @@ export function crmDataPlugin() {
         // made elsewhere show up here without restarting the app. Non-overlapping (a slow refresh skips
         // the next tick rather than stacking) and best-effort (a failed refresh just logs and the next
         // tick retries; it never crashes the server). Keeps the cache at most ~15s stale.
+        // Egress guard: poll the ~30-byte data_version sentinel every 15s and only run the full
+        // 21-table reload (~1.35 MB) when something actually wrote to the database. The old
+        // unconditional reload burned ~7.6 GB/day against a 5 GB/month Supabase allowance.
+        // Same 15s freshness for cross-device edits, at roughly 0.1% of the traffic.
         let refreshing = false
         cacheRefreshTimer = setInterval(async () => {
           if (refreshing) return
           refreshing = true
           try {
-            await initStore({ force: true })
+            const { changed } = await checkDataVersion()
+            if (changed) await initStore({ force: true })
           } catch (e) {
             console.error('[crm-data] cache refresh failed (will retry next tick):', e?.message || e)
           } finally {

@@ -8,7 +8,7 @@
 'use strict'
 
 import {
-  loadEverything, getSession, signIn, signOut, currentUserEmail,
+  loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail,
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
@@ -1665,6 +1665,15 @@ function editorOpen() {
 function backgroundRefresh() {
   if (!SNAP) return // not loaded yet / logged out: the normal load path handles the first fetch
   if (editorOpen() || isEditingActive()) return
+  // Egress guard: ask the ~30-byte data_version sentinel first and skip the full reload when
+  // nothing changed since our last load. On sentinel errors it reports changed, so worst case
+  // is the old behavior, never a stale freeze.
+  dataChangedSinceLastLoad().then(function (changed) {
+    if (!changed) return
+    doBackgroundReload()
+  })
+}
+function doBackgroundReload() {
   loadEverything().then(function (s) {
     applySnapshot(s)
     $('#updated').textContent = 'Updated ' + timeAgo(s.generatedAt)

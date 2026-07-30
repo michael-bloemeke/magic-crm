@@ -38,6 +38,29 @@ export async function currentUserEmail() {
   return (s && s.user && s.user.email) || ''
 }
 
+// ---------- change sentinel (egress guard) ----------
+// data_version is a one-row table a DB trigger bumps on every write to any CRM table. The
+// background refresh fetches just this (~30 bytes) and skips the full reload when nothing
+// changed, instead of re-downloading every table each 30s tick. On any error, report
+// changed=true so a sentinel hiccup can never freeze the app on stale data.
+let lastSeenV = null
+export async function dataChangedSinceLastLoad() {
+  try {
+    const { data, error } = await sb.from('data_version').select('v').eq('id', 1).single()
+    if (error || !data) return true
+    return lastSeenV === null || Number(data.v) !== lastSeenV
+  } catch (_) {
+    return true
+  }
+}
+// Called by the load path after a successful full load, so the next poll compares against it.
+export async function noteDataVersionLoaded() {
+  try {
+    const { data } = await sb.from('data_version').select('v').eq('id', 1).single()
+    if (data) lastSeenV = Number(data.v)
+  } catch (_) { /* leave stale -> next poll reloads, which is safe */ }
+}
+
 // ---------- small mappers (mirror the desktop's crm-data-core.mjs / crm-finance.mjs) ----------
 function str(v) { return v == null ? '' : String(v) }
 // total_fee / tips / mileage: numeric column, but keep a text companion for non-numeric legacy values.
@@ -942,6 +965,9 @@ export async function savePushSubscription(sub) {
 // One call that pulls everything a load-and-render needs, and assembles the exact `SNAP`-shaped
 // object the view code consumes. This is the single seam the boot code hits after login.
 export async function loadEverything() {
+  // Record the sentinel BEFORE loading: a write landing mid-load leaves v ahead of what we
+  // saw, so the next background poll reloads again rather than missing it.
+  await noteDataVersionLoaded()
   const [projects, structure, tasks, config, contacts, templates, links, emails, paymentsRaw] = await Promise.all([
     loadProjects(),
     loadStructure(),
