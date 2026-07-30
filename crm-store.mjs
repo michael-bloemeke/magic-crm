@@ -204,10 +204,32 @@ export async function deleteProjectLinks(projectId) {
 
 let _cache = null
 
+// ---- change sentinel (egress guard) ----
+// data_version is a one-row table bumped by a trigger on every write to any CRM table.
+// Pollers fetch just that row (~30 bytes) and only trigger a full 21-table reload when v
+// actually moved. Before this, the 15s timer reloaded everything (~1.35 MB) unconditionally,
+// which burned ~7.6 GB/day of Supabase egress. _lastSeenV updates only inside initStore, so
+// a failed reload leaves it stale and the next poll retries.
+let _lastSeenV = null
+
+export async function checkDataVersion() {
+  const { data, error } = await sb().from('data_version').select('v').eq('id', 1).single()
+  must(error, 'checkDataVersion')
+  const v = Number(data?.v ?? 0)
+  return { changed: _lastSeenV === null || v !== _lastSeenV, v }
+}
+
 // Load all read data from Supabase into the cache. Call once at startup (or at the top of a
 // test harness). Idempotent per process unless forced: a second call refreshes the snapshot.
 export async function initStore({ force = false } = {}) {
   if (_cache && !force) return _cache
+  // Record the sentinel BEFORE loading: a write that lands mid-load leaves v ahead of what we
+  // saw, so the next poll reloads again rather than missing it. Best-effort (first boot on an
+  // older DB without the table must not fail the app).
+  try {
+    const { data } = await sb().from('data_version').select('v').eq('id', 1).single()
+    if (data) _lastSeenV = Number(data.v)
+  } catch { /* sentinel unavailable -> every poll reports changed, which is safe */ }
   const [
     projects,
     contacts,
