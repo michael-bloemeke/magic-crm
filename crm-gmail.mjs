@@ -212,6 +212,16 @@ function fmt(internalDate) {
 }
 
 // Build a normalized thread object from a full threads.get response.
+//
+// UNSENT DRAFTS: a Gmail draft carries a To header and lives in the mailbox with the DRAFT label, so
+// a `to:`/`from:` thread search returns it exactly like real mail. Left alone it renders as a message
+// Michael sent, which is the worst kind of wrong on the pane he uses to check what a client has
+// actually received. We keep drafts (knowing an unsent draft is waiting is useful) but flag each one
+// so the UI can mark it, and we keep them out of every "when did this thread last move" signal.
+//
+// We deliberately do NOT filter with `-in:draft` at the query level: Gmail thread search matches a
+// thread if ANY message matches, so negating drops whole threads that contain both sent mail and a
+// draft reply, hiding real messages. Filtering per message is the only safe place.
 function buildThread(full, me) {
   const msgs = full.data.messages || []
   if (msgs.length === 0) return null
@@ -219,17 +229,26 @@ function buildThread(full, me) {
   const messages = msgs.map((m) => {
     const from = header(m.payload, 'From')
     const labels = Array.isArray(m.labelIds) ? m.labelIds : []
+    const isDraft = labels.includes('DRAFT')
     return {
       id: m.id,
       from: emailFromAddr(from),
       fromName: nameFromAddr(from) || emailFromAddr(from),
-      date: fmt(m.internalDate),
+      // A draft's internalDate is when it was last SAVED, not sent. Keep it for ordering but never
+      // present it as a send date; the UI shows "Unsent draft" instead.
+      date: isDraft ? '' : fmt(m.internalDate),
       ts: Number(m.internalDate) || 0,
       body: trimQuoted(plainText(m.payload)) || (m.snippet || ''),
-      unread: labels.includes('UNREAD'),
+      unread: !isDraft && labels.includes('UNREAD'),
       starred: labels.includes('STARRED'),
+      isDraft,
     }
   })
+  // Every thread-level "last activity" signal comes from REAL messages, so an unsent draft can't
+  // bump a thread up the list or stamp it with a date nothing was sent on. A thread that is nothing
+  // but drafts falls back to the drafts so it still appears.
+  const real = messages.filter((m) => !m.isDraft)
+  const forRecency = real.length ? real : messages
   // Participants = everyone on From/To/Cc across the thread (minus Michael),
   // so a contact who only RECEIVED mail still tags the thread to their project.
   const partSet = new Set()
@@ -246,10 +265,13 @@ function buildThread(full, me) {
     id: full.data.id,
     subject,
     participants,
-    lastDate: messages[messages.length - 1].date,
-    lastTs: Math.max(...messages.map((m) => m.ts), 0),
+    lastDate: forRecency[forRecency.length - 1].date,
+    lastTs: Math.max(...forRecency.map((m) => m.ts), 0),
     unread: messages.filter((m) => m.unread).length,
     starred: messages.some((m) => m.starred),
+    // True when an unsent draft is sitting in this thread, so the list can flag it without
+    // having to walk every message.
+    hasDraft: messages.some((m) => m.isDraft),
     messages,
   }
 }

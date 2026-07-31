@@ -347,6 +347,28 @@ export function ThreadReader({
       <div className="space-y-2.5 bg-[#faf9f6] px-4 py-4">
         {thread.messages.map((m, i) => {
           const mine = m.from === ME
+          // An unsent Gmail draft. Deliberately loud about being unsent (dashed amber, a badge, and
+          // "Not sent" where the date would be), because the whole point of this pane is knowing
+          // what the client has actually received.
+          if (m.isDraft) {
+            return (
+              <div key={m.id || i} className="rounded-lg border border-dashed border-[#e0cfa6] bg-[#fdf8ec] p-3">
+                <div className="mb-1.5 flex items-center justify-between gap-2 text-[11.5px]">
+                  <span className="flex items-center gap-1.5 font-semibold text-[#8a6a2f]">
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                    Unsent draft
+                  </span>
+                  <span className="shrink-0 font-medium text-[#a08a5c]">Not sent</span>
+                </div>
+                <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#6b6250]">{m.body}</p>
+                <p className="mt-2 text-[11px] text-[#a08a5c]">
+                  Sitting in Gmail drafts. Nothing here has gone to the client.
+                </p>
+              </div>
+            )
+          }
           return (
             <div
               key={m.id || i}

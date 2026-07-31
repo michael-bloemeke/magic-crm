@@ -93,7 +93,8 @@ export function MiniComms({
               <ThreadRow
                 key={r.thread.id}
                 thread={r.thread}
-                hasDraft={!!replyDrafts[r.thread.id]}
+                // Either kind of unsent draft: one saved in the CRM, or one sitting in Gmail.
+                hasDraft={!!replyDrafts[r.thread.id] || !!r.thread.hasDraft}
                 onOpen={() => onOpen(r.thread.id)}
                 onToggleStar={onToggleStar ? () => onToggleStar(r.thread.id, !r.thread.starred) : undefined}
               />
@@ -129,9 +130,12 @@ function ThreadRow({
 }) {
   const unread = thread.unread ?? 0
   const starred = !!thread.starred
-  const last = thread.messages[thread.messages.length - 1]
+  // Preview the last message that was actually SENT. Quoting an unsent draft here would read as the
+  // latest thing the client saw, which is exactly the confusion this row has to avoid.
+  const sent = thread.messages.filter((m) => !m.isDraft)
+  const last = sent[sent.length - 1]
   const lastWho = last ? (last.from === ME ? 'You' : last.fromName.split(' ')[0]) : ''
-  const preview = last ? `${lastWho}: ${last.body.replace(/\s+/g, ' ').trim()}` : ''
+  const preview = last ? `${lastWho}: ${last.body.replace(/\s+/g, ' ').trim()}` : 'Nothing sent yet.'
 
   return (
     <div

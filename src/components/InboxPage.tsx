@@ -204,6 +204,18 @@ function InboxThreadDrawer({
             <div className="flex-1 space-y-2.5 px-4 py-4">
               {thread.messages.map((m, i) => {
                 const mine = m.from === ME
+                // Unsent Gmail draft: never dress it up as a sent message (see crm-gmail.mjs).
+                if (m.isDraft) {
+                  return (
+                    <div key={i} className="rounded-lg border border-dashed border-[#e0cfa6] bg-[#fdf8ec] p-3">
+                      <div className="mb-1.5 flex items-center justify-between gap-2 text-[11.5px]">
+                        <span className="font-semibold text-[#8a6a2f]">Unsent draft</span>
+                        <span className="shrink-0 font-medium text-[#a08a5c]">Not sent</span>
+                      </div>
+                      <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#6b6250]">{m.body}</p>
+                    </div>
+                  )
+                }
                 return (
                   <div
                     key={i}
@@ -263,9 +275,11 @@ export function InboxRow({
 }) {
   const [marking, setMarking] = useState(false)
   const unread = thread.unread ?? 0
-  const last = thread.messages[thread.messages.length - 1]
+  // Preview the last SENT message, never an unsent draft.
+  const sentMsgs = thread.messages.filter((m) => !m.isDraft)
+  const last = sentMsgs[sentMsgs.length - 1]
   const who = last ? (last.from === ME ? 'You' : last.fromName.split(' ')[0]) : ''
-  const preview = last ? `${who}: ${last.body.replace(/\s+/g, ' ').trim()}` : ''
+  const preview = last ? `${who}: ${last.body.replace(/\s+/g, ' ').trim()}` : 'Nothing sent yet.'
   // Newest message on top, first message at the bottom (inline-expand mode).
   const ordered = [...thread.messages].reverse()
   const act = onOpen ?? onToggle ?? (() => {})

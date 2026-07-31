@@ -1185,20 +1185,25 @@ export type EmailMessage = {
   id?: string // Gmail message id (absent for demo messages); needed to star a single message
   from: string
   fromName: string
-  date: string
+  date: string // '' on an unsent draft: nothing was sent, so there is no send date
   ts?: number
   body: string
   unread?: boolean
   starred?: boolean
+  // An unsent Gmail draft sitting in the thread. It must never read as a message the client
+  // received; render it as a draft with no send date.
+  isDraft?: boolean
 }
 export type EmailThread = {
   id: string
   subject: string
   participants: string[]
+  // Both computed from SENT messages only, so an unsent draft can't restamp or reorder a thread.
   lastDate: string
   lastTs?: number
   unread?: number
   starred?: boolean // true if any message in the thread is starred
+  hasDraft?: boolean // an unsent draft is waiting in this thread
   messages: EmailMessage[]
 }
 

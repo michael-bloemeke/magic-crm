@@ -429,7 +429,7 @@ results.push(compareArrayFile('crm-payments.json', 'payments', (r) => r.id, REAL
 results.push(compareArrayFile('crm-expenses.json', 'expenses', (r) => r.id, REAL_RECORDS_DIR, tmp, 'expense'))
 results.push(compareArrayFile('crm-tasks.json', 'tasks', (r) => r.id, REAL_RECORDS_DIR, tmp, 'task'))
 results.push(compareArrayFile('crm-emails.json', 'emails', (r) => r.id, REAL_RECORDS_DIR, tmp, 'email'))
-results.push(compareArrayFile('crm-templates.json', 'templates', (r) => r.id, REAL_RECORDS_DIR, tmp, 'template'))
+// crm-templates.json is no longer exported (email-template library removed 2026-07-31).
 results.push(compareArrayFile('crm-notifications.json', 'events', (r) => r.id, REAL_RECORDS_DIR, tmp, 'event'))
 results.push(
   compareArrayFile('crm-text-markers.json', 'markers', (r) => `${r.projectId}|${r.kind}`, REAL_RECORDS_DIR, tmp, 'marker'),
