@@ -1,20 +1,15 @@
 import { useState, type ReactNode } from 'react'
 import { type Project } from '../pipeline'
-import { sendProjectEmail, type ProjectEmail, type TextMarker } from '../api'
+import { sendProjectEmail, type ProjectEmail } from '../api'
 import { unfilledFields } from '../smartFields'
 import { EmailBuilderModal } from './EmailBuilderModal'
 
-// Local YYYY-MM-DD for "today" (not UTC, so the date doesn't jump late at night).
-function todayISO(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-// One email slot in a project section (e.g. "Post-call email", "Follow-up #2",
-// "Check-in #1", "Thank-you email"). Shows the status (none / draft / sent), a
-// Send button for a saved draft, and opens the builder dialog. The record itself
-// is owned by the parent (ProjectDetailsBody loads them all once and passes each
-// card its match by kind), so saving/sending here reports back up via onSaved.
+// An email the CRM itself sends, because it carries something only the CRM can generate (currently
+// just the questionnaire invite and its portal link). Shows the status (none / draft / sent), a Send
+// button for a saved draft, and opens the builder dialog.
+//
+// This used to drive every communication slot on the project page. Those became mark-as-sent rows on
+// 2026-07-31 (Michael drafts in Gmail and sends from there); see CommsSlotRow.
 export function EmailBuilderCard({
   project,
   recipientEmails,
@@ -27,8 +22,6 @@ export function EmailBuilderCard({
   onSaved,
   onDiscard,
   onDelete,
-  textMarkers,
-  onSetTextMarker,
 }: {
   project: Project
   recipientEmails: string[]
@@ -41,13 +34,8 @@ export function EmailBuilderCard({
   onSaved: (email: ProjectEmail) => void
   // Permanently delete a saved draft (from inside the editor's "Discard draft").
   onDiscard?: (id: string) => void
-  // Provided only for removable slots (added follow-ups / check-ins). The button
-  // shows only while the email is unsent.
+  // Provided only for removable slots. The button shows only while the email is unsent.
   onDelete?: () => void
-  // "Text sent" markers (keyed by kind) + setter, so this slot can flag a text was sent (with an
-  // optional date), independent of the email above. Some clients get a text instead of an email.
-  textMarkers?: Record<string, TextMarker>
-  onSetTextMarker?: (kind: string, sent: boolean, date: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -55,14 +43,6 @@ export function EmailBuilderCard({
 
   const sent = email?.status === 'sent'
   const draft = !!email && email.status === 'draft'
-  const marker = textMarkers?.[kind] ?? null
-  const textSent = !!marker?.sent
-  const textDate = marker?.date || ''
-  const toggleText = () => {
-    const next = !textSent
-    // Turning it on defaults the date to today (editable / clearable); turning it off clears both.
-    onSetTextMarker?.(kind, next, next ? textDate || todayISO() : '')
-  }
 
   const sendNow = async () => {
     if (!email) return
@@ -92,7 +72,6 @@ export function EmailBuilderCard({
           <p className="truncate text-[13px] font-medium text-parchment">{title}</p>
           {sent && <Badge tone="booked">Sent</Badge>}
           {draft && <Badge tone="amber">Draft</Badge>}
-          {textSent && <Badge tone="text">Texted</Badge>}
           {email?.threadId && <Badge tone="reply">Reply</Badge>}
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
@@ -144,42 +123,6 @@ export function EmailBuilderCard({
       )}
       {!draft && note && <p className="mt-1 text-[11px] text-muted">{note}</p>}
 
-      {/* Manual "text sent" marker — independent of the email above. Optional; leave off if no text
-          was sent, or flag a text with no email. We record only the flag + an optional date. */}
-      {onSetTextMarker && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2.5">
-          <button
-            type="button"
-            onClick={toggleText}
-            aria-pressed={textSent}
-            title={textSent ? 'A text was sent for this. Click to clear.' : 'Mark that you sent a text for this'}
-            className={[
-              'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] font-medium transition-colors',
-              textSent
-                ? 'border-[#5aa86d]/55 bg-[#5aa86d]/12 text-[#7fc795]'
-                : 'border-line text-muted hover:border-line-strong hover:text-parchment',
-            ].join(' ')}
-          >
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 9.5 9.5 0 0 1-4-.9L3 21l1.9-5.5A8.5 8.5 0 0 1 4 11.5 8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
-            </svg>
-            {textSent ? 'Text sent' : 'Mark text sent'}
-          </button>
-          {textSent && (
-            <label className="inline-flex items-center gap-1.5 text-[11px] text-faint">
-              on
-              <input
-                type="date"
-                value={textDate}
-                onChange={(e) => onSetTextMarker?.(kind, true, e.target.value)}
-                className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-[11.5px] text-muted focus:border-brass-dim focus:outline-none"
-                style={{ colorScheme: 'dark' }}
-              />
-            </label>
-          )}
-        </div>
-      )}
-
       <EmailBuilderModal
         // Remount on project change so a project-to-project switch (e.g. Cmd+K) with this modal open
         // can never carry over the prior project's threads, recipients, or subject.
@@ -201,15 +144,13 @@ export function EmailBuilderCard({
   )
 }
 
-function Badge({ tone, children }: { tone: 'booked' | 'amber' | 'text' | 'reply'; children: ReactNode }) {
+function Badge({ tone, children }: { tone: 'booked' | 'amber' | 'reply'; children: ReactNode }) {
   const style =
     tone === 'booked'
       ? { color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }
-      : tone === 'text'
-        ? { color: '#7fc795', backgroundColor: 'color-mix(in oklab, #5aa86d 16%, transparent)' }
-        : tone === 'reply'
-          ? { color: '#7aa2e3', backgroundColor: 'color-mix(in oklab, #7aa2e3 16%, transparent)' }
-          : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
+      : tone === 'reply'
+        ? { color: '#7aa2e3', backgroundColor: 'color-mix(in oklab, #7aa2e3 16%, transparent)' }
+        : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
   return (
     <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={style}>
       {children}

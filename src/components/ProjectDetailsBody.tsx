@@ -357,7 +357,11 @@ export function ProjectDetailsBody({
         )}
 
         <div className="divide-y divide-line">
-          <CommsGroup label="Inquiry" active={highlightedSection === 'inquiry'}>
+          <CommsGroup
+            label="Inquiry"
+            active={highlightedSection === 'inquiry'}
+            action={<AddSlotButton label="Add follow-up" onClick={() => addSlot(setInquiryFollowupSlots)} />}
+          >
             {slotRow('inquiry-response', 'Inquiry response')}
             {inquiryFollowupSlots.map((n, i) =>
               slotRow(
@@ -368,10 +372,13 @@ export function ProjectDetailsBody({
             )}
             {slotRow('inquiry-shark', 'Shark email')}
             {slotRow('inquiry-breakup', 'Break-up email')}
-            <AddSlotButton label="Add follow-up" onClick={() => addSlot(setInquiryFollowupSlots)} />
           </CommsGroup>
 
-          <CommsGroup label="Post Call" active={highlightedSection === 'postcall'}>
+          <CommsGroup
+            label="Post Call"
+            active={highlightedSection === 'postcall'}
+            action={<AddSlotButton label="Add follow-up" onClick={() => addSlot(setFollowupSlots)} />}
+          >
             {slotRow('postcall', 'Post-call email')}
             {followupSlots.map((n, i) =>
               slotRow(
@@ -382,10 +389,13 @@ export function ProjectDetailsBody({
             )}
             {slotRow('shark', 'Shark email')}
             {slotRow('breakup', 'Break-up email')}
-            <AddSlotButton label="Add follow-up" onClick={() => addSlot(setFollowupSlots)} />
           </CommsGroup>
 
-          <CommsGroup label="Booked" active={highlightedSection === 'booked'}>
+          <CommsGroup
+            label="Booked"
+            active={highlightedSection === 'booked'}
+            action={<AddSlotButton label="Add check-in" onClick={() => addSlot(setCheckinSlots)} />}
+          >
             {slotRow('booking-confirmation', 'Booking confirmation')}
             {checkinSlots.map((n, i) =>
               slotRow(
@@ -394,7 +404,6 @@ export function ProjectDetailsBody({
                 checkinSlots.length > 1 ? () => removeSlot('checkin', n, setCheckinSlots) : undefined,
               ),
             )}
-            <AddSlotButton label="Add check-in" onClick={() => addSlot(setCheckinSlots)} />
           </CommsGroup>
 
           <CommsGroup label="Post Show" active={highlightedSection === 'postshow'}>
@@ -566,7 +575,18 @@ function DetailSection({
 // One phase of the Communication timeline (Inquiry / Post Call / Booked / Post Show). The rail
 // running behind the row dots is what makes a group read as a sequence rather than a list, and the
 // label goes brass on the phase the project's current stage belongs to.
-function CommsGroup({ label, active, children }: { label: string; active: boolean; children: ReactNode }) {
+function CommsGroup({
+  label,
+  active,
+  action,
+  children,
+}: {
+  label: string
+  active: boolean
+  // The "add another slot" button, rendered below the rail so the rail ends on the last row.
+  action?: ReactNode
+  children: ReactNode
+}) {
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="mb-1 flex items-center gap-2">
@@ -583,9 +603,12 @@ function CommsGroup({ label, active, children }: { label: string; active: boolea
         )}
       </div>
       <div className="relative">
-        <span aria-hidden className="absolute bottom-2 left-[3px] top-2 w-px bg-line" />
+        {/* The rail runs between the first and last dot centers, so it terminates on a node rather
+            than trailing off. A single-row group hides it behind that row's dot entirely. */}
+        <span aria-hidden className="absolute bottom-4 left-[3px] top-4 w-px bg-line" />
         {children}
       </div>
+      {action}
     </div>
   )
 }
