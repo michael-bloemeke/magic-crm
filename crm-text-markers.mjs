@@ -1,7 +1,12 @@
-// Manual "a text/SMS was sent" markers, one per project communication slot (kind), e.g. a follow-up
-// or check-in that Michael handled by text instead of (or in addition to) email. We deliberately do
-// NOT store the message itself — just a small flag plus an optional date. A marker is independent of
-// the email record: a slot can have a sent text and no email, or both.
+// Manual "this was sent" markers, one per project communication slot (kind) per channel
+// ('email' or 'text'). Michael drafts in Gmail and sends from there, so the CRM records only that a
+// given step happened and on what date. We deliberately do NOT store the message itself, just a flag
+// plus a date. The two channels are independent: a slot can carry a text and no email, or both.
+//
+// Historical note: the table is still named text_markers (it began as an SMS-only flag) and the
+// channel column was added 2026-07-31, defaulting existing rows to 'text'. The email markers for
+// everything sent through the old in-CRM composer were backfilled from the emails table at the same
+// time, which is why old projects show send dates that predate this feature.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -25,11 +30,16 @@ function isoZ(v) {
   const d = new Date(s)
   return Number.isNaN(d.getTime()) ? s : d.toISOString()
 }
+// Only these two channels exist; anything else falls back to 'text' (the pre-channel default).
+function chan(v) {
+  return v === 'email' ? 'email' : 'text'
+}
 // Raw DB marker row -> file-shape record (same object clean() produces from a file row).
 function markerFromRow(r) {
   return {
     projectId: String(r.project_id || ''),
     kind: String(r.kind || ''),
+    channel: chan(r.channel),
     sent: !!r.sent,
     date: typeof r.date === 'string' ? r.date : '',
     updatedAt: isoZ(r.updated_at),
@@ -40,6 +50,7 @@ function markerToRow(m) {
   return {
     project_id: String(m.projectId || ''),
     kind: String(m.kind || ''),
+    channel: chan(m.channel),
     sent: !!m.sent,
     date: typeof m.date === 'string' ? m.date : '',
     updated_at: m.updatedAt || null,
@@ -51,9 +62,9 @@ function meta() {
     file: 'crm-text-markers.json',
     owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
     purpose:
-      'Manual "a text/SMS was sent" markers per project communication slot (kind). No message content is stored, only a sent flag + optional date (YYYY-MM-DD). Independent of crm-emails.json.',
+      'Manual "this was sent" markers per project communication slot (kind) per channel (email | text). No message content is stored, only a sent flag + date (YYYY-MM-DD). Michael drafts and sends in Gmail; these are the CRM record that a step happened.',
     cowork_guidance: 'Safe to read. The CRM manages this file. Do NOT delete or overwrite.',
-    shape: 'projectId (client_name slug), kind (email-slot kind, e.g. followup-1 / checkin-2), sent (bool), date (YYYY-MM-DD or ""), updatedAt (ISO)',
+    shape: 'projectId (client_name slug), kind (comms-slot kind, e.g. followup-1 / checkin-2), channel ("email" | "text"), sent (bool), date (YYYY-MM-DD or ""), updatedAt (ISO)',
   }
 }
 
@@ -80,6 +91,7 @@ function clean(m) {
   return {
     projectId: String(m.projectId || ''),
     kind: String(m.kind || ''),
+    channel: chan(m.channel),
     sent: !!m.sent,
     date: typeof m.date === 'string' ? m.date : '',
     updatedAt: m.updatedAt || '',
@@ -92,22 +104,23 @@ export function loadTextMarkers(projectId) {
   return projectId ? all.filter((m) => m.projectId === projectId) : all
 }
 
-// Upsert a marker for (projectId, kind). An "empty" marker (not sent, no date) is removed so the
-// store doesn't accumulate dead rows when a text flag is toggled back off.
-export async function saveTextMarker({ projectId, kind, sent, date } = {}) {
+// Upsert a marker for (projectId, kind, channel). An "empty" marker (not sent, no date) is removed
+// so the store doesn't accumulate dead rows when a flag is cleared.
+export async function saveTextMarker({ projectId, kind, channel, sent, date } = {}) {
   if (!projectId || !kind) throw new Error('projectId and kind are required')
   const now = new Date().toISOString()
+  const ch = chan(channel)
   const d = typeof date === 'string' ? date.trim() : ''
   const wantSent = !!sent
 
   if (CRM_STORE === 'supabase') {
     // Empty marker -> remove any existing row (matches the files path, which drops dead rows).
     if (!wantSent && !d) {
-      cacheRemoveTextMarker(projectId, kind)
-      await sbDeleteTextMarker(projectId, kind)
-      return clean({ projectId, kind, sent: false, date: '', updatedAt: now })
+      cacheRemoveTextMarker(projectId, kind, ch)
+      await sbDeleteTextMarker(projectId, kind, ch)
+      return clean({ projectId, kind, channel: ch, sent: false, date: '', updatedAt: now })
     }
-    const rec = { projectId, kind, sent: wantSent, date: d, updatedAt: now }
+    const rec = { projectId, kind, channel: ch, sent: wantSent, date: d, updatedAt: now }
     const row = markerToRow(rec)
     cacheUpsertTextMarker(row)
     await sbUpsertTextMarker(row)
@@ -115,20 +128,21 @@ export async function saveTextMarker({ projectId, kind, sent, date } = {}) {
   }
 
   const data = readFileJson()
-  const existing = data.markers.find((m) => m.projectId === projectId && m.kind === kind)
+  const existing = data.markers.find((m) => m.projectId === projectId && m.kind === kind && chan(m.channel) === ch)
   if (!wantSent && !d) {
     if (existing) data.markers = data.markers.filter((m) => m !== existing)
     writeFileJson(data)
-    return clean({ projectId, kind, sent: false, date: '', updatedAt: now })
+    return clean({ projectId, kind, channel: ch, sent: false, date: '', updatedAt: now })
   }
   if (existing) {
+    existing.channel = ch
     existing.sent = wantSent
     existing.date = d
     existing.updatedAt = now
     writeFileJson(data)
     return clean(existing)
   }
-  const rec = { projectId, kind, sent: wantSent, date: d, updatedAt: now }
+  const rec = { projectId, kind, channel: ch, sent: wantSent, date: d, updatedAt: now }
   data.markers.push(rec)
   writeFileJson(data)
   return clean(rec)

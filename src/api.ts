@@ -415,12 +415,17 @@ export async function deleteProjectEmail(id: string): Promise<void> {
   await postJson('/api/emails/delete', { id })
 }
 
-// --- "Text sent" markers (manual SMS flag per email slot) ---------------------
-// A small marker that a text/SMS was sent for a given communication slot (kind), independent of the
-// email record. No message content — just a flag and an optional date.
+// --- Communication markers (manual "sent" flags per slot) ---------------------
+// A small marker that a given communication slot (kind) went out on a channel: an email drafted and
+// sent from Gmail, or a text. No message content, just a flag and the date it went out. The two
+// channels are independent, so a slot can carry a text and no email, or both. Still served by
+// /api/text-markers (the endpoint predates the email channel).
+export type MarkerChannel = 'email' | 'text'
+
 export type TextMarker = {
   projectId: string
   kind: string
+  channel: MarkerChannel
   sent: boolean
   date: string // YYYY-MM-DD or ''
   updatedAt: string
@@ -435,6 +440,7 @@ export async function loadTextMarkers(): Promise<TextMarker[]> {
 export async function saveTextMarker(input: {
   projectId: string
   kind: string
+  channel: MarkerChannel
   sent: boolean
   date?: string
 }): Promise<TextMarker> {

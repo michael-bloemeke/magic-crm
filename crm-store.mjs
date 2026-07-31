@@ -560,16 +560,20 @@ export function cacheUpsertNotification(row) {
 export function cacheRemoveNotification(id) {
   cacheRemoveBy('notifications', id)
 }
-// text_markers: composite PK (project_id, kind).
+// text_markers: composite PK (project_id, kind, channel).
 export function cacheUpsertTextMarker(row) {
   if (!_cache) return
-  const i = _cache.textMarkers.findIndex((m) => m.project_id === row.project_id && m.kind === row.kind)
+  const i = _cache.textMarkers.findIndex(
+    (m) => m.project_id === row.project_id && m.kind === row.kind && (m.channel || 'text') === (row.channel || 'text'),
+  )
   if (i === -1) _cache.textMarkers.push(row)
   else _cache.textMarkers[i] = row
 }
-export function cacheRemoveTextMarker(projectId, kind) {
+export function cacheRemoveTextMarker(projectId, kind, channel = 'text') {
   if (!_cache) return
-  _cache.textMarkers = _cache.textMarkers.filter((m) => !(m.project_id === projectId && m.kind === kind))
+  _cache.textMarkers = _cache.textMarkers.filter(
+    (m) => !(m.project_id === projectId && m.kind === kind && (m.channel || 'text') === channel),
+  )
 }
 // keyed-by-project_id jsonb tables
 export function cacheUpsertInvoice(row) {
@@ -779,11 +783,16 @@ export async function getAllTextMarkers() {
   return data || []
 }
 export async function upsertTextMarker(row) {
-  const { error } = await sb().from('text_markers').upsert(row, { onConflict: 'project_id,kind' })
+  const { error } = await sb().from('text_markers').upsert(row, { onConflict: 'project_id,kind,channel' })
   must(error, 'upsertTextMarker')
 }
-export async function deleteTextMarker(projectId, kind) {
-  const { error } = await sb().from('text_markers').delete().eq('project_id', projectId).eq('kind', kind)
+export async function deleteTextMarker(projectId, kind, channel = 'text') {
+  const { error } = await sb()
+    .from('text_markers')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('kind', kind)
+    .eq('channel', channel)
   must(error, 'deleteTextMarker')
 }
 
