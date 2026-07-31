@@ -222,7 +222,9 @@ function fmt(internalDate) {
 // We deliberately do NOT filter with `-in:draft` at the query level: Gmail thread search matches a
 // thread if ANY message matches, so negating drops whole threads that contain both sent mail and a
 // draft reply, hiding real messages. Filtering per message is the only safe place.
-function buildThread(full, me) {
+// Exported so the draft-handling rules above can be tested against a fixture without a live mailbox
+// (drafts come and go, so there is not always a real one to check against).
+export function buildThread(full, me) {
   const msgs = full.data.messages || []
   if (msgs.length === 0) return null
   const subject = header(msgs[0].payload, 'Subject') || '(no subject)'
