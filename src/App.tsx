@@ -17,7 +17,6 @@ import { FinancePage } from './components/FinancePage'
 import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
-import { TemplatesPage } from './components/TemplatesPage'
 import { FilesPage } from './components/FilesPage'
 import { RecordsPage } from './components/RecordsPage'
 import { DeletedPage } from './components/DeletedPage'
@@ -114,7 +113,6 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   stats: { kicker: 'Stats', title: 'Lead Stats' },
   website: { kicker: 'Website', title: 'Website Analytics' },
   contacts: { kicker: 'Contacts', title: 'Contacts' },
-  templates: { kicker: 'Library', title: 'Templates' },
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
@@ -1252,8 +1250,6 @@ function App() {
                   openContactId={pendingContactId}
                   onContactOpened={() => setPendingContactId(null)}
                 />
-              ) : page === 'templates' ? (
-                <TemplatesPage />
               ) : page === 'files' ? (
                 <FilesPage />
               ) : page === 'settings' ? (

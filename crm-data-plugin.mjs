@@ -29,9 +29,6 @@ import {
   restoreProject,
   deleteProject,
   purgeProject,
-  loadTemplates,
-  saveTemplate,
-  deleteTemplate,
   loadStructure,
   saveStructure,
   reassignStage,
@@ -107,7 +104,7 @@ import {
   isClaudeAvailable,
   isClaudeConfigured,
   draftEmail as claudeDraftEmail,
-  completeTemplate as claudeCompleteTemplate,
+  completeDraft as claudeCompleteDraft,
   draftReply as claudeDraftReply,
   chat as claudeChat,
 } from './crm-claude.mjs'
@@ -561,25 +558,7 @@ export function crmDataPlugin() {
           })
       })
 
-      // --- Email templates (specific paths before the generic GET) ---
-      server.middlewares.use('/api/templates/save', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ template: await saveTemplate(b) }))
-      })
-      server.middlewares.use('/api/templates/delete', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await deleteTemplate(b.id))
-      })
-      server.middlewares.use('/api/templates', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ templates: loadTemplates() }))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
-      })
+      // (The /api/templates routes were removed 2026-07-31 with the email-template library.)
 
       // --- Composed per-project emails (thank-you, etc.) ---
       server.middlewares.use('/api/emails/save', (req, res, next) => {
@@ -1029,7 +1008,7 @@ export function crmDataPlugin() {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
           try {
-            return { draft: await claudeCompleteTemplate({ projectId: b.projectId, body: b.body }) }
+            return { draft: await claudeCompleteDraft({ projectId: b.projectId, body: b.body }) }
           } catch (e) {
             return { error: String(e?.message || e) }
           }

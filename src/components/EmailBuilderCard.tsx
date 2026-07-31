@@ -17,7 +17,6 @@ export function EmailBuilderCard({
   title,
   defaultSubject,
   defaultBody,
-  templateHint,
   email,
   onSaved,
   onDiscard,
@@ -29,7 +28,6 @@ export function EmailBuilderCard({
   title: string
   defaultSubject: string
   defaultBody?: string
-  templateHint?: RegExp
   email: ProjectEmail | null
   onSaved: (email: ProjectEmail) => void
   // Permanently delete a saved draft (from inside the editor's "Discard draft").
@@ -135,7 +133,6 @@ export function EmailBuilderCard({
         title={title}
         defaultSubject={defaultSubject}
         defaultBody={defaultBody}
-        templateHint={templateHint}
         onClose={() => setOpen(false)}
         onSaved={onSaved}
         onDiscard={onDiscard}

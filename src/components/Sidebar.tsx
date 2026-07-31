@@ -11,7 +11,6 @@ export type Page =
   | 'stats'
   | 'website'
   | 'contacts'
-  | 'templates'
   | 'files'
   | 'completed'
   | 'archive'
@@ -154,17 +153,6 @@ const GROUPS: NavGroup[] = [
   {
     heading: 'Library',
     items: [
-      {
-        id: 'templates',
-        label: 'Templates',
-        enabled: true,
-        icon: icon(
-          <>
-            <rect x="4" y="3.5" width="16" height="17" rx="2" />
-            <path d="M8 8h8M8 12h8M8 16h5" />
-          </>,
-        ),
-      },
       {
         id: 'files',
         label: 'Files',

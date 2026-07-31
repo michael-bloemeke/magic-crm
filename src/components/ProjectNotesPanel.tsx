@@ -4,6 +4,10 @@ import { EditableField } from './EditableField'
 // The fuller event write-up, project notes (editable), and the activity log.
 // Shown in the slide-in panel on the full project view, and inline at the bottom
 // of the narrow side pane. The activity log is read-only and always newest-first.
+//
+// The client's initial inquiry used to sit at the top here. It moved 2026-07-31 to a dialog behind
+// the "Initial inquiry" button at the top of the Communication section, so this panel is only the
+// write-up and the working notes.
 
 // Activity-log entries are stored as "Month D, YYYY: ...". Show them newest first.
 // Entries with no parseable date (e.g. "Earlier: ...") sink to the bottom, and
@@ -31,18 +35,6 @@ export function ProjectNotesPanel({
   const sortedLog = sortActivityLog(project.activityLog)
   return (
     <div className="space-y-8">
-      <section>
-        <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">Initial inquiry</h3>
-        <div className="rounded-xl border border-line bg-surface-2/30 px-3 py-2">
-          <EditableField
-            value={project.initialInquiry}
-            onSave={(v) => onSaveField('initialInquiry', v)}
-            multiline
-            placeholder="What the client typed into the website inquiry form."
-          />
-        </div>
-      </section>
-
       <section>
         <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">Full description</h3>
         <EditableField value={project.eventDescription} onSave={(v) => onSaveField('eventDescription', v)} multiline />

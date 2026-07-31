@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
 import {
-  loadTemplates,
   saveProjectEmail,
   sendProjectEmail,
   loadFiles,
@@ -11,11 +10,10 @@ import {
   deleteEmailAttachment,
   claudeStatus,
   claudeDraftEmail,
-  claudeCompleteTemplate,
+  claudeCompleteDraft,
   loadConfig,
   loadCustomValues,
   type ProjectEmail,
-  type Template,
   type EmailAttachment,
   type EmailThread,
   type FileItem,
@@ -41,12 +39,12 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// A generic email builder dialog used for every per-project email (post-call,
-// follow-ups, shark, break-up, check-ins, thank-you, and one-off "New email").
-// Michael writes or generates the note, picks a template, then either Sends it to
-// the client(s) or saves it as a CRM draft (closing with content also saves).
-// "Generate" drops in the best-matching template for this kind until live Claude
-// drafting is wired.
+// The email composer: the top-of-page "New email", thread replies, and the questionnaire invite.
+// Michael writes the note (by hand or with Claude), then either Sends it to the client(s) or saves
+// it as a CRM draft (closing with content also saves).
+//
+// The saved-template library was removed 2026-07-31 (Michael is rewriting his templates outside the
+// CRM), so there is no template picker and no "Generate" here any more.
 export function EmailBuilderModal({
   open,
   project,
@@ -56,7 +54,6 @@ export function EmailBuilderModal({
   title,
   defaultSubject,
   defaultBody,
-  templateHint,
   autosave = false,
   onClose,
   onSaved,
@@ -70,7 +67,6 @@ export function EmailBuilderModal({
   title: string
   defaultSubject: string
   defaultBody?: string
-  templateHint?: RegExp
   // When true (the top "New email" composer), anything written auto-saves to drafts and the manual
   // "Save draft" button is hidden. Closing keeps the draft (it's already saved). The section cards
   // leave this off and keep the explicit Save-draft button.
@@ -84,7 +80,6 @@ export function EmailBuilderModal({
   const [subject, setSubject] = useState(defaultSubject)
   const [body, setBody] = useState('')
   const [attachments, setAttachments] = useState<EmailAttachment[]>([])
-  const [templates, setTemplates] = useState<Template[]>([])
   const [files, setFiles] = useState<FileItem[] | null>(null)
   const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -160,9 +155,6 @@ export function EmailBuilderModal({
     setDraftId(existing?.id)
     setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
-    loadTemplates()
-      .then(setTemplates)
-      .catch(() => setTemplates([]))
     setClaudeInstruction('')
     claudeStatus()
       .then((s) => setClaudeAvail(s.configured))
@@ -399,32 +391,6 @@ export function EmailBuilderModal({
     }
   }
 
-  const applyTemplate = (id: string) => {
-    const t = templates.find((x) => x.id === id)
-    if (!t) return
-    if (t.subject && !replyMode) setSubject(t.subject) // in reply mode the subject must stay the thread's
-    const html = t.format === 'html' ? t.body : textToHtml(t.body)
-    setBody(resolveMergeFields(html, project, customVals))
-    setConfirmUnfilled(false)
-    setStatus(`Inserted "${t.name}".`)
-  }
-
-  // "Generate" stand-in until live Claude drafting is wired: drop in the template
-  // that best matches this kind. No match -> nudge to the picker rather than
-  // inserting something unrelated.
-  const generate = () => {
-    const t = templateHint ? templates.find((x) => templateHint.test(x.name)) : null
-    if (!t) {
-      setStatus('No template for this one yet. Pick one below or write your own.')
-      return
-    }
-    if (t.subject && !replyMode) setSubject(t.subject) // in reply mode the subject must stay the thread's
-    const html = t.format === 'html' ? t.body : textToHtml(t.body)
-    setBody(resolveMergeFields(html, project, customVals))
-    setConfirmUnfilled(false)
-    setStatus(`Drafted from "${t.name}". Live Claude drafting is coming soon.`)
-  }
-
   // --- Claude drafting (headless Claude Code) --------------------------------
   const doClaudeDraft = async () => {
     setClaudeBusy(true)
@@ -440,14 +406,16 @@ export function EmailBuilderModal({
       setClaudeBusy(false)
     }
   }
+  // Finish whatever is already in the box for this specific client (fills the placeholders and
+  // tightens the prose). Works on any rough draft; it never needed a saved template.
   const doClaudeComplete = async () => {
     setClaudeBusy(true)
-    setStatus('Completing the template with Claude. This can take up to a minute.')
+    setStatus('Completing the draft with Claude. This can take up to a minute.')
     try {
-      const html = await claudeCompleteTemplate({ projectId: project.id, body })
+      const html = await claudeCompleteDraft({ projectId: project.id, body })
       setBody(html)
       setConfirmUnfilled(false)
-      setStatus('Template completed by Claude. Review it before sending.')
+      setStatus('Completed by Claude. Review it before sending.')
     } catch (e) {
       setStatus(String(e instanceof Error ? e.message : e))
     } finally {
@@ -745,43 +713,6 @@ export function EmailBuilderModal({
                     ].join(' ')}
                   />
                 </label>
-                <div className="relative">
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      applyTemplate(e.target.value)
-                      e.currentTarget.selectedIndex = 0
-                    }}
-                    className="cursor-pointer appearance-none rounded-lg border border-line bg-surface-2 py-2 pl-3 pr-8 text-[12.5px] font-medium text-muted focus:border-brass-dim focus:outline-none"
-                    title="Insert a template"
-                  >
-                    <option value="" disabled>
-                      Insert template…
-                    </option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </div>
-                {templateHint && (
-                  <button
-                    type="button"
-                    onClick={generate}
-                    title="Draft from the matching template (live Claude drafting coming soon)"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" />
-                      <path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9z" />
-                    </svg>
-                    Generate
-                  </button>
-                )}
               </div>
 
               {claudeAvail && (
@@ -808,7 +739,7 @@ export function EmailBuilderModal({
                         disabled={claudeBusy}
                         className="rounded-lg border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-parchment disabled:opacity-40"
                       >
-                        Complete template with Claude
+                        Complete with Claude
                       </button>
                     )}
                   </div>
@@ -834,7 +765,7 @@ export function EmailBuilderModal({
                   }}
                   smartFields={smartFieldList}
                   resolveField={(key) => resolveSmartField(key, project, customVals)}
-                  placeholder="Write a message, pick a template, or hit Generate…"
+                  placeholder="Write a message, or have Claude draft one…"
                 />
                 {sig.enabled && htmlHasContent(sig.html) && (
                   <div className="mt-2">

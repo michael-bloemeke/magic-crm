@@ -291,45 +291,9 @@ export function purgeProject(id: string): Promise<void> {
   return postJson('/api/project/purge', { id })
 }
 
-// --- Email templates ---------------------------------------------------------
-
-export type Template = {
-  id: string
-  name: string
-  subject: string
-  body: string
-  // 'html' = the body is rich HTML (may contain smart-field placeholder chips); 'text' = a
-  // legacy plain-text template. Absent is treated as 'text'.
-  format?: 'html' | 'text'
-  updatedAt: string
-}
-
-export async function loadTemplates(): Promise<Template[]> {
-  const res = await fetch('/api/templates')
-  if (!res.ok) throw new Error(`Failed to load templates (${res.status})`)
-  const data = await res.json()
-  return (data.templates ?? []) as Template[]
-}
-
-export async function saveTemplate(input: {
-  id?: string
-  name: string
-  subject: string
-  body: string
-  format?: 'html' | 'text'
-}): Promise<Template> {
-  const res = await fetch('/api/templates/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  if (!res.ok) throw new Error(`Failed to save template (${res.status})`)
-  return (await res.json()).template as Template
-}
-
-export async function deleteTemplate(id: string): Promise<void> {
-  await postJson('/api/templates/delete', { id })
-}
+// The saved email-template library (type, loaders, Templates page, composer picker) was removed on
+// 2026-07-31. Michael is rewriting his templates outside the CRM; the old ones are archived in the
+// business folder as email-templates-archive-2026-07-31.md.
 
 // --- Composed per-project emails (thank-you, etc.) ---------------------------
 // An attachment is either a document picked from the Files page (source 'files', referenced
@@ -679,10 +643,11 @@ export async function claudeDraftEmail(input: { projectId: string; label?: strin
   return String(data.draft || '')
 }
 // Complete a smart-field template for this client.
-export async function claudeCompleteTemplate(input: { projectId: string; body: string }): Promise<string> {
+// Finish a rough draft already in the composer for this specific client.
+export async function claudeCompleteDraft(input: { projectId: string; body: string }): Promise<string> {
   const res = await fetch('/api/claude/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok || data.error) throw new Error(data.error || `Claude template completion failed (${res.status})`)
+  if (!res.ok || data.error) throw new Error(data.error || `Claude draft completion failed (${res.status})`)
   return String(data.draft || '')
 }
 // Draft a reply to a specific email thread (plain text), thread- and project-aware.

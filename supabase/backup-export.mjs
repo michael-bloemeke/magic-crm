@@ -14,7 +14,7 @@
 //   active-projects.json, completed-<year>.json, archived-<year>.json,
 //   crm-contacts.json, crm-links.json, crm-pipeline.json,
 //   crm-payments.json, crm-expenses.json, crm-mileage.json, crm-tasks.json,
-//   crm-emails.json, crm-templates.json, crm-notifications.json, crm-text-markers.json,
+//   crm-emails.json, crm-notifications.json, crm-text-markers.json,
 //   crm-invoices.json, crm-contracts.json, crm-questionnaire.json (incl. the top-level default
 //   template from crm_settings), crm-portal.json, crm-recipients.json, crm-inquiries.json,
 //   crm-config.json, crm-calendar-map.json
@@ -39,7 +39,6 @@ import {
   getCrmSettings,
   getAllTasks,
   getAllEmails,
-  getAllTemplates,
   getAllNotifications,
   getAllTextMarkers,
   getAllInvoices,
@@ -257,19 +256,6 @@ function emailRecord(r) {
     sentAt: r.sent_at == null ? '' : String(r.sent_at),
   }
 }
-// crm-templates.json templates[]. Mirrors templateFromRow in crm-data-core.mjs (format emitted only
-// when the DB has a real value, matching the files that omit it on legacy rows).
-function templateRecord(r) {
-  const t = {
-    id: r.id,
-    name: String(r.name || ''),
-    subject: String(r.subject || ''),
-    body: String(r.body || ''),
-    updatedAt: isoZ(r.updated_at),
-  }
-  if (r.format != null) t.format = r.format === 'html' ? 'html' : 'text'
-  return t
-}
 // crm-notifications.json events[]. Mirrors eventFromRow in crm-notifications.mjs.
 function notificationRecord(r) {
   return {
@@ -368,7 +354,6 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     crmSettings,
     tasks,
     emails,
-    templates,
     notifications,
     textMarkers,
     invoices,
@@ -390,7 +375,6 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     getCrmSettings(),
     getAllTasks(),
     getAllEmails(),
-    getAllTemplates(),
     getAllNotifications(),
     getAllTextMarkers(),
     getAllInvoices(),
@@ -584,21 +568,7 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     written.push(`crm-emails.json (${records.length})`)
   }
 
-  // ---- 10. crm-templates.json ----
-  // { templates: [...], _meta }. Sorted by updatedAt for a stable order.
-  {
-    const records = templates
-      .map(templateRecord)
-      .sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)))
-    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-templates.json'), {
-      fileName: 'crm-templates.json',
-      count: records.length,
-      fallbackPurpose: 'CRM-owned reusable email templates, mirrored from Supabase.',
-    })
-    // On-disk key order: templates FIRST, then _meta.
-    writeJson(targetDir, 'crm-templates.json', { templates: records, _meta: meta })
-    written.push(`crm-templates.json (${records.length})`)
-  }
+  // (crm-templates.json is no longer written: the email-template library was removed 2026-07-31.)
 
   // ---- 11. crm-notifications.json ----
   // { events: [...], _meta }. Sorted by createdAt for a stable order.

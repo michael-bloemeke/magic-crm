@@ -8,6 +8,7 @@ import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
 import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
+import { InitialInquiryModal } from './InitialInquiryModal'
 import { CommsSlotRow } from './CommsSlotRow'
 import { InvoiceCard } from './InvoiceCard'
 import { ContractCard } from './ContractCard'
@@ -113,6 +114,38 @@ export function ProjectDetailsBody({
     setCustomVals((v) => ({ ...v, [fieldId]: value }))
     saveCustomValue(project.id, fieldId, value).catch(() => {})
   }
+  // Event details is the reference Michael checks before anything else, so a blank there is treated
+  // as a problem: the section goes red and names what's missing until every visible field is filled.
+  // "Visible" is the lever. A field that genuinely never applies can be hidden in Settings, or
+  // answered in the field itself ("none", "n/a"), which clears the flag.
+  const eventValues: Record<string, string> = {
+    eventSummary: project.eventSummary,
+    eventDate: project.eventDate,
+    leadDate: project.leadDate,
+    arrivalTime: project.arrivalTime,
+    eventStartTime: project.eventStartTime,
+    showStartTime: project.showStartTime,
+    totalFee: project.totalFee == null ? '' : String(project.totalFee),
+    numberOfGuests: project.numberOfGuests,
+    ageOfGuests: project.ageOfGuests,
+    eventLocation: project.eventLocation,
+    venueType: project.venueType,
+    indoorsOrOutdoors: project.indoorsOrOutdoors,
+    performanceStyle: project.performanceStyle,
+    av: project.av,
+    vips: project.vips,
+    bookingSource: project.bookingSource,
+  }
+  // Lead date has no Settings toggle, so it always counts.
+  const required = (id: string) => id === 'leadDate' || shown(id)
+  const miss = (id: string) => required(id) && !(eventValues[id] ?? '').trim()
+  const missingLabels = [
+    ...Object.keys(eventValues).filter(miss).map((id) => lbl(id, DEFAULT_EVENT_LABELS[id] ?? id)),
+    ...customFields.filter((f) => !(customVals[f.id] || '').trim()).map((f) => f.label),
+  ]
+  const missingCount = missingLabels.length
+  const missingNote = missingCount ? `Missing: ${missingLabels.join(', ')}` : ''
+
   const recipientEmails = Array.from(
     new Set(linkedContacts.flatMap((c) => c.emails || []).map((e) => e.trim()).filter(Boolean)),
   )
@@ -186,7 +219,10 @@ export function ProjectDetailsBody({
   }
 
   // The original website inquiry form for this project (if it came from the site contact form).
+  // Shown in a dialog off the Communication header, together with the client's first message.
   const [inquiryForm, setInquiryForm] = useState<InquiryForm | null>(null)
+  const [inquiryOpen, setInquiryOpen] = useState(false)
+  const hasInquiry = !!(inquiryForm && inquiryForm.fields.length > 0) || !!project.initialInquiry.trim()
   useEffect(() => {
     let live = true
     loadInquiryForm(project.id)
@@ -336,25 +372,24 @@ export function ProjectDetailsBody({
         open={isOpen('communication')}
         onToggle={() => toggleSection('communication')}
       >
-        {inquiryForm && inquiryForm.fields.length > 0 ? (
-          <div className="mb-4">
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
-              Website inquiry{inquiryForm.submittedAt ? ' · ' + fmtSubmitted(inquiryForm.submittedAt) : ''}
-            </div>
-            <div className="space-y-1.5 rounded-lg border border-line bg-surface px-3.5 py-3">
-              {inquiryForm.fields.map((f) => (
-                <div key={f.key} className="text-[13px] leading-relaxed">
-                  <span className="text-faint">{f.label}: </span>
-                  <span className="whitespace-pre-wrap text-parchment">{f.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="mb-4 text-[12px] text-faint">
-            No saved website inquiry for this project. (The form is saved automatically for new website inquiries.)
-          </p>
-        )}
+        {/* How it started, one click away rather than taking up room above the timeline. */}
+        <button
+          type="button"
+          onClick={() => setInquiryOpen(true)}
+          title="See the client's first message and their website form"
+          className={[
+            'mb-3 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] font-medium transition-colors',
+            hasInquiry
+              ? 'border-brass-dim/50 text-brass-bright hover:border-brass'
+              : 'border-line text-faint hover:border-line-strong hover:text-parchment',
+          ].join(' ')}
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2.5" y="5" width="19" height="14" rx="2" />
+            <path d="m3 7 9 6 9-6" />
+          </svg>
+          Initial inquiry
+        </button>
 
         <div className="divide-y divide-line">
           <CommsGroup
@@ -412,33 +447,34 @@ export function ProjectDetailsBody({
         </div>
       </DetailSection>
 
-      {/* Event details: the blurb up top (the most immediate detail), then the
-          structured fields grouped when / scope / where / show / source. */}
-      <DetailSection title="Event details">
+      {/* Event details: the blurb up top (the most immediate detail), then the structured fields
+          grouped when / scope / where / show / source. This is the reference Michael checks before
+          anything else, so any blank turns the whole section red until it's filled in. */}
+      <DetailSection title="Event details" alert={missingCount > 0} alertNote={missingNote}>
         {shown('eventSummary') && (
           <div className="mb-5">
-            <EditableField label={lbl('eventSummary', 'Description')} placeholder="A sentence or two about the event…" value={project.eventSummary} onSave={save('eventSummary')} multiline />
+            <EditableField label={lbl('eventSummary', 'Description')} placeholder="A sentence or two about the event…" value={project.eventSummary} onSave={save('eventSummary')} multiline missing={miss('eventSummary')} />
           </div>
         )}
         <div className={fieldGrid}>
-          {shown('eventDate') && <EditableField label={lbl('eventDate', 'Event date')} type="date" value={project.eventDate} onSave={save('eventDate')} />}
-          <EditableField label="Lead date" type="date" value={project.leadDate} onSave={save('leadDate')} />
-          {shown('arrivalTime') && <EditableField label={lbl('arrivalTime', 'Arrival time')} value={project.arrivalTime} onSave={save('arrivalTime')} format={to12h} />}
-          {shown('eventStartTime') && <EditableField label={lbl('eventStartTime', 'Event start')} value={project.eventStartTime} onSave={save('eventStartTime')} format={to12h} />}
-          {shown('showStartTime') && <EditableField label={lbl('showStartTime', 'Show start')} value={project.showStartTime} onSave={save('showStartTime')} format={to12h} />}
-          {shown('totalFee') && <EditableField label={lbl('totalFee', 'Quote')} prefix="$" value={project.totalFee == null ? '' : String(project.totalFee)} onSave={save('totalFee')} />}
-          {shown('numberOfGuests') && <EditableField label={lbl('numberOfGuests', 'Guest Count')} multiline value={project.numberOfGuests} onSave={save('numberOfGuests')} />}
-          {shown('ageOfGuests') && <EditableField label={lbl('ageOfGuests', 'Guest ages')} multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} />}
-          {shown('eventLocation') && <EditableField label={lbl('eventLocation', 'Location')} multiline value={project.eventLocation} onSave={save('eventLocation')} />}
-          {shown('venueType') && <EditableField label={lbl('venueType', 'Venue type')} multiline value={project.venueType} onSave={save('venueType')} />}
-          {shown('indoorsOrOutdoors') && <EditableField label={lbl('indoorsOrOutdoors', 'Indoors / Outdoors')} multiline value={project.indoorsOrOutdoors} onSave={save('indoorsOrOutdoors')} />}
-          {shown('performanceStyle') && <EditableField label={lbl('performanceStyle', 'Performance')} multiline value={project.performanceStyle} onSave={save('performanceStyle')} />}
-          {shown('av') && <EditableField label={lbl('av', 'AV')} multiline value={project.av} onSave={save('av')} />}
-          {shown('vips') && <EditableField label={lbl('vips', 'VIPs')} multiline value={project.vips} onSave={save('vips')} />}
-          {shown('bookingSource') && <EditableField label={lbl('bookingSource', 'Booking source')} multiline value={project.bookingSource} onSave={save('bookingSource')} />}
+          {shown('eventDate') && <EditableField label={lbl('eventDate', 'Event date')} type="date" value={project.eventDate} onSave={save('eventDate')} missing={miss('eventDate')} />}
+          <EditableField label="Lead date" type="date" value={project.leadDate} onSave={save('leadDate')} missing={miss('leadDate')} />
+          {shown('arrivalTime') && <EditableField label={lbl('arrivalTime', 'Arrival time')} value={project.arrivalTime} onSave={save('arrivalTime')} format={to12h} missing={miss('arrivalTime')} />}
+          {shown('eventStartTime') && <EditableField label={lbl('eventStartTime', 'Event start')} value={project.eventStartTime} onSave={save('eventStartTime')} format={to12h} missing={miss('eventStartTime')} />}
+          {shown('showStartTime') && <EditableField label={lbl('showStartTime', 'Show start')} value={project.showStartTime} onSave={save('showStartTime')} format={to12h} missing={miss('showStartTime')} />}
+          {shown('totalFee') && <EditableField label={lbl('totalFee', 'Quote')} prefix="$" value={project.totalFee == null ? '' : String(project.totalFee)} onSave={save('totalFee')} missing={miss('totalFee')} />}
+          {shown('numberOfGuests') && <EditableField label={lbl('numberOfGuests', 'Guest Count')} multiline value={project.numberOfGuests} onSave={save('numberOfGuests')} missing={miss('numberOfGuests')} />}
+          {shown('ageOfGuests') && <EditableField label={lbl('ageOfGuests', 'Guest ages')} multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} missing={miss('ageOfGuests')} />}
+          {shown('eventLocation') && <EditableField label={lbl('eventLocation', 'Location')} multiline value={project.eventLocation} onSave={save('eventLocation')} missing={miss('eventLocation')} />}
+          {shown('venueType') && <EditableField label={lbl('venueType', 'Venue type')} multiline value={project.venueType} onSave={save('venueType')} missing={miss('venueType')} />}
+          {shown('indoorsOrOutdoors') && <EditableField label={lbl('indoorsOrOutdoors', 'Indoors / Outdoors')} multiline value={project.indoorsOrOutdoors} onSave={save('indoorsOrOutdoors')} missing={miss('indoorsOrOutdoors')} />}
+          {shown('performanceStyle') && <EditableField label={lbl('performanceStyle', 'Performance')} multiline value={project.performanceStyle} onSave={save('performanceStyle')} missing={miss('performanceStyle')} />}
+          {shown('av') && <EditableField label={lbl('av', 'AV')} multiline value={project.av} onSave={save('av')} missing={miss('av')} />}
+          {shown('vips') && <EditableField label={lbl('vips', 'VIPs')} multiline value={project.vips} onSave={save('vips')} missing={miss('vips')} />}
+          {shown('bookingSource') && <EditableField label={lbl('bookingSource', 'Booking source')} multiline value={project.bookingSource} onSave={save('bookingSource')} missing={miss('bookingSource')} />}
           {/* User-defined custom fields (added in Settings). Values are stored CRM-side per project. */}
           {customFields.map((f) => (
-            <EditableField key={f.id} label={f.label} multiline value={customVals[f.id] || ''} onSave={saveCustom(f.id)} />
+            <EditableField key={f.id} label={f.label} multiline value={customVals[f.id] || ''} onSave={saveCustom(f.id)} missing={!(customVals[f.id] || '').trim()} />
           ))}
         </div>
       </DetailSection>
@@ -498,15 +534,16 @@ export function ProjectDetailsBody({
 
       {/* Narrow side pane: no slide-in panel, so show description/notes/log inline. */}
       {!fullView && <ProjectNotesPanel project={project} onSaveField={onSaveField} />}
+
+      <InitialInquiryModal
+        open={inquiryOpen}
+        project={project}
+        form={inquiryForm}
+        onClose={() => setInquiryOpen(false)}
+        onSaveField={onSaveField}
+      />
     </div>
   )
-}
-
-// "2026-06-24T19:31:05.883Z" -> "Jun 24, 2026, 3:31 PM" (local), for the saved inquiry timestamp.
-function fmtSubmitted(iso: string): string {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 // A defined section: a bordered card with a tinted header band carrying the label. Optionally
@@ -519,6 +556,8 @@ function DetailSection({
   open = true,
   onToggle,
   highlight = false,
+  alert = false,
+  alertNote,
 }: {
   title: string
   children: ReactNode
@@ -526,6 +565,10 @@ function DetailSection({
   open?: boolean
   onToggle?: () => void
   highlight?: boolean
+  // Something in this section needs attention (currently: Event details has blanks). Outranks
+  // `highlight` so a stage highlight can never mask a gap.
+  alert?: boolean
+  alertNote?: string
 }) {
   const shown = !collapsible || open
   // The header rounds its own top corners rather than the section clipping them, so a popover
@@ -536,29 +579,41 @@ function DetailSection({
         'flex items-center justify-between gap-2 px-5 py-2.5',
         // Collapsed, the header IS the card, so it rounds all four corners.
         shown ? 'rounded-t-2xl border-b border-line-strong' : 'rounded-2xl',
-        highlight ? 'bg-brass/12' : 'bg-surface-4/60',
+        alert ? '' : highlight ? 'bg-brass/12' : 'bg-surface-4/60',
       ].join(' ')}
+      style={alert ? { backgroundColor: 'color-mix(in oklab, #ef4444 12%, transparent)' } : undefined}
     >
-      <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-brass">
-        <span className="h-3 w-[3px] rounded-full bg-brass" />
-        {title}
+      <h3
+        className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em]"
+        style={{ color: alert ? '#ef4444' : undefined }}
+      >
+        <span className="h-3 w-[3px] rounded-full" style={{ backgroundColor: alert ? '#ef4444' : 'var(--color-brass)' }} />
+        <span className={alert ? '' : 'text-brass'}>{title}</span>
       </h3>
-      {collapsible && (
-        <svg
-          className={['h-4 w-4 text-muted transition-transform', open ? 'rotate-180' : ''].join(' ')}
-          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      )}
+      <div className="flex items-center gap-2.5">
+        {alert && alertNote && (
+          <span className="truncate text-[10.5px] font-medium normal-case tracking-normal" style={{ color: '#ef4444' }} title={alertNote}>
+            {alertNote}
+          </span>
+        )}
+        {collapsible && (
+          <svg
+            className={['h-4 w-4 text-muted transition-transform', open ? 'rotate-180' : ''].join(' ')}
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        )}
+      </div>
     </div>
   )
   return (
     <section
       className={[
         'rounded-2xl border bg-surface-2/70 shadow-[0_4px_16px_-4px_rgba(0,0,0,0.4)] transition-colors',
-        highlight ? 'border-brass-dim ring-1 ring-brass-dim/40' : 'border-line-strong',
+        alert ? '' : highlight ? 'border-brass-dim ring-1 ring-brass-dim/40' : 'border-line-strong',
       ].join(' ')}
+      style={alert ? { borderColor: 'color-mix(in oklab, #ef4444 55%, transparent)', boxShadow: '0 0 0 1px color-mix(in oklab, #ef4444 25%, transparent)' } : undefined}
     >
       {collapsible ? (
         <button type="button" onClick={onToggle} className="block w-full cursor-pointer text-left">
@@ -570,6 +625,27 @@ function DetailSection({
       {shown && <div className="p-5">{children}</div>}
     </section>
   )
+}
+
+// Built-in labels for the Event details fields, used when naming what's missing. Settings can
+// rename any of them, so this is only the fallback.
+const DEFAULT_EVENT_LABELS: Record<string, string> = {
+  eventSummary: 'Description',
+  eventDate: 'Event date',
+  leadDate: 'Lead date',
+  arrivalTime: 'Arrival time',
+  eventStartTime: 'Event start',
+  showStartTime: 'Show start',
+  totalFee: 'Quote',
+  numberOfGuests: 'Guest Count',
+  ageOfGuests: 'Guest ages',
+  eventLocation: 'Location',
+  venueType: 'Venue type',
+  indoorsOrOutdoors: 'Indoors / Outdoors',
+  performanceStyle: 'Performance',
+  av: 'AV',
+  vips: 'VIPs',
+  bookingSource: 'Booking source',
 }
 
 // One phase of the Communication timeline (Inquiry / Post Call / Booked / Post Show). The rail

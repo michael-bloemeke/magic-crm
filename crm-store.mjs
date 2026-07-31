@@ -243,7 +243,6 @@ export async function initStore({ force = false } = {}) {
     crmSettings,
     tasks,
     emails,
-    templates,
     notifications,
     textMarkers,
     invoices,
@@ -265,7 +264,6 @@ export async function initStore({ force = false } = {}) {
     getCrmSettings(),
     getAllTasks(),
     getAllEmails(),
-    getAllTemplates(),
     getAllNotifications(),
     getAllTextMarkers(),
     getAllInvoices(),
@@ -288,7 +286,6 @@ export async function initStore({ force = false } = {}) {
     crmSettings,
     tasks,
     emails,
-    templates,
     notifications,
     textMarkers,
     invoices,
@@ -350,9 +347,6 @@ export function getCachedTasks() {
 // Groundwork getters (not wired yet; a later batch wires their modules):
 export function getCachedEmails() {
   return requireCache('getCachedEmails').emails
-}
-export function getCachedTemplates() {
-  return requireCache('getCachedTemplates').templates
 }
 export function getCachedNotifications() {
   return requireCache('getCachedNotifications').notifications
@@ -548,12 +542,6 @@ export function cacheUpsertEmail(row) {
 export function cacheRemoveEmail(id) {
   cacheRemoveBy('emails', id)
 }
-export function cacheUpsertTemplate(row) {
-  cacheUpsertBy('templates', row)
-}
-export function cacheRemoveTemplate(id) {
-  cacheRemoveBy('templates', id)
-}
 export function cacheUpsertNotification(row) {
   cacheUpsertBy('notifications', row)
 }
@@ -746,20 +734,7 @@ export async function deleteEmail(id) {
   must(error, 'deleteEmail')
 }
 
-// ---------------- templates (groundwork) ----------------
-export async function getAllTemplates() {
-  const { data, error } = await sb().from('templates').select('*')
-  must(error, 'getAllTemplates')
-  return data || []
-}
-export async function upsertTemplate(row) {
-  const { error } = await sb().from('templates').upsert(row, { onConflict: 'id' })
-  must(error, 'upsertTemplate')
-}
-export async function deleteTemplate(id) {
-  const { error } = await sb().from('templates').delete().eq('id', id)
-  must(error, 'deleteTemplate')
-}
+// The email-template library and its `templates` table were removed 2026-07-31.
 
 // ---------------- notifications (groundwork) ----------------
 export async function getAllNotifications() {

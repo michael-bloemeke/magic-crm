@@ -10,11 +10,14 @@ type Props = {
   placeholder?: string
   // Optional normalizer applied when the field commits (e.g. phone formatting).
   format?: (value: string) => string
+  // Flags this field as a blank that matters (Event details, where a gap is a problem). Tints the
+  // label red and outlines the empty input, so the specific hole is obvious and not just the section.
+  missing?: boolean
 }
 
 // An always-editable field: looks like text, becomes clearly editable on
 // hover/focus, and saves on blur (or Enter, for single-line). No edit button.
-export function EditableField({ label, value, onSave, multiline, type = 'text', prefix, placeholder = 'Add…', format }: Props) {
+export function EditableField({ label, value, onSave, multiline, type = 'text', prefix, placeholder = 'Add…', format, missing }: Props) {
   const [val, setVal] = useState(value)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
@@ -43,12 +46,26 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
     if (next !== (value ?? '').trim()) onSave(next)
   }
 
-  const base =
-    '-mx-2 w-[calc(100%+1rem)] rounded-md border border-transparent bg-transparent px-2 py-1 text-[14px] leading-normal text-parchment transition-colors placeholder:text-faint/60 hover:bg-surface-2 focus:border-line-strong focus:bg-surface-2 focus:outline-none'
+  // A missing field keeps its normal behaviour and only changes colour, and the outline drops the
+  // moment anything is typed, so filling the gap gives immediate feedback.
+  const flag = !!missing && !val.trim()
+  const base = [
+    '-mx-2 w-[calc(100%+1rem)] rounded-md border bg-transparent px-2 py-1 text-[14px] leading-normal text-parchment transition-colors placeholder:text-faint/60 hover:bg-surface-2 focus:bg-surface-2 focus:outline-none',
+    flag ? 'border-dashed border-[#ef4444]/45 focus:border-[#ef4444]' : 'border-transparent focus:border-line-strong',
+  ].join(' ')
 
   return (
     <div>
-      {label && <p className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-faint">{label}</p>}
+      {label && (
+        <p
+          className={[
+            'mb-1 text-[10.5px] font-semibold uppercase tracking-[0.16em]',
+            flag ? 'text-[#ef4444]/80' : 'text-faint',
+          ].join(' ')}
+        >
+          {label}
+        </p>
+      )}
       <div className="flex items-start">
         {prefix && <span className="mt-1 mr-0.5 text-[14px] text-muted">{prefix}</span>}
         {multiline ? (

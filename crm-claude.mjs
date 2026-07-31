@@ -167,17 +167,18 @@ export async function draftEmail({ projectId, label, instruction }) {
   return runClaude(prompt)
 }
 
-// Fill a template's smart fields + bracketed instructions for this specific client.
-export async function completeTemplate({ projectId, body }) {
+// Finish a rough draft already in the composer for this specific client: fill in any placeholders,
+// follow any bracketed instructions, keep the structure and Michael's voice.
+export async function completeDraft({ projectId, body }) {
   const { text, client } = projectContext(projectId)
   const prompt = [
-    "Complete this email TEMPLATE for the specific client below. Fill in every placeholder, follow any bracketed instructions, and keep the template's structure and Michael's voice. Return the finished email body.",
+    'Complete this draft email for the specific client below. Fill in every placeholder, follow any bracketed instructions, and keep the draft\'s structure and Michael\'s voice. Return the finished email body.',
     '',
     text,
     '',
     readHint(client),
     '',
-    'TEMPLATE (HTML):',
+    'DRAFT (HTML):',
     String(body || ''),
   ].join('\n')
   return runClaude(prompt)

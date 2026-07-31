@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'motion/react'
 import { formatFee, type CategoryDef, type Project } from '../pipeline'
 import {
   loadThreads,
-  loadTemplates,
   loadProjectEmails,
   deleteProjectEmail,
   starThread,
@@ -15,7 +14,6 @@ import {
   type ProjectEmail,
   type ProjectLinks,
   type Task,
-  type Template,
 } from '../api'
 import { StageSelect } from './StageSelect'
 import { EventTypeSelect } from './EventTypeSelect'
@@ -103,7 +101,6 @@ export function ProjectView({
   // thread reader share one source and one "open thread" selection.
   const [comms, setComms] = useState<CommsData | null>(null)
   const [commsError, setCommsError] = useState<string | null>(null)
-  const [templates, setTemplates] = useState<Template[]>([])
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [notesOpen, setNotesOpen] = useState(false)
   const [writeOpen, setWriteOpen] = useState(false)
@@ -157,12 +154,6 @@ export function ProjectView({
       alive = false
     }
   }, [project.id])
-
-  useEffect(() => {
-    loadTemplates()
-      .then(setTemplates)
-      .catch(() => setTemplates([]))
-  }, [])
 
   // Keep the local draft list in sync as the composers auto-save / send. A 'draft' upsert replaces
   // the record; anything else (sent) drops it from the list.
@@ -486,7 +477,6 @@ export function ProjectView({
               <ThreadReader
                 thread={openThreadObj}
                 project={project}
-                templates={templates}
                 canMarkRead={comms?.canMarkRead !== false}
                 existingDraft={replyDraftByThread[openThreadObj.id] ?? null}
                 onRead={() => markThreadReadLocal(openThreadObj.id)}

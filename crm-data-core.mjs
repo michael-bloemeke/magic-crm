@@ -20,7 +20,6 @@ import {
   getCachedPipelineMeta,
   getCachedPayments,
   getCachedTasks,
-  getCachedTemplates,
   // async Supabase writers
   insertProject as sbInsertProject,
   updateProject as sbUpdateProject,
@@ -32,8 +31,6 @@ import {
   upsertTask as sbUpsertTask,
   deleteTask as sbDeleteTask,
   deleteTasksForProject as sbDeleteTasksForProject,
-  upsertTemplate as sbUpsertTemplate,
-  deleteTemplate as sbDeleteTemplate,
   // synchronous cache mutators
   cacheUpsertProject,
   cachePatchProject,
@@ -44,8 +41,6 @@ import {
   cacheUpsertTask,
   cacheRemoveTask,
   cacheRemoveTasksForProject,
-  cacheUpsertTemplate,
-  cacheRemoveTemplate,
 } from './crm-store.mjs'
 
 export const RECORDS_DIR = path.join(
@@ -58,7 +53,6 @@ export const RECORDS_DIR = path.join(
 
 const STAGE_FILE = path.join(RECORDS_DIR, 'crm-pipeline.json')
 const TASKS_FILE = path.join(RECORDS_DIR, 'crm-tasks.json')
-const TEMPLATES_FILE = path.join(RECORDS_DIR, 'crm-templates.json')
 const PAYMENTS_FILE = path.join(RECORDS_DIR, 'crm-payments.json')
 
 // Payment rows for the current backend, normalized to the { projectId, amount, dateReceived,
@@ -1553,127 +1547,6 @@ function purgeTasksForProject(id) {
   }
 }
 
-// --- Email templates (CRM-owned, in crm-templates.json) ----------------------
-
-function templatesMeta() {
-  return {
-    file: 'crm-templates.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
-    purpose:
-      'CRM-owned reusable email templates. Michael defines these in the Templates page and can drop them into the reply composer in Communications.',
-    cowork_guidance: 'Safe to read. The CRM manages this file.',
-    template_shape: "id, name, subject, body, format ('html' rich body that may contain smart-field placeholder chips, or 'text'; absent = treat as text), updatedAt (ISO)",
-  }
-}
-
-function readTemplatesFile() {
-  const data = readJson(TEMPLATES_FILE) || { templates: [] }
-  if (!Array.isArray(data.templates)) data.templates = []
-  return data
-}
-
-function writeTemplatesFile(data) {
-  try {
-    data._meta = templatesMeta()
-    fs.writeFileSync(TEMPLATES_FILE, JSON.stringify(data, null, 2) + '\n')
-  } catch (e) {
-    console.error('[crm-data] could not write crm-templates.json:', e?.message || e)
-  }
-}
-
-// Raw DB template row -> file-shape record. The files omit `format` on legacy rows (treated as text);
-// the DB stores it explicitly, so we emit format only when it's a real value, matching the files.
-function templateFromRow(r) {
-  const t = {
-    id: r.id,
-    name: String(r.name || ''),
-    subject: String(r.subject || ''),
-    body: String(r.body || ''),
-    updatedAt: isoZ(r.updated_at),
-  }
-  if (r.format != null) t.format = r.format === 'html' ? 'html' : 'text'
-  return t
-}
-// File-shape template record -> raw DB row.
-function templateToRow(t) {
-  return {
-    id: t.id,
-    name: String(t.name || ''),
-    subject: String(t.subject || ''),
-    body: String(t.body || ''),
-    format: t.format == null ? null : t.format === 'html' ? 'html' : 'text',
-    updated_at: t.updatedAt || null,
-  }
-}
-
-export function loadTemplates() {
-  if (CRM_STORE === 'supabase') return getCachedTemplates().map(templateFromRow)
-  return readTemplatesFile().templates
-}
-
-export async function saveTemplate({ id, name, subject, body, format }) {
-  const now = new Date().toISOString()
-  if (CRM_STORE === 'supabase') {
-    if (id) {
-      const existing = getCachedTemplates().find((x) => x.id === id)
-      if (!existing) throw new Error('template not found')
-      const t = templateFromRow(existing)
-      t.name = String(name ?? t.name)
-      t.subject = String(subject ?? t.subject)
-      t.body = String(body ?? t.body)
-      if (format != null) t.format = format === 'html' ? 'html' : 'text'
-      t.updatedAt = now
-      const row = templateToRow(t)
-      cacheUpsertTemplate(row)
-      await sbUpsertTemplate(row)
-      return t
-    }
-    const t = {
-      id: crypto.randomUUID(),
-      name: String(name || 'Untitled template'),
-      subject: String(subject || ''),
-      body: String(body || ''),
-      format: format === 'html' ? 'html' : 'text',
-      updatedAt: now,
-    }
-    const row = templateToRow(t)
-    cacheUpsertTemplate(row)
-    await sbUpsertTemplate(row)
-    return t
-  }
-  const data = readTemplatesFile()
-  if (id) {
-    const t = data.templates.find((x) => x.id === id)
-    if (!t) throw new Error('template not found')
-    t.name = String(name ?? t.name)
-    t.subject = String(subject ?? t.subject)
-    t.body = String(body ?? t.body)
-    if (format != null) t.format = format === 'html' ? 'html' : 'text'
-    t.updatedAt = now
-    writeTemplatesFile(data)
-    return t
-  }
-  const t = {
-    id: crypto.randomUUID(),
-    name: String(name || 'Untitled template'),
-    subject: String(subject || ''),
-    body: String(body || ''),
-    format: format === 'html' ? 'html' : 'text',
-    updatedAt: now,
-  }
-  data.templates.push(t)
-  writeTemplatesFile(data)
-  return t
-}
-
-export async function deleteTemplate(id) {
-  if (CRM_STORE === 'supabase') {
-    cacheRemoveTemplate(id)
-    await sbDeleteTemplate(id)
-    return { ok: true }
-  }
-  const data = readTemplatesFile()
-  data.templates = data.templates.filter((x) => x.id !== id)
-  writeTemplatesFile(data)
-  return { ok: true }
-}
+// The email-template library (crm-templates.json / the templates table) was removed 2026-07-31.
+// Michael is rewriting his templates outside the CRM; the old set is archived in the business folder
+// as email-templates-archive-2026-07-31.md.

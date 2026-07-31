@@ -7,11 +7,10 @@ import {
   deleteProjectEmail,
   type EmailThread,
   type ProjectEmail,
-  type Template,
 } from '../api'
 import type { EmailMessage } from '../api'
 import { RichTextEditor } from './RichTextEditor'
-import { resolveMergeFields, textToHtml } from '../smartFields'
+import { textToHtml } from '../smartFields'
 import type { Project } from '../pipeline'
 
 const ME = 'michael@michaelbloemeke.com'
@@ -58,13 +57,13 @@ function replyKind(threadId: string): string {
 
 // The full-page thread reader: all messages, oldest at the top, newest at the bottom, with the reply
 // box below them. Opens scrolled to the bottom (the reply box) and marks the thread read like Gmail
-// does. The reply box now carries the same formatting toolbar + template picker as the other email
-// boxes, and anything typed auto-saves to drafts (no Save button). Back returns to the project
-// Details. The thread dialog itself (header + message bubbles) is unchanged.
+// does. The reply box carries the same formatting toolbar as the other email boxes, and anything
+// typed auto-saves to drafts (no Save button). Back returns to the project Details. The thread
+// dialog itself (header + message bubbles) is unchanged. (The template picker that used to sit here
+// went away with the template library on 2026-07-31.)
 export function ThreadReader({
   thread,
   project,
-  templates,
   canMarkRead,
   existingDraft,
   onRead,
@@ -77,7 +76,6 @@ export function ThreadReader({
 }: {
   thread: EmailThread
   project: Project
-  templates: Template[]
   canMarkRead: boolean
   // The reply draft already saved for this thread (so reopening restores what was typed).
   existingDraft?: ProjectEmail | null
@@ -205,14 +203,6 @@ export function ThreadReader({
     } finally {
       setDrafting(false)
     }
-  }
-
-  const applyTemplate = (id: string) => {
-    const t = templates.find((x) => x.id === id)
-    if (!t) return
-    const html = t.format === 'html' ? t.body : textToHtml(t.body)
-    changeReply(resolveMergeFields(html, project))
-    setComposing(true)
   }
 
   // Actually send (after the undo window elapses, or on flush). Drops the draft on success; on a demo
@@ -430,31 +420,6 @@ export function ThreadReader({
                 Reply {to && <span className="font-normal normal-case tracking-normal text-[#6f6a60]">to {to}</span>}
               </p>
               <div className="flex items-center gap-2">
-                {templates.length > 0 && (
-                  <div className="relative">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        applyTemplate(e.target.value)
-                        e.currentTarget.selectedIndex = 0
-                      }}
-                      className="cursor-pointer appearance-none rounded-lg border border-[#dcd7cc] bg-white py-1 pl-2.5 pr-7 text-[11.5px] font-medium text-[#5f5a50] focus:border-[#cb9b5d] focus:outline-none"
-                      title="Insert a template"
-                    >
-                      <option value="" disabled>
-                        Use template…
-                      </option>
-                      {templates.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                    <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#9b958a]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </div>
-                )}
                 <button
                   type="button"
                   onClick={doDraft}
