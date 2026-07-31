@@ -19,12 +19,13 @@ import { EVENT_FIELDS, MAPPABLE_FIELDS, ESSENTIAL_FIELD_IDS, makeCustomFieldId, 
 import { type CategoryDef } from '../pipeline'
 import { RichTextEditor } from './RichTextEditor'
 
-// The workflow sections a pipeline stage can highlight on the project page.
+// The phases of the project page's Communication timeline that a pipeline stage can highlight.
+// (Post Show also highlights the Post Show section, which holds the tips and mileage figures.)
 const SECTION_OPTIONS = [
   { id: 'inquiry', label: 'Inquiry' },
   { id: 'postcall', label: 'Post Call' },
   { id: 'booked', label: 'Booked' },
-  { id: 'postshow', label: 'Post show' },
+  { id: 'postshow', label: 'Post Show' },
   { id: 'none', label: 'No highlight' },
 ]
 function defaultSectionFor(u: CategoryDef): string {
@@ -754,14 +755,14 @@ export function SettingsPage() {
           </div>
         </section>
 
-        {/* Stage highlighting: which project-page section lights up + expands per pipeline category */}
+        {/* Stage highlighting: which phase of the Communication timeline lights up per category */}
         <section className={sectionCls('highlighting')}>
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-[17px] text-parchment">Stage highlighting</h2>
               <p className="mt-0.5 text-[12px] text-muted">
-                For each pipeline category, pick which section is highlighted and auto-expanded on the project page while a
-                project sits in it.
+                For each pipeline category, pick which phase of the project page's Communication timeline is highlighted
+                while a project sits in it.
               </p>
             </div>
             <button
