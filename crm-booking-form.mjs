@@ -177,8 +177,11 @@ async function applyAnswers(projectId, answers) {
       const stored = f.type === 'time' ? displayValue(f, v) : String(v)
       await updateProjectField({ id: projectId, field: f.key, value: stored })
       filled.push(f.label)
-    } catch {
-      // A field that no longer exists just gets skipped; the raw answer is still stored.
+    } catch (e) {
+      // A field that no longer exists just gets skipped; the raw answer is still stored either way.
+      // But LOG it: this catch once silently swallowed a genuine bug (a missing helper) and two
+      // answers vanished with no trace. A skipped field should always leave a breadcrumb.
+      console.error(`[crm-booking-form] could not write "${f.key}" for ${projectId}:`, e?.message || e)
     }
   }
   // Their free-text note is appended to project notes rather than overwriting Michael's.
@@ -242,6 +245,38 @@ export async function pullSubmission(projectId) {
     /* cosmetic flag only */
   }
   return { ok: true, fresh: true, submission: rec.submission, filledFields: filled }
+}
+
+// House rules for anything Michael or a client READS: dates written out, times in 12-hour.
+// A date input posts '2026-11-14' and a time input posts '18:00', so both get converted here rather
+// than landing raw on the document or the project.
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+function ordinal(n) {
+  if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`
+  return `${n}${['th','st','nd','rd'][n % 10] || 'th'}`
+}
+function prettyDate(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim())
+  if (!m) return String(v).trim()
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(d.getTime())) return String(v).trim()
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+  return `${days[d.getDay()]}, ${MONTHS[d.getMonth()]} ${ordinal(d.getDate())}, ${d.getFullYear()}`
+}
+function prettyTime(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v).trim())
+  if (!m) return String(v).trim()
+  let h = Number(m[1])
+  const suffix = h >= 12 ? 'PM' : 'AM'
+  h = h % 12 || 12
+  return `${h}:${m[2]} ${suffix}`
+}
+export function displayValue(field, raw) {
+  const v = String(raw ?? '').trim()
+  if (!v) return ''
+  if (field.type === 'date') return prettyDate(v)
+  if (field.type === 'time') return prettyTime(v)
+  return v
 }
 
 // What the client told us, as label/value pairs, for the agreement's summary page.
