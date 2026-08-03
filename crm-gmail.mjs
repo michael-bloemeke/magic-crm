@@ -564,7 +564,10 @@ export async function createDraft({ to, subject, body, html, attachments, inline
     userId: 'me',
     requestBody: { message: threadId ? { raw, threadId } : { raw } },
   })
-  return { ok: true, id: res.data.id }
+  // Return the THREAD as well as the draft. Sending a draft keeps its thread, so this id is what
+  // later emails reply into, which is how the contract ends up in the same conversation as the
+  // booking form rather than starting a new one.
+  return { ok: true, id: res.data.id, threadId: res.data.message?.threadId || '' }
 }
 
 // One pass over unread mail, tallied per project (by matching the sender to a

@@ -29,6 +29,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR, updateProjectField, loadAll, appendActivityLog } from './crm-data-core.mjs'
 import { CRM_STORE, sb } from './crm-store.mjs'
+import { bookingFormEmail } from './crm-booking-emails.mjs'
 
 // The public site that serves the form. The link is `${FORM_BASE}/book/?t=<token>`: /book/ is a real
 // directory with an index.html, so it resolves without any host rewrite rule. The prettier
@@ -431,33 +432,18 @@ export async function draftBookingEmail(projectId, { createDraft, project }) {
   const link = bookingFormLink(projectId)
   const to = String(project.contactEmails || '').split(/[,;]/)[0].trim()
   if (!to) throw new Error('This project has no client email to send to.')
-  const first = String(project.client || '').trim().split(/\s+/)[0] || 'there'
-  const subject = 'Booking details'
-  const text = [
-    `Hi ${first},`,
-    '',
-    'Great news, let\'s get you on the books. I just need a few details about the event.',
-    '',
-    'Here is the form:',
-    link.url,
-    '',
-    'It takes about two minutes. Once you send it back I\'ll put together the agreement and the invoice.',
-    '',
-    'Thanks!',
-    'Michael',
-  ].join('\n')
-  const html = [
-    `<p>Hi ${escapeHtml(first)},</p>`,
-    "<p>Great news, let's get you on the books. I just need a few details about the event.</p>",
-    `<p><a href="${escapeHtml(link.url)}">Fill in your event details</a></p>`,
-    "<p>It takes about two minutes. Once you send it back I'll put together the agreement and the invoice.</p>",
-    '<p>Thanks!<br>Michael</p>',
-  ].join('')
-  await createDraft({ to, subject, body: text, html })
+  const { subject, text, html } = bookingFormEmail({ project, url: link.url })
+  const draft = await createDraft({ to, subject, body: text, html })
   markSent(projectId)
-  return { ok: true, to, url: link.url }
+  // Remember the thread. Sending a draft keeps it, so this is what the CONTRACT email replies into
+  // later, which is the whole point of "not a thousand separate threads in their inbox".
+  if (CRM_STORE === 'supabase' && draft?.threadId) {
+    try {
+      await sb().from('projects').update({ booking_thread_id: draft.threadId }).eq('id', projectId)
+    } catch {
+      /* the reply falls back to a fresh thread rather than failing the send */
+    }
+  }
+  return { ok: true, to, url: link.url, threadId: draft?.threadId || '' }
 }
 
-function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
-}
