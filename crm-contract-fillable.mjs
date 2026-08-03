@@ -99,16 +99,46 @@ function wrap(text, font, size, maxW) {
 // Page 1: the questions
 // ---------------------------------------------------------------------------
 
+// Draw a small label with a form box under it, and return the new y cursor.
+// Centralised because getting this wrong overlaps the box on top of its own label: pdf-lib places a
+// field by its BOTTOM-left corner, so the box top is (y + height) and must clear the label baseline.
+const LABEL_GAP = 7 // clearance between the label baseline and the top of its box
+function labelledField(page, form, fonts, opts) {
+  const { name, label, x, w, h = 20, y, value = '', multiline = false, labelSize = 9.5, labelFont = 'bold' } = opts
+  page.drawText(label, { x, y, size: labelSize, font: fonts[labelFont], color: labelFont === 'bold' ? INK : MUTED })
+  const boxTop = y - LABEL_GAP
+  const boxBottom = boxTop - h
+  const field = form.createTextField(name)
+  field.setText(value)
+  if (multiline) field.enableMultiline()
+  field.addToPage(page, {
+    x, y: boxBottom, width: w, height: h,
+    borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
+    font: fonts.reg,
+  })
+  return boxBottom
+}
+
 function drawFormPage(doc, form, project, facts, fonts) {
-  const page = doc.insertPage(0, [PAGE_W, PAGE_H])
   const { bold, reg, italic } = fonts
   const contentW = PAGE_W - MARGIN * 2
+  const FOOT = MARGIN + 26 // never draw below this; leaves room for the footer note
+
+  // The question list is as long as the project is incomplete, so this can genuinely overflow one
+  // page (a brand-new inquiry with nothing filled in asks nine questions). Pages are inserted at the
+  // FRONT of the contract, in order, and `ensure` starts a new one whenever the next block won't fit.
+  let idx = 0
+  let page = doc.insertPage(idx, [PAGE_W, PAGE_H])
   let y = PAGE_H - MARGIN
+  const ensure = (h) => {
+    if (y - h >= FOOT) return
+    idx += 1
+    page = doc.insertPage(idx, [PAGE_W, PAGE_H])
+    y = PAGE_H - MARGIN
+  }
 
   // Letterhead
-  page.drawText('A FEW DETAILS BEFORE YOUR EVENT', {
-    x: MARGIN, y, size: 15, font: bold, color: INK,
-  })
+  page.drawText('A FEW DETAILS BEFORE YOUR EVENT', { x: MARGIN, y, size: 15, font: bold, color: INK })
   y -= 20
   page.drawText(`Prepared for ${project.client}`, { x: MARGIN, y, size: 10.5, font: reg, color: MUTED })
   y -= 16
@@ -126,72 +156,46 @@ function drawFormPage(doc, form, project, facts, fonts) {
 
   // One labelled box per missing fact.
   for (const f of facts) {
-    page.drawText(f.ask, { x: MARGIN, y, size: 9.5, font: bold, color: INK })
-    y -= 17
-    const field = form.createTextField(`fact_${f.key}`)
-    field.setText('')
-    field.addToPage(page, {
-      x: MARGIN, y: y - 3, width: contentW, height: 20,
-      borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
-      font: reg,
-    })
-    y -= 30
+    ensure(50)
+    y = labelledField(page, form, fonts, { name: `fact_${f.key}`, label: f.ask, x: MARGIN, w: contentW, y })
+    y -= 22
   }
 
-  // Anything else box
-  y -= 4
-  page.drawText('Anything else I should know?', { x: MARGIN, y, size: 9.5, font: bold, color: INK })
-  y -= 17
-  const notes = form.createTextField('client_notes')
-  notes.setText('')
-  notes.enableMultiline()
-  notes.addToPage(page, {
-    x: MARGIN, y: y - 42, width: contentW, height: 60,
-    borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
-    font: reg,
+  // Free-text catch-all.
+  ensure(90)
+  y -= 2
+  y = labelledField(page, form, fonts, {
+    name: 'client_notes', label: 'Anything else I should know?', x: MARGIN, w: contentW, h: 58, y, multiline: true,
   })
-  y -= 60
+  y -= 30
 
-  // Confirm contact details
-  y -= 18
+  // Confirm contact details (pre-filled from the CRM so they only correct what's wrong).
+  ensure(96)
   page.drawText('Your contact details (correct these if anything is wrong)', {
     x: MARGIN, y, size: 9.5, font: bold, color: INK,
   })
-  y -= 18
-  const halfW = (contentW - 12) / 2
-  const contact = [
-    { name: 'client_name_confirm', label: 'Name', value: project.client || '', x: MARGIN, w: halfW },
-    { name: 'client_email_confirm', label: 'Email', value: firstOf(project.contactEmails), x: MARGIN + halfW + 12, w: halfW },
-  ]
-  for (const c of contact) {
-    page.drawText(c.label, { x: c.x, y, size: 8, font: reg, color: MUTED })
-  }
-  y -= 15
-  for (const c of contact) {
-    const t = form.createTextField(c.name)
-    t.setText(c.value)
-    t.addToPage(page, {
-      x: c.x, y: y - 3, width: c.w, height: 20,
-      borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
-      font: reg,
-    })
-  }
-  y -= 26
-  page.drawText('Phone', { x: MARGIN, y, size: 8, font: reg, color: MUTED })
-  y -= 15
-  const phone = form.createTextField('client_phone_confirm')
-  phone.setText(String(project.contactPhones || '').split(/[,;]/)[0].trim())
-  phone.addToPage(page, {
-    x: MARGIN, y: y - 3, width: halfW, height: 20,
-    borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
-    font: reg,
+  y -= 22
+  const halfW = (contentW - 14) / 2
+  const afterName = labelledField(page, form, fonts, {
+    name: 'client_name_confirm', label: 'Name', x: MARGIN, w: halfW, y,
+    value: project.client || '', labelSize: 8, labelFont: 'reg',
+  })
+  labelledField(page, form, fonts, {
+    name: 'client_email_confirm', label: 'Email', x: MARGIN + halfW + 14, w: halfW, y,
+    value: firstOf(project.contactEmails), labelSize: 8, labelFont: 'reg',
+  })
+  y = afterName - 24
+  y = labelledField(page, form, fonts, {
+    name: 'client_phone_confirm', label: 'Phone', x: MARGIN, w: halfW, y,
+    value: String(project.contactPhones || '').split(/[,;]/)[0].trim(),
+    labelSize: 8, labelFont: 'reg',
   })
 
-  // Footer note
+  // Footer note on the LAST form page only.
   page.drawText('The agreement itself is on the following pages.', {
     x: MARGIN, y: MARGIN - 18, size: 9, font: italic, color: MUTED,
   })
-  return page
+  return idx + 1 // how many pages the form took
 }
 
 function firstOf(str) {
@@ -224,27 +228,17 @@ function drawSignatureBlock(doc, form, project, fonts) {
   page.drawText(approveText, { x: MARGIN + 20, y: y - 9, size: 10, font: bold, color: INK })
   y -= 40
 
-  // Typed name + date, side by side
+  // Typed name + date, side by side. Same label/box helper as page 1 so the spacing matches.
   const halfW = (contentW - 20) / 2
-  page.drawText('Type your full name to sign', { x: MARGIN, y, size: 8.5, font: reg, color: MUTED })
-  page.drawText('Date', { x: MARGIN + halfW + 20, y, size: 8.5, font: reg, color: MUTED })
-  y -= 20
-
-  const nameField = form.createTextField('client_typed_name')
-  nameField.setText('')
-  nameField.addToPage(page, {
-    x: MARGIN, y: y - 3, width: halfW, height: 22,
-    borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
-    font: reg,
+  const afterName = labelledField(page, form, fonts, {
+    name: 'client_typed_name', label: 'Type your full name to sign', x: MARGIN, w: halfW, h: 22, y,
+    labelSize: 8.5, labelFont: 'reg',
   })
-  const dateField = form.createTextField('client_signed_date')
-  dateField.setText('')
-  dateField.addToPage(page, {
-    x: MARGIN + halfW + 20, y: y - 3, width: halfW, height: 22,
-    borderWidth: 0.75, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
-    font: reg,
+  labelledField(page, form, fonts, {
+    name: 'client_signed_date', label: 'Date', x: MARGIN + halfW + 20, w: halfW, h: 22, y,
+    labelSize: 8.5, labelFont: 'reg',
   })
-  y -= 34
+  y = afterName - 16
 
   page.drawText(
     'Typing your name above acts as your signature on this Agreement.',
