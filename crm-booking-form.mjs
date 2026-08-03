@@ -48,20 +48,22 @@ const FORM_BASE = 'https://michaelbloemeke.com'
 // internal and must never appear in front of a client.
 
 export const BOOKING_FIELDS = [
-  { id: 'event_date', key: 'eventDate', label: 'Event date', type: 'date', required: true },
-  { id: 'event_location', key: 'eventLocation', label: 'Event address', hint: 'Full street address, including city and ZIP', type: 'textarea', required: true },
-  { id: 'venue_type', key: 'venueType', label: 'What kind of venue is it?', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
-  { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoors or outdoors?', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
-  { id: 'event_start_time', key: 'eventStartTime', label: 'What time does the event start?', type: 'time', required: true },
-  { id: 'show_start_time', key: 'showStartTime', label: 'What time would you like the magic to start?', type: 'time', required: true },
-  { id: 'number_of_guests', key: 'numberOfGuests', label: 'Roughly how many guests?', type: 'text', required: true },
-  { id: 'age_of_guests', key: 'ageOfGuests', label: 'Rough ages of the guests', hint: 'All adults, mixed, mostly kids, etc.', type: 'text', required: false },
-  { id: 'vips', key: 'vips', label: 'Anyone special I should know about?', hint: 'Guest of honor, birthday, anniversary, someone who hates being picked on', type: 'textarea', required: false },
-  { id: 'av', key: 'av', label: 'Is there a sound system or microphone available?', type: 'text', required: false },
-  // Not a project field: this drives who the QuickBooks invoice is addressed to.
-  { id: 'invoice_to', key: '', label: 'Who should the invoice be addressed to?', hint: 'A person or a company name, whichever your accounting needs', type: 'text', required: true },
-  { id: 'invoice_email', key: '', label: 'Which email should the invoice go to?', type: 'email', required: true },
-  { id: 'notes', key: 'projectNotesAppend', label: 'Anything else I should know?', type: 'textarea', required: false },
+  { id: 'event_summary', key: 'eventSummary', label: 'Basic description of the event', hint: 'A sentence or two about what the event is', type: 'textarea', required: true },
+  { id: 'event_start_time', key: 'eventStartTime', label: 'Event start time', type: 'time', required: true },
+  { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time would you like the magic to start?', type: 'time', required: true },
+  { id: 'av', key: 'av', label: 'For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?', hint: 'You can put NA if not applicable', type: 'textarea', required: true },
+  { id: 'number_of_guests', key: 'numberOfGuests', label: 'Number of guests', type: 'text', required: true },
+  { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'Full street address, including city and ZIP', type: 'textarea', required: true },
+  { id: 'venue_type', key: 'venueType', label: 'Venue type', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
+  { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoor or outdoor', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
+  { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
+  { id: 'vips', key: 'vips', label: 'Any VIPs that Michael should give special attention to?', type: 'textarea', required: true },
+  // Not a project field: drives who the QuickBooks invoice is addressed to. OPTIONAL in Michael's
+  // form, so it falls back to the project's client name when they leave it blank.
+  { id: 'invoice_to', key: '', label: 'What name should be on the invoice?', type: 'text', required: false },
+  // Both of these are free text that belongs in the project's notes rather than a field of its own.
+  { id: 'unforgettable', key: 'projectNotesAppend', label: 'How can Michael make your event unforgettable?', type: 'textarea', required: false },
+  { id: 'notes', key: 'projectNotesAppend', label: 'Any other details Michael should know about the event?', type: 'textarea', required: false },
 ]
 
 const FILE = path.join(RECORDS_DIR, 'crm-booking-forms.json')
@@ -205,7 +207,7 @@ async function applyAnswers(projectId, answers) {
     const v = byId[f.id]
     if (v == null || String(v).trim() === '') continue
     if (!f.key) continue
-    if (f.key === 'projectNotesAppend') continue // handled below, appended not overwritten
+    if (f.key === 'projectNotesAppend') continue // handled below, appended not overwritten (there are two)
     try {
       // Store times in 12-hour form; the CRM shows times that way everywhere. Dates stay ISO,
       // because eventDate is a sortable column and the UI formats it for display.
@@ -219,16 +221,20 @@ async function applyAnswers(projectId, answers) {
       console.error(`[crm-booking-form] could not write "${f.key}" for ${projectId}:`, e?.message || e)
     }
   }
-  // Their free-text note is appended to project notes rather than overwriting Michael's.
-  const note = String(byId.notes || '').trim()
-  if (note) {
+  // Their free-text answers are APPENDED to project notes rather than overwriting Michael's own.
+  // There are two of them now, so each is labelled with the question it answered; a bare paragraph
+  // with no context is worse than no note at all when he reads this before the event.
+  const noteBlocks = BOOKING_FIELDS.filter((f) => f.key === 'projectNotesAppend')
+    .map((f) => ({ label: f.label, value: String(byId[f.id] || '').trim() }))
+    .filter((n) => n.value)
+  if (noteBlocks.length) {
     const project = loadAll().projects.find((p) => p.id === projectId)
     const existing = String(project?.projectNotes || '').trim()
-    const line = `From their booking form: ${note}`
+    const added = noteBlocks.map((n) => `${n.label}\n${n.value}`).join('\n\n')
     await updateProjectField({
       id: projectId,
       field: 'projectNotes',
-      value: existing ? `${existing}\n\n${line}` : line,
+      value: existing ? `${existing}\n\n${added}` : added,
     })
     filled.push('Notes')
   }
