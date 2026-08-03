@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { createProject as apiCreateProject } from '../api'
+import { createProject as apiCreateProject, type Contact } from '../api'
 import { EVENT_TYPE_ACCENT, type CategoryDef, type Project } from '../pipeline'
 import { StageSelect } from './StageSelect'
 import { formatPhoneField } from '../phone'
 
 // Create a project. Only the name is required; everything else is optional and
-// editable later. Contacts can be picked from existing projects or typed fresh.
+// editable later. Contacts can be picked from the CRM's contact list or typed fresh.
 
 type Props = {
   open: boolean
-  projects: Project[]
+  contacts: Contact[]
   categories: CategoryDef[]
   onClose: () => void
   onCreated: (p: Project) => void
@@ -18,7 +18,7 @@ type Props = {
 
 const EVENT_TYPES = Object.keys(EVENT_TYPE_ACCENT)
 
-export function NewProjectModal({ open, projects, categories, onClose, onCreated }: Props) {
+export function NewProjectModal({ open, contacts, categories, onClose, onCreated }: Props) {
   const [name, setName] = useState('')
   const [eventType, setEventType] = useState('Other')
   const [stageId, setStageId] = useState('inquiry')
@@ -54,35 +54,27 @@ export function NewProjectModal({ open, projects, categories, onClose, onCreated
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  // Unique existing contacts (first contact of each project).
-  const contacts = useMemo(() => {
-    // Defensive: some legacy records stored a contact field as a JSON-array string
-    // (e.g. `["Dakota Tilley"]`). Unwrap those so we never render stray brackets/quotes.
-    const clean = (v: string) => {
-      const s = (v || '').trim()
-      if (!s.startsWith('[')) return s
-      try {
-        const arr = JSON.parse(s)
-        if (Array.isArray(arr)) return arr.map(String).join(', ')
-      } catch {
-        return s.replace(/^\[|\]$/g, '').replace(/^"|"$/g, '')
-      }
-      return s
-    }
-    const seen = new Set<string>()
-    const out: { key: string; label: string; name: string; email: string; phone: string }[] = []
-    for (const p of projects) {
-      const cn = clean(p.contactNames).split(/[,;]/)[0].trim()
-      const ce = clean(p.contactEmails).split(/[,;]/)[0].trim()
-      const cp = clean(p.contactPhones).split(/[,;]/)[0].trim()
-      if (!cn && !ce) continue
-      const key = `${cn}|${ce}`.toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      out.push({ key, label: cn + (ce ? ` · ${ce}` : ''), name: cn, email: ce, phone: cp })
-    }
-    return out.sort((a, b) => a.label.localeCompare(b.label))
-  }, [projects])
+  // Every contact in the CRM, as picker options.
+  //
+  // Sourced from the real CONTACTS list. This used to walk `projects` and read each one's
+  // contactNames/contactEmails/contactPhones instead, which quietly hid two whole groups of people:
+  //
+  //   - anyone with no project yet, which is exactly who you are looking for when you are creating
+  //     their first project
+  //   - every SECONDARY contact on a project, because that code took only `.split(',')[0]`
+  //
+  // Those project fields are a denormalized copy anyway. Contacts became first-class records with
+  // explicit stored links (crm-links.json) back in June 2026; this picker was just never moved over.
+  const options = useMemo(() => {
+    return contacts
+      .filter((c) => String(c.name || '').trim())
+      .map((c) => {
+        const email = (c.emails || []).find((e) => String(e || '').trim()) || ''
+        const phone = (c.phones || []).find((p) => String(p || '').trim()) || ''
+        return { key: c.id, label: c.name + (email ? ` · ${email}` : ''), name: c.name, email, phone }
+      })
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [contacts])
 
   const create = async () => {
     if (!name.trim()) return
@@ -179,10 +171,10 @@ export function NewProjectModal({ open, projects, categories, onClose, onCreated
                 <div className="mb-2 flex items-center">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-faint">Contact (optional)</span>
                 </div>
-                {contacts.length > 0 && (
+                {options.length > 0 && (
                   <div className="mb-2">
                     <ContactSearchPicker
-                      contacts={contacts}
+                      contacts={options}
                       onPick={(c) => {
                         setContactName(c.name)
                         setContactEmail(c.email)

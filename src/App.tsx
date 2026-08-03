@@ -1385,7 +1385,7 @@ function App() {
 
       <NewProjectModal
         open={newProjectOpen}
-        projects={allProjects}
+        contacts={contacts}
         categories={structure.umbrellas}
         onClose={() => setNewProjectOpen(false)}
         onCreated={(p) => {

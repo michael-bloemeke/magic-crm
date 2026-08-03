@@ -188,7 +188,31 @@ function firstOf(str) {
 // Last page: typed name in place of a signature
 // ---------------------------------------------------------------------------
 
-function drawSignatureBlock(doc, form, project, fonts) {
+// Written-out timestamp for the audit line, in Michael's timezone. House rule is 12-hour times and
+// dates spelled out, and this is a line a client (or one day a lawyer) reads.
+function stampET(iso) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  }) + ' ET'
+}
+
+// The foot of the last page.
+//
+// TWO MODES, and which one you get says what the document IS:
+//
+//   signature == null  ->  blank AcroForm fields. The old route: Michael emails this and the client
+//                          types into the PDF itself. Still supported, still works.
+//   signature != null  ->  the name is DRAWN, not a field, alongside when it was signed and from
+//                          where. The client already signed on michaelbloemeke.com and the database
+//                          row is the actual record; this PDF is the receipt of that. Drawing it as
+//                          text (rather than a pre-filled field) matters, because a form field can
+//                          be retyped by whoever opens it, and a receipt that can be edited is not
+//                          a receipt.
+function drawSignatureBlock(doc, form, project, fonts, signature) {
   const pages = doc.getPages()
   const page = pages[pages.length - 1]
   const { bold, reg, italic } = fonts
@@ -200,18 +224,58 @@ function drawSignatureBlock(doc, form, project, fonts) {
 
   page.drawLine({ start: { x: MARGIN, y: y + 16 }, end: { x: PAGE_W - MARGIN, y: y + 16 }, thickness: 0.75, color: RULE })
 
-  // Approval checkbox
+  const approveText = 'I have read this Agreement and I approve it.'
+  const halfW = (contentW - 20) / 2
+
+  if (signature) {
+    // Ticked box, drawn rather than a real checkbox for the same reason as the name.
+    page.drawRectangle({
+      x: MARGIN, y: y - 12, width: 13, height: 13,
+      borderWidth: 1, borderColor: FIELD_EDGE, color: FIELD_BG,
+    })
+    page.drawLine({ start: { x: MARGIN + 2.5, y: y - 5.5 }, end: { x: MARGIN + 5.5, y: y - 9 }, thickness: 1.4, color: INK })
+    page.drawLine({ start: { x: MARGIN + 5.5, y: y - 9 }, end: { x: MARGIN + 10.5, y: y - 1 }, thickness: 1.4, color: INK })
+    page.drawText(approveText, { x: MARGIN + 20, y: y - 9, size: 10, font: bold, color: INK })
+    y -= 44
+
+    // Name and date sitting on ruled lines, the way a signed page reads.
+    const name = String(signature.name || '').trim()
+    const date = String(signature.date || '').trim()
+    page.drawText(name, { x: MARGIN, y, size: 15, font: italic, color: INK })
+    page.drawText(date, { x: MARGIN + halfW + 20, y, size: 11, font: reg, color: INK })
+    y -= 6
+    page.drawLine({ start: { x: MARGIN, y }, end: { x: MARGIN + halfW, y }, thickness: 0.75, color: RULE })
+    page.drawLine({ start: { x: MARGIN + halfW + 20, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 0.75, color: RULE })
+    y -= 12
+    page.drawText('Signed by (typed name)', { x: MARGIN, y, size: 8, font: reg, color: MUTED })
+    page.drawText('Date', { x: MARGIN + halfW + 20, y, size: 8, font: reg, color: MUTED })
+    y -= 16
+
+    // The audit trail. This is what makes a typed name defensible: not the picture of a signature,
+    // but a contemporaneous record of who submitted what, when, and from where.
+    const stamp = stampET(signature.signedAt)
+    const lines = [
+      `Signed electronically on michaelbloemeke.com${stamp ? ` on ${stamp}` : ''}.`,
+      signature.ip ? `Confirmed from IP address ${signature.ip}.` : '',
+      'Typing a name in place of a signature was accepted by both parties as binding.',
+    ].filter(Boolean)
+    for (const line of lines) {
+      page.drawText(line, { x: MARGIN, y, size: 8, font: italic, color: MUTED })
+      y -= 10
+    }
+    return page
+  }
+
+  // Unsigned: real form fields for the fillable-PDF route.
   const cb = form.createCheckBox('client_approves')
   cb.addToPage(page, {
     x: MARGIN, y: y - 12, width: 13, height: 13,
     borderWidth: 1, borderColor: FIELD_EDGE, backgroundColor: FIELD_BG,
   })
-  const approveText = 'I have read this Agreement and I approve it.'
   page.drawText(approveText, { x: MARGIN + 20, y: y - 9, size: 10, font: bold, color: INK })
   y -= 40
 
   // Typed name + date, side by side. Same label/box helper as page 1 so the spacing matches.
-  const halfW = (contentW - 20) / 2
   const afterName = labelledField(page, form, fonts, {
     name: 'client_typed_name', label: 'Type your full name to sign', x: MARGIN, w: halfW, h: 22, y,
     labelSize: 8.5, labelFont: 'reg',
@@ -240,7 +304,10 @@ export const FOOT_RESERVE = 150
 
 // Build the whole fillable document. `renderContract` is injected so this module doesn't need to
 // know about pdfmake; crm-contracts.mjs passes in its own renderer.
-export async function assembleFillablePdf({ project, contractPdfBuffer, summaryRows = [] }) {
+// `signature` (optional) = { name, date, signedAt, ip, agent } as captured by the website's signing
+// step. Passing it produces the SIGNED receipt (name drawn as text, audit line, no editable fields);
+// omitting it produces the blank fillable PDF.
+export async function assembleFillablePdf({ project, contractPdfBuffer, summaryRows = [], signature = null }) {
   const doc = await PDFDocument.load(contractPdfBuffer)
   const fonts = {
     reg: await doc.embedFont(StandardFonts.Helvetica),
@@ -251,11 +318,21 @@ export async function assembleFillablePdf({ project, contractPdfBuffer, summaryR
 
   // Signature block FIRST: it targets the LAST page of the contract, and prepending the summary
   // pages afterwards would shift the indices out from under it.
-  drawSignatureBlock(doc, form, project, fonts)
+  drawSignatureBlock(doc, form, project, fonts, signature)
   drawSummaryPage(doc, project, summaryRows, fonts)
 
   // Render the field appearances so the boxes are visible in every viewer, not just Acrobat.
   form.updateFieldAppearances(fonts.reg)
+
+  // A signed copy must not be editable. `flatten` bakes anything remaining into page content and
+  // drops the AcroForm, so no viewer offers a cursor on this document.
+  if (signature) {
+    try {
+      form.flatten()
+    } catch {
+      /* nothing to flatten (no fields were created in signed mode); that is the expected case */
+    }
+  }
 
   const bytes = await doc.save({ updateFieldAppearances: false })
   return { buffer: Buffer.from(bytes), pageCount: doc.getPageCount() }

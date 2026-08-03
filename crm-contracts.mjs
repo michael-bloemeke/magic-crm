@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
 import { assembleFillablePdf, FOOT_RESERVE as FILLABLE_FOOT_RESERVE } from './crm-contract-fillable.mjs'
-import { submissionSummary } from './crm-booking-form.mjs'
+import { submissionSummary, loadSignature } from './crm-booking-form.mjs'
 import { bookingTemplateHtml } from './crm-contract-template.mjs'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES, fmtDate } from './crm-contract-template.mjs'
@@ -354,12 +354,17 @@ export async function contractPdf(projectId, id, { forSigning = false } = {}) {
 }
 
 // --- Booking agreement (the no-e-signature route) ---------------------------
-// The document that goes out once the client has filled in the booking form:
-//   page 1   read-only summary of what they submitted
-//   page 2+  the SHORT agreement (no event facts re-listed, just "the details on the previous page
-//            are accurate"), with the booking fee filled in from the project
-//   foot     confirm checkbox + type-your-name box
-export async function bookingAgreementPdf(projectId) {
+// The document behind the booking flow:
+//   page 1   read-only summary of what the client submitted
+//   page 2+  the SHORT agreement, restating the event basics and the fee, filled from the project
+//   foot     their signature
+//
+// Once the client has signed on the website, this renders as the SIGNED copy: the typed name drawn
+// as text, an audit line saying when and from where, and the form flattened so nothing is editable.
+// That copy is a receipt. The record of the agreement is the database row the website wrote.
+//
+// Before they sign (or on the older email-a-fillable-PDF route) it renders with blank form fields.
+export async function bookingAgreementPdf(projectId, { signature: override } = {}) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
   // Always built fresh from the short template + the project's current numbers, so it can never
@@ -367,15 +372,28 @@ export async function bookingAgreementPdf(projectId) {
   const built = buildContractBody(project, { templateHtml: bookingTemplateHtml() })
   const contractPdfBuffer = await pdfFromHtml(built.html, { forFillable: true })
   const summaryRows = submissionSummary(projectId)
-  const { buffer, pageCount } = await assembleFillablePdf({ project, contractPdfBuffer, summaryRows })
+  const signature = override !== undefined ? override : loadSignature(projectId)
+  const { buffer, pageCount } = await assembleFillablePdf({ project, contractPdfBuffer, summaryRows, signature })
   const name = (project.client || 'agreement').replace(/[^\w.-]+/g, '-')
   return {
     buffer,
-    fileName: `Agreement - ${name}.pdf`,
+    fileName: `Agreement - ${name}${signature ? ' (signed)' : ''}.pdf`,
     pageCount,
     summaryCount: summaryRows.length,
     missingFields: built.missingFields,
+    signed: !!signature,
   }
+}
+
+// The agreement body as HTML, for the website to display on its signing step.
+//
+// The facts the CLIENT supplies are deliberately left as unfilled `data-f` marker spans; the edge
+// function swaps those for their own answers at render time. Everything internal (fee, performance
+// scope, his name) is baked in here, where it belongs.
+export function bookingAgreementTemplate(projectId) {
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  return buildContractBody(project, { templateHtml: bookingTemplateHtml() }).html
 }
 
 // --- E-signature (SignWell) orchestration -----------------------------------

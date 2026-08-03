@@ -122,8 +122,11 @@ export function bookingFormLink(projectId) {
     url: `${FORM_BASE}/book/?t=${rec.token}`,
     sentAt: rec.sentAt,
     submission: rec.submission,
-    // Stamped once the agreement PDF has gone out. Also the double-send guard: the auto-sender
-    // skips any project that already has this, so a re-poll can never mail a second copy.
+    // What the client typed on the website's signing step: { name, date, signedAt, ip, agent }.
+    // Null until they sign. THIS is the record of the agreement, not the PDF.
+    signature: rec.signature || null,
+    // Stamped once the countersigned PDF has been emailed to them for their records. Also the
+    // double-send guard: the sender skips any project that already has this.
     agreementSentAt: rec.agreementSentAt || '',
     agreementError: rec.agreementError || '',
   }
@@ -246,7 +249,7 @@ export async function pullSubmission(projectId) {
   try {
     const { data, error } = await sb()
       .from('booking_submissions')
-      .select('project_id, answers, submitted_at')
+      .select('project_id, answers, submitted_at, signed_name, signed_date, signed_at, signer_ip, signer_agent')
       .eq('project_id', projectId)
       .maybeSingle()
     if (error) return { ok: false, error: error.message }
@@ -256,9 +259,30 @@ export async function pullSubmission(projectId) {
   }
   if (!row) return { ok: true, fresh: false, submission: rec.submission }
 
+  // The signature is pulled in on every check, independently of the answers. They arrive as two
+  // separate events (they fill the form, then they sign), so a submission we have already applied
+  // can still be carrying a signature we have not seen yet.
+  let freshSignature = false
+  if (row.signed_at && !rec.signature) {
+    rec.signature = {
+      name: String(row.signed_name || ''),
+      date: String(row.signed_date || ''),
+      signedAt: new Date(row.signed_at).toISOString(),
+      ip: String(row.signer_ip || ''),
+      agent: String(row.signer_agent || ''),
+    }
+    freshSignature = true
+    writeFile(d)
+    try {
+      await appendActivityLog(projectId, `Agreement signed online by ${rec.signature.name}.`)
+    } catch {
+      /* the log line is a nicety, never fail the pull over it */
+    }
+  }
+
   const submittedAt = new Date(row.submitted_at).toISOString()
   if (rec.submission && rec.submission.submittedAt === submittedAt) {
-    return { ok: true, fresh: false, submission: rec.submission }
+    return { ok: true, fresh: false, freshSignature, submission: rec.submission, signature: rec.signature || null }
   }
 
   const answers = Array.isArray(row.answers) ? row.answers : []
@@ -275,7 +299,12 @@ export async function pullSubmission(projectId) {
   } catch {
     /* cosmetic flag only */
   }
-  return { ok: true, fresh: true, submission: rec.submission, filledFields: filled }
+  return { ok: true, fresh: true, freshSignature, submission: rec.submission, signature: rec.signature || null, filledFields: filled }
+}
+
+// What the client typed on the signing step, or null if they haven't signed yet.
+export function loadSignature(projectId) {
+  return loadForm(projectId)?.signature || null
 }
 
 // House rules for anything Michael or a client READS: dates written out, times in 12-hour.
@@ -338,16 +367,23 @@ export function invoiceTarget(projectId) {
 // Draft (never send) the email that carries the booking-form link. Michael reviews and sends it
 // himself from Gmail, which is both his own standing rule and where he now writes everything.
 export async function draftBookingEmail(projectId, { createDraft, project }) {
-  // GATE: the performance style has to be set before the form goes out.
+  // GATES: everything the client will SEE on the agreement has to be right before the link goes out.
   //
-  // It is the one contract fact the client is never asked for (it is what Michael sold them, not
-  // something they choose), and it fills the Services clause. Because the agreement is now built and
-  // mailed automatically the moment they submit, there is no human step left in which to notice it
-  // is missing. Left blank, the client would receive a contract whose scope of work literally reads
-  // "[Performance scope]". So it is blocked here, at the last point Michael is still in the loop.
-  if (!String(project.performanceStyle || '').trim()) {
+  // This is the last moment Michael is in the loop. The instant they finish the booking form the
+  // website shows them the agreement and asks them to sign it, so there is no later step at which a
+  // blank field could be caught. A missing value renders as a literal "[Performance scope]" or
+  // "[Booking fee]" in the contract text, in front of the client, on the document they are signing.
+  //
+  // Both of these are Michael's own numbers, never asked of the client, so they can only come from
+  // the project.
+  const missing = []
+  if (!String(project.performanceStyle || '').trim()) missing.push('performance style')
+  if (project.totalFee == null || String(project.totalFee).trim() === '' || Number(project.totalFee) <= 0) {
+    missing.push('quote')
+  }
+  if (missing.length) {
     throw new Error(
-      'Set the performance style in Event details first. It fills the Services clause of the agreement, and the agreement goes out automatically once they submit the form.',
+      `Set the ${missing.join(' and ')} in Event details first. The client signs the agreement on the website straight after the booking form, so this has to be right before the link goes out.`,
     )
   }
   await registerToken(projectId)

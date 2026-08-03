@@ -38,7 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail } from './crm-booking-form.mjs'
-import { autoSendPending, sendAgreement } from './crm-booking-agreement.mjs'
+import { autoSendPending, sendAgreement, publishAgreement } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -1061,31 +1061,44 @@ export function crmDataPlugin() {
             res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't build the agreement</h2><p>${String(e?.message || e)}</p></body>`)
           })
       })
-      // "Ready to book": issue the link and leave a ready-to-send draft in Gmail. Never sends.
+      // "Ready to book": issue the link, PUBLISH the agreement to the website, and leave a
+      // ready-to-send draft in Gmail. Never sends the email itself.
+      //
+      // Order matters. draftBookingEmail runs the gates (performance style + quote) and throws
+      // before anything is written, so a project that isn't ready produces no half-finished state.
+      // Publishing then happens before Michael can possibly send the draft, which means the client
+      // can never reach the signing step and find no agreement waiting for them.
       server.middlewares.use('/api/booking/ready', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
           const project = loadAll().projects.find((p) => p.id === b.projectId)
           if (!project) throw new Error('Project not found.')
-          return await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, project })
+          const draft = await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, project })
+          await publishAgreement(b.projectId)
+          return draft
         })
+      })
+      // Re-publish the agreement after changing a detail on the project, for a client who has the
+      // link but hasn't signed yet. Without this they'd sign the version from before the edit.
+      server.middlewares.use('/api/booking/republish', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await publishAgreement(b.projectId))
       })
       // Issue (or reuse) this project's booking-form link.
       server.middlewares.use('/api/booking/link', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => bookingFormLink(b.projectId))
       })
-      // Poll for the client's submission and apply it to the project.
+      // Poll for the client's answers AND their signature, and apply both to the project.
       //
-      // The 2-minute sweep would pick this up on its own, but Michael pressing "Check for answers"
-      // means he is sitting there waiting, so do the whole thing now rather than making him wonder
-      // whether the agreement went. A failure to SEND is reported without failing the pull: the
-      // answers did land on the project either way, and the sweep will retry the send.
+      // The 2-minute sweep would pick this up on its own, but Michael pressing "Check" means he is
+      // sitting there waiting, so do the whole thing now. A failure to SEND is reported without
+      // failing the pull: the answers and the signature landed either way, and the sweep retries.
       server.middlewares.use('/api/booking/pull', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {
           const pulled = await pullSubmission(b.projectId)
-          if (!pulled.ok || !pulled.submission) return pulled
+          if (!pulled.ok || !pulled.signature) return pulled
           try {
             const sent = await sendAgreement(b.projectId)
             return { ...pulled, agreementSent: !sent.alreadySent, agreementTo: sent.to || '' }
@@ -1094,7 +1107,7 @@ export function crmDataPlugin() {
           }
         })
       })
-      // Re-send the agreement after fixing something on the project. The only path that sends a
+      // Re-send the signed copy, for a client who says it never arrived. The only path that sends a
       // second copy; the automatic one never does.
       server.middlewares.use('/api/booking/resend-agreement', (req, res, next) => {
         if (req.method !== 'POST') return next()
