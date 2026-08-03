@@ -638,7 +638,10 @@ export type BookingStatus = {
   submission: { submittedAt: string; answers: { id: string; value: string }[] } | null
   summary: { label: string; value: string }[]
   invoiceTo: { name: string; email: string }
-  // Set once the agreement PDF has been emailed to the client automatically.
+  // What the client typed on the website's signing step. Null until they sign. This, not the PDF,
+  // is the record of the agreement.
+  signature: { name: string; date: string; signedAt: string; ip: string; agent: string } | null
+  // Set once the signed PDF has been emailed back to them for their records.
   agreementSentAt: string
   // Why the last automatic send failed, if it did. Cleared on a successful send.
   agreementError: string
@@ -664,6 +667,8 @@ export async function pullBookingSubmission(projectId: string): Promise<{
   error?: string
   filledFields?: string[]
   submission?: { submittedAt: string; answers: { id: string; value: string }[] } | null
+  signature?: { name: string; date: string; signedAt: string } | null
+  freshSignature?: boolean
   agreementSent?: boolean
   agreementTo?: string
   agreementError?: string

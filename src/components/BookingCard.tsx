@@ -19,18 +19,18 @@ import {
 //
 // So this card shows the CURRENT STEP and nothing else:
 //
-//   1. Ready to book   -> issues the form link and leaves a ready-to-send draft in Gmail.
-//   2. Waiting         -> the link is out; check whether they've filled it in.
-//   3. They submitted  -> the agreement is AUTO-SENT to them; See response and Send invoice unlock.
+//   1. Ready to book   -> publishes the agreement to the website, issues the form link, and leaves
+//                          a ready-to-send draft in Gmail.
+//   2. Waiting         -> the link is out; check whether they've got to it.
+//   3. Details in      -> they answered the questions but haven't signed yet.
+//   4. Signed          -> they signed on the website; the CRM emails them a PDF copy automatically.
 //
-// Step 1 is blocked while the performance style is blank. That field fills the Services clause of
-// the agreement, and since the agreement now goes out by itself the moment they submit, this is the
-// last point at which a human would catch it missing.
+// Step 1 is blocked while the performance style or the quote is blank. Both appear in the agreement
+// the client reads, and they now read it seconds after finishing the form, so this is the last
+// moment a human could catch either missing.
 //
-// Send invoice is deliberately DISABLED until the form comes back, because the invoice is addressed
-// to whoever they named on it and priced off the booking fee. Enabling it earlier would just invite
-// sending an invoice made of guesses. It stays MANUAL even after the agreement goes: a filled-in PDF
-// on the client's laptop cannot tell us it was signed, so Michael watches for it coming back himself.
+// Send invoice stays MANUAL (Michael's call). It unlocks once the form comes back, because the
+// invoice is addressed to whoever they named on it.
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso)
@@ -53,10 +53,17 @@ export function BookingCard({ project }: { project: Project }) {
   useEffect(refresh, [project.id])
 
   const submitted = !!booking?.submission
-  // The agreement's Services clause is built from this. Blank means the contract would go out
-  // reading "[Performance scope]", so the form can't leave until it's set.
-  const styleSet = !!String(project.performanceStyle || '').trim()
+  const signature = booking?.signature ?? null
+  const signed = !!signature
   const agreementSent = !!booking?.agreementSentAt
+
+  // Both of these appear in the agreement the client reads on the website. Blank means they'd be
+  // looking at a literal "[Performance scope]" or "[Booking fee]", so the link can't go out yet.
+  const missingForAgreement = [
+    String(project.performanceStyle || '').trim() ? '' : 'performance style',
+    project.totalFee != null && Number(project.totalFee) > 0 ? '' : 'quote',
+  ].filter(Boolean)
+  const readyToSend = missingForAgreement.length === 0
 
   const doReady = async () => {
     setBusy(true)
@@ -78,11 +85,13 @@ export function BookingCard({ project }: { project: Project }) {
     try {
       const r = await pullBookingSubmission(project.id)
       if (!r.ok) setNote(r.error || 'Could not check for a submission.')
-      else if (!r.submission && !r.fresh) setNote('Nothing back from them yet.')
-      else if (r.agreementError) setNote(`Their details came in, but the agreement did not send: ${r.agreementError}`)
-      else if (r.agreementSent) setNote(`Their details came in and the agreement is on its way to ${r.agreementTo}.`)
-      else if (r.fresh) setNote(`Their details came in. Filled: ${(r.filledFields || []).join(', ')}.`)
-      else setNote('Nothing new. The agreement already went out.')
+      else if (!r.submission) setNote("Nothing back from them yet. They haven't opened the form.")
+      else if (r.agreementError) setNote(`They signed, but their copy did not send: ${r.agreementError}`)
+      else if (r.agreementSent) setNote(`${r.signature?.name} signed it. Their copy is on its way to ${r.agreementTo}.`)
+      else if (r.freshSignature) setNote(`${r.signature?.name} signed the agreement.`)
+      else if (r.fresh) setNote(`Their details came in. Filled: ${(r.filledFields || []).join(', ')}. Waiting on their signature.`)
+      else if (r.signature) setNote('Nothing new. They already signed and have their copy.')
+      else setNote('They filled in the details but have not signed yet.')
       refresh()
     } finally {
       setBusy(false)
@@ -126,12 +135,12 @@ export function BookingCard({ project }: { project: Project }) {
     <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.35)]">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] font-medium text-parchment">Booking</p>
-        {agreementSent ? (
+        {signed ? (
           <span
             className="rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]"
             style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
           >
-            Agreement sent
+            Signed
           </span>
         ) : submitted ? (
           <span
@@ -145,57 +154,56 @@ export function BookingCard({ project }: { project: Project }) {
 
       <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
         {booking?.agreementError
-          ? `Their details came in, but the agreement could not be sent: ${booking.agreementError}`
-          : agreementSent
-            ? `Agreement emailed ${fmtWhen(booking!.agreementSentAt)}. Send the invoice once they email the signed PDF back.`
+          ? `They signed, but their copy could not be sent: ${booking.agreementError}`
+          : signed
+            ? `${signature!.name} signed it ${fmtWhen(signature!.signedAt)}.${
+                agreementSent ? ' Their copy has been emailed.' : ' Sending their copy…'
+              } The invoice is yours to send.`
             : submitted
-              ? 'Their details came in. The agreement is being sent.'
+              ? 'They filled in the details but have not signed the agreement yet.'
               : booking?.sentAt
-                ? `Form sent ${fmtWhen(booking.sentAt)}. Waiting on their details, then the agreement goes out automatically.`
-                : !styleSet
-                  ? 'Set the performance style in Event details first. It fills the Services clause of the agreement, which sends automatically once they reply.'
-                  : 'Send the client the booking form. Once they submit it, the agreement is emailed to them automatically.'}
+                ? `Form sent ${fmtWhen(booking.sentAt)}. They sign the agreement on the website right after it.`
+                : !readyToSend
+                  ? `Set the ${missingForAgreement.join(' and ')} in Event details first. The client reads the agreement on the website seconds after the form, so this has to be right before the link goes out.`
+                  : 'Send the client the booking form. They fill it in, then sign the agreement on the website in the same sitting.'}
       </p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {!submitted && (
           <button
             type="button"
-            disabled={busy || !styleSet}
+            disabled={busy || !readyToSend}
             onClick={doReady}
-            title={styleSet ? '' : 'Add a performance style in Event details before sending the booking form'}
+            title={readyToSend ? '' : `Add a ${missingForAgreement.join(' and ')} in Event details first`}
             className={primary}
           >
             {busy ? 'Working…' : booking?.sentAt ? 'Resend booking form' : 'Ready to book'}
           </button>
         )}
-        {booking?.sentAt && !submitted && (
+        {booking?.sentAt && !signed && (
           <button type="button" disabled={busy} onClick={doCheck} className={secondary}>
-            {busy ? 'Checking…' : 'Check for answers'}
+            {busy ? 'Checking…' : submitted ? 'Check for signature' : 'Check for answers'}
           </button>
         )}
         {submitted && (
           <button
             type="button"
             onClick={() => window.open(bookingAgreementPdfUrl(project.id, true), '_blank')}
+            title={signed ? 'The signed copy, as the client received it' : 'The agreement as it currently stands, unsigned'}
             className={primary}
           >
-            Agreement PDF
+            {signed ? 'Signed PDF' : 'Agreement PDF'}
           </button>
         )}
-        {submitted && (
+        {signed && (
           <button
             type="button"
             disabled={busy}
             onClick={doResend}
-            title={
-              agreementSent
-                ? 'Send a corrected copy, after fixing a detail on the project'
-                : 'Send the agreement now instead of waiting for the next check'
-            }
+            title="Send their copy again, if they say it never arrived"
             className={secondary}
           >
-            {busy ? 'Sending…' : agreementSent ? 'Resend agreement' : 'Send agreement now'}
+            {busy ? 'Sending…' : agreementSent ? 'Resend their copy' : 'Send their copy now'}
           </button>
         )}
         <button
