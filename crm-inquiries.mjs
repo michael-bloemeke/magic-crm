@@ -1,12 +1,11 @@
 // Website inquiry importer (CRM-owned). The contact form on Michael's website POSTs each
-// submission to a small serverless relay (portal/api/inquiry.js on the Vercel "portal" project),
-// which appends it to a single public Blob file (inquiries.json). This module polls that file,
+// submission to a Vercel relay that appended to a Blob file, which this module polled. That relay
+// was retired 2026-08-03; the site now posts to the `inquiry` Supabase edge function instead,
 // creates a project (Inquiry stage) for any submission it hasn't imported yet, and raises an
 // in-CRM notification that stays until dismissed.
 //
 // Dedup is by the relay-assigned inquiry id, so a submission is never imported twice. Reads are
 // the public Blob URL (no token needed); only the relay writes, using its own server-side token.
-// The Blob base URL lives in portal-credentials.json (shared with the questionnaire sync).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -24,19 +23,11 @@ import {
 } from './crm-store.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const CRED_FILE = path.join(HERE, 'portal-credentials.json')
 const STORE_FILE = path.join(RECORDS_DIR, 'crm-inquiries.json')
 const NOTIFY_TO = 'michael@michaelbloemeke.com' // new-inquiry alerts go to Michael's business inbox
 
-function blobBaseUrl() {
-  try {
-    return String(JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')).blobBaseUrl || '').replace(/\/+$/, '')
-  } catch {
-    return ''
-  }
-}
 export function isConfigured() {
-  return !!blobBaseUrl()
+  return false // the relay is retired; see runImport()
 }
 
 // --- store -----------------------------------------------------------------
@@ -110,17 +101,6 @@ function quotedName(s) {
 function mailDate(iso) {
   const d = new Date(iso)
   return (isNaN(d.getTime()) ? new Date() : d).toUTCString()
-}
-
-// Fetch the relay's inquiry list (public, always-fresh). Returns [] if not set up or empty.
-async function fetchInquiries() {
-  const base = blobBaseUrl()
-  if (!base) return []
-  const res = await fetch(`${base}/inquiries.json`, { cache: 'no-store' })
-  if (res.status === 404) return []
-  if (!res.ok) throw new Error(`Inquiry store returned ${res.status}.`)
-  const d = await res.json()
-  return Array.isArray(d) ? d : Array.isArray(d?.inquiries) ? d.inquiries : []
 }
 
 // Build a human-readable description from everything the form captured, so nothing is lost even
@@ -277,77 +257,16 @@ export async function importNewInquiries() {
 // Poll the relay and import any inquiries not seen before: create a project (Inquiry stage),
 // fill the mapped fields, and raise a notification. Returns { ok, created, importedCount }.
 async function runImport() {
-  if (!isConfigured()) return { ok: false, error: "Inquiry sync isn't set up yet (missing blobBaseUrl)." }
-  let list
-  try {
-    list = await fetchInquiries()
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) }
-  }
-  const store = readStore()
-  const now = new Date().toISOString()
-  const created = []
-
-  for (const inq of list) {
-    if (!inq || !inq.id || store.inquiries[inq.id]) continue
-    const name = String(inq.name || '').trim()
-    const email = String(inq.email || '').trim()
-    let projectId = null
-    let note = ''
-    try {
-      const proj = await createProject({
-        clientName: name || email || 'Website inquiry',
-        contactNames: name,
-        contactEmails: email,
-        contactPhones: String(inq.phone || ''),
-        eventDate: toISO(inq.eventDate),
-        eventLocation: String(inq.venue || ''),
-      })
-      projectId = proj.id
-      // Fields createProject doesn't take directly; set them after (best-effort).
-      const extra = {
-        eventStartTime: to12h(inq.eventTime),
-        numberOfGuests: String(inq.guests || ''),
-        ageOfGuests: String(inq.ages || ''),
-        bookingSource: String(inq.source || ''),
-        performanceStyle: String(inq.showTypes || ''),
-        eventDescription: describe(inq),
-      }
-      for (const [field, value] of Object.entries(extra)) {
-        if (!value) continue
-        try {
-          await updateProjectField({ id: proj.id, field, value })
-        } catch {
-          // skip a field that won't take; the inquiry is still imported
-        }
-      }
-      const formLabel = String(inq.formLocation || '').trim()
-      await appendActivityLog(proj.id, `New inquiry from the website contact form${formLabel ? ` (${formLabel})` : ''}.`)
-    } catch (e) {
-      // Most likely a duplicate project name; keep the notification so Michael sees it.
-      note = String(e?.message || e)
-    }
-    const emailed = await notifyByEmail(inq, projectId)
-    store.inquiries[inq.id] = { name, email, eventDate: toISO(inq.eventDate), projectId, importedAt: now, dismissed: false, note, emailed, form: cleanForm(inq) }
-    created.push({ id: inq.id, ...store.inquiries[inq.id] })
-    // Raise the SPECIAL new-inquiry bell event (deduped by the relay inquiry id) and fire the
-    // high-priority lock-screen push with the lead's name. Only when a project was actually created,
-    // so a duplicate-name failure doesn't leave a bell event pointing at no project. Best-effort:
-    // a notification/push problem never blocks the import.
-    if (projectId) {
-      try {
-        await addNotification(projectId, 'new-inquiry', inq.id, { name: name || email })
-      } catch (e) {
-        console.warn('[crm-inquiries] new-inquiry notification failed:', e?.message || e)
-      }
-    }
-    // Supabase: persist each new inquiry as its own row as it's created (files: one write below).
-    if (CRM_STORE === 'supabase') await persistInquiry(inq.id, store.inquiries[inq.id])
-  }
-
-  if (CRM_STORE !== 'supabase') writeStore(store)
-  return { ok: true, created, importedCount: created.filter((c) => c.projectId).length }
+  // RETIRED 2026-08-03. The website used to POST to a Vercel relay that appended to a Blob file,
+  // which this polled every 20 seconds. It now posts straight to the `inquiry` Supabase edge
+  // function, which creates the project, emails Michael and fires the phone push itself, server-side.
+  // So by the time the CRM looks, the project already exists. Nothing left to import.
+  //
+  // The rest of this module is still very much live: it reads the `inquiries` table for the
+  // notification bell and for the "Initial inquiry" dialog on the project page.
+  return { ok: true, created: [], importedCount: 0 }
 }
+
 
 // The whole { [id]: inquiryRecord } map (includes dismissed). Symmetric with loadPortals/
 // loadRecipients/loadInvoices/loadContracts/loadQuestionnaires; used by the backup exporter and the
