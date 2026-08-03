@@ -17,15 +17,18 @@ import {
 // After that it went the other way and grew a "check for answers" button, which was busywork: the
 // answer to "have they done it yet" is a fact the server can just tell you. So the card now carries
 // a live PROGRESS BAR (not viewed / viewed / details in / signed) that moves on its own, and exactly
-// TWO controls:
+// ONE control:
 //
 //   Ready to book   publishes the agreement to the website, issues the form link, and leaves a
 //                   ready-to-send draft in Gmail. Disabled until the two gated fields are filled.
-//   View contract   opens the agreement PDF. Disabled until the client has sent their details,
-//                   because before that there is nothing on it but Michael's own numbers.
 //
-// Everything after "Ready to book" runs without him: the client signs on the website, the CRM emails
-// them the signed PDF, and the invoice follows. The card reports; it does not ask him to drive.
+// The agreement itself is an ATTACHMENT, not a button. It used to be "View contract", which forced a
+// download; the document exists, so it should sit on the project the way a PDF sits on an email, one
+// tap to look and a download only if he actually wants the file.
+//
+// Everything after "Ready to book" runs without him: the client signs on the website, and the
+// `booking-complete` edge function emails the signed PDF and sends the invoice, with his Mac off.
+// The card reports; it does not ask him to drive.
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso)
@@ -53,6 +56,7 @@ export function BookingCard({
   const [invoice, setInvoice] = useState<QuickBooksInvoice | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  const [showPdf, setShowPdf] = useState(false)
 
   const refresh = () => {
     loadBookingStatus(project.id).then(setBooking).catch(() => setBooking(null))
@@ -97,8 +101,6 @@ export function BookingCard({
 
   const primary =
     'rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:cursor-not-allowed disabled:opacity-40'
-  const secondary =
-    'rounded-lg border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:cursor-not-allowed disabled:opacity-40'
 
   const reachedIdx = STEPS.findIndex((s) => s.key === stage)
 
@@ -204,22 +206,34 @@ export function BookingCard({
         >
           {busy ? 'Working…' : linkOut ? 'Resend booking form' : 'Ready to book'}
         </button>
+      </div>
+
+      {/* The agreement, as an attachment rather than a button.
+          It used to be a "View contract" button that forced a download. Michael's point was right:
+          the document exists, so it should just sit on the project the way a PDF sits on an email,
+          one tap to look at it and a download only if he actually wants the file. */}
+      {submitted && (
         <button
           type="button"
-          disabled={!submitted}
-          onClick={() => window.open(bookingAgreementPdfUrl(project.id, true), '_blank')}
-          title={
-            submitted
-              ? signed
-                ? 'The signed copy, as the client received it'
-                : 'The agreement as it currently stands, with their details'
-              : "Unlocks once they've sent their details"
-          }
-          className={secondary}
+          onClick={() => setShowPdf(true)}
+          className="mt-2.5 flex w-full items-center gap-2.5 rounded-lg border border-line bg-surface-2/40 px-3 py-2 text-left transition-colors hover:border-line-strong"
         >
-          View contract
+          <span
+            className="flex h-7 w-7 flex-none items-center justify-center rounded text-[8.5px] font-bold tracking-tight"
+            style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
+          >
+            PDF
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[12.5px] font-medium text-parchment">
+              Agreement - {project.client}{signed ? ' (signed)' : ''}.pdf
+            </span>
+            <span className="block text-[10.5px] text-faint">
+              {signed ? 'The copy the client received' : 'Draft, not signed yet'} · tap to preview
+            </span>
+          </span>
         </button>
-      </div>
+      )}
 
       {invoice?.sentAt && (
         <p className="mt-2 border-t border-line/60 pt-2 text-[11px] text-faint">
@@ -231,6 +245,66 @@ export function BookingCard({
         </p>
       )}
       {note && <p className="mt-2 text-[11px] leading-relaxed text-muted">{note}</p>}
+
+      <PdfPreview
+        open={showPdf}
+        title={`Agreement - ${project.client}${signed ? ' (signed)' : ''}`}
+        src={bookingAgreementPdfUrl(project.id)}
+        downloadHref={bookingAgreementPdfUrl(project.id, true)}
+        onClose={() => setShowPdf(false)}
+      />
+    </div>
+  )
+}
+
+// A PDF shown in place, the way a mail client shows an attachment.
+//
+// The route serves `Content-Disposition: inline` when download isn't asked for, so the browser's own
+// viewer renders it in the frame. Downloading is still one click away, it just isn't the only way to
+// look at the thing.
+function PdfPreview({
+  open, title, src, downloadHref, onClose,
+}: {
+  open: boolean
+  title: string
+  src: string
+  downloadHref: string
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+      <div className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+          <p className="truncate text-[13px] font-medium text-parchment">{title}</p>
+          <div className="flex flex-none items-center gap-2">
+            <a
+              href={downloadHref}
+              className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
+            >
+              Download
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        <iframe src={src} title={title} className="min-h-0 flex-1 bg-white" />
+      </div>
     </div>
   )
 }

@@ -860,14 +860,15 @@ export async function deleteProject(id) {
   return { ok: true, id }
 }
 
-// ---------- templates + contact links ----------
-// Email templates (name / subject / body). Body is stored as HTML with merge-field spans; the phone
-// renders it to readable text. Mirrors crm-templates.
-export async function loadTemplates() {
-  const { data, error } = await sb.from('templates').select('id,name,subject,body').order('name')
-  if (error) throw error
-  return (data || []).map((t) => ({ id: str(t.id), name: str(t.name), subject: str(t.subject), body: str(t.body) }))
-}
+// ---------- contact links ----------
+//
+// loadTemplates() used to live here. The `templates` table was DROPPED on 2026-07-31 when Michael
+// removed email templates from the desktop, and because this load sat inside the Promise.all below,
+// its error rejected the whole batch: the phone stopped showing ANY data at all, not just templates.
+// That is what "my phone app isn't even loading" was.
+//
+// Lesson worth keeping: a single failed table read in loadEverything takes the entire app down. If a
+// future slice becomes optional, give it its own catch rather than adding it to the batch.
 
 // Per-project, per-step emails (the booking workflow's email cards). kind = the step (postcall,
 // inquiry-response, followup-1, thankyou, ...); status = draft | sent. Body is HTML.
@@ -968,13 +969,12 @@ export async function loadEverything() {
   // Record the sentinel BEFORE loading: a write landing mid-load leaves v ahead of what we
   // saw, so the next background poll reloads again rather than missing it.
   await noteDataVersionLoaded()
-  const [projects, structure, tasks, config, contacts, templates, links, emails, paymentsRaw] = await Promise.all([
+  const [projects, structure, tasks, config, contacts, links, emails, paymentsRaw] = await Promise.all([
     loadProjects(),
     loadStructure(),
     loadTasks(),
     loadConfig(),
     loadContacts(),
-    loadTemplates(),
     loadLinks(),
     loadEmails(),
     sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at'),
@@ -997,7 +997,6 @@ export async function loadEverything() {
     payments,
     config,
     contacts,
-    templates,
     links,
     emails,
     customFields: config.customFields,

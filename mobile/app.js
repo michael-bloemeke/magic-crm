@@ -24,7 +24,7 @@ var COLLAPSED = {} // pipeline section label -> collapsed? (persists per session
 var STAGE = {} // stageId -> { name, umbrella, color }
 var DETAIL_ID = null // when non-null, the detail view for this project is on screen (not a tab)
 
-var PAGE_TITLES = { home: 'Home', pipeline: 'Pipeline', contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money', templates: 'Templates' }
+var PAGE_TITLES = { home: 'Home', pipeline: 'Pipeline', contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money' }
 
 // Contact relationship options (mirrors src/contacts.ts RELATIONSHIP_OPTIONS; FISM colors).
 var CONTACT_REL = [
@@ -759,11 +759,6 @@ function openEmailComposer(p, kind, title, em) {
   toIn.placeholder = 'name@email.com'
   card.appendChild(toIn)
 
-  var tsel = document.createElement('select'); tsel.className = 'field-input'; tsel.style.marginTop = '8px'
-  tsel.appendChild(el('<option value="">Insert a template…</option>'))
-  ;(SNAP.templates || []).forEach(function (t) { var o = document.createElement('option'); o.value = t.id; o.textContent = t.name; tsel.appendChild(o) })
-  card.appendChild(tsel)
-
   card.appendChild(el('<div class="k" style="margin:10px 0 4px">Subject</div>'))
   var subjIn = document.createElement('input'); subjIn.className = 'field-input'; subjIn.value = em ? em.subject : defaultSubjectFor(kind)
   card.appendChild(subjIn)
@@ -772,13 +767,6 @@ function openEmailComposer(p, kind, title, em) {
   var bodyIn = document.createElement('textarea'); bodyIn.className = 'field-input'; bodyIn.rows = 9
   bodyIn.value = em ? templateToText(em.body) : ''
   card.appendChild(bodyIn)
-
-  tsel.addEventListener('change', function () {
-    var t = (SNAP.templates || []).find(function (x) { return x.id === tsel.value }); if (!t) { return }
-    if (t.subject) subjIn.value = mergeText(t.subject, p)
-    bodyIn.value = mergeText(templateToText(t.body), p)
-    tsel.value = ''
-  })
 
   var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="ec-save">Save draft</button><button class="btn-gold" id="ec-send">Send</button></div>')
   card.appendChild(bar)
@@ -1342,7 +1330,6 @@ function render() {
   else if (TAB === 'tasks') renderTasks()
   else if (TAB === 'alerts') renderAlerts()
   else if (TAB === 'money') renderMoney()
-  else if (TAB === 'templates') renderTemplates()
   var title = $('#pagetitle'); if (title) title.textContent = PAGE_TITLES[TAB] || 'Magic CRM'
   updateCounts()
   updateDrawerActive()
@@ -1559,8 +1546,9 @@ function openContactSheet(c) {
   document.body.appendChild(sheet)
 }
 
-// ---------- Templates (read-only view + copy) ----------
-// Render a stored HTML email template body to readable plain text: merge-field spans become [field],
+// Render a stored HTML email body to readable plain text: merge-field spans become [field],
+// block tags become line breaks, remaining tags are stripped, entities decoded. The Templates PAGE
+// is gone (the table was dropped 2026-07-31), but this still renders saved email bodies.
 // block tags become line breaks, remaining tags are stripped, entities decoded.
 function templateToText(html) {
   var s = String(html || '')
@@ -1570,47 +1558,6 @@ function templateToText(html) {
   var ta = document.createElement('textarea'); ta.innerHTML = s; s = ta.value
   return s.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim()
 }
-function renderTemplates() {
-  var v = $('#view'); v.innerHTML = ''
-  v.appendChild(el('<input class="search" id="tq" placeholder="Search templates…" />'))
-  var list = el('<div id="tlist"></div>')
-  v.appendChild(list)
-  var all = SNAP.templates || []
-  function draw(filter) {
-    var f = (filter || '').toLowerCase().trim()
-    var items = all.filter(function (t) { return !f || (t.name + ' ' + t.subject).toLowerCase().indexOf(f) >= 0 })
-    list.innerHTML = ''
-    if (!items.length) { list.appendChild(el('<div class="empty">No templates.</div>')); return }
-    items.forEach(function (t) {
-      var c = el('<button class="card"><div class="name" style="font-size:14.5px">' + esc(t.name) + '</div>' + (t.subject ? '<div class="meta">' + esc(t.subject) + '</div>' : '') + '</button>')
-      c.addEventListener('click', function () { openTemplateSheet(t) })
-      list.appendChild(c)
-    })
-  }
-  draw('')
-  $('#tq').addEventListener('input', function (e) { draw(e.target.value) })
-}
-function openTemplateSheet(t) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove() }
-  card.appendChild(el('<div class="sheet-title">' + esc(t.name) + '</div>'))
-  if (t.subject) card.appendChild(el('<div class="k" style="margin-bottom:4px">Subject</div><div class="v" style="margin-bottom:12px">' + esc(t.subject) + '</div>'))
-  card.appendChild(el('<div class="k" style="margin-bottom:4px">Body</div>'))
-  card.appendChild(el('<div class="v" style="white-space:pre-wrap;font-size:14px;line-height:1.55">' + esc(templateToText(t.body)) + '</div>'))
-  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="tcopy">Copy</button><button class="btn-gold">Done</button></div>')
-  bar.children[1].addEventListener('click', close)
-  bar.children[0].addEventListener('click', function () {
-    var text = (t.subject ? t.subject + '\n\n' : '') + templateToText(t.body)
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () { toast('Copied') }).catch(function () { toast('Could not copy', 'err') })
-    } else { toast('Copy not supported here', 'err') }
-  })
-  card.appendChild(bar)
-  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
-}
-
 // ---------- data ----------
 // Builds the STAGE lookup (stageId -> { name, umbrella, color }) from the pipeline structure, exactly
 // as the old snapshot path did.
