@@ -108,5 +108,30 @@ const bad = new JSDOM(html, { url: 'https://michaelbloemeke.com/book/?t=not a to
 check('malformed token shows the dead-link banner', bad.window.document.getElementById('bk-dead').style.display, 'block')
 check('malformed token renders no form', bad.window.document.querySelectorAll('#bk-fields .bk-field').length, 0)
 
+// ---------------------------------------------------------------------------
+// The pre-send gate
+// ---------------------------------------------------------------------------
+//
+// The link is the last moment Michael is in the loop: the website shows the client the agreement
+// the instant they finish the form, so there is no later step at which a blank could be caught.
+// The EVENT DATE is the easy one to forget, because it is deliberately not a question on the form,
+// which means nothing the client fills in can ever supply it. Blank, and the Event clause reads a
+// literal "Date: [Event date]" on the document they are signing.
+const { draftBookingEmail } = await import('./crm-booking-form.mjs')
+const goodProject = { id: 'x', performanceStyle: 'mingling', totalFee: 500, eventDate: '2026-11-14', contactEmails: 'a@b.com' }
+async function gateError(project) {
+  try {
+    await draftBookingEmail('x', { project, createDraft: async () => ({ threadId: 't' }) })
+    return ''
+  } catch (e) {
+    return String(e.message || e)
+  }
+}
+check('gate blocks a blank event date', /event date/.test(await gateError({ ...goodProject, eventDate: '' })), true)
+check('gate blocks a half-typed event date', /event date/.test(await gateError({ ...goodProject, eventDate: '2026-11' })), true)
+check('gate still blocks a blank performance style', /performance style/.test(await gateError({ ...goodProject, performanceStyle: '' })), true)
+check('gate still blocks a missing quote', /quote/.test(await gateError({ ...goodProject, totalFee: 0 })), true)
+check('a complete project clears the gate', /performance style|quote|event date/.test(await gateError(goodProject)), false)
+
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURE(S)`)
 process.exit(fails ? 1 : 0)
