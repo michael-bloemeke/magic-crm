@@ -79,7 +79,6 @@ import { loadUnseenNotifications, addNotification, markNotificationSeen } from '
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
 import { loadAnalytics } from './crm-analytics.mjs'
 import { buildSnapshot } from './crm-snapshot.mjs'
-import { syncMobileSnapshot, isMobileConfigured } from './crm-mobile-sync.mjs'
 import {
   isClaudeAvailable,
   isClaudeConfigured,
@@ -199,10 +198,8 @@ export function crmDataPlugin() {
       // Back up shortly after the app starts, then every 4 hours it stays running.
       const t1 = setTimeout(runBackup, 90_000)
       const t2 = setInterval(runBackup, 4 * 60 * 60 * 1000)
-      // Keep the phone app's cloud snapshot fresh while the CRM runs (only once mobile is set up).
-      const syncMobile = () => { if (isMobileConfigured()) syncMobileSnapshot().catch(() => {}) }
-      const t3 = setTimeout(syncMobile, 12_000)
-      const t4 = setInterval(syncMobile, 5 * 60 * 1000)
+      // (The phone app reads Supabase directly now, so the old Vercel Blob snapshot upload was
+      // removed 2026-08-03 along with everything else on Vercel.)
       // Keep the Gigs calendar in step with EVERY active/completed dated project, including
       // website inquiries (edge function) and HoneyBook imports (SQL) that never go through the
       // app's per-action sync. syncAll is idempotent (upsert by stored event id), so re-running is
@@ -214,8 +211,6 @@ export function crmDataPlugin() {
       server.httpServer?.on('close', () => {
         clearTimeout(t1)
         clearInterval(t2)
-        clearTimeout(t3)
-        clearInterval(t4)
         clearTimeout(t5)
         clearInterval(t6)
         if (cacheRefreshTimer) clearInterval(cacheRefreshTimer)

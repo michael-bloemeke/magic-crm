@@ -253,7 +253,7 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
         </div>
         {booking?.url && (
           <p className="mt-2 truncate border-t border-line/60 pt-2 text-[10.5px] text-faint" title={booking.url}>
-            {booking.url || 'Set formBaseUrl in portal-credentials.json to get a shareable link.'}
+            {booking.url}
           </p>
         )}
         {booking?.invoiceTo?.name && (
