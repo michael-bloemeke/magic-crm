@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
-import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, loadTextMarkers, saveCustomValue, saveRecipient, saveTextMarker, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type MarkerChannel, type Payment, type ProjectEmail, type ProjectLinks, type Task, type TextMarker } from '../api'
+import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, saveCustomValue, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
 import { type CustomField } from '../eventFields'
 import { to12h } from '../format'
 import { TaskRow } from './TaskRow'
@@ -9,7 +9,6 @@ import { PaymentsEditor } from './PaymentsEditor'
 import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { InitialInquiryModal } from './InitialInquiryModal'
-import { CommsSlotRow } from './CommsSlotRow'
 import { InvoiceCard } from './InvoiceCard'
 import { ContractCard } from './ContractCard'
 import { CalendarInviteCard } from './CalendarInviteCard'
@@ -19,13 +18,10 @@ import { contactsForProject } from '../contacts'
 import { evalNumberFormula } from '../calc'
 
 // The working details for a project. Contacts, tasks and the Gmail conversation list sit at the top,
-// then four sections: Communication, Event details, Booking, Post show.
+// then three sections: Event details, Booking, Post show.
 //
-// Communication is the whole client relationship in one timeline: inquiry, post-call, booked and
-// post-show steps stacked in order, separated by rules. Each step is a record, not a composer.
-// Michael drafts in Gmail and sends from there, then marks the step here with the date it went out,
-// by email or by text. Reading top to bottom shows exactly how a client has been worked, including
-// the steps that were skipped.
+// (A "Communication" section with a per-step sent/unsent timeline lived here briefly and was removed
+// 2026-08-02. The Gmail conversation list at the top is now the only record of client contact.)
 //
 // The fuller description, notes, and activity log live in a side panel on the full
 // project view (NotesDrawer); the narrow side pane renders them inline instead.
@@ -159,12 +155,6 @@ export function ProjectDetailsBody({
   // generated link). The follow-up / check-in slots are explicit index lists so any added one can be
   // removed (the slot index is the storage key; titles render by position).
   const [emails, setEmails] = useState<ProjectEmail[]>([])
-  const [inquiryFollowupSlots, setInquiryFollowupSlots] = useState<number[]>([1])
-  const [followupSlots, setFollowupSlots] = useState<number[]>([1])
-  const [checkinSlots, setCheckinSlots] = useState<number[]>([1])
-  // The "sent" marks for this project's communication steps: a flag plus the date it went out, one
-  // per slot per channel (email / text). No message content, just the record that it happened.
-  const [markers, setMarkers] = useState<TextMarker[]>([])
 
   useEffect(() => {
     let live = true
@@ -175,48 +165,6 @@ export function ProjectDetailsBody({
       live = false
     }
   }, [project.id])
-
-  useEffect(() => {
-    let live = true
-    loadTextMarkers()
-      .then((all) => {
-        if (!live) return
-        const mine = all.filter((m) => m.projectId === project.id)
-        setMarkers(mine)
-        // Added follow-up / check-in slots persist by having a mark on them, so a marked slot 2 or 3
-        // comes back the next time the project is opened.
-        setInquiryFollowupSlots(buildSlots(mine, 'inquiry-followup'))
-        setFollowupSlots(buildSlots(mine, 'followup'))
-        setCheckinSlots(buildSlots(mine, 'checkin'))
-      })
-      .catch(() => live && setMarkers([]))
-    return () => {
-      live = false
-    }
-  }, [project.id])
-
-  // kind -> marker, split by channel, for the rows.
-  const emailMarks: Record<string, TextMarker> = {}
-  const textMarks: Record<string, TextMarker> = {}
-  for (const m of markers) (m.channel === 'email' ? emailMarks : textMarks)[m.kind] = m
-  const setMarker = (kind: string, channel: MarkerChannel, sent: boolean, date: string) => {
-    // Optimistic: reflect it immediately; an emptied mark (off + no date) drops out of the list.
-    const same = (m: TextMarker) => m.kind === kind && m.channel === channel
-    setMarkers((prev) => {
-      const others = prev.filter((m) => !same(m))
-      return !sent && !date
-        ? others
-        : [...others, { projectId: project.id, kind, channel, sent, date, updatedAt: new Date().toISOString() }]
-    })
-    saveTextMarker({ projectId: project.id, kind, channel, sent, date })
-      .then((saved) =>
-        setMarkers((prev) => {
-          const others = prev.filter((m) => !same(m))
-          return saved.sent || saved.date ? [...others, saved] : others
-        }),
-      )
-      .catch(() => {})
-  }
 
   // The original website inquiry form for this project (if it came from the site contact form).
   // Shown in a dialog off the Communication header, together with the client's first message.
@@ -265,38 +213,12 @@ export function ProjectDetailsBody({
     })
   const isOpen = (id: string) => openSections.has(id)
 
-  // One row of the Communication timeline. A plain function (not a nested component) so the rows
-  // keep their identity across parent re-renders and an open date popover isn't torn down.
-  const slotRow = (kind: string, title: string, onDelete?: () => void) => (
-    <CommsSlotRow
-      key={kind}
-      kind={kind}
-      title={title}
-      email={emailMarks[kind] ?? null}
-      text={textMarks[kind] ?? null}
-      onSet={setMarker}
-      onDelete={onDelete}
-    />
-  )
-
   const emailFor = (kind: string) => emails.find((e) => e.kind === kind) ?? null
   const upsertEmail = (e: ProjectEmail) => setEmails((prev) => [...prev.filter((x) => x.id !== e.id), e])
   // Discard a saved draft: drop it locally and delete it (which also cleans up its uploads).
   const discardEmail = (id: string) => {
     setEmails((prev) => prev.filter((x) => x.id !== id))
     deleteProjectEmail(id).catch(() => {})
-  }
-
-  const addSlot = (setSlots: React.Dispatch<React.SetStateAction<number[]>>) =>
-    setSlots((s) => [...s, (s.length ? Math.max(...s) : 0) + 1])
-
-  // Drop an added follow-up / check-in slot. The row only offers this while nothing is marked, so
-  // clearing the marks is just belt and braces against a stale row.
-  const removeSlot = (prefix: string, n: number, setSlots: React.Dispatch<React.SetStateAction<number[]>>) => {
-    const kind = `${prefix}-${n}`
-    if (emailMarks[kind]) setMarker(kind, 'email', false, '')
-    if (textMarks[kind]) setMarker(kind, 'text', false, '')
-    setSlots((s) => s.filter((x) => x !== n))
   }
 
   // Document recipients (contract signer + invoice bill-to), defaulting to the first linked contact.
@@ -363,22 +285,18 @@ export function ProjectDetailsBody({
         <ProjectTasks tasks={tasks} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} onEdit={onEditTask} />
       )}
 
-      {/* Communication: the whole relationship as one timeline. The website form fill (the client's
-          own first message) sits on top, then the four phases separated by rules. The project's
-          current stage highlights its phase rather than the whole section. */}
-      <DetailSection
-        title="Communication"
-        collapsible
-        open={isOpen('communication')}
-        onToggle={() => toggleSection('communication')}
-      >
-        {/* How it started, one click away rather than taking up room above the timeline. */}
+      {/* Event details: the blurb up top (the most immediate detail), then the structured fields
+          grouped when / scope / where / show / source. This is the reference Michael checks before
+          anything else, so any blank turns the whole section red until it's filled in.
+          The "Initial inquiry" button moved here when the Communication section was removed; it's
+          how the client first got in touch, which belongs with the event facts. */}
+      <DetailSection title="Event details" alert={missingCount > 0} alertNote={missingNote}>
         <button
           type="button"
           onClick={() => setInquiryOpen(true)}
           title="See the client's first message and their website form"
           className={[
-            'mb-3 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] font-medium transition-colors',
+            'mb-4 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11.5px] font-medium transition-colors',
             hasInquiry
               ? 'border-brass-dim/50 text-brass-bright hover:border-brass'
               : 'border-line text-faint hover:border-line-strong hover:text-parchment',
@@ -390,67 +308,6 @@ export function ProjectDetailsBody({
           </svg>
           Initial inquiry
         </button>
-
-        <div className="divide-y divide-line">
-          <CommsGroup
-            label="Inquiry"
-            active={highlightedSection === 'inquiry'}
-            action={<AddSlotButton label="Add follow-up" onClick={() => addSlot(setInquiryFollowupSlots)} />}
-          >
-            {slotRow('inquiry-response', 'Inquiry response')}
-            {inquiryFollowupSlots.map((n, i) =>
-              slotRow(
-                `inquiry-followup-${n}`,
-                `Follow-up #${i + 1}`,
-                inquiryFollowupSlots.length > 1 ? () => removeSlot('inquiry-followup', n, setInquiryFollowupSlots) : undefined,
-              ),
-            )}
-            {slotRow('inquiry-shark', 'Shark email')}
-            {slotRow('inquiry-breakup', 'Break-up email')}
-          </CommsGroup>
-
-          <CommsGroup
-            label="Post Call"
-            active={highlightedSection === 'postcall'}
-            action={<AddSlotButton label="Add follow-up" onClick={() => addSlot(setFollowupSlots)} />}
-          >
-            {slotRow('postcall', 'Post-call email')}
-            {followupSlots.map((n, i) =>
-              slotRow(
-                `followup-${n}`,
-                `Follow-up #${i + 1}`,
-                followupSlots.length > 1 ? () => removeSlot('followup', n, setFollowupSlots) : undefined,
-              ),
-            )}
-            {slotRow('shark', 'Shark email')}
-            {slotRow('breakup', 'Break-up email')}
-          </CommsGroup>
-
-          <CommsGroup
-            label="Booked"
-            active={highlightedSection === 'booked'}
-            action={<AddSlotButton label="Add check-in" onClick={() => addSlot(setCheckinSlots)} />}
-          >
-            {slotRow('booking-confirmation', 'Booking confirmation')}
-            {checkinSlots.map((n, i) =>
-              slotRow(
-                `checkin-${n}`,
-                `Check-in #${i + 1}`,
-                checkinSlots.length > 1 ? () => removeSlot('checkin', n, setCheckinSlots) : undefined,
-              ),
-            )}
-          </CommsGroup>
-
-          <CommsGroup label="Post Show" active={highlightedSection === 'postshow'}>
-            {slotRow('thankyou', 'Thank-you email')}
-          </CommsGroup>
-        </div>
-      </DetailSection>
-
-      {/* Event details: the blurb up top (the most immediate detail), then the structured fields
-          grouped when / scope / where / show / source. This is the reference Michael checks before
-          anything else, so any blank turns the whole section red until it's filled in. */}
-      <DetailSection title="Event details" alert={missingCount > 0} alertNote={missingNote}>
         {shown('eventSummary') && (
           <div className="mb-5">
             <EditableField label={lbl('eventSummary', 'Description')} placeholder="A sentence or two about the event…" value={project.eventSummary} onSave={save('eventSummary')} multiline missing={miss('eventSummary')} />
@@ -646,75 +503,6 @@ const DEFAULT_EVENT_LABELS: Record<string, string> = {
   av: 'AV',
   vips: 'VIPs',
   bookingSource: 'Booking source',
-}
-
-// One phase of the Communication timeline (Inquiry / Post Call / Booked / Post Show). The rail
-// running behind the row dots is what makes a group read as a sequence rather than a list, and the
-// label goes brass on the phase the project's current stage belongs to.
-function CommsGroup({
-  label,
-  active,
-  action,
-  children,
-}: {
-  label: string
-  active: boolean
-  // The "add another slot" button, rendered below the rail so the rail ends on the last row.
-  action?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <div className="mb-1 flex items-center gap-2">
-        <h4 className={['text-[10px] font-semibold uppercase tracking-[0.16em]', active ? 'text-brass' : 'text-faint'].join(' ')}>
-          {label}
-        </h4>
-        {active && (
-          <span
-            className="rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-brass-bright"
-            style={{ backgroundColor: 'color-mix(in oklab, var(--color-brass) 16%, transparent)' }}
-          >
-            Current stage
-          </span>
-        )}
-      </div>
-      <div className="relative">
-        {/* The rail runs between the first and last dot centers, so it terminates on a node rather
-            than trailing off. A single-row group hides it behind that row's dot entirely. */}
-        <span aria-hidden className="absolute bottom-4 left-[3px] top-4 w-px bg-line" />
-        {children}
-      </div>
-      {action}
-    </div>
-  )
-}
-
-// The slot indices to show for a group like "followup" / "checkin": always the default first slot,
-// plus any index that already carries a mark (so an added slot 2 survives reopening the project).
-function buildSlots(markers: TextMarker[], prefix: string): number[] {
-  const set = new Set<number>([1])
-  for (const m of markers) {
-    const match = m.kind.match(new RegExp(`^${prefix}-(\\d+)$`))
-    if (match) set.add(Number(match[1]))
-  }
-  return Array.from(set).sort((a, b) => a - b)
-}
-
-// The "+ Add follow-up / Add check-in" button that appends another slot to a phase. Indented to line
-// up with the row titles so it reads as the next step in the sequence.
-function AddSlotButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="ml-[19px] mt-1 inline-flex items-center gap-1 text-[11.5px] font-medium text-faint transition-colors hover:text-brass-bright"
-    >
-      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-      {label}
-    </button>
-  )
 }
 
 const byDueAsc = (a: Task, b: Task) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')

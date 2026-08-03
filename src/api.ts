@@ -379,43 +379,10 @@ export async function deleteProjectEmail(id: string): Promise<void> {
   await postJson('/api/emails/delete', { id })
 }
 
-// --- Communication markers (manual "sent" flags per slot) ---------------------
-// A small marker that a given communication slot (kind) went out on a channel: an email drafted and
-// sent from Gmail, or a text. No message content, just a flag and the date it went out. The two
-// channels are independent, so a slot can carry a text and no email, or both. Still served by
-// /api/text-markers (the endpoint predates the email channel).
-export type MarkerChannel = 'email' | 'text'
-
-export type TextMarker = {
-  projectId: string
-  kind: string
-  channel: MarkerChannel
-  sent: boolean
-  date: string // YYYY-MM-DD or ''
-  updatedAt: string
-}
-
-export async function loadTextMarkers(): Promise<TextMarker[]> {
-  const res = await fetch('/api/text-markers')
-  if (!res.ok) return []
-  return ((await res.json()).markers ?? []) as TextMarker[]
-}
-
-export async function saveTextMarker(input: {
-  projectId: string
-  kind: string
-  channel: MarkerChannel
-  sent: boolean
-  date?: string
-}): Promise<TextMarker> {
-  const res = await fetch('/api/text-markers/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  if (!res.ok) throw new Error(`Failed to save text marker (${res.status})`)
-  return (await res.json()).marker as TextMarker
-}
+// The per-step communication markers (email/text "sent" flags) were removed from the UI on
+// 2026-08-02 along with the Communication section. The `text_markers` table and its /api/text-markers
+// routes still exist and the 49 existing marker rows are untouched, so nothing was lost; there is
+// simply no screen reading them right now.
 
 // --- Client portal -----------------------------------------------------------
 export type PortalSettings = {

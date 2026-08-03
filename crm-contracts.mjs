@@ -10,6 +10,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
+import { assembleFillablePdf, FOOT_RESERVE as FILLABLE_FOOT_RESERVE, missingClientFacts } from './crm-contract-fillable.mjs'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES, fmtDate } from './crm-contract-template.mjs'
 import { loadConfig } from './crm-finance.mjs'
@@ -209,7 +210,7 @@ function serifFonts() {
 // Render the rich HTML body to a PDF via pdfmake, wrapped in the fixed chrome (centered
 // bronze letterhead, title + rule, signature block). Honors the editor's formatting
 // (bold/italic/underline/strikethrough/highlight, bullet + numbered lists, alignment).
-async function pdfFromHtml(bodyHtml, { forSigning = false } = {}) {
+async function pdfFromHtml(bodyHtml, { forSigning = false, forFillable = false } = {}) {
   const serif = serifFonts()
   if (!serif) throw new Error('No serif font available on this machine to render the contract PDF.')
   const printer = new PdfPrinter(serif.config)
@@ -239,15 +240,21 @@ async function pdfFromHtml(bodyHtml, { forSigning = false } = {}) {
   // For an e-signature send, put the signature block at the TOP of a fresh final page so the
   // SignWell signature field can be placed at known coordinates (the "Client signature:" line
   // is the first element on the last page, at the top margin). Otherwise plain signature lines.
-  const sigItems = forSigning
-    ? [
-        { text: 'Client signature:', pageBreak: 'before', margin: [0, 0, 0, 0] },
-        { text: 'Performer signature: ___________________________     Date: ____________', margin: [0, 48, 0, 0] },
-      ]
-    : [
-        { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
-        { text: SIGNATURE_LINES[1], margin: [0, 10, 0, 0] },
-      ]
+  // forFillable: draw NO signature lines at all and instead reserve a fixed block of blank space at
+  // the end. pdf-lib later paints the checkbox + typed-name fields into that space. Because pdfmake
+  // flows the spacer like any other element, a contract that would run into it simply pushes the
+  // spacer onto a fresh page, which guarantees the foot of the last page is always clear.
+  const sigItems = forFillable
+    ? [{ text: '', margin: [0, 0, 0, 0], height: FILLABLE_FOOT_RESERVE }]
+    : forSigning
+      ? [
+          { text: 'Client signature:', pageBreak: 'before', margin: [0, 0, 0, 0] },
+          { text: 'Performer signature: ___________________________     Date: ____________', margin: [0, 48, 0, 0] },
+        ]
+      : [
+          { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
+          { text: SIGNATURE_LINES[1], margin: [0, 10, 0, 0] },
+        ]
   const docDef = {
     pageSize: 'LETTER',
     pageMargins: margins,
@@ -257,7 +264,7 @@ async function pdfFromHtml(bodyHtml, { forSigning = false } = {}) {
       { text: TITLE, alignment: 'center', bold: true, fontSize: 15, characterSpacing: 1, margin: [0, 0, 0, 2] },
       rule(),
       ...body,
-      rule(),
+      ...(forFillable ? [] : [rule()]),
       ...sigItems,
     ],
   }
@@ -340,6 +347,30 @@ export async function contractPdf(projectId, id, { forSigning = false } = {}) {
   const buffer = ref.format === 'html' ? await pdfFromHtml(ref.body, { forSigning }) : await pdfFromText(ref.body)
   const pageCount = (buffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length || 1
   return { buffer, fileName: `Contract - ${name} v${ref.version}.pdf`, pageCount }
+}
+
+// --- Fillable PDF (the no-e-signature route) --------------------------------
+// Builds the contract as a PDF with real form fields: a questions page up front, the agreement
+// itself, and a typed-name signature at the foot of the last page. Michael emails it, the client
+// types into it and emails it back. See crm-contract-fillable.mjs for the layout.
+export async function contractFillablePdf(projectId, id) {
+  const d = readContracts()
+  const ref = (d.contracts[projectId] || []).find((c) => c.id === id)
+  if (!ref) throw new Error('Contract version not found.')
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  const contractPdfBuffer =
+    ref.format === 'html' ? await pdfFromHtml(ref.body, { forFillable: true }) : await pdfFromText(ref.body)
+  const { buffer, pageCount, askedFor } = await assembleFillablePdf({ project, contractPdfBuffer })
+  const name = (project.client || 'contract').replace(/[^\w.-]+/g, '-')
+  return { buffer, fileName: `Agreement - ${name} (fill in and return).pdf`, pageCount, askedFor }
+}
+
+// What the fillable PDF would ask this client, so the UI can show it before generating.
+export function fillableQuestions(projectId) {
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  if (!project) throw new Error('Project not found.')
+  return { questions: missingClientFacts(project).map((f) => f.ask) }
 }
 
 // --- E-signature (SignWell) orchestration -----------------------------------
