@@ -8,9 +8,11 @@ import {
   refreshContractSignature,
   signedContractPdfUrl,
   deleteContract,
-  createFillableContract,
-  contractFillablePdfUrl,
-  loadFillableQuestions,
+  loadBookingStatus,
+  createBookingLink,
+  pullBookingSubmission,
+  bookingAgreementPdfUrl,
+  type BookingStatus,
   type ContractVersion,
   type EsignInfo,
   type EsignStatus,
@@ -53,8 +55,8 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
   const [note, setNote] = useState<string | null>(null)
   // The fillable route asks the client for whatever event facts the CRM is still missing, so show
   // the count up front: it tells Michael at a glance how much this PDF is doing for him.
-  const [questions, setQuestions] = useState<string[]>([])
-  const [fillBusy, setFillBusy] = useState(false)
+  const [booking, setBooking] = useState<BookingStatus | null>(null)
+  const [bookBusy, setBookBusy] = useState(false)
 
   const refresh = () => {
     loadContracts()
@@ -71,25 +73,39 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
       .catch(() => setTemplates([]))
   }, [])
   useEffect(() => {
-    loadFillableQuestions(project.id)
-      .then(setQuestions)
-      .catch(() => setQuestions([]))
+    loadBookingStatus(project.id)
+      .then(setBooking)
+      .catch(() => setBooking(null))
   }, [project.id])
 
-  // Build the agreement from the CRM template, save it as a version, and open the fillable PDF.
-  const makeFillable = async (download: boolean) => {
-    setFillBusy(true)
+  // Issue the link. Sending the email is the next step and is not wired yet.
+  const makeLink = async () => {
+    setBookBusy(true)
     setNote(null)
     try {
-      const c = await createFillableContract(project.id)
-      window.open(contractFillablePdfUrl(project.id, c.id, download), '_blank')
-      refresh()
+      setBooking(await createBookingLink(project.id))
     } catch (e) {
       setNote(String(e instanceof Error ? e.message : e))
     } finally {
-      setFillBusy(false)
+      setBookBusy(false)
     }
   }
+
+  // Check whether they've submitted, and pull it into the project if so.
+  const checkForSubmission = async () => {
+    setBookBusy(true)
+    setNote(null)
+    try {
+      const r = await pullBookingSubmission(project.id)
+      if (!r.ok) setNote(r.error || 'Could not check for a submission.')
+      else if (r.fresh) setNote(`Got it. Filled in: ${(r.filledFields || []).join(', ')}.`)
+      else setNote('Nothing new yet.')
+      setBooking(await loadBookingStatus(project.id))
+    } finally {
+      setBookBusy(false)
+    }
+  }
+
 
   const defaultEmail = (project.contactEmails || '').split(/[,;]/)[0].trim()
 
@@ -190,42 +206,58 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
         )}
       </div>
 
-      {/* Fillable-PDF route: always available, since it needs no third-party account. */}
+      {/* Booking route: send a form, get the details back, generate the agreement. */}
       <div className="mt-2 rounded-lg border border-line bg-surface-2/40 px-3 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[12px] font-medium text-parchment">Fillable PDF</p>
+            <p className="text-[12px] font-medium text-parchment">Booking form</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
-              {questions.length > 0
-                ? `Asks the client ${questions.length} missing detail${questions.length === 1 ? '' : 's'}, then they tick the box and type their name.`
-                : 'Every event detail is already filled in, so it just asks them to tick the box and type their name.'}
+              {booking?.submission
+                ? `They submitted ${booking.summary.length} details. The agreement is ready.`
+                : booking?.url
+                  ? 'Link ready. Send it, then check back for their answers.'
+                  : 'Send the client a form to collect the event details.'}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              disabled={fillBusy}
-              onClick={() => makeFillable(false)}
-              className="rounded-lg border border-line px-2.5 py-1 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
-            >
-              {fillBusy ? 'Building…' : 'Preview'}
-            </button>
-            <button
-              type="button"
-              disabled={fillBusy}
-              onClick={() => makeFillable(true)}
-              className="rounded-lg border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
-            >
-              Download to email
-            </button>
+            {!booking?.url && (
+              <button
+                type="button"
+                disabled={bookBusy}
+                onClick={makeLink}
+                className="rounded-lg border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+              >
+                {bookBusy ? 'Working…' : 'Create link'}
+              </button>
+            )}
+            {booking?.url && !booking.submission && (
+              <button
+                type="button"
+                disabled={bookBusy}
+                onClick={checkForSubmission}
+                className="rounded-lg border border-line px-2.5 py-1 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
+              >
+                {bookBusy ? 'Checking…' : 'Check for answers'}
+              </button>
+            )}
+            {booking?.submission && (
+              <button
+                type="button"
+                onClick={() => window.open(bookingAgreementPdfUrl(project.id, true), '_blank')}
+                className="rounded-lg border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
+              >
+                Agreement PDF
+              </button>
+            )}
           </div>
         </div>
-        {questions.length > 0 && (
-          <ul className="mt-2 space-y-0.5 border-t border-line/60 pt-2">
-            {questions.map((q) => (
-              <li key={q} className="text-[10.5px] leading-relaxed text-faint">• {q}</li>
-            ))}
-          </ul>
+        {booking?.url && (
+          <p className="mt-2 truncate border-t border-line/60 pt-2 text-[10.5px] text-faint" title={booking.url}>
+            {booking.url || 'Set formBaseUrl in portal-credentials.json to get a shareable link.'}
+          </p>
+        )}
+        {booking?.invoiceTo?.name && (
+          <p className="mt-1 text-[10.5px] text-faint">Invoice to: {booking.invoiceTo.name} ({booking.invoiceTo.email})</p>
         )}
       </div>
 

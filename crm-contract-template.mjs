@@ -166,6 +166,29 @@ function sectionHtml(sec) {
 // The built-in default template HTML (used when Michael hasn't saved a custom one). Field
 // spans show labels; the Media section is an inline removable block. Headings have NO
 // numbers; numbering is applied at build/generate time.
+// --- Booking-form variant (added 2026-08-02) --------------------------------
+// The agreement that goes out AFTER the client fills in the booking form. Its page 1 is a read-only
+// summary of everything they just told us, so the agreement itself must NOT re-list those facts.
+// The Event section collapses to a single accuracy line, and Services drops the scope span (the
+// summary page carries it). The Booking Fee stays: that is Michael's number, never asked on the
+// form, so it has to be stated here.
+const BOOKING_EVENT_SECTION = {
+  key: 'event',
+  title: 'Event',
+  body: `The event details set out on the previous page are accurate and form part of this Agreement.`,
+}
+
+export function bookingTemplateHtml() {
+  const parts = [`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${fieldSpan('contract_date')} by and between:</p>`]
+  parts.push(`<p>${escapeHtml(PERFORMER_LINE)}</p>`)
+  parts.push(`<p>Client: ${fieldSpan('client_name')}, ${fieldSpan('client_email')}</p>`)
+  for (const sec of SECTIONS) {
+    parts.push(sectionHtml(sec.key === 'event' ? BOOKING_EVENT_SECTION : sec))
+  }
+  parts.push(`<p>${escapeHtml(CLOSING)}</p>`)
+  return parts.join('\n')
+}
+
 export function defaultTemplateHtml() {
   const parts = []
   parts.push(`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${fieldSpan('contract_date')} by and between:</p>`)

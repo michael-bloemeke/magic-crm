@@ -780,35 +780,51 @@ export function contractPdfUrl(projectId: string, id: string): string {
   return `/api/contracts/pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
 }
 
-// --- Fillable PDF contract (typed signature, no e-sign service) --------------
-// Builds a PDF with real form fields: a questions page, the agreement, and a type-your-name block.
-// Michael emails it, the client types into it and emails it back.
-export function contractFillablePdfUrl(projectId: string, id: string, download = false): string {
-  const dl = download ? '&download=1' : ''
-  return `/api/contracts/fillable-pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}${dl}`
+// --- Booking flow (booking form -> agreement -> invoice) ---------------------
+// Michael sends a link, the client fills in the event details, and the CRM turns that into an
+// agreement (summary page + short contract + type-your-name) and a not-yet-sent invoice.
+
+export type BookingStatus = {
+  token: string
+  url: string
+  sentAt: string
+  submission: { submittedAt: string; answers: { id: string; value: string }[] } | null
+  summary: { label: string; value: string }[]
+  invoiceTo: { name: string; email: string }
 }
 
-// The questions that PDF would ask this client (the event facts the CRM is still missing).
-export async function loadFillableQuestions(projectId: string): Promise<string[]> {
-  const res = await fetch(`/api/contracts/fillable-questions?projectId=${encodeURIComponent(projectId)}`)
-  if (!res.ok) return []
-  return ((await res.json()).questions ?? []) as string[]
+export async function loadBookingStatus(projectId: string): Promise<BookingStatus | null> {
+  const res = await fetch(`/api/booking/status?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) return null
+  return (await res.json()) as BookingStatus
 }
 
-// Draft the agreement from the CRM's own template and save it as a version, returning its id so the
-// fillable PDF can be built from it. One call: the fillable route has no reason to make Michael step
-// through the SignWell draft-then-send flow.
-export async function createFillableContract(projectId: string): Promise<{ id: string }> {
-  const res = await fetch('/api/contracts/fillable-new', {
+// Issue (or reuse) this project's booking-form link.
+export async function createBookingLink(projectId: string): Promise<BookingStatus> {
+  const res = await fetch('/api/booking/link', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectId }),
   })
-  if (!res.ok) {
-    const d = await res.json().catch(() => ({}))
-    throw new Error(d.error || `Could not build the agreement (${res.status})`)
+  if (!res.ok) throw new Error(`Could not create the booking link (${res.status})`)
+  return (await res.json()) as BookingStatus
+}
+
+// Check the form store for the client's submission and apply it to the project.
+export async function pullBookingSubmission(projectId: string): Promise<{ ok: boolean; fresh?: boolean; error?: string; filledFields?: string[] }> {
+  const res = await fetch('/api/booking/pull', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the form store.' }))) as {
+    ok: boolean; fresh?: boolean; error?: string; filledFields?: string[]
   }
-  return (await res.json()).contract as { id: string }
+}
+
+// The agreement PDF: summary page + short contract + type-your-name. Built fresh each time.
+export function bookingAgreementPdfUrl(projectId: string, download = false): string {
+  return `/api/booking/agreement-pdf?projectId=${encodeURIComponent(projectId)}${download ? '&download=1' : ''}`
 }
 
 export async function loadEsignStatus(): Promise<EsignStatus> {

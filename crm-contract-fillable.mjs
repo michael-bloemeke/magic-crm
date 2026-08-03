@@ -119,14 +119,15 @@ function labelledField(page, form, fonts, opts) {
   return boxBottom
 }
 
-function drawFormPage(doc, form, project, facts, fonts) {
+// Page 1 of the booking agreement: a READ-ONLY summary of what the client submitted on the booking
+// form. Deliberately NOT input fields. They already answered these; this page exists so the facts
+// they gave are stated on the document they are signing, and so the agreement itself can just say
+// "the details on the previous page are accurate" instead of re-listing everything.
+function drawSummaryPage(doc, project, rows, fonts) {
   const { bold, reg, italic } = fonts
   const contentW = PAGE_W - MARGIN * 2
-  const FOOT = MARGIN + 26 // never draw below this; leaves room for the footer note
+  const FOOT = MARGIN + 26
 
-  // The question list is as long as the project is incomplete, so this can genuinely overflow one
-  // page (a brand-new inquiry with nothing filled in asks nine questions). Pages are inserted at the
-  // FRONT of the contract, in order, and `ensure` starts a new one whenever the next block won't fit.
   let idx = 0
   let page = doc.insertPage(idx, [PAGE_W, PAGE_H])
   let y = PAGE_H - MARGIN
@@ -137,65 +138,46 @@ function drawFormPage(doc, form, project, facts, fonts) {
     y = PAGE_H - MARGIN
   }
 
-  // Letterhead
-  page.drawText('A FEW DETAILS BEFORE YOUR EVENT', { x: MARGIN, y, size: 15, font: bold, color: INK })
+  page.drawText('YOUR EVENT DETAILS', { x: MARGIN, y, size: 15, font: bold, color: INK })
   y -= 20
   page.drawText(`Prepared for ${project.client}`, { x: MARGIN, y, size: 10.5, font: reg, color: MUTED })
   y -= 16
   page.drawLine({ start: { x: MARGIN, y }, end: { x: PAGE_W - MARGIN, y }, thickness: 0.75, color: RULE })
   y -= 22
 
-  const intro = facts.length
-    ? 'Please type your answers in the boxes below, then read the agreement on the following pages, tick the box at the bottom, and type your name. Save the file and email it back.'
-    : 'Please read the agreement on the following pages, tick the box at the bottom, and type your name. Save the file and email it back.'
-  for (const line of wrap(intro, reg, 10, contentW)) {
+  for (const line of wrap(
+    'These are the details you gave me. Please check them over. They form part of the agreement on the following pages, so if anything here is wrong, tell me before you sign.',
+    reg, 10, contentW,
+  )) {
     page.drawText(line, { x: MARGIN, y, size: 10, font: reg, color: INK })
     y -= 13
   }
-  y -= 10
+  y -= 12
 
-  // One labelled box per missing fact.
-  for (const f of facts) {
-    ensure(50)
-    y = labelledField(page, form, fonts, { name: `fact_${f.key}`, label: f.ask, x: MARGIN, w: contentW, y })
-    y -= 22
+  // Label above, value below, so long answers (an address, a note) can wrap freely.
+  const labelW = contentW
+  for (const row of rows) {
+    const valueLines = wrap(row.value, reg, 10.5, labelW)
+    ensure(16 + valueLines.length * 13 + 10)
+    page.drawText(row.label, { x: MARGIN, y, size: 8.5, font: bold, color: MUTED })
+    y -= 14
+    for (const line of valueLines) {
+      page.drawText(line, { x: MARGIN, y, size: 10.5, font: reg, color: INK })
+      y -= 13
+    }
+    y -= 8
   }
 
-  // Free-text catch-all.
-  ensure(90)
-  y -= 2
-  y = labelledField(page, form, fonts, {
-    name: 'client_notes', label: 'Anything else I should know?', x: MARGIN, w: contentW, h: 58, y, multiline: true,
-  })
-  y -= 30
+  if (!rows.length) {
+    page.drawText('No booking form has been submitted for this project yet.', {
+      x: MARGIN, y, size: 10, font: italic, color: MUTED,
+    })
+  }
 
-  // Confirm contact details (pre-filled from the CRM so they only correct what's wrong).
-  ensure(96)
-  page.drawText('Your contact details (correct these if anything is wrong)', {
-    x: MARGIN, y, size: 9.5, font: bold, color: INK,
-  })
-  y -= 22
-  const halfW = (contentW - 14) / 2
-  const afterName = labelledField(page, form, fonts, {
-    name: 'client_name_confirm', label: 'Name', x: MARGIN, w: halfW, y,
-    value: project.client || '', labelSize: 8, labelFont: 'reg',
-  })
-  labelledField(page, form, fonts, {
-    name: 'client_email_confirm', label: 'Email', x: MARGIN + halfW + 14, w: halfW, y,
-    value: firstOf(project.contactEmails), labelSize: 8, labelFont: 'reg',
-  })
-  y = afterName - 24
-  y = labelledField(page, form, fonts, {
-    name: 'client_phone_confirm', label: 'Phone', x: MARGIN, w: halfW, y,
-    value: String(project.contactPhones || '').split(/[,;]/)[0].trim(),
-    labelSize: 8, labelFont: 'reg',
-  })
-
-  // Footer note on the LAST form page only.
-  page.drawText('The agreement itself is on the following pages.', {
+  page.drawText('The agreement follows on the next page.', {
     x: MARGIN, y: MARGIN - 18, size: 9, font: italic, color: MUTED,
   })
-  return idx + 1 // how many pages the form took
+  return idx + 1
 }
 
 function firstOf(str) {
@@ -258,7 +240,7 @@ export const FOOT_RESERVE = 150
 
 // Build the whole fillable document. `renderContract` is injected so this module doesn't need to
 // know about pdfmake; crm-contracts.mjs passes in its own renderer.
-export async function assembleFillablePdf({ project, contractPdfBuffer }) {
+export async function assembleFillablePdf({ project, contractPdfBuffer, summaryRows = [] }) {
   const doc = await PDFDocument.load(contractPdfBuffer)
   const fonts = {
     reg: await doc.embedFont(StandardFonts.Helvetica),
@@ -266,17 +248,17 @@ export async function assembleFillablePdf({ project, contractPdfBuffer }) {
     italic: await doc.embedFont(StandardFonts.HelveticaOblique),
   }
   const form = doc.getForm()
-  const facts = missingClientFacts(project)
 
-  // Signature block FIRST (it targets the last page of the contract, before we prepend page 1).
+  // Signature block FIRST: it targets the LAST page of the contract, and prepending the summary
+  // pages afterwards would shift the indices out from under it.
   drawSignatureBlock(doc, form, project, fonts)
-  drawFormPage(doc, form, project, facts, fonts)
+  drawSummaryPage(doc, project, summaryRows, fonts)
 
   // Render the field appearances so the boxes are visible in every viewer, not just Acrobat.
   form.updateFieldAppearances(fonts.reg)
 
   const bytes = await doc.save({ updateFieldAppearances: false })
-  return { buffer: Buffer.from(bytes), pageCount: doc.getPageCount(), askedFor: facts.map((f) => f.ask) }
+  return { buffer: Buffer.from(bytes), pageCount: doc.getPageCount() }
 }
 
 // Convenience: the questions this project would ask, for the UI to preview.

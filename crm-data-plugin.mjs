@@ -37,6 +37,7 @@ import {
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
+import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget } from './crm-booking-form.mjs'
 import {
   syncProject,
   syncTask,
@@ -94,8 +95,7 @@ import {
   refreshSignature,
   signedContractPdf,
   sendContractFromTemplate,
-  contractFillablePdf,
-  fillableQuestions,
+  bookingAgreementPdf,
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
@@ -1203,23 +1203,14 @@ export function crmDataPlugin() {
             res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't load the contract</h2><p>${String(e?.message || e)}</p></body>`)
           })
       })
-      // One-step: draft the agreement from the CRM template and save it as a version, ready for the
-      // fillable PDF. The old draft-then-send dance exists for the SignWell route; this route has no
-      // reason to make Michael walk through it.
-      server.middlewares.use('/api/contracts/fillable-new', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          const d = draftContract(b.projectId)
-          const contract = await createContract(b.projectId, { body: d.html, format: 'html' })
-          return { contract }
-        })
-      })
-      // The fillable (typed-signature) PDF: questions page + agreement + type-your-name block.
-      server.middlewares.use('/api/contracts/fillable-pdf', (req, res, next) => {
+      // --- Booking agreement (booking-form route) ---
+      // Built fresh on every request from the project + the client's form submission, so it can
+      // never drift from what the CRM holds. Nothing is versioned: there is one current agreement.
+      server.middlewares.use('/api/booking/agreement-pdf', (req, res, next) => {
         if (req.method !== 'GET') return next()
         const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
         const download = url.searchParams.get('download') === '1'
-        contractFillablePdf(url.searchParams.get('projectId') || '', url.searchParams.get('id') || '')
+        bookingAgreementPdf(url.searchParams.get('projectId') || '')
           .then(({ buffer, fileName }) => {
             res.setHeader('Content-Type', 'application/pdf')
             res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`)
@@ -1228,21 +1219,33 @@ export function crmDataPlugin() {
           .catch((e) => {
             res.statusCode = 500
             res.setHeader('Content-Type', 'text/html')
-            res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't build the fillable PDF</h2><p>${String(e?.message || e)}</p></body>`)
+            res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't build the agreement</h2><p>${String(e?.message || e)}</p></body>`)
           })
       })
-      // What that PDF would ask this client (so the card can preview it).
-      server.middlewares.use('/api/contracts/fillable-questions', (req, res, next) => {
+      // Issue (or reuse) this project's booking-form link.
+      server.middlewares.use('/api/booking/link', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => bookingFormLink(b.projectId))
+      })
+      // Poll for the client's submission and apply it to the project.
+      server.middlewares.use('/api/booking/pull', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await pullSubmission(b.projectId))
+      })
+      // Current state of the booking form for a project (link, sent-at, whether it came back).
+      server.middlewares.use('/api/booking/status', (req, res, next) => {
         if (req.method !== 'GET') return next()
         const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
         try {
+          const pid = url.searchParams.get('projectId') || ''
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify(fillableQuestions(url.searchParams.get('projectId') || '')))
+          res.end(JSON.stringify({ ...bookingFormLink(pid), summary: submissionSummary(pid), invoiceTo: invoiceTarget(pid) }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
         }
       })
+
       server.middlewares.use('/api/contracts/send-signature', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => ({ contract: await sendForSignature(b.projectId, b.id, { signerName: b.signerName, signerEmail: b.signerEmail }) }))

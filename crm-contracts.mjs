@@ -10,7 +10,9 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import PDFDocument from 'pdfkit'
-import { assembleFillablePdf, FOOT_RESERVE as FILLABLE_FOOT_RESERVE, missingClientFacts } from './crm-contract-fillable.mjs'
+import { assembleFillablePdf, FOOT_RESERVE as FILLABLE_FOOT_RESERVE } from './crm-contract-fillable.mjs'
+import { submissionSummary } from './crm-booking-form.mjs'
+import { bookingTemplateHtml } from './crm-contract-template.mjs'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { defaultTemplateHtml, FIELD_DEFS, BRAND, TITLE, SIGNATURE_LINES, fmtDate } from './crm-contract-template.mjs'
 import { loadConfig } from './crm-finance.mjs'
@@ -96,9 +98,11 @@ function findProject(projectId) {
 // default from config, else the built-in), fill every field span with the project value
 // (marking unfilled ones with `cf-missing` + a [Label] placeholder), pull the Media block
 // out separately so the editor can toggle it, and renumber the section headings.
-export function buildContractBody(project) {
+export function buildContractBody(project, { templateHtml: override } = {}) {
   const cfg = loadConfig()
-  const templateHtml = (cfg.contractTemplate && String(cfg.contractTemplate).trim()) || defaultTemplateHtml()
+  // `override` is how the booking route injects its SHORT template without disturbing the
+  // Settings-editable one the SignWell route uses.
+  const templateHtml = override || (cfg.contractTemplate && String(cfg.contractTemplate).trim()) || defaultTemplateHtml()
   const todayISO = new Date().toISOString().slice(0, 10)
   const { document } = new JSDOM(`<!DOCTYPE html><body>${templateHtml}</body>`).window
   const body = document.body
@@ -349,28 +353,29 @@ export async function contractPdf(projectId, id, { forSigning = false } = {}) {
   return { buffer, fileName: `Contract - ${name} v${ref.version}.pdf`, pageCount }
 }
 
-// --- Fillable PDF (the no-e-signature route) --------------------------------
-// Builds the contract as a PDF with real form fields: a questions page up front, the agreement
-// itself, and a typed-name signature at the foot of the last page. Michael emails it, the client
-// types into it and emails it back. See crm-contract-fillable.mjs for the layout.
-export async function contractFillablePdf(projectId, id) {
-  const d = readContracts()
-  const ref = (d.contracts[projectId] || []).find((c) => c.id === id)
-  if (!ref) throw new Error('Contract version not found.')
+// --- Booking agreement (the no-e-signature route) ---------------------------
+// The document that goes out once the client has filled in the booking form:
+//   page 1   read-only summary of what they submitted
+//   page 2+  the SHORT agreement (no event facts re-listed, just "the details on the previous page
+//            are accurate"), with the booking fee filled in from the project
+//   foot     confirm checkbox + type-your-name box
+export async function bookingAgreementPdf(projectId) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
-  const contractPdfBuffer =
-    ref.format === 'html' ? await pdfFromHtml(ref.body, { forFillable: true }) : await pdfFromText(ref.body)
-  const { buffer, pageCount, askedFor } = await assembleFillablePdf({ project, contractPdfBuffer })
-  const name = (project.client || 'contract').replace(/[^\w.-]+/g, '-')
-  return { buffer, fileName: `Agreement - ${name} (fill in and return).pdf`, pageCount, askedFor }
-}
-
-// What the fillable PDF would ask this client, so the UI can show it before generating.
-export function fillableQuestions(projectId) {
-  const project = loadAll().projects.find((p) => p.id === projectId)
-  if (!project) throw new Error('Project not found.')
-  return { questions: missingClientFacts(project).map((f) => f.ask) }
+  // Always built fresh from the short template + the project's current numbers, so it can never
+  // drift from what the CRM holds.
+  const built = buildContractBody(project, { templateHtml: bookingTemplateHtml() })
+  const contractPdfBuffer = await pdfFromHtml(built.html, { forFillable: true })
+  const summaryRows = submissionSummary(projectId)
+  const { buffer, pageCount } = await assembleFillablePdf({ project, contractPdfBuffer, summaryRows })
+  const name = (project.client || 'agreement').replace(/[^\w.-]+/g, '-')
+  return {
+    buffer,
+    fileName: `Agreement - ${name}.pdf`,
+    pageCount,
+    summaryCount: summaryRows.length,
+    missingFields: built.missingFields,
+  }
 }
 
 // --- E-signature (SignWell) orchestration -----------------------------------

@@ -1,0 +1,284 @@
+// The BOOKING FORM: the one-click "they're ready to book" flow.
+//
+// Michael clicks a single button on a project. The client gets an email with a link to a form
+// (hosted on Vercel, the same deployment the old client portal used). They fill in the event
+// details, say who the invoice should go to, and submit. That submission comes back into the CRM
+// and does three things in one go:
+//
+//   1. Writes every answer onto the project (so Event details stops being red).
+//   2. Generates the CONTRACT PDF: page 1 is a read-only summary of what they just told us, page 2
+//      is the agreement, which no longer re-lists the event facts and instead says "the event
+//      details on the previous page are accurate". The booking fee IS filled in (Michael's number,
+//      never asked on the form). At the foot: a confirm checkbox and a type-your-name box.
+//   3. Creates a DRAFT invoice in QuickBooks, addressed to whoever they named, for the booking fee.
+//      It is NOT sent. Michael sends it himself, from the CRM, once the signed contract comes back.
+//
+// Terminology: this is the "booking form". The old "client portal" idea is retired; only its Vercel
+// deployment and Blob submission pipeline are reused.
+//
+// The submission path is the proven one: the form POSTs to the Vercel function, which writes
+// responses/<token>.json into Vercel Blob; the CRM polls that public URL and pulls it in. No inbound
+// connection to Michael's Mac is ever required.
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { RECORDS_DIR, updateProjectField, loadAll, appendActivityLog } from './crm-data-core.mjs'
+
+const CRED_FILE = path.join(path.dirname(new URL(import.meta.url).pathname), 'portal-credentials.json')
+
+// ---------------------------------------------------------------------------
+// The questions
+// ---------------------------------------------------------------------------
+//
+// `key` is the project field the answer writes into (blank = not stored on the project, handled
+// specially). Order here is the order on the form. Michael can retune this list later; it is
+// deliberately the facts a CLIENT can actually answer.
+//
+// Never ask for: the booking fee (Michael's number), the lead date, or the booking source. Those are
+// internal and must never appear in front of a client.
+
+export const BOOKING_FIELDS = [
+  { id: 'event_date', key: 'eventDate', label: 'Event date', type: 'date', required: true },
+  { id: 'event_location', key: 'eventLocation', label: 'Event address', hint: 'Full street address, including city and ZIP', type: 'textarea', required: true },
+  { id: 'venue_type', key: 'venueType', label: 'What kind of venue is it?', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
+  { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoors or outdoors?', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
+  { id: 'event_start_time', key: 'eventStartTime', label: 'What time does the event start?', type: 'time', required: true },
+  { id: 'show_start_time', key: 'showStartTime', label: 'What time would you like the magic to start?', type: 'time', required: true },
+  { id: 'number_of_guests', key: 'numberOfGuests', label: 'Roughly how many guests?', type: 'text', required: true },
+  { id: 'age_of_guests', key: 'ageOfGuests', label: 'Rough ages of the guests', hint: 'All adults, mixed, mostly kids, etc.', type: 'text', required: false },
+  { id: 'vips', key: 'vips', label: 'Anyone special I should know about?', hint: 'Guest of honor, birthday, anniversary, someone who hates being picked on', type: 'textarea', required: false },
+  { id: 'av', key: 'av', label: 'Is there a sound system or microphone available?', type: 'text', required: false },
+  // Not a project field: this drives who the QuickBooks invoice is addressed to.
+  { id: 'invoice_to', key: '', label: 'Who should the invoice be addressed to?', hint: 'A person or a company name, whichever your accounting needs', type: 'text', required: true },
+  { id: 'invoice_email', key: '', label: 'Which email should the invoice go to?', type: 'email', required: true },
+  { id: 'notes', key: 'projectNotesAppend', label: 'Anything else I should know?', type: 'textarea', required: false },
+]
+
+const FILE = path.join(RECORDS_DIR, 'crm-booking-forms.json')
+
+function readFile() {
+  try {
+    const d = JSON.parse(fs.readFileSync(FILE, 'utf8'))
+    if (d && typeof d.forms === 'object') return d
+  } catch {
+    /* missing/corrupt -> fresh */
+  }
+  return { forms: {} }
+}
+
+function writeFile(d) {
+  try {
+    d._meta = {
+      file: 'crm-booking-forms.json',
+      owner: 'Magic CRM app',
+      purpose:
+        'Per-project booking-form state: the link token, when it was sent, and the raw client submission. The answers are also written onto the project itself; this keeps the original as received.',
+      cowork_guidance: 'Safe to read. The CRM manages this file. Do NOT delete or overwrite.',
+    }
+    fs.writeFileSync(FILE, JSON.stringify(d, null, 2) + '\n')
+  } catch (e) {
+    console.error('[crm-booking-form] could not write:', e?.message || e)
+  }
+}
+
+function blobBaseUrl() {
+  try {
+    return String(JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')).blobBaseUrl || '').replace(/\/+$/, '')
+  } catch {
+    return ''
+  }
+}
+
+export function formBaseUrl() {
+  try {
+    const d = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'))
+    return String(d.formBaseUrl || d.portalBaseUrl || '').replace(/\/+$/, '')
+  } catch {
+    return ''
+  }
+}
+
+// Unguessable per-project token. Stable once issued, so re-sending the link doesn't break an
+// already-open form.
+function newToken() {
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(18))).toString('base64url')
+}
+
+export function loadForms() {
+  return readFile().forms
+}
+
+export function loadForm(projectId) {
+  return readFile().forms[projectId] || null
+}
+
+// Issue (or reuse) this project's booking-form link.
+export function bookingFormLink(projectId) {
+  const d = readFile()
+  let rec = d.forms[projectId]
+  if (!rec) {
+    rec = { token: newToken(), createdAt: new Date().toISOString(), sentAt: '', submission: null }
+    d.forms[projectId] = rec
+    writeFile(d)
+  }
+  const base = formBaseUrl()
+  return { token: rec.token, url: base ? `${base}/book/${rec.token}` : '', sentAt: rec.sentAt, submission: rec.submission }
+}
+
+export function markSent(projectId) {
+  const d = readFile()
+  const rec = d.forms[projectId]
+  if (!rec) return
+  rec.sentAt = new Date().toISOString()
+  writeFile(d)
+}
+
+// The payload the public form page needs: which questions to show, and anything we can prefill.
+export function formBundle(token) {
+  const d = readFile()
+  const entry = Object.entries(d.forms).find(([, r]) => r.token === token)
+  if (!entry) return null
+  const [projectId, rec] = entry
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  if (!project) return null
+  const prefill = {}
+  for (const f of BOOKING_FIELDS) {
+    if (!f.key || f.key === 'projectNotesAppend') continue
+    const v = project[f.key]
+    if (v != null && String(v).trim()) prefill[f.id] = String(v)
+  }
+  return {
+    token,
+    client: project.client,
+    performer: 'Michael Bloemeke',
+    alreadySubmitted: !!rec.submission,
+    fields: BOOKING_FIELDS.map(({ id, label, hint, type, options, required }) => ({ id, label, hint, type, options, required })),
+    prefill,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pulling a submission back in
+// ---------------------------------------------------------------------------
+
+// Write the answers onto the project. Returns the labels that were filled.
+async function applyAnswers(projectId, answers) {
+  const byId = Object.fromEntries((answers || []).map((a) => [a.id, a.value]))
+  const filled = []
+  for (const f of BOOKING_FIELDS) {
+    const v = byId[f.id]
+    if (v == null || String(v).trim() === '') continue
+    if (!f.key) continue
+    if (f.key === 'projectNotesAppend') continue // handled below, appended not overwritten
+    try {
+      // Store times in 12-hour form; the CRM shows times that way everywhere. Dates stay ISO,
+      // because eventDate is a sortable column and the UI formats it for display.
+      const stored = f.type === 'time' ? displayValue(f, v) : String(v)
+      await updateProjectField({ id: projectId, field: f.key, value: stored })
+      filled.push(f.label)
+    } catch {
+      // A field that no longer exists just gets skipped; the raw answer is still stored.
+    }
+  }
+  // Their free-text note is appended to project notes rather than overwriting Michael's.
+  const note = String(byId.notes || '').trim()
+  if (note) {
+    const project = loadAll().projects.find((p) => p.id === projectId)
+    const existing = String(project?.projectNotes || '').trim()
+    const line = `From their booking form: ${note}`
+    await updateProjectField({
+      id: projectId,
+      field: 'projectNotes',
+      value: existing ? `${existing}\n\n${line}` : line,
+    })
+    filled.push('Notes')
+  }
+  return filled
+}
+
+// Poll the blob store for this project's submission. A submission that has already been applied is
+// a no-op, so re-polling never clobbers Michael's later manual edits.
+export async function pullSubmission(projectId) {
+  const d = readFile()
+  const rec = d.forms[projectId]
+  if (!rec) return { ok: false, error: 'No booking form has been created for this project.' }
+  const base = blobBaseUrl()
+  if (!base) return { ok: false, error: 'Form storage is not set up (missing blobBaseUrl in portal-credentials.json).' }
+
+  let payload = null
+  try {
+    const res = await fetch(`${base}/bookings/${rec.token}.json`, { cache: 'no-store' })
+    if (res.status === 404) return { ok: true, fresh: false, submission: rec.submission }
+    if (!res.ok) return { ok: false, error: `Could not read the submission (${res.status}).` }
+    payload = await res.json()
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+  if (!payload || !payload.submittedAt) return { ok: true, fresh: false, submission: rec.submission }
+  if (rec.submission && rec.submission.submittedAt === payload.submittedAt) {
+    return { ok: true, fresh: false, submission: rec.submission }
+  }
+
+  const filled = await applyAnswers(projectId, payload.answers)
+  rec.submission = { submittedAt: payload.submittedAt, answers: payload.answers || [] }
+  writeFile(d)
+  try {
+    await appendActivityLog(projectId, `Booking form submitted by the client. Filled: ${filled.join(', ') || 'nothing new'}.`)
+  } catch {
+    /* the log line is a nicety, never fail the pull over it */
+  }
+  return { ok: true, fresh: true, submission: rec.submission, filledFields: filled }
+}
+
+// House rules for anything Michael or a client READS: dates written out, times in 12-hour.
+// A date input posts '2026-11-14' and a time input posts '18:00', so both get converted here rather
+// than landing raw on the document.
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+function ordinal(n) {
+  if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`
+  return `${n}${['th','st','nd','rd'][n % 10] || 'th'}`
+}
+function prettyDate(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim())
+  if (!m) return String(v).trim()
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(d.getTime())) return String(v).trim()
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+  return `${days[d.getDay()]}, ${MONTHS[d.getMonth()]} ${ordinal(d.getDate())}, ${d.getFullYear()}`
+}
+function prettyTime(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v).trim())
+  if (!m) return String(v).trim()
+  let h = Number(m[1])
+  const suffix = h >= 12 ? 'PM' : 'AM'
+  h = h % 12 || 12
+  return `${h}:${m[2]} ${suffix}`
+}
+export function displayValue(field, raw) {
+  const v = String(raw ?? '').trim()
+  if (!v) return ''
+  if (field.type === 'date') return prettyDate(v)
+  if (field.type === 'time') return prettyTime(v)
+  return v
+}
+
+// What the client told us, as label/value pairs, for the agreement's summary page.
+export function submissionSummary(projectId) {
+  const rec = loadForm(projectId)
+  if (!rec?.submission) return []
+  const byId = Object.fromEntries((rec.submission.answers || []).map((a) => [a.id, a.value]))
+  return BOOKING_FIELDS.filter((f) => String(byId[f.id] ?? '').trim()).map((f) => ({
+    label: f.label,
+    value: displayValue(f, byId[f.id]),
+  }))
+}
+
+// Who the invoice should be addressed to, per their own answer.
+export function invoiceTarget(projectId) {
+  const rec = loadForm(projectId)
+  const byId = Object.fromEntries((rec?.submission?.answers || []).map((a) => [a.id, a.value]))
+  return {
+    name: String(byId.invoice_to || '').trim(),
+    email: String(byId.invoice_email || '').trim(),
+  }
+}
