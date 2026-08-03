@@ -424,13 +424,16 @@ export async function draftBookingEmail(projectId, { createDraft, project }) {
   // blank field could be caught. A missing value renders as a literal "[Performance scope]" or
   // "[Booking fee]" in the contract text, in front of the client, on the document they are signing.
   //
-  // Both of these are Michael's own numbers, never asked of the client, so they can only come from
-  // the project.
+  // All three are Michael's own facts, never asked of the client, so they can only come from the
+  // project. The event date is deliberately NOT a question on the form (he does not want a client
+  // to think the date is theirs to change), which is exactly why it has to be gated here: with it
+  // blank the agreement's Event clause reads a literal "Date: [Event date]".
   const missing = []
   if (!String(project.performanceStyle || '').trim()) missing.push('performance style')
   if (project.totalFee == null || String(project.totalFee).trim() === '' || Number(project.totalFee) <= 0) {
     missing.push('quote')
   }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(project.eventDate || '').trim())) missing.push('event date')
   if (missing.length) {
     throw new Error(
       `Set the ${missing.join(' and ')} in Event details first. The client signs the agreement on the website straight after the booking form, so this has to be right before the link goes out.`,

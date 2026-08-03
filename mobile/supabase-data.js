@@ -1056,8 +1056,10 @@ export async function readyToBookOnPhone(project, variantId) {
   const missing = []
   if (!style) missing.push('performance style')
   if (!fee || Number.isNaN(fee) || fee <= 0) missing.push('quote')
+  // The date is never asked on the form, so a blank one reaches the client as "Date: [Event date]".
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(project.eventDate || '').trim())) missing.push('event date')
   if (missing.length) {
-    throw new Error(`Set the ${missing.join(' and ')} first. The client reads both on the agreement.`)
+    throw new Error(`Set the ${missing.join(', ')} first. The client reads all of it on the agreement.`)
   }
 
   const variants = await loadContractVariants()

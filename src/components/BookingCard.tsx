@@ -98,12 +98,15 @@ export function BookingCard({
   const submitted = stage === 'submitted' || signed
   const signature = booking?.signature ?? null
 
-  // Both of these appear in the agreement the client reads on the website, seconds after they finish
-  // the form. Blank means they would be looking at a literal "[Performance scope]" or "[Booking
-  // fee]" on the document they are about to sign, so the link cannot go out until both are set.
+  // All three appear in the agreement the client reads on the website, seconds after they finish
+  // the form. Blank means they would be looking at a literal "[Performance scope]", "[Booking fee]"
+  // or "[Event date]" on the document they are about to sign, so the link cannot go out until all
+  // three are set. The date is included because it is deliberately NOT a question on the form, so
+  // unlike the venue or the times, nothing the client fills in can ever supply it.
   const styleSet = !!String(project.performanceStyle || '').trim()
   const feeSet = project.totalFee != null && Number(project.totalFee) > 0
-  const readyToSend = styleSet && feeSet
+  const dateSet = /^\d{4}-\d{2}-\d{2}$/.test(String(project.eventDate || '').trim())
+  const readyToSend = styleSet && feeSet && dateSet
 
   const doReady = async (variant: string) => {
     setBusy(true)
@@ -153,15 +156,15 @@ export function BookingCard({
         </div>
       </div>
 
-      {/* The two fields the agreement can't be built without. At the top, because they gate
-          everything below them and a client is going to read both. */}
+      {/* The three fields the agreement can't be built without. At the top, because they gate
+          everything below them and a client is going to read all of them. */}
       <div
         className={`mt-2.5 rounded-lg border px-3 py-2.5 ${
           readyToSend ? 'border-line bg-surface-2/40' : 'border-rose-500/40 bg-rose-500/[0.06]'
         }`}
       >
         <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] ${readyToSend ? 'text-faint' : 'text-rose-300'}`}>
-          {readyToSend ? 'Goes on the agreement' : 'Fill both to send the booking form'}
+          {readyToSend ? 'Goes on the agreement' : 'Fill these to send the booking form'}
         </p>
         <div className="mt-1.5 space-y-1.5">
           <EditableField
@@ -179,6 +182,13 @@ export function BookingCard({
             prefix="$"
             missing={!feeSet}
             placeholder="Booking fee"
+          />
+          <EditableField
+            label="Event date"
+            value={String(project.eventDate || '')}
+            onSave={(v) => onSaveField('eventDate', v)}
+            type="date"
+            missing={!dateSet}
           />
         </div>
       </div>
@@ -233,7 +243,7 @@ export function BookingCard({
                   ? `Form sent ${fmtWhen(booking!.sentAt)}. Nothing from them yet.`
                   : readyToSend
                     ? 'Send the booking form. They fill it in, sign the agreement, and get invoiced without you.'
-                    : 'Fill in the two fields above, then the booking form can go out.'}
+                    : 'Fill in the fields above, then the booking form can go out.'}
       </p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -241,7 +251,7 @@ export function BookingCard({
           type="button"
           disabled={busy || !readyToSend}
           onClick={() => setPickVariant((v) => !v)}
-          title={readyToSend ? '' : 'Add a performance style and a quote first'}
+          title={readyToSend ? '' : 'Add a performance style, a quote and an event date first'}
           className={primary}
         >
           {busy ? 'Working…' : linkOut ? 'Resend booking form' : 'Ready to book'}

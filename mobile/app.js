@@ -659,14 +659,19 @@ function openBookingPanel(p) {
 
   var style = String(p.performanceStyle || '').trim()
   var fee = Number(p.totalFee)
-  var ready = !!style && !!fee && !isNaN(fee) && fee > 0
+  var feeOk = !!fee && !isNaN(fee) && fee > 0
+  var eventDate = String(p.eventDate || '').trim()
+  var dateOk = /^\d{4}-\d{2}-\d{2}$/.test(eventDate)
+  var ready = !!style && feeOk && dateOk
 
-  // The two facts the client reads on the agreement. Blank means they'd be looking at a literal
-  // "[Performance scope]" on the document they're about to sign.
+  // The three facts the client reads on the agreement. Blank means they'd be looking at a literal
+  // "[Performance scope]" or "[Event date]" on the document they're about to sign. The date is not
+  // asked on the form by design, so nothing downstream can fill it in.
   var gate = el('<div class="bk-gate' + (ready ? '' : ' bad') + '"></div>')
-  gate.appendChild(el('<div class="bk-gate-t">' + (ready ? 'Goes on the agreement' : 'Fill both to send the booking form') + '</div>'))
+  gate.appendChild(el('<div class="bk-gate-t">' + (ready ? 'Goes on the agreement' : 'Fill these to send the booking form') + '</div>'))
   gate.appendChild(el('<div class="k">Performance style</div><div class="v">' + (style ? esc(style) : '<span class="miss">Not set</span>') + '</div>'))
-  gate.appendChild(el('<div class="k" style="margin-top:8px">Quote</div><div class="v">' + (ready ? esc(money(fee)) : '<span class="miss">Not set</span>') + '</div>'))
+  gate.appendChild(el('<div class="k" style="margin-top:8px">Quote</div><div class="v">' + (feeOk ? esc(money(fee)) : '<span class="miss">Not set</span>') + '</div>'))
+  gate.appendChild(el('<div class="k" style="margin-top:8px">Event date</div><div class="v">' + (dateOk ? esc(fmtDate(eventDate)) : '<span class="miss">Not set</span>') + '</div>'))
   if (!ready) gate.appendChild(el('<div class="hint" style="margin-top:8px">Edit these in Event details.</div>'))
   card.appendChild(gate)
 
@@ -698,7 +703,7 @@ function openBookingPanel(p) {
     var btn = el('<button class="btn-gold" style="width:100%;margin-top:14px"' + (ready ? '' : ' disabled') + '>' + (g && g.linkOut ? 'Resend booking form' : 'Ready to book') + '</button>')
     btn.addEventListener('click', function () { pickVariantThen(p, btn, !!(g && g.linkOut)) })
     body.appendChild(btn)
-    if (!ready) body.appendChild(el('<div class="hint" style="margin-top:6px">Add a performance style and a quote first.</div>'))
+    if (!ready) body.appendChild(el('<div class="hint" style="margin-top:6px">Add a performance style, a quote and an event date first.</div>'))
 
     var done = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Close</button>')
     done.addEventListener('click', close)
