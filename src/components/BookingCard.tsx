@@ -40,12 +40,20 @@ function fmtWhen(iso: string): string {
 type Stage = 'none' | 'viewed' | 'submitted' | 'signed'
 
 // The four states of a booking link, in order. `key` matches what liveProgress returns.
-const STEPS: { key: Stage; label: string; done: string }[] = [
-  { key: 'none', label: 'Not viewed', done: 'Sent' },
-  { key: 'viewed', label: 'Viewed', done: 'Viewed' },
-  { key: 'submitted', label: 'Details in', done: 'Details in' },
-  { key: 'signed', label: 'Signed', done: 'Signed' },
+const STEPS: { key: Stage; done: string; at: 'sentAt' | 'viewedAt' | 'submittedAt' | 'signedAt' }[] = [
+  { key: 'none', done: 'Sent', at: 'sentAt' },
+  { key: 'viewed', done: 'Viewed', at: 'viewedAt' },
+  { key: 'submitted', done: 'Details in', at: 'submittedAt' },
+  { key: 'signed', done: 'Signed', at: 'signedAt' },
 ]
+
+// Short date + time for a timeline step: "Aug 3, 9:25 AM". Blank when the step hasn't happened.
+function fmtStamp(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
 
 export function BookingCard({
   project,
@@ -102,9 +110,13 @@ export function BookingCard({
     setNote(null)
     setPickVariant(false)
     try {
-      const r = await readyToBook(project.id, variant)
+      const r = await readyToBook(project.id, variant, linkOut)
       const label = variants.find((v) => v.id === variant)?.label || variant
-      setNote(`Draft ready in Gmail, addressed to ${r.to}, using the ${label} agreement. Everything after you send it is automatic.`)
+      setNote(
+        r.reset
+          ? `Previous attempt cleared. New draft in Gmail for ${r.to}, using the ${label} agreement. Delete the old invoice in QuickBooks if one went out.`
+          : `Draft ready in Gmail, addressed to ${r.to}, using the ${label} agreement. Everything after you send it is automatic.`,
+      )
       refresh()
     } catch (e) {
       setNote(String(e instanceof Error ? e.message : e))
@@ -194,7 +206,12 @@ export function BookingCard({
                       i === reachedIdx ? 'text-parchment' : reached ? 'text-muted' : 'text-faint/60'
                     }`}
                   >
-                    {i === 0 && reachedIdx === 0 ? 'Not viewed' : s.done}
+                    {s.done}
+                  </span>
+                  {/* When each step happened, under its own label. A resend clears everything
+                      after "Sent", so these always describe the form they currently hold. */}
+                  <span className="text-[9px] leading-tight text-faint/70">
+                    {reached ? fmtStamp(booking?.progress?.[s.at]) || '—' : ''}
                   </span>
                 </div>
               )
@@ -238,6 +255,12 @@ export function BookingCard({
           <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
             Which agreement?
           </p>
+          {linkOut && (
+            <p className="px-1.5 pb-1.5 text-[10.5px] leading-snug text-rose-300/90">
+              Resending clears the timeline and any signature, and drops the CRM's invoice record.
+              Delete the old invoice in QuickBooks yourself if one already went out.
+            </p>
+          )}
           {variants.map((v) => (
             <button
               key={v.id}

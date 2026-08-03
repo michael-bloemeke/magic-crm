@@ -26,6 +26,7 @@ import {
   loadForm,
   loadForms,
   invoiceTarget,
+  clearLocalBooking,
   markAgreementSent,
   markAgreementError,
   pullSubmission,
@@ -75,10 +76,44 @@ export async function publishAgreement(projectId, { variant = 'standard' } = {})
   const html = bookingAgreementTemplate(projectId, { variant })
   const { error } = await sb()
     .from('projects')
-    .update({ agreement_html: html, agreement_variant: variant })
+    .update({ agreement_html: html, agreement_variant: variant, booking_sent_at: new Date().toISOString() })
     .eq('id', projectId)
   if (error) throw new Error(`Could not publish the agreement: ${error.message}`)
   return { ok: true, variant, bytes: html.length }
+}
+
+// Wipe everything a PREVIOUS booking attempt left behind, so a resend starts clean.
+//
+// Michael's case for this is the media clause: he sends the agreement, the client says they don't
+// want to be filmed, and he resends the other version. Without a reset the timeline would still show
+// them having signed (the old one), the signed-copy claim would block the new PDF from going out,
+// and the invoice claim would stop a fresh invoice being raised.
+//
+// What is deliberately KEPT: the token, so a link already sitting in their inbox still works and now
+// serves the corrected agreement. Their ANSWERS are dropped along with the submission row, but they
+// were already written onto the project, so the form comes back pre-filled and they are re-confirming
+// rather than retyping.
+//
+// The QuickBooks invoice itself is NOT cancelled here, only the CRM's record of it. Michael's call:
+// a resend implies nobody has paid yet, and he would rather delete the stray invoice in QuickBooks
+// himself than have the CRM void things on his behalf.
+export async function resetBooking(projectId) {
+  if (CRM_STORE !== 'supabase') throw new Error('Booking agreements need the Supabase store.')
+  const errs = []
+  const del = async (table, col) => {
+    const { error } = await sb().from(table).delete().eq(col, projectId)
+    if (error) errs.push(`${table}: ${error.message}`)
+  }
+  await del('booking_submissions', 'project_id')
+  await del('invoices', 'project_id')
+  const { error } = await sb()
+    .from('projects')
+    .update({ booking_viewed_at: null })
+    .eq('id', projectId)
+  if (error) errs.push(`projects: ${error.message}`)
+  clearLocalBooking(projectId)
+  if (errs.length) throw new Error(`Could not reset the booking: ${errs.join('; ')}`)
+  return { ok: true }
 }
 
 // Push the contract WORDING itself (every variant, fields still unfilled) up to Supabase.

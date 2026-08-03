@@ -302,6 +302,20 @@ export async function pullSubmission(projectId) {
   return { ok: true, fresh: true, freshSignature, submission: rec.submission, signature: rec.signature || null, filledFields: filled }
 }
 
+// Drop everything a previous booking attempt left in the local mirror, keeping the TOKEN so a link
+// already in the client's inbox still resolves (and now serves the corrected agreement).
+export function clearLocalBooking(projectId) {
+  const d = readFile()
+  const rec = d.forms[projectId]
+  if (!rec) return
+  rec.submission = null
+  rec.signature = null
+  rec.agreementSentAt = ''
+  rec.agreementError = ''
+  rec.sentAt = new Date().toISOString()
+  writeFile(d)
+}
+
 // What the client typed on the signing step, or null if they haven't signed yet.
 export function loadSignature(projectId) {
   return loadForm(projectId)?.signature || null
@@ -319,16 +333,18 @@ export async function liveProgress(projectId) {
   if (CRM_STORE !== 'supabase') return { stage: 'none', viewedAt: '', submittedAt: '', signedAt: '' }
   try {
     const [{ data: proj }, { data: row }] = await Promise.all([
-      sb().from('projects').select('booking_viewed_at').eq('id', projectId).maybeSingle(),
-      sb().from('booking_submissions').select('submitted_at, signed_at').eq('project_id', projectId).maybeSingle(),
+      sb().from('projects').select('booking_viewed_at, booking_sent_at, agreement_variant').eq('id', projectId).maybeSingle(),
+      sb().from('booking_submissions').select('submitted_at, signed_at, signed_name').eq('project_id', projectId).maybeSingle(),
     ])
-    const viewedAt = proj?.booking_viewed_at ? new Date(proj.booking_viewed_at).toISOString() : ''
-    const submittedAt = row?.submitted_at ? new Date(row.submitted_at).toISOString() : ''
-    const signedAt = row?.signed_at ? new Date(row.signed_at).toISOString() : ''
+    const iso = (v) => (v ? new Date(v).toISOString() : '')
+    const sentAt = iso(proj?.booking_sent_at)
+    const viewedAt = iso(proj?.booking_viewed_at)
+    const submittedAt = iso(row?.submitted_at)
+    const signedAt = iso(row?.signed_at)
     const stage = signedAt ? 'signed' : submittedAt ? 'submitted' : viewedAt ? 'viewed' : 'none'
-    return { stage, viewedAt, submittedAt, signedAt }
+    return { stage, sentAt, viewedAt, submittedAt, signedAt, signedName: String(row?.signed_name || ''), variant: String(proj?.agreement_variant || '') }
   } catch {
-    return { stage: 'none', viewedAt: '', submittedAt: '', signedAt: '', unavailable: true }
+    return { stage: 'none', sentAt: '', viewedAt: '', submittedAt: '', signedAt: '', unavailable: true }
   }
 }
 

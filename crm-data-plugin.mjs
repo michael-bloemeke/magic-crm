@@ -38,7 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
-import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants } from './crm-booking-agreement.mjs'
+import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -1096,9 +1096,13 @@ export function crmDataPlugin() {
           const project = loadAll().projects.find((p) => p.id === b.projectId)
           if (!project) throw new Error('Project not found.')
           const variant = String(b.variant || 'standard')
+          // RESEND wipes the previous attempt first: its timestamps, its signature, and the CRM's
+          // record of the invoice. Otherwise the timeline would still show them having signed the
+          // version being replaced, and the claim stamps would block the corrected copy going out.
+          if (b.resend) await resetBooking(b.projectId)
           const draft = await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, project })
           await publishAgreement(b.projectId, { variant })
-          return { ...draft, variant }
+          return { ...draft, variant, reset: !!b.resend }
         })
       })
       // Re-publish the agreement after changing a detail on the project, for a client who has the

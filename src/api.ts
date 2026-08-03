@@ -648,9 +648,13 @@ export type BookingStatus = {
   // Live read of how far the client has got, so the card's status bar moves without a button.
   progress?: {
     stage: 'none' | 'viewed' | 'submitted' | 'signed'
+    // One timestamp per step of the timeline, so each label can say when it happened.
+    sentAt: string
     viewedAt: string
     submittedAt: string
     signedAt: string
+    signedName?: string
+    variant?: string
     unavailable?: boolean
   }
   // Set once the signed PDF has been emailed back to them for their records.
@@ -741,8 +745,10 @@ export async function loadContractVariants(): Promise<ContractVariant[]> {
   return ((await res.json()) as { variants: ContractVariant[] }).variants || []
 }
 
-export async function readyToBook(projectId: string, variant = 'standard'): Promise<{ ok: boolean; to: string; url: string; variant: string }> {
-  return postJsonStrict('/api/booking/ready', { projectId, variant }, 'Could not create the draft')
+// `resend` wipes the previous attempt (its timestamps, signature, and the CRM's invoice record)
+// before issuing the new one, so the timeline describes the form the client currently holds.
+export async function readyToBook(projectId: string, variant = 'standard', resend = false): Promise<{ ok: boolean; to: string; url: string; variant: string; reset?: boolean }> {
+  return postJsonStrict('/api/booking/ready', { projectId, variant, resend }, 'Could not create the draft')
 }
 
 // The agreement PDF: summary page + short contract + type-your-name. Built fresh each time.

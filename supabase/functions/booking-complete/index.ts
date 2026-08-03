@@ -439,14 +439,75 @@ async function logActivity(sb: SupabaseClient, project: any, line: string) {
   } catch { /* a log line must never fail a sent email */ }
 }
 
+// Is this caller allowed? Either the cron secret (the scheduled run, and the Mac) or a logged-in
+// Supabase session (the phone). Same two-key shape the rest of the CRM uses.
+async function authorized(sb: SupabaseClient, req: Request): Promise<boolean> {
+  const { data: cfg } = await sb.from("push_config").select("cron_secret").eq("id", 1).single();
+  const expected = cfg?.cron_secret || "";
+  if (expected && req.headers.get("x-cron-secret") === expected) return true;
+  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!jwt) return false;
+  const { data, error } = await sb.auth.getUser(jwt);
+  return !error && !!data?.user;
+}
+
 Deno.serve(async (req) => {
   const sb = db();
 
-  // Same gate as notify-cron: a shared secret in a header, checked against push_config.
-  const { data: cfg } = await sb.from("push_config").select("cron_secret").eq("id", 1).single();
-  const expected = cfg?.cron_secret || "";
-  if (!expected || req.headers.get("x-cron-secret") !== expected) {
-    return json({ error: "Forbidden." }, 403);
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
+      },
+    });
+  }
+
+  if (!(await authorized(sb, req))) return json({ error: "Forbidden." }, 403);
+
+  // --- Render one project's agreement, on demand -----------------------------
+  //
+  // This is what lets BOTH the phone and the Mac show the document. It matters that it comes from
+  // here rather than each of them building their own: this renderer is what produced the copy the
+  // client received, so previewing anything else would be showing a different document than the one
+  // that was signed.
+  if (req.method === "GET") {
+    const url = new URL(req.url);
+    const projectId = (url.searchParams.get("projectId") || "").trim();
+    if (!projectId) return json({ error: "projectId is required." }, 400);
+
+    const { data: project } = await sb
+      .from("projects")
+      .select("id, client_name, project_name, agreement_html")
+      .eq("id", projectId)
+      .maybeSingle();
+    if (!project?.agreement_html) return json({ error: "No agreement has been published for this project." }, 404);
+
+    const { data: row } = await sb
+      .from("booking_submissions")
+      .select("answers, signed_at, signed_name, signed_date, signer_ip")
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    const answers = Array.isArray(row?.answers) ? row!.answers : [];
+    const built = buildAgreement(project.agreement_html, answers);
+    const clientName = String(project.project_name || project.client_name || "Client");
+    const sig: Signature | null = row?.signed_at
+      ? { name: row.signed_name || "", date: row.signed_date || "", signedAt: row.signed_at, ip: row.signer_ip || "" }
+      : null;
+    const pdf = await buildAgreementPdf({ clientName, agreementHtml: built.html, summary: built.summary, signature: sig });
+    const name = `Agreement - ${clientName.replace(/[^\w.-]+/g, "-")}${sig ? " (signed)" : ""}.pdf`;
+    return new Response(pdf, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/pdf",
+        // inline, so it PREVIEWS rather than downloading. Michael's point: he should be able to look
+        // at it without a file landing in Downloads first.
+        "Content-Disposition": `${url.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="${name}"`,
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   // Signed, and not yet finished. `complete_attempts` stops a permanently broken one from being
