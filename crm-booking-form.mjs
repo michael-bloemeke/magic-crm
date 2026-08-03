@@ -58,9 +58,11 @@ export const BOOKING_FIELDS = [
   { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoor or outdoor', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
   { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
   { id: 'vips', key: 'vips', label: 'Any VIPs that Michael should give special attention to?', type: 'textarea', required: true },
-  // Not a project field: drives who the QuickBooks invoice is addressed to. OPTIONAL in Michael's
-  // form, so it falls back to the project's client name when they leave it blank.
-  { id: 'invoice_to', key: '', label: 'What name should be on the invoice?', type: 'text', required: false },
+  // Not a project field: drives who the QuickBooks invoice is addressed to. REQUIRED (Michael,
+  // 2026-08-03): on a corporate booking the signer is often not the payer, and an invoice made out to
+  // the wrong name gets bounced back through accounts payable. The fallback to the project's client
+  // name stays in place downstream as a safety net, but they have to answer it.
+  { id: 'invoice_to', key: '', label: 'What name should be on the invoice?', type: 'text', required: true },
   // Both of these are free text that belongs in the project's notes rather than a field of its own.
   { id: 'unforgettable', key: 'projectNotesAppend', label: 'How can Michael make your event unforgettable?', type: 'textarea', required: false },
   { id: 'notes', key: 'projectNotesAppend', label: 'Any other details Michael should know about the event?', type: 'textarea', required: false },

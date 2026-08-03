@@ -72,9 +72,9 @@ check('event date is NOT one of the questions', document.getElementById('event_d
 check('event date has a read-only box instead', !!document.getElementById('bk-eventdate'), true)
 check('that box is hidden until the server supplies a date', document.getElementById('bk-eventdate').hidden, true)
 
-// The form no longer asks for an invoice EMAIL, only a name, and the name is optional.
+// The form no longer asks for an invoice EMAIL, only a name, and that name is REQUIRED.
 check('no invoice email question', document.getElementById('invoice_email'), null)
-check('invoice name is optional', BOOKING_FIELDS.find((f) => f.id === 'invoice_to').required, false)
+check('invoice name is required', BOOKING_FIELDS.find((f) => f.id === 'invoice_to').required, true)
 
 // They can back out of signing to fix a detail.
 check('the signing step has a back button', !!document.getElementById('bk-back'), true)
