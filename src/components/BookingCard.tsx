@@ -87,6 +87,13 @@ export function BookingCard({ project }: { project: Project }) {
       if (!r.ok) setNote(r.error || 'Could not check for a submission.')
       else if (!r.submission) setNote("Nothing back from them yet. They haven't opened the form.")
       else if (r.agreementError) setNote(`They signed, but their copy did not send: ${r.agreementError}`)
+      else if (r.invoiceError) setNote(`${r.signature?.name} signed and has their copy, but the invoice failed: ${r.invoiceError}`)
+      else if (r.invoiceSent)
+        setNote(
+          `${r.signature?.name} signed it. Copy emailed, and the invoice went to ${r.invoiceTo}` +
+            `${r.invoiceEnvironment === 'sandbox' ? ' (QuickBooks sandbox, not a real invoice).' : '.'}`,
+        )
+      else if (r.invoiceSkipped) setNote(`${r.signature?.name} signed and has their copy. No invoice: ${r.invoiceSkipped}`)
       else if (r.agreementSent) setNote(`${r.signature?.name} signed it. Their copy is on its way to ${r.agreementTo}.`)
       else if (r.freshSignature) setNote(`${r.signature?.name} signed the agreement.`)
       else if (r.fresh) setNote(`Their details came in. Filled: ${(r.filledFields || []).join(', ')}. Waiting on their signature.`)
@@ -158,7 +165,13 @@ export function BookingCard({ project }: { project: Project }) {
           : signed
             ? `${signature!.name} signed it ${fmtWhen(signature!.signedAt)}.${
                 agreementSent ? ' Their copy has been emailed.' : ' Sending their copy…'
-              } The invoice is yours to send.`
+              }${
+                invoice?.sentAt
+                  ? ` Invoice sent ${fmtWhen(invoice.sentAt)}.`
+                  : agreementSent
+                    ? ' Invoice going out next.'
+                    : ''
+              }`
             : submitted
               ? 'They filled in the details but have not signed the agreement yet.'
               : booking?.sentAt

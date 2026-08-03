@@ -38,7 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail } from './crm-booking-form.mjs'
-import { autoSendPending, sendAgreement, publishAgreement } from './crm-booking-agreement.mjs'
+import { autoSendPending, sendAgreement, publishAgreement, autoInvoice } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -1099,11 +1099,20 @@ export function crmDataPlugin() {
         withbody(req, res, async (b) => {
           const pulled = await pullSubmission(b.projectId)
           if (!pulled.ok || !pulled.signature) return pulled
+          let out = { ...pulled }
           try {
             const sent = await sendAgreement(b.projectId)
-            return { ...pulled, agreementSent: !sent.alreadySent, agreementTo: sent.to || '' }
+            out = { ...out, agreementSent: !sent.alreadySent, agreementTo: sent.to || '' }
           } catch (e) {
-            return { ...pulled, agreementError: String(e?.message || e) }
+            // Same rule as the sweep: no agreement in their hands, no invoice.
+            return { ...out, agreementError: String(e?.message || e) }
+          }
+          try {
+            const inv = await autoInvoice(b.projectId)
+            if (inv.skipped) return { ...out, invoiceSkipped: inv.skipped }
+            return { ...out, invoiceSent: !inv.alreadySent, invoiceTo: inv.to || '', invoiceAmount: inv.amount, invoiceEnvironment: inv.environment }
+          } catch (e) {
+            return { ...out, invoiceError: String(e?.message || e) }
           }
         })
       })

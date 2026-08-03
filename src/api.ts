@@ -672,6 +672,12 @@ export async function pullBookingSubmission(projectId: string): Promise<{
   agreementSent?: boolean
   agreementTo?: string
   agreementError?: string
+  invoiceSent?: boolean
+  invoiceTo?: string
+  invoiceAmount?: number
+  invoiceEnvironment?: string
+  invoiceSkipped?: string
+  invoiceError?: string
 }> {
   try {
     return await postJsonStrict('/api/booking/pull', { projectId }, 'Could not check for answers')

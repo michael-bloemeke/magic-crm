@@ -24,12 +24,20 @@ import { bookingAgreementPdf, bookingAgreementTemplate } from './crm-contracts.m
 import {
   loadForm,
   loadForms,
+  invoiceTarget,
   markAgreementSent,
   markAgreementError,
   pullSubmission,
 } from './crm-booking-form.mjs'
 import { sendMessage } from './crm-gmail.mjs'
 import { loadAll, appendActivityLog } from './crm-data-core.mjs'
+import {
+  isConnected as qbConnected,
+  loadInvoices as qbLoadInvoices,
+  createInvoiceForProject,
+  sendInvoiceForProject,
+  status as qbStatus,
+} from './crm-quickbooks.mjs'
 import { CRM_STORE, sb } from './crm-store.mjs'
 
 function findProject(projectId) {
@@ -144,15 +152,69 @@ export async function sendAgreement(projectId, { force = false } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// 3. Raising and sending the invoice
+// ---------------------------------------------------------------------------
+
+// Create the invoice in QuickBooks and send it, once the signed copy has gone out.
+//
+// Addressed to whoever the CLIENT named on the booking form ("who should the invoice be addressed
+// to" / "which email should the invoice go to"), because on a corporate booking the person who signs
+// is usually not the person who pays. Falls back to the project's own contact if they left it blank.
+//
+// IDEMPOTENT via the QuickBooks invoice record: once a project has an invoice with a sentAt, this is
+// a no-op forever. That record is the guard, so a retry after a partial failure (invoice created but
+// the send failed) resumes at the send rather than raising a second invoice.
+export async function autoInvoice(projectId) {
+  if (!qbConnected()) return { ok: false, skipped: 'QuickBooks is not connected.' }
+
+  const existing = qbLoadInvoices()[projectId]
+  if (existing?.sentAt) return { ok: true, alreadySent: true, sentAt: existing.sentAt }
+
+  const project = findProject(projectId)
+  const fee = Number(project.totalFee)
+  if (!fee || Number.isNaN(fee) || fee <= 0) throw new Error('No quote on the project to invoice.')
+
+  const target = invoiceTarget(projectId)
+  const to = target.email || clientEmail(project)
+  if (!to) throw new Error('No email to send the invoice to.')
+  const customerName = target.name || project.client
+
+  // Resume rather than duplicate: an invoice raised on a previous attempt is reused.
+  const ref = existing?.invoiceId
+    ? existing
+    : await createInvoiceForProject(projectId, { customerName, email: to, amount: fee })
+
+  await sendInvoiceForProject(projectId, to)
+
+  const env = qbStatus().environment
+  try {
+    await appendActivityLog(
+      projectId,
+      `Invoice ${ref.docNumber ? `#${ref.docNumber} ` : ''}for $${fee.toLocaleString('en-US')} sent to ${to}${env === 'sandbox' ? ' (QuickBooks sandbox).' : '.'}`,
+    )
+  } catch {
+    /* the log line is a nicety, never fail a sent invoice over it */
+  }
+  return { ok: true, to, customerName, amount: fee, docNumber: ref.docNumber || '', environment: env }
+}
+
+// ---------------------------------------------------------------------------
 // The sweep
 // ---------------------------------------------------------------------------
 
-// Which projects are worth asking the database about: the link went out, and we have not yet mailed
-// a signed copy. Computed from the LOCAL form file so the common case (nothing outstanding) costs no
-// database traffic at all. Supabase egress is a live constraint here; see the data_version work.
+// Which projects are worth asking the database about: the link went out, and either the signed copy
+// or the invoice is still outstanding. Computed from the LOCAL form file (plus the local QuickBooks
+// records) so the common case, nothing outstanding, costs no database traffic at all. Supabase
+// egress is a live constraint here; see the data_version work.
 function awaitingAgreement() {
+  let invoices = {}
+  try {
+    invoices = qbLoadInvoices()
+  } catch {
+    invoices = {}
+  }
   return Object.entries(loadForms())
-    .filter(([, rec]) => rec && rec.sentAt && !rec.agreementSentAt)
+    .filter(([projectId, rec]) => rec && rec.sentAt && (!rec.agreementSentAt || !invoices[projectId]?.sentAt))
     .map(([projectId]) => projectId)
 }
 
@@ -182,6 +244,7 @@ export async function autoSendPending() {
   }
 
   let sent = 0
+  let invoiced = 0
   for (const row of rows) {
     const projectId = row.project_id
     try {
@@ -191,10 +254,22 @@ export async function autoSendPending() {
       // Nothing to send until they have actually signed. Not an error: most rows sit here for a
       // while between filling the form and signing.
       if (!row.signed_at) continue
+
+      // Order matters, and a failure here deliberately BLOCKS the invoice for this tick. Invoicing
+      // someone who never received their agreement would be the wrong way round, so a broken send
+      // stalls the chain (visibly, on the card) rather than running ahead without it.
       const res = await sendAgreement(projectId)
       if (res && !res.alreadySent) {
         sent += 1
         console.log(`[booking-agreement] signed agreement auto-sent for ${projectId}.`)
+      }
+
+      const inv = await autoInvoice(projectId)
+      if (inv.ok && !inv.alreadySent) {
+        invoiced += 1
+        console.log(`[booking-agreement] invoice sent for ${projectId} to ${inv.to} (${inv.environment}).`)
+      } else if (inv.skipped) {
+        console.log(`[booking-agreement] invoice skipped for ${projectId}: ${inv.skipped}`)
       }
     } catch (e) {
       const msg = String(e?.message || e)
@@ -202,5 +277,5 @@ export async function autoSendPending() {
       console.error(`[booking-agreement] auto-send failed for ${projectId}:`, msg)
     }
   }
-  return { checked: rows.length, sent }
+  return { checked: rows.length, sent, invoiced }
 }
