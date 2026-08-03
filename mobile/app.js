@@ -13,7 +13,7 @@ import {
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
   updateContact,
-  loadBookingProgress, loadContractVariants, readyToBookOnPhone,
+  loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
@@ -616,11 +616,20 @@ function renderDetail(id, keepScroll) {
 
 // The four states of a booking link, in order.
 var BOOKING_STEPS = [
-  { key: 'none', label: 'Sent' },
-  { key: 'viewed', label: 'Viewed' },
-  { key: 'submitted', label: 'Details in' },
-  { key: 'signed', label: 'Signed' },
+  { key: 'none', label: 'Sent', at: 'sentAt' },
+  { key: 'viewed', label: 'Viewed', at: 'viewedAt' },
+  { key: 'submitted', label: 'Details in', at: 'submittedAt' },
+  { key: 'signed', label: 'Signed', at: 'signedAt' },
 ]
+
+// Short date + time under each timeline step: "Aug 3, 9:25 AM". A resend clears everything after
+// "Sent", so these always describe the form the client currently holds.
+function bookingStamp(iso) {
+  if (!iso) return ''
+  var d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
 
 // One-line summary for the collapsed Booking row.
 function bookingHint(p) {
@@ -670,18 +679,24 @@ function openBookingPanel(p) {
       var idx = BOOKING_STEPS.findIndex(function (x) { return x.key === g.stage })
       var bar = el('<div class="bk-prog"></div>')
       BOOKING_STEPS.forEach(function (st, i) {
-        var seg = el('<div class="bk-seg' + (i <= idx ? (i === BOOKING_STEPS.length - 1 ? ' done' : ' on') : '') + '"><span class="bk-bar"></span><span class="bk-lab">' + esc(st.label) + '</span></div>')
+        var when = i <= idx ? (bookingStamp(g[st.at]) || '—') : ''
+        var seg = el('<div class="bk-seg' + (i <= idx ? (i === BOOKING_STEPS.length - 1 ? ' done' : ' on') : '') + '"><span class="bk-bar"></span><span class="bk-lab">' + esc(st.label) + '</span><span class="bk-when">' + esc(when) + '</span></div>')
         bar.appendChild(seg)
       })
       body.appendChild(bar)
       if (g.variant) body.appendChild(el('<div class="hint" style="margin-top:8px">Sent with the <b>' + esc(variantLabel(g.variant)) + '</b> agreement.</div>'))
       if (g.stage === 'signed') body.appendChild(el('<div class="hint" style="margin-top:4px">Their signed copy and the invoice were sent automatically.</div>'))
+      if (g.stage === 'submitted' || g.stage === 'signed') {
+        var chip = el('<button class="pdfchip"><span class="pdfchip-i">PDF</span><span><span class="pdfchip-n">Agreement' + (g.stage === 'signed' ? ' (signed)' : '') + '</span><span class="pdfchip-s">' + (g.stage === 'signed' ? 'The copy the client received' : 'Not signed yet') + ' · tap to preview</span></span></button>')
+        chip.addEventListener('click', function () { openPdfPreview(p) })
+        body.appendChild(chip)
+      }
     } else {
       body.appendChild(el('<div class="hint" style="margin-top:10px">They fill in the event details, sign the agreement, and get invoiced without you touching anything.</div>'))
     }
 
     var btn = el('<button class="btn-gold" style="width:100%;margin-top:14px"' + (ready ? '' : ' disabled') + '>' + (g && g.linkOut ? 'Resend booking form' : 'Ready to book') + '</button>')
-    btn.addEventListener('click', function () { pickVariantThen(p, btn) })
+    btn.addEventListener('click', function () { pickVariantThen(p, btn, !!(g && g.linkOut)) })
     body.appendChild(btn)
     if (!ready) body.appendChild(el('<div class="hint" style="margin-top:6px">Add a performance style and a quote first.</div>'))
 
@@ -697,6 +712,34 @@ function openBookingPanel(p) {
   document.body.appendChild(sheet)
 }
 
+// Preview the agreement in place, the way a mail client shows an attachment. No download first:
+// the document exists, so looking at it should not mean a file landing in Files.
+function openPdfPreview(p) {
+  toast('Building the agreement…')
+  agreementPdfUrl(p.id)
+    .then(function (url) {
+      var sheet = el('<div class="sheet pdfsheet"><div class="sheet-card pdfcard"></div></div>')
+      var card = sheet.querySelector('.sheet-card')
+      var close = function () { sheet.remove(); URL.revokeObjectURL(url) }
+      var head = el('<div class="pdfhead"><span class="sheet-title" style="margin:0">Agreement</span></div>')
+      var actions = el('<div style="display:flex;gap:8px"></div>')
+      var open = el('<a class="btn-ghost" style="padding:6px 12px" target="_blank">Open</a>')
+      open.href = url
+      var done = el('<button class="btn-ghost" style="padding:6px 12px">Close</button>')
+      done.addEventListener('click', close)
+      actions.appendChild(open); actions.appendChild(done)
+      head.appendChild(actions)
+      card.appendChild(head)
+      var frame = document.createElement('iframe')
+      frame.className = 'pdfframe'
+      frame.src = url
+      card.appendChild(frame)
+      sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+      document.body.appendChild(sheet)
+    })
+    .catch(function (e) { toast(e.message || 'Could not build the agreement', 'err') })
+}
+
 // Remembered so a label can be shown without another round-trip.
 var CONTRACT_VARIANTS = []
 function variantLabel(id) {
@@ -706,7 +749,7 @@ function variantLabel(id) {
 
 // Choosing WHICH agreement. Two taps rather than one, on purpose: which contract a client signs is
 // not a thing to get wrong by muscle memory, and swapping it is the reason a resend exists.
-function pickVariantThen(p, btn) {
+function pickVariantThen(p, btn, isResend) {
   btn.disabled = true
   btn.textContent = 'Loading…'
   loadContractVariants()
@@ -718,12 +761,13 @@ function pickVariantThen(p, btn) {
       var card = sheet.querySelector('.sheet-card')
       var close = function () { sheet.remove() }
       card.appendChild(el('<div class="sheet-title">Which agreement?</div>'))
+      if (isResend) card.appendChild(el('<div class="hint" style="color:var(--red);margin:-4px 0 10px">Resending clears the timeline and any signature, and drops the CRM\'s invoice record. Delete the old invoice in QuickBooks yourself if one went out.</div>'))
       if (!vs.length) {
         card.appendChild(el('<div class="hint">No contract templates have been published yet. Open the Mac app once and they will appear here.</div>'))
       }
       vs.forEach(function (v) {
         var b = el('<button class="emailcard" style="flex-direction:column;align-items:flex-start;gap:2px"><span class="ec-title">' + esc(v.label) + '</span><span class="hint" style="margin:0">' + esc(v.hint || '') + '</span></button>')
-        b.addEventListener('click', function () { close(); sendBooking(p, v) })
+        b.addEventListener('click', function () { close(); sendBooking(p, v, isResend) })
         card.appendChild(b)
       })
       var cancel = el('<button class="btn-ghost" style="width:100%;margin-top:10px">Cancel</button>')
@@ -741,9 +785,13 @@ function pickVariantThen(p, btn) {
 
 // Issue the form and hand back the link. No email is sent: the phone has no Gmail drafting by
 // design, so this copies the URL for Michael to send however he likes.
-function sendBooking(p, variant) {
+function sendBooking(p, variant, isResend) {
   toast('Preparing…')
-  readyToBookOnPhone(p, variant.variant)
+  // A RESEND wipes the previous attempt first, so the timeline and the signed/invoiced claims
+  // describe the form the client currently holds rather than the one being replaced.
+  var pre = isResend ? resetBookingOnPhone(p.id) : Promise.resolve()
+  pre
+    .then(function () { return readyToBookOnPhone(p, variant.variant) })
     .then(function (r) {
       BOOKING_PROGRESS[p.id] = null
       refreshBookingProgress(p.id)

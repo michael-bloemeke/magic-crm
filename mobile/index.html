@@ -243,6 +243,24 @@
       .bk-seg.done .bk-bar { background: var(--green); }
       .bk-seg .bk-lab { font-size: 10px; color: var(--faint); }
       .bk-seg.on .bk-lab, .bk-seg.done .bk-lab { color: var(--muted); }
+      .bk-seg .bk-when { font-size: 9px; color: var(--faint); opacity: .75; line-height: 1.25; }
+
+      /* The agreement, as an attachment rather than a button */
+      .pdfchip { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+                 border: 1px solid var(--line); background: var(--surface2); border-radius: 12px;
+                 padding: 10px 12px; margin-top: 12px; }
+      .pdfchip:active { background: var(--surface3); }
+      .pdfchip-i { flex: none; width: 30px; height: 30px; border-radius: 7px; display: inline-flex;
+                   align-items: center; justify-content: center; font-size: 9px; font-weight: 800;
+                   color: var(--green); background: rgba(70,209,137,0.16); }
+      .pdfchip-n { display: block; font-size: 13.5px; font-weight: 600; color: var(--parchment); }
+      .pdfchip-s { display: block; font-size: 11px; color: var(--faint); }
+
+      /* Full-height PDF viewer */
+      .pdfsheet .pdfcard { height: 92vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+      .pdfhead { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+                 padding: 12px 14px; border-bottom: 1px solid var(--line); }
+      .pdfframe { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
 
       /* Home dashboard */
       .greeting { font-size: 22px; font-weight: 600; margin: 6px 2px 14px; }
