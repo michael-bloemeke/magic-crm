@@ -4,9 +4,11 @@ import { EditableField } from './EditableField'
 import {
   loadBookingStatus,
   readyToBook,
+  loadContractVariants,
   bookingAgreementPdfUrl,
   loadQuickBooks,
   type BookingStatus,
+  type ContractVariant,
   type QuickBooksInvoice,
 } from '../api'
 
@@ -57,6 +59,8 @@ export function BookingCard({
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [showPdf, setShowPdf] = useState(false)
+  const [variants, setVariants] = useState<ContractVariant[]>([])
+  const [pickVariant, setPickVariant] = useState(false)
 
   const refresh = () => {
     loadBookingStatus(project.id).then(setBooking).catch(() => setBooking(null))
@@ -71,6 +75,14 @@ export function BookingCard({
     const t = setInterval(refresh, 30_000)
     return () => clearInterval(t)
   }, [project.id])
+  useEffect(() => {
+    loadContractVariants().then(setVariants).catch(() => setVariants([]))
+  }, [])
+
+  // Which agreement this project's form went out with. The usual reason to resend is exactly this:
+  // the client comes back asking for the version without the media clause.
+  const sentVariant = String(project.agreementVariant || '')
+  const sentVariantLabel = variants.find((v) => v.id === sentVariant)?.label || sentVariant
 
   const linkOut = !!booking?.sentAt
   const stage: Stage = (booking?.progress?.stage as Stage) || 'none'
@@ -110,14 +122,23 @@ export function BookingCard({
     <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.35)]">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] font-medium text-parchment">Booking</p>
-        {signed && (
-          <span
-            className="rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]"
-            style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
-          >
-            Signed
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {/* Which version went out. The whole point of recording it: if the client asks for the
+              agreement without the media clause, this says whether they got it. */}
+          {linkOut && sentVariantLabel && (
+            <span className="rounded-full border border-line px-1.5 py-0.5 text-[9.5px] font-medium text-muted">
+              {sentVariantLabel}
+            </span>
+          )}
+          {signed && (
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]"
+              style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
+            >
+              Signed
+            </span>
+          )}
+        </div>
       </div>
 
       {/* The two fields the agreement can't be built without. At the top, because they gate
@@ -202,13 +223,45 @@ export function BookingCard({
         <button
           type="button"
           disabled={busy || !readyToSend}
-          onClick={doReady}
+          onClick={() => setPickVariant((v) => !v)}
           title={readyToSend ? '' : 'Add a performance style and a quote first'}
           className={primary}
         >
           {busy ? 'Working…' : linkOut ? 'Resend booking form' : 'Ready to book'}
         </button>
       </div>
+
+      {/* Pick the agreement. Two clicks instead of one, deliberately: which contract a client signs
+          is not a thing to get wrong by muscle memory, and it is the choice a resend exists for. */}
+      {pickVariant && (
+        <div className="mt-2 rounded-lg border border-line-strong bg-surface-2/60 p-1.5">
+          <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
+            Which agreement?
+          </p>
+          {variants.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              disabled={busy}
+              onClick={() => doReady(v.id)}
+              className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-3 disabled:opacity-40"
+            >
+              <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-parchment">
+                {v.label}
+                {v.id === sentVariant && <span className="text-[10px] font-normal text-faint">· sent last time</span>}
+              </span>
+              <span className="block text-[10.5px] leading-snug text-faint">{v.hint}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setPickVariant(false)}
+            className="mt-0.5 w-full rounded-md px-2 py-1 text-left text-[11px] text-faint transition-colors hover:text-muted"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* The agreement, as an attachment rather than a button.
           It used to be a "View contract" button that forced a download. Michael's point was right:
