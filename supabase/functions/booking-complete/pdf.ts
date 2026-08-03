@@ -6,9 +6,7 @@
 //
 // pdf-lib is pure JavaScript and runs anywhere, and the PDF format's base-14 fonts (Times, here) are
 // guaranteed present in every viewer without embedding anything. So this renderer needs no font
-// files, no licensing question, and no filesystem. It is now the ONLY renderer for the booking
-// agreement: the CRM asks this function for the document rather than building its own, so the copy
-// Michael views and the copy the client receives are the same bytes.
+// files, no licensing question, and no filesystem.
 //
 // Coordinates: pdf-lib's origin is the BOTTOM-left and y grows upward, the opposite of screen
 // drawing. Everything here is written bottom-up on purpose.
@@ -233,7 +231,7 @@ export async function buildAgreementPdf(opts: {
       for (const item of b.items) {
         const lines = wrap(sanitize(item), fonts.reg, 10.5, CONTENT_W - 16);
         w.ensure(lines.length * 14 + 4);
-        w.page.drawText("•", { x: MARGIN + 3, y: w.y, size: 10.5, font: fonts.reg, color: INK });
+        w.page.drawText("-", { x: MARGIN + 3, y: w.y, size: 10.5, font: fonts.reg, color: INK });
         w.text(item, { size: 10.5, x: MARGIN + 16, gap: 2 });
       }
       w.y -= 4;

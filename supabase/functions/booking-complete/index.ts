@@ -368,6 +368,13 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
     const { data: existingRow } = await sb.from("invoices").select("data").eq("project_id", projectId).maybeSingle();
     let ref = existingRow?.data as any;
 
+    // ALREADY SENT: stop here. Reusing the invoice record is right, but re-running the send would
+    // mail the client a second copy of the same invoice. Caught before this ever ran, on a project
+    // the Mac had already invoiced back when invoice_sent_at did not yet exist.
+    if (ref?.invoiceId && ref.sentAt) {
+      return out;
+    }
+
     const { call, environment } = await qbClient(sb);
     if (!ref?.invoiceId) {
       const customer = await ensureCustomer(call, invoiceTo, invoiceEmail);
