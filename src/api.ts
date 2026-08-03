@@ -779,6 +779,38 @@ export async function deleteContract(projectId: string, id: string): Promise<voi
 export function contractPdfUrl(projectId: string, id: string): string {
   return `/api/contracts/pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}`
 }
+
+// --- Fillable PDF contract (typed signature, no e-sign service) --------------
+// Builds a PDF with real form fields: a questions page, the agreement, and a type-your-name block.
+// Michael emails it, the client types into it and emails it back.
+export function contractFillablePdfUrl(projectId: string, id: string, download = false): string {
+  const dl = download ? '&download=1' : ''
+  return `/api/contracts/fillable-pdf?projectId=${encodeURIComponent(projectId)}&id=${encodeURIComponent(id)}${dl}`
+}
+
+// The questions that PDF would ask this client (the event facts the CRM is still missing).
+export async function loadFillableQuestions(projectId: string): Promise<string[]> {
+  const res = await fetch(`/api/contracts/fillable-questions?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) return []
+  return ((await res.json()).questions ?? []) as string[]
+}
+
+// Draft the agreement from the CRM's own template and save it as a version, returning its id so the
+// fillable PDF can be built from it. One call: the fillable route has no reason to make Michael step
+// through the SignWell draft-then-send flow.
+export async function createFillableContract(projectId: string): Promise<{ id: string }> {
+  const res = await fetch('/api/contracts/fillable-new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    throw new Error(d.error || `Could not build the agreement (${res.status})`)
+  }
+  return (await res.json()).contract as { id: string }
+}
+
 export async function loadEsignStatus(): Promise<EsignStatus> {
   const res = await fetch('/api/esign')
   if (!res.ok) throw new Error(`Failed to load e-sign status (${res.status})`)
