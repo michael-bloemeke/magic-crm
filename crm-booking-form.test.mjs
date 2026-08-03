@@ -26,7 +26,7 @@ const { JSDOM } = require('jsdom')
 const html = fs.readFileSync(BOOK_PAGE, 'utf8')
 let posted = null
 const dom = new JSDOM(html, {
-  url: 'https://michaelbloemeke.com/book/AbC123_-token',
+  url: 'https://michaelbloemeke.com/book/?t=AbC123_-token',
   runScripts: 'dangerously',
   beforeParse(w) {
     // The page makes TWO different calls to the same endpoint: a GET (has-this-been-submitted,
@@ -91,7 +91,7 @@ check('no fields left flagged', document.querySelectorAll('#bk-fields .bk-field.
 check('thank-you view is shown', document.getElementById('bk-done').style.display, 'block')
 
 // A bad token should show the dead-link banner instead of a form.
-const bad = new JSDOM(html, { url: 'https://michaelbloemeke.com/book/not a token!', runScripts: 'dangerously',
+const bad = new JSDOM(html, { url: 'https://michaelbloemeke.com/book/?t=not a token!', runScripts: 'dangerously',
   beforeParse(w) { w.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }); w.scrollTo = () => {}; w.HTMLElement.prototype.scrollIntoView = () => {} } })
 check('malformed token shows the dead-link banner', bad.window.document.getElementById('bk-dead').style.display, 'block')
 check('malformed token renders no form', bad.window.document.querySelectorAll('#bk-fields .bk-field').length, 0)

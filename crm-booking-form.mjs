@@ -30,7 +30,9 @@ import path from 'node:path'
 import { RECORDS_DIR, updateProjectField, loadAll, appendActivityLog } from './crm-data-core.mjs'
 import { CRM_STORE, sb } from './crm-store.mjs'
 
-// The public site that serves the form. The link Michael sends is `${FORM_BASE}/book/<token>`.
+// The public site that serves the form. The link is `${FORM_BASE}/book/?t=<token>`: /book/ is a real
+// directory with an index.html, so it resolves without any host rewrite rule. The prettier
+// /book/<token> form also works if the host rewrite is in place; the page reads either.
 const FORM_BASE = 'https://michaelbloemeke.com'
 
 // ---------------------------------------------------------------------------
@@ -115,7 +117,7 @@ export function bookingFormLink(projectId) {
     d.forms[projectId] = rec
     writeFile(d)
   }
-  return { token: rec.token, url: `${FORM_BASE}/book/${rec.token}`, sentAt: rec.sentAt, submission: rec.submission }
+  return { token: rec.token, url: `${FORM_BASE}/book/?t=${rec.token}`, sentAt: rec.sentAt, submission: rec.submission }
 }
 
 // Stamp the token onto the project row. The edge function checks incoming tokens against this, so
