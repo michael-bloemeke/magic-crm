@@ -11,6 +11,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
+import { invoiceMemo } from './crm-booking-emails.mjs'
 import {
   CRM_STORE,
   getCachedInvoices,
@@ -282,6 +283,11 @@ export async function createInvoiceForProject(projectId, opts = {}) {
     })
   }
   const body = { CustomerRef: { value: customer.Id }, Line: lines }
+  // The message the client reads on the invoice. QuickBooks sends the invoice itself (one email with
+  // the pay button and the PDF, which is what Michael prefers), and CustomerMemo is the piece the API
+  // lets us customise per invoice. Verified settable against the sandbox 2026-08-03.
+  const memo = String(opts.memo ?? invoiceMemo()).trim()
+  if (memo) body.CustomerMemo = { value: memo.slice(0, 1000) }
   if (email) body.BillEmail = { Address: email }
   const due = String(opts.dueDate || '').trim()
   if (due) body.DueDate = due // QuickBooks expects YYYY-MM-DD

@@ -8,12 +8,17 @@
 //   thread A   1. Booking form      Michael sends this himself (a Gmail draft he reviews)
 //              2. Contract          replies into A, with the signed PDF attached
 //
-//   thread B   3. Invoice           a new thread, sent at the same time as the contract
-//              4. Booking confirmed replies into B, once the invoice is paid
+//              4. Booking confirmed replies into A too, once the invoice is paid
+//
+//   thread B   3. Invoice           sent by QUICKBOOKS, not by us
 //
 // His reasoning: "i want to make things easier for them and not send a thousand separate email
-// threads to their inbox". The contract belongs with the form that produced it; the invoice is a
-// separate piece of business and deserves its own thread to reply to about payment.
+// threads to their inbox".
+//
+// The invoice sits in its own thread because QuickBooks sends it, and Michael prefers that: it is
+// one email carrying both the pay button and the PDF. The consequence is that we cannot reply into
+// it, so the booking confirmation joins thread A instead. Still four emails and two threads: one
+// conversation with Michael, plus the invoice.
 //
 // House rules that apply to every one of these: no em-dashes, and the voice is his, not a machine's.
 
@@ -121,9 +126,24 @@ export function contractEmail({ project }) {
 // 3. Invoice  (thread B opens here)
 // ---------------------------------------------------------------------------
 
-// `payUrl` is the QuickBooks online-payment link, when the invoice has one. His template mentions the
-// processing fee for paying online, which only makes sense if paying online is actually offered, so
-// the button appears whenever QuickBooks gives us a link and is simply left out when it does not.
+// QuickBooks sends the invoice itself, which is what Michael wants: one email carrying both the pay
+// button and the PDF. The part we CAN customise per invoice is `CustomerMemo`, the "message on
+// invoice" field, which the API accepts and which renders on the invoice the client receives.
+// Verified against his sandbox on 2026-08-03 rather than assumed.
+//
+// So this is his "Accompanying the invoice" wording, as the memo. Kept well under QuickBooks'
+// 1000-character limit.
+export function invoiceMemo() {
+  return [
+    'The Invoice is attached, please remit payment at your earliest convenience.',
+    'Thank you for your business, I appreciate it very much!!',
+    '',
+    "NOTE: Quickbooks does have a processing fee for online payment, so if you'd prefer to avoid that, I'm happy to do cash, check, PayPal, Venmo, CashApp, or Zelle. Just let me know.",
+  ].join('\n')
+}
+
+// Kept for the case where the invoice is ever emailed from Gmail instead of by QuickBooks. Unused
+// while QuickBooks does the sending.
 export function invoiceEmail({ project, payUrl }) {
   const name = firstNameOf(project)
   const subject = 'Your Invoice'
