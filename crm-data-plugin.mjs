@@ -37,8 +37,8 @@ import {
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
-import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail } from './crm-booking-form.mjs'
-import { autoSendPending, sendAgreement, publishAgreement, autoInvoice } from './crm-booking-agreement.mjs'
+import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
+import { autoSendPending, sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -224,6 +224,13 @@ export function crmDataPlugin() {
         autoSending = true
         try {
           await autoSendPending()
+          // Then ask QuickBooks about anything still unpaid. Kept on the SERVER timer rather than
+          // hanging off a front-end request, because the point is that a payment landing overnight
+          // shows up as a booking on the calendar by morning, with nobody watching the screen.
+          const { paid } = await refreshPaidInvoices()
+          // A newly paid invoice changes what the calendar should call the gig (isProjectBooked
+          // reads the invoice), so push the change out now instead of waiting for the 5-minute tick.
+          if (paid > 0) syncCalendarAll().catch(() => {})
         } catch (e) {
           console.error('[crm-data] booking agreement sweep failed:', e?.message || e)
         } finally {
@@ -1122,18 +1129,26 @@ export function crmDataPlugin() {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => await sendAgreement(b.projectId, { force: true }))
       })
-      // Current state of the booking form for a project (link, sent-at, whether it came back).
+      // Current state of the booking form for a project. Carries a LIVE progress read (not viewed /
+      // viewed / submitted / signed) so the card's status bar moves on its own; there is no longer a
+      // button for Michael to press to find out.
       server.middlewares.use('/api/booking/status', (req, res, next) => {
         if (req.method !== 'GET') return next()
         const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
-        try {
-          const pid = url.searchParams.get('projectId') || ''
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ ...bookingFormLink(pid), summary: submissionSummary(pid), invoiceTo: invoiceTarget(pid) }))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
+        const pid = url.searchParams.get('projectId') || ''
+        Promise.resolve()
+          .then(async () => {
+            const base = { ...bookingFormLink(pid), summary: submissionSummary(pid), invoiceTo: invoiceTarget(pid) }
+            return { ...base, progress: await liveProgress(pid) }
+          })
+          .then((out) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(out))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
       })
 
       server.middlewares.use('/api/contracts/send-signature', (req, res, next) => {

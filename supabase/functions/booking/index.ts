@@ -164,13 +164,35 @@ Deno.serve(async (req) => {
   const sb = db();
 
   // --- Where is this client up to? (lets them resume if they closed the tab) ---
+  //
+  // Also the VIEW ping. This fires on every page load, so the first one with a valid token is the
+  // moment the link reached a human. Recording it is what lets the CRM show a live status instead of
+  // asking Michael to press a button and find out.
   if (req.method === "GET") {
     const token = (url.searchParams.get("token") || "").trim();
     if (!validToken(token)) return json({ error: "Invalid link." }, 400);
 
+    const { data: project, error: projErr } = await sb
+      .from("projects")
+      .select("id, agreement_html, booking_viewed_at")
+      .eq("booking_token", token)
+      .maybeSingle();
+    if (projErr) return json({ error: "Lookup failed." }, 500);
+    if (!project) return json({ error: "This link is no longer valid." }, 404);
+
+    // Stamp once only. It answers "did this ever reach them", not "how many times did they look",
+    // and overwriting it would quietly destroy the useful signal.
+    if (!project.booking_viewed_at) {
+      await sb
+        .from("projects")
+        .update({ booking_viewed_at: new Date().toISOString() })
+        .eq("id", project.id)
+        .is("booking_viewed_at", null);
+    }
+
     const { data: row, error } = await sb
       .from("booking_submissions")
-      .select("project_id, answers, signed_at")
+      .select("answers, signed_at")
       .eq("token", token)
       .maybeSingle();
     if (error) return json({ error: "Lookup failed." }, 500);
@@ -178,12 +200,7 @@ Deno.serve(async (req) => {
     if (row.signed_at) return json({ submitted: true, signed: true });
 
     // Submitted but not signed: hand back the agreement so they land straight on the signing step.
-    const { data: project } = await sb
-      .from("projects")
-      .select("agreement_html")
-      .eq("id", row.project_id)
-      .maybeSingle();
-    if (!project?.agreement_html) return json({ submitted: true, signed: false });
+    if (!project.agreement_html) return json({ submitted: true, signed: false });
 
     const answers = Array.isArray(row.answers) ? row.answers : [];
     return json({ submitted: true, signed: false, agreement: buildAgreement(project.agreement_html, answers) });

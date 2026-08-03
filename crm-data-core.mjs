@@ -20,6 +20,7 @@ import {
   getCachedPipelineMeta,
   getCachedPayments,
   getCachedTasks,
+  getCachedInvoices,
   // async Supabase writers
   insertProject as sbInsertProject,
   updateProject as sbUpdateProject,
@@ -341,13 +342,38 @@ function postshowStageIdSet(structure) {
   return new Set(ps ? ps.stages.map((s) => s.id) : [])
 }
 
-// True if a project is booked-or-beyond: sitting in the Booked or Post Show category, or already
-// completed. Used by the calendar sync to decide whether a gig needs an "Inquiry: " prefix.
+// True if a project is booked-or-beyond: sitting in the Booked or Post Show category, already
+// completed, or with its invoice settled. Used by the calendar sync to decide whether a gig needs an
+// "Inquiry: " prefix.
+//
+// The PAID INVOICE case is why this isn't purely about the stage. A client who has paid is booked,
+// full stop, and the calendar should stop calling it an inquiry the moment the money lands, without
+// waiting for Michael to be at his desk to move the card. The stage itself deliberately does NOT
+// advance on its own: entering a Booked stage requires a received payment in the ledger (see
+// setStage), and inventing that entry to satisfy a label would put a fake number in his finances.
+// So the calendar reads the fact directly instead.
 export function isProjectBooked(project) {
   if (!project) return false
   if (project.bucket === 'completed') return true
   const structure = loadStructure()
-  return bookedStageIdSet(structure).has(project.stageId) || postshowStageIdSet(structure).has(project.stageId)
+  if (bookedStageIdSet(structure).has(project.stageId) || postshowStageIdSet(structure).has(project.stageId)) return true
+  return hasPaidInvoiceFor(project.id)
+}
+
+// Has this project's invoice been settled in full? Reads the invoice records directly rather than
+// importing crm-quickbooks.mjs, which would close an import cycle back through crm-data-core.
+function hasPaidInvoiceFor(projectId) {
+  if (!projectId) return false
+  try {
+    if (CRM_STORE === 'supabase') {
+      const row = getCachedInvoices().find((r) => r.project_id === projectId)
+      return !!row?.data?.paidAt
+    }
+    const d = JSON.parse(fs.readFileSync(path.join(RECORDS_DIR, 'crm-quickbooks.json'), 'utf8'))
+    return !!d?.invoices?.[projectId]?.paidAt
+  } catch {
+    return false
+  }
 }
 
 function readJson(file, fallback = null) {

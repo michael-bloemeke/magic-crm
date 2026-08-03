@@ -36,6 +36,7 @@ import {
   loadInvoices as qbLoadInvoices,
   createInvoiceForProject,
   sendInvoiceForProject,
+  refreshInvoiceStatus,
   status as qbStatus,
 } from './crm-quickbooks.mjs'
 import { CRM_STORE, sb } from './crm-store.mjs'
@@ -196,6 +197,53 @@ export async function autoInvoice(projectId) {
     /* the log line is a nicety, never fail a sent invoice over it */
   }
   return { ok: true, to, customerName, amount: fee, docNumber: ref.docNumber || '', environment: env }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Noticing that an invoice got paid
+// ---------------------------------------------------------------------------
+
+// Ask QuickBooks whether any outstanding invoice has been settled.
+//
+// This used to happen ONLY while the CRM was open in a browser, because the status sweep hung off a
+// request from the front end. That is no good for the thing Michael actually wants, which is to wake
+// up and find the job on his calendar as a booking rather than an inquiry: nobody is looking at the
+// screen overnight. So it runs on the server timer instead.
+//
+// Cheap by construction: only projects that have an invoice sent and not yet marked paid are asked
+// about, which is a handful at most and usually none.
+export async function refreshPaidInvoices() {
+  if (!qbConnected()) return { checked: 0, paid: 0 }
+  let invoices = {}
+  try {
+    invoices = qbLoadInvoices()
+  } catch {
+    return { checked: 0, paid: 0 }
+  }
+  const outstanding = Object.entries(invoices)
+    .filter(([, ref]) => ref?.invoiceId && ref.sentAt && !ref.paidAt)
+    .map(([projectId]) => projectId)
+  if (!outstanding.length) return { checked: 0, paid: 0 }
+
+  let paid = 0
+  for (const projectId of outstanding) {
+    try {
+      const updated = await refreshInvoiceStatus(projectId)
+      if (updated?.paidAt) {
+        paid += 1
+        console.log(`[booking-agreement] invoice for ${projectId} is now PAID.`)
+        try {
+          await appendActivityLog(projectId, 'Invoice paid in full.')
+        } catch {
+          /* log line is a nicety */
+        }
+      }
+    } catch (e) {
+      // One unreachable invoice must not stop the rest.
+      console.error(`[booking-agreement] could not refresh the invoice for ${projectId}:`, e?.message || e)
+    }
+  }
+  return { checked: outstanding.length, paid }
 }
 
 // ---------------------------------------------------------------------------

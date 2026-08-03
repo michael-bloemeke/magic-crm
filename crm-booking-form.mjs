@@ -307,6 +307,31 @@ export function loadSignature(projectId) {
   return loadForm(projectId)?.signature || null
 }
 
+// Where the client has got to, read LIVE from Supabase rather than from the local mirror.
+//
+// This is what replaced the "Check for answers" button. The card polls it while a project is open,
+// so the status moves on its own. Two tiny reads (one column from each of two tables), which is
+// nothing next to the 21-table reload the egress work was about.
+//
+// Returns 'none' | 'viewed' | 'submitted' | 'signed'. Never throws: a status bar that goes blank on
+// a flaky connection is better than one that breaks the page.
+export async function liveProgress(projectId) {
+  if (CRM_STORE !== 'supabase') return { stage: 'none', viewedAt: '', submittedAt: '', signedAt: '' }
+  try {
+    const [{ data: proj }, { data: row }] = await Promise.all([
+      sb().from('projects').select('booking_viewed_at').eq('id', projectId).maybeSingle(),
+      sb().from('booking_submissions').select('submitted_at, signed_at').eq('project_id', projectId).maybeSingle(),
+    ])
+    const viewedAt = proj?.booking_viewed_at ? new Date(proj.booking_viewed_at).toISOString() : ''
+    const submittedAt = row?.submitted_at ? new Date(row.submitted_at).toISOString() : ''
+    const signedAt = row?.signed_at ? new Date(row.signed_at).toISOString() : ''
+    const stage = signedAt ? 'signed' : submittedAt ? 'submitted' : viewedAt ? 'viewed' : 'none'
+    return { stage, viewedAt, submittedAt, signedAt }
+  } catch {
+    return { stage: 'none', viewedAt: '', submittedAt: '', signedAt: '', unavailable: true }
+  }
+}
+
 // House rules for anything Michael or a client READS: dates written out, times in 12-hour.
 // A date input posts '2026-11-14' and a time input posts '18:00', so both get converted here rather
 // than landing raw on the document or the project.

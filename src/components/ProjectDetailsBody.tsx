@@ -289,7 +289,7 @@ export function ProjectDetailsBody({
             <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
           </div>
           <div className="space-y-2">
-            <BookingCard project={project} />
+            <BookingCard project={project} onSaveField={onSaveField} />
             <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
         </div>
