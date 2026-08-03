@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
-import { deleteProjectEmail, loadConfig, loadCustomValues, loadInquiryForm, loadProjectEmails, loadRecipient, loadStructure, saveCustomValue, saveRecipient, TIP_METHODS, type Contact, type DocRecipient, type InquiryForm, type Payment, type ProjectEmail, type ProjectLinks, type Task } from '../api'
+import { loadConfig, loadCustomValues, loadInquiryForm, loadStructure, saveCustomValue, TIP_METHODS, type Contact, type InquiryForm, type Payment, type ProjectLinks, type Task } from '../api'
 import { type CustomField } from '../eventFields'
 import { to12h } from '../format'
 import { TaskRow } from './TaskRow'
@@ -35,8 +35,6 @@ type Props = {
   onDeleteTask: (id: string) => void
   onEditTask: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
   onPaymentsChange?: (payments: Payment[]) => void
-  // Called after the questionnaire auto-fills project fields, so the view reloads to show them.
-  onProjectChanged?: () => void
   onOpenContact: (c: Contact) => void
   onUnlinkContact: (c: Contact) => void
   onAddContact: () => void
@@ -58,7 +56,6 @@ export function ProjectDetailsBody({
   onDeleteTask,
   onEditTask,
   onPaymentsChange,
-  onProjectChanged,
   onOpenContact,
   onUnlinkContact,
   onAddContact,
@@ -147,22 +144,6 @@ export function ProjectDetailsBody({
   // stacked in the narrow side pane.
   const splitGrid = fullView ? 'grid grid-cols-1 gap-5 lg:grid-cols-2' : 'space-y-5'
 
-  // Per-project emails. The slot rows no longer compose anything, so this is only here for the
-  // questionnaire invite (the one place the CRM still sends its own email, since it carries a
-  // generated link). The follow-up / check-in slots are explicit index lists so any added one can be
-  // removed (the slot index is the storage key; titles render by position).
-  const [emails, setEmails] = useState<ProjectEmail[]>([])
-
-  useEffect(() => {
-    let live = true
-    loadProjectEmails()
-      .then((all) => live && setEmails(all.filter((e) => e.projectId === project.id)))
-      .catch(() => live && setEmails([]))
-    return () => {
-      live = false
-    }
-  }, [project.id])
-
   // The original website inquiry form for this project (if it came from the site contact form).
   // Shown in a dialog off the Communication header, together with the client's first message.
   const [inquiryForm, setInquiryForm] = useState<InquiryForm | null>(null)
@@ -210,41 +191,7 @@ export function ProjectDetailsBody({
     })
   const isOpen = (id: string) => openSections.has(id)
 
-  const emailFor = (kind: string) => emails.find((e) => e.kind === kind) ?? null
-  const upsertEmail = (e: ProjectEmail) => setEmails((prev) => [...prev.filter((x) => x.id !== e.id), e])
-  // Discard a saved draft: drop it locally and delete it (which also cleans up its uploads).
-  const discardEmail = (id: string) => {
-    setEmails((prev) => prev.filter((x) => x.id !== id))
-    deleteProjectEmail(id).catch(() => {})
-  }
 
-  // Document recipients (contract signer + invoice bill-to), defaulting to the first linked contact.
-  const [recipient, setRecipient] = useState<DocRecipient | null>(null)
-  useEffect(() => {
-    let live = true
-    loadRecipient(project.id)
-      .then((r) => live && setRecipient(r))
-      .catch(() => live && setRecipient(null))
-    return () => {
-      live = false
-    }
-  }, [project.id])
-  const changeRecipient = (patch: Partial<DocRecipient>) => {
-    setRecipient((prev) => ({
-      signerId: prev?.signerId || '',
-      billToId: prev?.billToId || '',
-      billToName: prev?.billToName || '',
-      ...patch,
-    }))
-    saveRecipient(project.id, patch).catch(() => {})
-  }
-  const signerContact = linkedContacts.find((c) => c.id === recipient?.signerId) || linkedContacts[0] || null
-  const billToContact = linkedContacts.find((c) => c.id === recipient?.billToId) || linkedContacts[0] || null
-  const firstProjectEmail = (project.contactEmails || '').split(/[,;]/)[0].trim()
-  const signerName = signerContact?.name || project.client
-  const signerEmail = signerContact?.emails?.[0] || firstProjectEmail
-  const billToEmail = billToContact?.emails?.[0] || firstProjectEmail
-  const billToName = (recipient?.billToName || '').trim() || billToContact?.name || project.client
 
   return (
     <div className="space-y-6">

@@ -801,37 +801,48 @@ export async function loadBookingStatus(projectId: string): Promise<BookingStatu
 
 // Issue (or reuse) this project's booking-form link.
 export async function createBookingLink(projectId: string): Promise<BookingStatus> {
-  const res = await fetch('/api/booking/link', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId }),
-  })
-  if (!res.ok) throw new Error(`Could not create the booking link (${res.status})`)
-  return (await res.json()) as BookingStatus
+  return postJsonStrict('/api/booking/link', { projectId }, 'Could not create the booking link')
 }
 
 // Check the form store for the client's submission and apply it to the project.
 export async function pullBookingSubmission(projectId: string): Promise<{ ok: boolean; fresh?: boolean; error?: string; filledFields?: string[] }> {
-  const res = await fetch('/api/booking/pull', {
+  try {
+    return await postJsonStrict('/api/booking/pull', { projectId }, 'Could not check for answers')
+  } catch (e) {
+    return { ok: false, error: String(e instanceof Error ? e.message : e) }
+  }
+}
+
+// POST a JSON call and INSIST on a JSON reply.
+//
+// Without this, a route the running server doesn't have yet is silently mistaken for success: the
+// dev server answers an unknown /api/... path with the app's own index.html at HTTP 200, res.json()
+// rejects, a bare .catch(() => ({})) swallows it, and the caller cheerfully reports that something
+// happened when nothing did. That exact bug shipped once here (the Ready to book button claimed it
+// had made a Gmail draft that never existed). So a non-JSON reply is now a loud, specific error that
+// names the likely cause.
+async function postJsonStrict<T>(path: string, body: unknown, whatFailed: string): Promise<T> {
+  const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId }),
+    body: JSON.stringify(body),
   })
-  return (await res.json().catch(() => ({ ok: false, error: 'Could not reach the form store.' }))) as {
-    ok: boolean; fresh?: boolean; error?: string; filledFields?: string[]
+  const text = await res.text()
+  let d: { error?: string } & Record<string, unknown>
+  try {
+    d = JSON.parse(text)
+  } catch {
+    throw new Error(
+      `${whatFailed}: the CRM server didn't recognise ${path}. It's probably running an older build. Quit Magic CRM and reopen it, then try again.`,
+    )
   }
+  if (!res.ok || d.error) throw new Error(d.error || `${whatFailed} (${res.status})`)
+  return d as T
 }
 
 // "Ready to book": issue the form link and leave a ready-to-send draft in Gmail. Never sends.
 export async function readyToBook(projectId: string): Promise<{ ok: boolean; to: string; url: string }> {
-  const res = await fetch('/api/booking/ready', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId }),
-  })
-  const d = await res.json().catch(() => ({}))
-  if (!res.ok || d.error) throw new Error(d.error || `Could not create the draft (${res.status})`)
-  return d as { ok: boolean; to: string; url: string }
+  return postJsonStrict('/api/booking/ready', { projectId }, 'Could not create the draft')
 }
 
 // The agreement PDF: summary page + short contract + type-your-name. Built fresh each time.

@@ -57,7 +57,6 @@ export function ProjectDetail({
   onPurge,
   onLogCall,
   onPaymentsChange,
-  onProjectChanged,
   contacts,
   links,
   onOpenContact,
@@ -176,7 +175,6 @@ export function ProjectDetail({
                 onDeleteTask={onDeleteTask}
                 onEditTask={onEditTask}
                 onPaymentsChange={onPaymentsChange}
-                onProjectChanged={onProjectChanged}
                 onOpenContact={onOpenContact}
                 onUnlinkContact={onUnlinkContact}
                 onAddContact={onAddContact}

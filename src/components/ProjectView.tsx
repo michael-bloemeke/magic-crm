@@ -404,7 +404,6 @@ export function ProjectView({
             onDeleteTask={onDeleteTask}
             onEditTask={onEditTask}
             onPaymentsChange={onPaymentsChange}
-            onProjectChanged={onProjectChanged}
             onOpenContact={onOpenContact}
             onUnlinkContact={onUnlinkContact}
             onAddContact={onAddContact}
