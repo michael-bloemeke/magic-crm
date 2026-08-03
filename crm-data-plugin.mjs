@@ -96,7 +96,6 @@ import {
   sendContractFromTemplate,
   contractFillablePdf,
   fillableQuestions,
-  createContract,
 } from './crm-contracts.mjs'
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'

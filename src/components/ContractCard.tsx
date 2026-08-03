@@ -8,6 +8,9 @@ import {
   refreshContractSignature,
   signedContractPdfUrl,
   deleteContract,
+  createFillableContract,
+  contractFillablePdfUrl,
+  loadFillableQuestions,
   type ContractVersion,
   type EsignInfo,
   type EsignStatus,
@@ -15,9 +18,14 @@ import {
 } from '../api'
 import { SignerModal } from './SignerModal'
 
-// The Booking-section "Contract" card. Contracts live as SignWell templates; this card lets
-// Michael pick one and send it for e-signature, prefilled from the project. It then tracks
-// status (Awaiting signature -> Signed) and serves the signed PDF.
+// The Booking-section "Contract" card. Two routes out of here:
+//
+//  1. E-SIGNATURE (SignWell): pick a SignWell template and send it; the card tracks status
+//     (Awaiting signature -> Signed) and serves the signed PDF.
+//  2. FILLABLE PDF (no service, added 2026-08-02): the CRM builds a PDF with real form fields from
+//     its OWN agreement template. Michael emails it, the client types their answers and their name
+//     into it and emails it back. No account, no per-signature cost, but also no audit trail and no
+//     "they opened it" tracking. This is the route Michael asked for after seeing a friend use it.
 
 function fmtDate(iso: string) {
   const d = new Date(iso)
@@ -43,6 +51,10 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
   const [sendTarget, setSendTarget] = useState<SignwellTemplate | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // The fillable route asks the client for whatever event facts the CRM is still missing, so show
+  // the count up front: it tells Michael at a glance how much this PDF is doing for him.
+  const [questions, setQuestions] = useState<string[]>([])
+  const [fillBusy, setFillBusy] = useState(false)
 
   const refresh = () => {
     loadContracts()
@@ -58,6 +70,26 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
       .then(setTemplates)
       .catch(() => setTemplates([]))
   }, [])
+  useEffect(() => {
+    loadFillableQuestions(project.id)
+      .then(setQuestions)
+      .catch(() => setQuestions([]))
+  }, [project.id])
+
+  // Build the agreement from the CRM template, save it as a version, and open the fillable PDF.
+  const makeFillable = async (download: boolean) => {
+    setFillBusy(true)
+    setNote(null)
+    try {
+      const c = await createFillableContract(project.id)
+      window.open(contractFillablePdfUrl(project.id, c.id, download), '_blank')
+      refresh()
+    } catch (e) {
+      setNote(String(e instanceof Error ? e.message : e))
+    } finally {
+      setFillBusy(false)
+    }
+  }
 
   const defaultEmail = (project.contactEmails || '').split(/[,;]/)[0].trim()
 
@@ -155,6 +187,45 @@ export function ContractCard({ project, signerName, signerEmail }: { project: Pr
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Fillable-PDF route: always available, since it needs no third-party account. */}
+      <div className="mt-2 rounded-lg border border-line bg-surface-2/40 px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-parchment">Fillable PDF</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-faint">
+              {questions.length > 0
+                ? `Asks the client ${questions.length} missing detail${questions.length === 1 ? '' : 's'}, then they tick the box and type their name.`
+                : 'Every event detail is already filled in, so it just asks them to tick the box and type their name.'}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={fillBusy}
+              onClick={() => makeFillable(false)}
+              className="rounded-lg border border-line px-2.5 py-1 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
+            >
+              {fillBusy ? 'Building…' : 'Preview'}
+            </button>
+            <button
+              type="button"
+              disabled={fillBusy}
+              onClick={() => makeFillable(true)}
+              className="rounded-lg border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
+            >
+              Download to email
+            </button>
+          </div>
+        </div>
+        {questions.length > 0 && (
+          <ul className="mt-2 space-y-0.5 border-t border-line/60 pt-2">
+            {questions.map((q) => (
+              <li key={q} className="text-[10.5px] leading-relaxed text-faint">• {q}</li>
+            ))}
+          </ul>
         )}
       </div>
 
