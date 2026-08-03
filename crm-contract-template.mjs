@@ -188,11 +188,38 @@ const BOOKING_EVENT_SECTION = {
 The remaining event details set out on the previous page are accurate and form part of this Agreement.`,
 }
 
-export function bookingTemplateHtml() {
+// The agreement VARIANTS Michael can choose between when he sends a booking form.
+//
+// The reason this exists is a real conversation that happens: he sends the agreement, and the client
+// comes back with "wait, we don't want you filming this". Rather than editing a contract by hand, he
+// picks the other version and resends. The variant that went out is recorded on the project, so the
+// card can say which one the client actually signed.
+//
+// Adding another is a matter of a new entry here plus whatever it changes about the section list.
+// `omit` is the set of section keys left out of that variant.
+export const CONTRACT_VARIANTS = [
+  {
+    id: 'standard',
+    label: 'Standard',
+    hint: 'Includes the media clause (photos and video for promotion)',
+    omit: [],
+  },
+  {
+    id: 'no-media',
+    label: 'No media clause',
+    hint: 'For clients who do not want the event photographed or filmed',
+    omit: ['media'],
+  },
+]
+
+export function bookingTemplateHtml({ variant = 'standard' } = {}) {
+  const def = CONTRACT_VARIANTS.find((v) => v.id === variant) || CONTRACT_VARIANTS[0]
+  const omit = new Set(def.omit)
   const parts = [`<p>This Performance Services Agreement (the "Agreement") is entered into as of ${fieldSpan('contract_date')} by and between:</p>`]
   parts.push(`<p>${escapeHtml(PERFORMER_LINE)}</p>`)
   parts.push(`<p>Client: ${fieldSpan('client_name')}, ${fieldSpan('client_email')}</p>`)
   for (const sec of SECTIONS) {
+    if (omit.has(sec.key)) continue
     parts.push(sectionHtml(sec.key === 'event' ? BOOKING_EVENT_SECTION : sec))
   }
   parts.push(`<p>${escapeHtml(CLOSING)}</p>`)

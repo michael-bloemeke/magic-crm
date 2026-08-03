@@ -21,6 +21,7 @@
 // one, so the orchestration cannot go there without an import cycle.
 
 import { bookingAgreementPdf, bookingAgreementTemplate } from './crm-contracts.mjs'
+import { CONTRACT_VARIANTS, bookingTemplateHtml } from './crm-contract-template.mjs'
 import {
   loadForm,
   loadForms,
@@ -69,12 +70,41 @@ function escapeHtml(str) {
 // What gets stored still contains unfilled `data-f` marker spans for the facts the client supplies
 // (date, address, times). The edge function fills those from their answers. Everything internal is
 // already baked in here.
-export async function publishAgreement(projectId) {
+export async function publishAgreement(projectId, { variant = 'standard' } = {}) {
   if (CRM_STORE !== 'supabase') throw new Error('Booking agreements need the Supabase store.')
-  const html = bookingAgreementTemplate(projectId)
-  const { error } = await sb().from('projects').update({ agreement_html: html }).eq('id', projectId)
+  const html = bookingAgreementTemplate(projectId, { variant })
+  const { error } = await sb()
+    .from('projects')
+    .update({ agreement_html: html, agreement_variant: variant })
+    .eq('id', projectId)
   if (error) throw new Error(`Could not publish the agreement: ${error.message}`)
-  return { ok: true, bytes: html.length }
+  return { ok: true, variant, bytes: html.length }
+}
+
+// Push the contract WORDING itself (every variant, fields still unfilled) up to Supabase.
+//
+// This is what lets the phone issue a booking form. The template lives in Node because it needs
+// JSDOM to build; publishing the rendered-but-unfilled HTML means an edge function can do the
+// per-project filling with plain string work, and the actual legal text still exists in exactly one
+// place. Runs on Mac startup, so editing the template and relaunching is all it takes to update.
+export async function publishContractTemplates() {
+  if (CRM_STORE !== 'supabase') return { ok: false, skipped: 'not on the Supabase store' }
+  const rows = CONTRACT_VARIANTS.map((v, i) => ({
+    variant: v.id,
+    label: v.label,
+    hint: v.hint,
+    html: bookingTemplateHtml({ variant: v.id }),
+    sort: i,
+    updated_at: new Date().toISOString(),
+  }))
+  const { error } = await sb().from('contract_templates').upsert(rows, { onConflict: 'variant' })
+  if (error) throw new Error(`Could not publish the contract templates: ${error.message}`)
+  return { ok: true, variants: rows.map((r) => r.variant) }
+}
+
+// The variants Michael can pick between, for the UI.
+export function contractVariants() {
+  return CONTRACT_VARIANTS.map((v) => ({ id: v.id, label: v.label, hint: v.hint }))
 }
 
 // ---------------------------------------------------------------------------

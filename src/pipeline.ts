@@ -45,6 +45,9 @@ export type Project = {
   eventDescription: string // the fuller write-up shown in the Notes side panel
   projectNotes: string
   initialInquiry: string // the raw content the client typed into the website inquiry form
+  // Which contract version this project's booking form went out with ('standard' | 'no-media').
+  // Set when the form is issued; the PDF renders whichever one the client actually signed.
+  agreementVariant?: string
   howItWent: string
   assets: string
   status: string

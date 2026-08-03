@@ -38,7 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
-import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices } from './crm-booking-agreement.mjs'
+import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -196,6 +196,14 @@ export function crmDataPlugin() {
           }
         }, 15 * 1000)
       }
+      // Push the contract wording (every variant, fields unfilled) up to Supabase so the CLOUD can
+      // build a booking agreement. Without this the phone cannot issue a booking form at all, because
+      // the template needs JSDOM and only exists here. Cheap and idempotent; runs once per boot, so
+      // editing the template and relaunching is all it takes to update it everywhere.
+      publishContractTemplates()
+        .then((r) => { if (r?.ok) console.log(`[crm-data] contract templates published: ${r.variants.join(', ')}`) })
+        .catch((e) => console.error('[crm-data] could not publish contract templates:', e?.message || e))
+
       // Back up shortly after the app starts, then every 4 hours it stays running.
       const t1 = setTimeout(runBackup, 90_000)
       const t2 = setInterval(runBackup, 4 * 60 * 60 * 1000)
@@ -1087,16 +1095,23 @@ export function crmDataPlugin() {
         withbody(req, res, async (b) => {
           const project = loadAll().projects.find((p) => p.id === b.projectId)
           if (!project) throw new Error('Project not found.')
+          const variant = String(b.variant || 'standard')
           const draft = await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, project })
-          await publishAgreement(b.projectId)
-          return draft
+          await publishAgreement(b.projectId, { variant })
+          return { ...draft, variant }
         })
       })
       // Re-publish the agreement after changing a detail on the project, for a client who has the
       // link but hasn't signed yet. Without this they'd sign the version from before the edit.
       server.middlewares.use('/api/booking/republish', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await publishAgreement(b.projectId))
+        withbody(req, res, async (b) => await publishAgreement(b.projectId, { variant: String(b.variant || 'standard') }))
+      })
+      // Which contract versions Michael can choose between when sending a booking form.
+      server.middlewares.use('/api/booking/variants', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ variants: contractVariants() }))
       })
       // Issue (or reuse) this project's booking-form link.
       server.middlewares.use('/api/booking/link', (req, res, next) => {

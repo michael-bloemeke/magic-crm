@@ -731,8 +731,18 @@ async function postJsonStrict<T>(path: string, body: unknown, whatFailed: string
 }
 
 // "Ready to book": issue the form link and leave a ready-to-send draft in Gmail. Never sends.
-export async function readyToBook(projectId: string): Promise<{ ok: boolean; to: string; url: string }> {
-  return postJsonStrict('/api/booking/ready', { projectId }, 'Could not create the draft')
+export type ContractVariant = { id: string; label: string; hint: string }
+
+// Which contract versions can be sent. Currently the standard one and a version with the media
+// clause removed, for clients who don't want the event photographed.
+export async function loadContractVariants(): Promise<ContractVariant[]> {
+  const res = await fetch('/api/booking/variants')
+  if (!res.ok) return []
+  return ((await res.json()) as { variants: ContractVariant[] }).variants || []
+}
+
+export async function readyToBook(projectId: string, variant = 'standard'): Promise<{ ok: boolean; to: string; url: string; variant: string }> {
+  return postJsonStrict('/api/booking/ready', { projectId, variant }, 'Could not create the draft')
 }
 
 // The agreement PDF: summary page + short contract + type-your-name. Built fresh each time.

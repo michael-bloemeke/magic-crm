@@ -85,12 +85,14 @@ export function BookingCard({
   const feeSet = project.totalFee != null && Number(project.totalFee) > 0
   const readyToSend = styleSet && feeSet
 
-  const doReady = async () => {
+  const doReady = async (variant: string) => {
     setBusy(true)
     setNote(null)
+    setPickVariant(false)
     try {
-      const r = await readyToBook(project.id)
-      setNote(`Draft ready in Gmail, addressed to ${r.to}. Everything after you send it is automatic.`)
+      const r = await readyToBook(project.id, variant)
+      const label = variants.find((v) => v.id === variant)?.label || variant
+      setNote(`Draft ready in Gmail, addressed to ${r.to}, using the ${label} agreement. Everything after you send it is automatic.`)
       refresh()
     } catch (e) {
       setNote(String(e instanceof Error ? e.message : e))

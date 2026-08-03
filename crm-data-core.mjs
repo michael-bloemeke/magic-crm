@@ -469,6 +469,9 @@ function normalize(p, bucket) {
     eventDescription: str(p.event_description),
     projectNotes: str(p.project_notes),
     initialInquiry: str(p.initial_inquiry),
+    // Which contract variant this project's booking form went out with (standard / no-media). Read
+    // only: it is set when the form is issued, so the PDF renders the version the client signed.
+    agreementVariant: str(p.agreement_variant),
     howItWent: str(p.how_it_went),
     assets: str(p.assets),
     status: str(p.status),

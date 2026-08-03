@@ -379,7 +379,10 @@ export async function bookingAgreementPdf(projectId, { signature: override } = {
   if (!project) throw new Error('Project not found.')
   // Always built fresh from the short template + the project's current numbers, so it can never
   // drift from what the CRM holds.
-  const built = buildContractBody(project, { templateHtml: bookingTemplateHtml() })
+  // Render the variant this project actually went out with, not whatever the default is. Getting
+  // this wrong would show a media clause on a contract that was signed without one.
+  const variant = project.agreementVariant || 'standard'
+  const built = buildContractBody(project, { templateHtml: bookingTemplateHtml({ variant }) })
   const contractPdfBuffer = await pdfFromHtml(built.html, { forFillable: true })
   const summaryRows = submissionSummary(projectId)
   const signature = override !== undefined ? override : loadSignature(projectId)
@@ -400,10 +403,10 @@ export async function bookingAgreementPdf(projectId, { signature: override } = {
 // The facts the CLIENT supplies are deliberately left as unfilled `data-f` marker spans; the edge
 // function swaps those for their own answers at render time. Everything internal (fee, performance
 // scope, his name) is baked in here, where it belongs.
-export function bookingAgreementTemplate(projectId) {
+export function bookingAgreementTemplate(projectId, { variant = 'standard' } = {}) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
-  return buildContractBody(project, { templateHtml: bookingTemplateHtml() }).html
+  return buildContractBody(project, { templateHtml: bookingTemplateHtml({ variant }) }).html
 }
 
 // --- E-signature (SignWell) orchestration -----------------------------------
