@@ -24,8 +24,9 @@
 //   - The client can never write agreement_html. They supply answers and a typed name; that is all.
 //   - Every client-supplied value is HTML-escaped before it goes anywhere near the agreement markup,
 //     because the page renders that markup with innerHTML.
-//   - GET returns progress state (submitted / signed) so someone who closes the tab can pick up
-//     where they left off. It never returns their answers.
+//   - GET returns progress state, the event date, and THEIR OWN answers, so someone who closes the
+//     tab can pick up where they left off and can go back to correct a detail. The token is the
+//     credential either way, so handing a client their own submission back is not a widening.
 //   - CORS is open because the form is on a different origin (the website) than Supabase.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -95,19 +96,19 @@ function prettyTime(v: string): string {
 // `type` drives display formatting; `contractKey` is the agreement marker this answer fills, when
 // the agreement mentions that fact at all.
 const FIELDS: { id: string; label: string; type: string; contractKey?: string }[] = [
-  { id: "event_date", label: "Event date", type: "date", contractKey: "event_date" },
-  { id: "event_location", label: "Event address", type: "textarea", contractKey: "event_location" },
-  { id: "venue_type", label: "What kind of venue is it?", type: "text", contractKey: "venue_type" },
-  { id: "indoors_or_outdoors", label: "Indoors or outdoors?", type: "select", contractKey: "indoors_or_outdoors" },
-  { id: "event_start_time", label: "What time does the event start?", type: "time", contractKey: "event_start_time" },
-  { id: "show_start_time", label: "What time would you like the magic to start?", type: "time", contractKey: "show_start_time" },
-  { id: "number_of_guests", label: "Roughly how many guests?", type: "text" },
-  { id: "age_of_guests", label: "Rough ages of the guests", type: "text" },
-  { id: "vips", label: "Anyone special I should know about?", type: "textarea" },
-  { id: "av", label: "Is there a sound system or microphone available?", type: "text" },
-  { id: "invoice_to", label: "Who should the invoice be addressed to?", type: "text" },
-  { id: "invoice_email", label: "Which email should the invoice go to?", type: "email" },
-  { id: "notes", label: "Anything else I should know?", type: "textarea" },
+  { id: "event_summary", label: "Basic description of the event", type: "textarea" },
+  { id: "event_start_time", label: "Event start time", type: "time", contractKey: "event_start_time" },
+  { id: "show_start_time", label: "Show start time", type: "time", contractKey: "show_start_time" },
+  { id: "av", label: "For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?", type: "textarea" },
+  { id: "number_of_guests", label: "Number of guests", type: "text" },
+  { id: "venue_address", label: "Venue address", type: "textarea", contractKey: "event_location" },
+  { id: "venue_type", label: "Venue type", type: "text", contractKey: "venue_type" },
+  { id: "indoors_or_outdoors", label: "Indoor or outdoor", type: "select", contractKey: "indoors_or_outdoors" },
+  { id: "age_of_guests", label: "Ages of the guests", type: "text" },
+  { id: "vips", label: "Any VIPs that Michael should give special attention to?", type: "textarea" },
+  { id: "invoice_to", label: "What name should be on the invoice?", type: "text" },
+  { id: "unforgettable", label: "How can Michael make your event unforgettable?", type: "textarea" },
+  { id: "notes", label: "Any other details Michael should know about the event?", type: "textarea" },
 ];
 
 function displayValue(type: string, raw: unknown): string {
@@ -140,10 +141,19 @@ function fillMarker(html: string, key: string, value: string): string {
 }
 
 // Render the stored agreement against a set of answers, and build the summary rows shown above it.
-function buildAgreement(agreementHtml: string, answers: { id: string; value: string }[]) {
+function buildAgreement(agreementHtml: string, answers: { id: string; value: string }[], eventDateISO = "") {
   const byId = new Map(answers.map((a) => [a.id, a.value]));
   let html = String(agreementHtml || "");
   const summary: { label: string; value: string }[] = [];
+
+  // The event date is NOT one of the questions: Michael does not want a client to think the date is
+  // theirs to change on this form. It comes off the project, is shown to them read-only, and is
+  // filled into the agreement from here.
+  const prettyEventDate = prettyDate(eventDateISO);
+  if (prettyEventDate) {
+    summary.push({ label: "Event date", value: prettyEventDate });
+    html = fillMarker(html, "event_date", prettyEventDate);
+  }
 
   for (const f of FIELDS) {
     const raw = byId.get(f.id);
@@ -174,7 +184,7 @@ Deno.serve(async (req) => {
 
     const { data: project, error: projErr } = await sb
       .from("projects")
-      .select("id, agreement_html, booking_viewed_at")
+      .select("id, agreement_html, booking_viewed_at, event_date")
       .eq("booking_token", token)
       .maybeSingle();
     if (projErr) return json({ error: "Lookup failed." }, 500);
@@ -196,14 +206,22 @@ Deno.serve(async (req) => {
       .eq("token", token)
       .maybeSingle();
     if (error) return json({ error: "Lookup failed." }, 500);
-    if (!row) return json({ submitted: false, signed: false });
-    if (row.signed_at) return json({ submitted: true, signed: true });
-
-    // Submitted but not signed: hand back the agreement so they land straight on the signing step.
-    if (!project.agreement_html) return json({ submitted: true, signed: false });
+    // The date is stated back to them on every step, so it goes out even before they have submitted.
+    const eventDate = prettyDate(String(project.event_date || ""));
+    if (!row) return json({ submitted: false, signed: false, eventDate });
+    if (row.signed_at) return json({ submitted: true, signed: true, eventDate });
 
     const answers = Array.isArray(row.answers) ? row.answers : [];
-    return json({ submitted: true, signed: false, agreement: buildAgreement(project.agreement_html, answers) });
+    // Their OWN answers, behind their own token, so they can go back and correct something rather
+    // than being cornered into signing a detail they spotted was wrong.
+    if (!project.agreement_html) return json({ submitted: true, signed: false, eventDate, answers });
+    return json({
+      submitted: true,
+      signed: false,
+      eventDate,
+      answers,
+      agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || "")),
+    });
   }
 
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
@@ -225,7 +243,7 @@ Deno.serve(async (req) => {
   // what makes this safe to expose: an unknown token writes nothing.
   const { data: project, error: lookupErr } = await sb
     .from("projects")
-    .select("id, agreement_html")
+    .select("id, agreement_html, event_date")
     .eq("booking_token", token)
     .maybeSingle();
   if (lookupErr) return json({ error: "Lookup failed." }, 500);
@@ -300,5 +318,5 @@ Deno.serve(async (req) => {
   // Hand back the agreement so the page can move straight on to signing. If Michael's CRM never
   // stored one, the answers are still safely saved; the page just thanks them and he follows up.
   if (!project.agreement_html) return json({ ok: true, agreement: null });
-  return json({ ok: true, agreement: buildAgreement(project.agreement_html, answers) });
+  return json({ ok: true, agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || "")) });
 });

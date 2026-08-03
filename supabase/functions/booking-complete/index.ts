@@ -59,19 +59,19 @@ function prettyTime(v: string): string {
 }
 
 const FIELDS: { id: string; label: string; type: string; contractKey?: string }[] = [
-  { id: "event_date", label: "Event date", type: "date", contractKey: "event_date" },
-  { id: "event_location", label: "Event address", type: "textarea", contractKey: "event_location" },
-  { id: "venue_type", label: "What kind of venue is it?", type: "text", contractKey: "venue_type" },
-  { id: "indoors_or_outdoors", label: "Indoors or outdoors?", type: "select", contractKey: "indoors_or_outdoors" },
-  { id: "event_start_time", label: "What time does the event start?", type: "time", contractKey: "event_start_time" },
-  { id: "show_start_time", label: "What time would you like the magic to start?", type: "time", contractKey: "show_start_time" },
-  { id: "number_of_guests", label: "Roughly how many guests?", type: "text" },
-  { id: "age_of_guests", label: "Rough ages of the guests", type: "text" },
-  { id: "vips", label: "Anyone special I should know about?", type: "textarea" },
-  { id: "av", label: "Is there a sound system or microphone available?", type: "text" },
-  { id: "invoice_to", label: "Who should the invoice be addressed to?", type: "text" },
-  { id: "invoice_email", label: "Which email should the invoice go to?", type: "email" },
-  { id: "notes", label: "Anything else I should know?", type: "textarea" },
+  { id: "event_summary", label: "Basic description of the event", type: "textarea" },
+  { id: "event_start_time", label: "Event start time", type: "time", contractKey: "event_start_time" },
+  { id: "show_start_time", label: "Show start time", type: "time", contractKey: "show_start_time" },
+  { id: "av", label: "For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?", type: "textarea" },
+  { id: "number_of_guests", label: "Number of guests", type: "text" },
+  { id: "venue_address", label: "Venue address", type: "textarea", contractKey: "event_location" },
+  { id: "venue_type", label: "Venue type", type: "text", contractKey: "venue_type" },
+  { id: "indoors_or_outdoors", label: "Indoor or outdoor", type: "select", contractKey: "indoors_or_outdoors" },
+  { id: "age_of_guests", label: "Ages of the guests", type: "text" },
+  { id: "vips", label: "Any VIPs that Michael should give special attention to?", type: "textarea" },
+  { id: "invoice_to", label: "What name should be on the invoice?", type: "text" },
+  { id: "unforgettable", label: "How can Michael make your event unforgettable?", type: "textarea" },
+  { id: "notes", label: "Any other details Michael should know about the event?", type: "textarea" },
 ];
 
 const displayValue = (type: string, raw: unknown) => {
@@ -90,10 +90,16 @@ function fillMarker(html: string, key: string, value: string): string {
   return html.replace(re, () => out);
 }
 
-function buildAgreement(agreementHtml: string, answers: { id: string; value: string }[]) {
+function buildAgreement(agreementHtml: string, answers: { id: string; value: string }[], eventDateISO = "") {
   const byId = new Map(answers.map((a) => [a.id, a.value]));
   let html = String(agreementHtml || "");
   const summary: { label: string; value: string }[] = [];
+  // The event date is not one of the questions; it comes off the project.
+  const prettyEventDate = prettyDate(eventDateISO);
+  if (prettyEventDate) {
+    summary.push({ label: "Event date", value: prettyEventDate });
+    html = fillMarker(html, "event_date", prettyEventDate);
+  }
   for (const f of FIELDS) {
     const shown = displayValue(f.type, byId.get(f.id));
     if (!shown) continue;
@@ -141,20 +147,55 @@ async function gmailAccessToken(sb: SupabaseClient): Promise<{ token: string; se
   return { token: tok.access_token, sender: cfg.sender || "me" };
 }
 
+// Find the last message in a Gmail thread and read the headers a reply needs.
+//
+// Passing threadId alone is NOT enough to thread a reply: Gmail groups on In-Reply-To / References,
+// and without them the message lands in the thread server-side but shows as a stray in most clients.
+// So the original Message-ID is fetched and quoted back.
+async function replyHeaders(token: string, threadId: string): Promise<{ inReplyTo: string; references: string; subject: string } | null> {
+  if (!threadId) return null;
+  try {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Subject`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return null;
+    const thread = await res.json();
+    const msgs = thread?.messages || [];
+    if (!msgs.length) return null;
+    const last = msgs[msgs.length - 1];
+    const head = (n: string) =>
+      (last.payload?.headers || []).find((h: any) => String(h.name).toLowerCase() === n.toLowerCase())?.value || "";
+    const id = head("Message-ID");
+    if (!id) return null;
+    const prior = head("References");
+    return { inReplyTo: id, references: (prior ? prior + " " : "") + id, subject: head("Subject") };
+  } catch {
+    return null; // a fresh thread is a far better outcome than a failed send
+  }
+}
+
 async function sendWithAttachment(sb: SupabaseClient, opts: {
   to: string;
   subject: string;
   html: string;
   filename: string;
   pdf: Uint8Array;
+  threadId?: string;
 }) {
   const { token, sender } = await gmailAccessToken(sb);
   const boundary = `b${crypto.randomUUID().replace(/-/g, "")}`;
   const safeName = opts.filename.replace(/["\r\n]/g, "_");
+  const reply = opts.threadId ? await replyHeaders(token, opts.threadId) : null;
+  // Keep the original subject so the client's mail app groups it, prefixing Re: once.
+  const subject = reply?.subject
+    ? (/^re:/i.test(reply.subject) ? reply.subject : `Re: ${reply.subject}`)
+    : opts.subject;
   const raw = [
     `From: ${sender}`,
     `To: ${opts.to}`,
-    `Subject: =?UTF-8?B?${b64Text(opts.subject)}?=`,
+    `Subject: =?UTF-8?B?${b64Text(subject)}?=`,
+    ...(reply ? [`In-Reply-To: ${reply.inReplyTo}`, `References: ${reply.references}`] : []),
     "MIME-Version: 1.0",
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
@@ -176,7 +217,36 @@ async function sendWithAttachment(sb: SupabaseClient, opts: {
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ raw: b64url(raw) }),
+    body: JSON.stringify(reply && opts.threadId ? { raw: b64url(raw), threadId: opts.threadId } : { raw: b64url(raw) }),
+  });
+  const out = await res.json();
+  if (!res.ok) throw new Error(`Gmail rejected the send: ${out?.error?.message || res.status}`);
+  return out;
+}
+
+// Same as sendWithAttachment, without the attachment. Used for the booking confirmation.
+async function sendPlain(sb: SupabaseClient, opts: { to: string; subject: string; html: string; threadId?: string }) {
+  const { token, sender } = await gmailAccessToken(sb);
+  const reply = opts.threadId ? await replyHeaders(token, opts.threadId) : null;
+  const subject = reply?.subject
+    ? (/^re:/i.test(reply.subject) ? reply.subject : `Re: ${reply.subject}`)
+    : opts.subject;
+  const raw = [
+    `From: ${sender}`,
+    `To: ${opts.to}`,
+    `Subject: =?UTF-8?B?${b64Text(subject)}?=`,
+    ...(reply ? [`In-Reply-To: ${reply.inReplyTo}`, `References: ${reply.references}`] : []),
+    "MIME-Version: 1.0",
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    wrap76(b64Text(opts.html)),
+    "",
+  ].join("\r\n");
+  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(reply && opts.threadId ? { raw: b64url(raw), threadId: opts.threadId } : { raw: b64url(raw) }),
   });
   const out = await res.json();
   if (!res.ok) throw new Error(`Gmail rejected the send: ${out?.error?.message || res.status}`);
@@ -281,14 +351,14 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
 
   const { data: project, error: projErr } = await sb
     .from("projects")
-    .select("id, client_name, project_name, agreement_html, total_fee, contact_emails, activity_log")
+    .select("id, client_name, project_name, agreement_html, total_fee, contact_emails, activity_log, event_date, booking_thread_id")
     .eq("id", projectId)
     .maybeSingle();
   if (projErr || !project) throw new Error("Project not found.");
   if (!project.agreement_html) throw new Error("No agreement was published for this project.");
 
   const answers = Array.isArray(row.answers) ? row.answers : [];
-  const built = buildAgreement(project.agreement_html, answers);
+  const built = buildAgreement(project.agreement_html, answers, String(project.event_date || ""));
   const clientName = String(project.project_name || project.client_name || "Client");
   const byId = new Map(answers.map((a: any) => [a.id, a.value]));
 
@@ -318,15 +388,19 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
         const first = clientName.trim().split(/\s+/)[0] || "there";
         await sendWithAttachment(sb, {
           to: clientEmail,
-          subject: "Your signed agreement",
+          subject: "Your Signed Agreement",
           filename: `Agreement - ${clientName.replace(/[^\w.-]+/g, "-")} (signed).pdf`,
           pdf,
+          // REPLY into the thread the booking-form email opened, rather than starting a new one.
+          // Michael's rule: "i want to make things easier for them and not send a thousand separate
+          // email threads to their inbox".
+          threadId: String(project.booking_thread_id || ""),
           html: [
             `<p>Hi ${escapeHtml(first)},</p>`,
-            "<p>You're on the books. Thanks for getting all that over to me.</p>",
-            "<p>Attached is a copy of the agreement you just signed, for your records. The first page is the event details you gave me, so hang on to it and let me know if anything changes between now and the day.</p>",
-            "<p>I'll send the invoice separately.</p>",
-            "<p>Looking forward to it!<br>Michael</p>",
+            "<p>I just received the booking form and signature.</p>",
+            "<p>Attached is a copy of the agreement you just signed, for your records. The first page is a copy of the event details you gave me, so hang on to it and let me know if anything changes between now and the day.</p>",
+            "<p>The invoice should be arriving in a separate email shortly. Let me know if it doesn't come through. <u>Once that invoice goes through, you'll be finalized in my calendar!</u></p>",
+            "<p>Thanks again!<br>Michael</p>",
           ].join(""),
         });
         out.emailed = true;
@@ -428,6 +502,72 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
   return out;
 }
 
+// Ask QuickBooks whether any outstanding invoice has been settled, and if so tell the client they
+// are booked in.
+//
+// This ran only on Michael's Mac before, which is no good for the thing he actually wants: to be
+// asleep while it happens. The confirmation replies into the BOOKING thread rather than the invoice
+// one, because QuickBooks sends the invoice and we have no thread of our own to reply into. He still
+// ends up with four emails across two conversations: his, and QuickBooks'.
+async function checkPaidAndConfirm(sb: SupabaseClient): Promise<{ paid: number; confirmed: number }> {
+  const out = { paid: 0, confirmed: 0 };
+  const { data: rows } = await sb.from("invoices").select("project_id, data");
+  const outstanding = (rows || []).filter((r: any) => r.data?.invoiceId && r.data?.sentAt && !r.data?.confirmSentAt);
+  if (!outstanding.length) return out;
+
+  let call: any = null;
+  try {
+    ({ call } = await qbClient(sb));
+  } catch {
+    return out; // QuickBooks unreachable; try again next minute
+  }
+
+  for (const row of outstanding) {
+    try {
+      const ref = { ...(row.data as any) };
+      if (!ref.paidAt) {
+        const inv = (await call(`/invoice/${ref.invoiceId}`))?.Invoice;
+        const balance = Number(inv?.Balance);
+        if (!Number.isFinite(balance) || balance > 0) continue;
+        ref.balance = 0;
+        ref.paidAt = new Date().toISOString();
+        out.paid += 1;
+      }
+      const { data: project } = await sb
+        .from("projects")
+        .select("id, client_name, project_name, contact_emails, contact_names, activity_log, booking_thread_id")
+        .eq("id", row.project_id)
+        .maybeSingle();
+      const to = String(project?.contact_emails || "").split(/[,;]/)[0].trim();
+      if (project && to) {
+        const who = String(project.contact_names || "").split(/[,;]/)[0].trim() ||
+          String(project.project_name || project.client_name || "");
+        const first = who.trim().split(/\s+/)[0] || "there";
+        await sendPlain(sb, {
+          to,
+          subject: "Booking Confirmation",
+          threadId: String(project.booking_thread_id || ""),
+          html: [
+            '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222">',
+            `<p style="margin:0 0 14px">Hi ${escapeHtml(first)},</p>`,
+            "<p style=\"margin:0 0 14px\">I'm just letting you know that the signature and deposit went through which means that you are booked in my calendar and everything is good to go!</p>",
+            "<p style=\"margin:0 0 14px\">I'll keep in touch as the date gets closer, but please don't hesitate to reach out if you have any questions.</p>",
+            "<p style=\"margin:0 0 14px\">Thanks again, I'm looking forward to it!<br>Michael</p>",
+            "</div>",
+          ].join(""),
+        });
+        ref.confirmSentAt = new Date().toISOString();
+        out.confirmed += 1;
+        await logActivity(sb, project, "Invoice paid in full. Booking confirmation sent.");
+      }
+      await sb.from("invoices").update({ data: ref }).eq("project_id", row.project_id);
+    } catch (e) {
+      console.error(`[booking-complete] paid check failed for ${row.project_id}:`, String((e as Error)?.message ?? e));
+    }
+  }
+  return out;
+}
+
 // Prepend a dated line to the project's activity log, matching the CRM's own format.
 async function logActivity(sb: SupabaseClient, project: any, line: string) {
   try {
@@ -479,7 +619,7 @@ Deno.serve(async (req) => {
 
     const { data: project } = await sb
       .from("projects")
-      .select("id, client_name, project_name, agreement_html")
+      .select("id, client_name, project_name, agreement_html, event_date")
       .eq("id", projectId)
       .maybeSingle();
     if (!project?.agreement_html) return json({ error: "No agreement has been published for this project." }, 404);
@@ -491,7 +631,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     const answers = Array.isArray(row?.answers) ? row!.answers : [];
-    const built = buildAgreement(project.agreement_html, answers);
+    const built = buildAgreement(project.agreement_html, answers, String(project.event_date || ""));
     const clientName = String(project.project_name || project.client_name || "Client");
     const sig: Signature | null = row?.signed_at
       ? { name: row.signed_name || "", date: row.signed_date || "", signedAt: row.signed_at, ip: row.signer_ip || "" }
@@ -520,7 +660,10 @@ Deno.serve(async (req) => {
     .lt("complete_attempts", MAX_ATTEMPTS)
     .limit(10);
   if (error) return json({ error: error.message }, 500);
-  if (!rows || !rows.length) return json({ ok: true, checked: 0, emailed: 0, invoiced: 0 });
+  if (!rows || !rows.length) {
+    const only = await checkPaidAndConfirm(sb);
+    return json({ ok: true, checked: 0, emailed: 0, invoiced: 0, ...only });
+  }
 
   let emailed = 0;
   let invoiced = 0;
@@ -542,5 +685,6 @@ Deno.serve(async (req) => {
       console.error(`[booking-complete] ${row.project_id}: ${msg}`);
     }
   }
-  return json({ ok: true, checked: rows.length, emailed, invoiced, errors });
+  const paidResult = await checkPaidAndConfirm(sb);
+  return json({ ok: true, checked: rows.length, emailed, invoiced, ...paidResult, errors });
 });

@@ -62,23 +62,35 @@ check('page questions match the CRM field list exactly (and in order)', pageIds,
 
 check('renders every question', document.querySelectorAll('#bk-fields .bk-field').length, BOOKING_FIELDS.length)
 check('the form view is showing', document.getElementById('bk-form-view').style.display !== 'none', true)
-check('required questions are starred', document.querySelectorAll('#bk-fields .bk-req').length, 9)
+const requiredCount = BOOKING_FIELDS.filter((f) => f.required).length
+check('required questions are starred', document.querySelectorAll('#bk-fields .bk-req').length, requiredCount)
 check('indoors/outdoors is a dropdown with 3 options + placeholder', document.getElementById('indoors_or_outdoors').options.length, 4)
-check('date field is a real date input', document.getElementById('event_date').type, 'date')
-check('invoice email is an email input', document.getElementById('invoice_email').type, 'email')
+
+// The event date is deliberately NOT a question. Michael does not want a client to think the date is
+// theirs to change here, so it is stated back to them read-only above the form.
+check('event date is NOT one of the questions', document.getElementById('event_date'), null)
+check('event date has a read-only box instead', !!document.getElementById('bk-eventdate'), true)
+check('that box is hidden until the server supplies a date', document.getElementById('bk-eventdate').hidden, true)
+
+// The form no longer asks for an invoice EMAIL, only a name, and the name is optional.
+check('no invoice email question', document.getElementById('invoice_email'), null)
+check('invoice name is optional', BOOKING_FIELDS.find((f) => f.id === 'invoice_to').required, false)
+
+// They can back out of signing to fix a detail.
+check('the signing step has a back button', !!document.getElementById('bk-back'), true)
 
 // Submit empty: should block and flag every required field.
 document.getElementById('bk-form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
 check('empty submit is blocked (nothing posted)', posted, null)
-check('every required field is flagged invalid', document.querySelectorAll('#bk-fields .bk-field.bk-invalid').length, 9)
+check('every required field is flagged invalid', document.querySelectorAll('#bk-fields .bk-field.bk-invalid').length, requiredCount)
 
 // Fill it in properly.
 const vals = {
-  event_date: '2026-11-14', event_location: '807 E Main St, Durham NC', venue_type: 'Event venue',
-  indoors_or_outdoors: 'Indoors', event_start_time: '18:00', show_start_time: '19:30',
-  number_of_guests: '80', age_of_guests: 'adults', vips: 'Denise, 70th',
-  av: 'house sound', invoice_to: 'Cave Family Holdings LLC', invoice_email: 'ap@example.com',
-  notes: 'parking is tight',
+  event_summary: 'A 70th birthday party in a private dining room', venue_address: '807 E Main St, Durham NC',
+  venue_type: 'Event venue', indoors_or_outdoors: 'Indoors', event_start_time: '18:00',
+  show_start_time: '19:30', number_of_guests: '80', age_of_guests: 'adults', vips: 'Denise, 70th',
+  av: 'house sound', invoice_to: 'Cave Family Holdings LLC',
+  unforgettable: 'She loves card tricks', notes: 'parking is tight',
 }
 for (const [k, v] of Object.entries(vals)) document.getElementById(k).value = v
 document.getElementById('bk-form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }))
