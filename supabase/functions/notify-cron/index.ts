@@ -1,19 +1,19 @@
 // notify-cron: always-on Magic CRM notifications in the cloud.
 //
-// This Supabase Edge Function fires task alarms and new-inquiry alerts even when Michael's Mac is
-// OFF. A pg_cron job (see supabase/notify-cron-setup.sql) POSTs here every minute with a shared
-// secret. On each run it:
+// This Supabase Edge Function fires task alarms even when Michael's Mac is OFF. A pg_cron job (see
+// supabase/notify-cron-setup.sql) POSTs here every minute with a shared secret. On each run it:
 //   1. TASK ALARMS: finds active-bucket, not-done, not-yet-notified tasks whose alarm instant
 //      (America/New_York) has passed, inserts a `task-due` notification, web-pushes the phone, and
 //      stamps notified_at so it never re-fires.
-//   2. NEW-INQUIRY: reads the public inquiry blob and, for any inquiry with no `new-inquiry`
-//      notification yet, sends a distinct high-urgency push and records the notification. The Mac's
-//      importer dedups on the same (kind, source_id), so this never double-alerts, and the Mac still
-//      creates the real project when it next runs.
+//
+// It used to have a second job that polled a public Vercel Blob file for website inquiries and
+// raised new-inquiry alerts. Removed 2026-08-03: the `inquiry` edge function now creates the
+// project, emails Michael and fires its own push itself, server-side, the instant the form is
+// submitted. Task alarms are the only thing this function does now.
 //
 // It mirrors crm-webpush.mjs (Node `web-push`) using @negrel/webpush (Deno-native, RFC 8291
 // aes128gcm), reads every row of push_subscriptions with the service key, and prunes dead endpoints
-// on a 404/410. All config (VAPID keys, blob URL, app URL, cron secret) lives in the service-role-only
+// on a 404/410. All config (VAPID keys, app URL, cron secret) lives in the service-role-only
 // `push_config` table so no edge-function secrets are needed.
 //
 // Deno / TypeScript. Deployed via the Supabase connector; do NOT expect Node APIs here.
@@ -28,7 +28,6 @@ interface PushConfig {
   vapid_public: string;
   vapid_private: string;
   vapid_subject: string;
-  inquiry_blob_url: string;
   app_url: string;
   cron_secret: string;
 }
@@ -49,19 +48,6 @@ interface PushPayload {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-
-// slug(client_name): lowercase, runs of non-alphanumerics -> single hyphen, trimmed. Matches
-// crm-data-core.mjs slugify() so a new-inquiry notification's project_id lines up with the project
-// the Mac will create. NFKD-normalize first (same as the app) so accented names collapse identically.
-function slugify(name: unknown): string {
-  return (
-    String(name ?? "")
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "project"
-  );
-}
 
 // notifications.id is a text column with no default, so we mint an id in the same shape the Mac uses
 // (crm-notifications.mjs newId): 'n' + base36 time + 4 random base36 chars.
@@ -229,7 +215,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // 2. Load config from the service-role-only push_config table (single row id=1).
   const { data: cfgRow, error: cfgErr } = await sb
     .from("push_config")
-    .select("vapid_public,vapid_private,vapid_subject,inquiry_blob_url,app_url,cron_secret")
+    .select("vapid_public,vapid_private,vapid_subject,app_url,cron_secret")
     .eq("id", 1)
     .single();
   if (cfgErr || !cfgRow) {
@@ -287,7 +273,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   let tasksFired = 0;
-  let inquiriesFired = 0;
   let pushed = 0;
   let pruned = 0;
 
@@ -379,68 +364,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.error("[notify-cron] task alarms failed:", String((e as Error)?.message ?? e));
   }
 
-  // -------------------------------------------------------------------------
-  // 4. NEW-INQUIRY
-  // -------------------------------------------------------------------------
-  try {
-    let list: Array<Record<string, unknown>> = [];
-    if (cfg.inquiry_blob_url) {
-      const res = await fetch(cfg.inquiry_blob_url, { cache: "no-store" });
-      if (res.ok) {
-        const d = await res.json();
-        list = Array.isArray(d) ? d : Array.isArray(d?.inquiries) ? d.inquiries : [];
-      }
-    }
-    for (const inq of list) {
-      const id = inq && inq.id != null ? String(inq.id) : "";
-      if (!id) continue;
-      const name = String(inq.name ?? "").trim();
-      const email = String(inq.email ?? "").trim();
-      const lead = name || email;
+  // (The NEW-INQUIRY section was removed 2026-08-03. The website used to POST to a Vercel relay
+  // that appended to a public Blob file, which this polled. The site now posts straight to the
+  // `inquiry` edge function, which creates the project, emails Michael and fires its own push
+  // server-side. This block had been reading a blob that no longer received anything, and its
+  // Vercel project has since been deleted.)
 
-      // Skip if a new-inquiry notification already exists for this inquiry id (source_id). This is
-      // what makes it fire once per inquiry, and it dedups against the Mac's importer too.
-      const { data: existing } = await sb
-        .from("notifications")
-        .select("id")
-        .eq("kind", "new-inquiry")
-        .eq("source_id", id)
-        .limit(1);
-      if (existing && existing.length > 0) continue;
-
-      // Distinct, high-urgency alert (mirrors crm-push.mjs new-inquiry copy).
-      const count = (await unseenCount()) + 1; // include the one we're about to add
-      const r = await pushAll(
-        appServer,
-        subs,
-        {
-          title: "New inquiry!",
-          body: lead ? `New website inquiry from ${lead}.` : "A new inquiry just came in through the website.",
-          url: cfg.app_url,
-          tag: "new-inquiry",
-          count,
-        },
-        pruneSubs,
-      );
-      pushed += r.pushed;
-      pruned += r.pruned;
-
-      // Record the notification: project_id = slug(lead name) so it lines up with the project the Mac
-      // will create; source_id = inquiry id.
-      await sb.from("notifications").insert({
-        id: newNotificationId(),
-        project_id: slugify(lead),
-        kind: "new-inquiry",
-        source_id: id,
-        seen: false,
-        created_at: new Date().toISOString(),
-      });
-      inquiriesFired++;
-    }
-  } catch (e) {
-    console.error("[notify-cron] new-inquiry failed:", String((e as Error)?.message ?? e));
-  }
-
-  // 6. Summary.
-  return json({ tasksFired, inquiriesFired, pushed, pruned });
+  // Summary.
+  return json({ tasksFired, pushed, pruned });
 });

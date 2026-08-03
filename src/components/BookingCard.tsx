@@ -5,6 +5,7 @@ import {
   loadBookingStatus,
   readyToBook,
   pullBookingSubmission,
+  resendAgreement,
   bookingAgreementPdfUrl,
   sendQbInvoice,
   loadQuickBooks,
@@ -20,11 +21,16 @@ import {
 //
 //   1. Ready to book   -> issues the form link and leaves a ready-to-send draft in Gmail.
 //   2. Waiting         -> the link is out; check whether they've filled it in.
-//   3. They submitted  -> See response, the agreement, and Send invoice all unlock.
+//   3. They submitted  -> the agreement is AUTO-SENT to them; See response and Send invoice unlock.
+//
+// Step 1 is blocked while the performance style is blank. That field fills the Services clause of
+// the agreement, and since the agreement now goes out by itself the moment they submit, this is the
+// last point at which a human would catch it missing.
 //
 // Send invoice is deliberately DISABLED until the form comes back, because the invoice is addressed
 // to whoever they named on it and priced off the booking fee. Enabling it earlier would just invite
-// sending an invoice made of guesses.
+// sending an invoice made of guesses. It stays MANUAL even after the agreement goes: a filled-in PDF
+// on the client's laptop cannot tell us it was signed, so Michael watches for it coming back himself.
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso)
@@ -47,6 +53,10 @@ export function BookingCard({ project }: { project: Project }) {
   useEffect(refresh, [project.id])
 
   const submitted = !!booking?.submission
+  // The agreement's Services clause is built from this. Blank means the contract would go out
+  // reading "[Performance scope]", so the form can't leave until it's set.
+  const styleSet = !!String(project.performanceStyle || '').trim()
+  const agreementSent = !!booking?.agreementSentAt
 
   const doReady = async () => {
     setBusy(true)
@@ -68,9 +78,26 @@ export function BookingCard({ project }: { project: Project }) {
     try {
       const r = await pullBookingSubmission(project.id)
       if (!r.ok) setNote(r.error || 'Could not check for a submission.')
+      else if (!r.submission && !r.fresh) setNote('Nothing back from them yet.')
+      else if (r.agreementError) setNote(`Their details came in, but the agreement did not send: ${r.agreementError}`)
+      else if (r.agreementSent) setNote(`Their details came in and the agreement is on its way to ${r.agreementTo}.`)
       else if (r.fresh) setNote(`Their details came in. Filled: ${(r.filledFields || []).join(', ')}.`)
-      else setNote('Nothing back from them yet.')
+      else setNote('Nothing new. The agreement already went out.')
       refresh()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doResend = async () => {
+    setBusy(true)
+    setNote(null)
+    try {
+      const r = await resendAgreement(project.id)
+      setNote(`A fresh copy of the agreement is on its way to ${r.to}.`)
+      refresh()
+    } catch (e) {
+      setNote(String(e instanceof Error ? e.message : e))
     } finally {
       setBusy(false)
     }
@@ -99,27 +126,46 @@ export function BookingCard({ project }: { project: Project }) {
     <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.35)]">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] font-medium text-parchment">Booking</p>
-        {submitted && (
+        {agreementSent ? (
           <span
             className="rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]"
             style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
           >
+            Agreement sent
+          </span>
+        ) : submitted ? (
+          <span
+            className="rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]"
+            style={{ color: 'var(--color-umb-postcall)', backgroundColor: 'color-mix(in oklab, var(--color-umb-postcall) 16%, transparent)' }}
+          >
             Details in
           </span>
-        )}
+        ) : null}
       </div>
 
       <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
-        {submitted
-          ? `They sent their details${booking?.submission ? '' : ''}. The agreement is ready, and the invoice can go out once they've signed.`
-          : booking?.sentAt
-            ? `Form sent ${fmtWhen(booking.sentAt)}. Waiting on their details.`
-            : 'Send the client the booking form to collect the event details.'}
+        {booking?.agreementError
+          ? `Their details came in, but the agreement could not be sent: ${booking.agreementError}`
+          : agreementSent
+            ? `Agreement emailed ${fmtWhen(booking!.agreementSentAt)}. Send the invoice once they email the signed PDF back.`
+            : submitted
+              ? 'Their details came in. The agreement is being sent.'
+              : booking?.sentAt
+                ? `Form sent ${fmtWhen(booking.sentAt)}. Waiting on their details, then the agreement goes out automatically.`
+                : !styleSet
+                  ? 'Set the performance style in Event details first. It fills the Services clause of the agreement, which sends automatically once they reply.'
+                  : 'Send the client the booking form. Once they submit it, the agreement is emailed to them automatically.'}
       </p>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {!submitted && (
-          <button type="button" disabled={busy} onClick={doReady} className={primary}>
+          <button
+            type="button"
+            disabled={busy || !styleSet}
+            onClick={doReady}
+            title={styleSet ? '' : 'Add a performance style in Event details before sending the booking form'}
+            className={primary}
+          >
             {busy ? 'Working…' : booking?.sentAt ? 'Resend booking form' : 'Ready to book'}
           </button>
         )}
@@ -135,6 +181,21 @@ export function BookingCard({ project }: { project: Project }) {
             className={primary}
           >
             Agreement PDF
+          </button>
+        )}
+        {submitted && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={doResend}
+            title={
+              agreementSent
+                ? 'Send a corrected copy, after fixing a detail on the project'
+                : 'Send the agreement now instead of waiting for the next check'
+            }
+            className={secondary}
+          >
+            {busy ? 'Sending…' : agreementSent ? 'Resend agreement' : 'Send agreement now'}
           </button>
         )}
         <button

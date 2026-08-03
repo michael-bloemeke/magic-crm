@@ -23,7 +23,6 @@ create table if not exists public.push_config (
   vapid_public      text not null,
   vapid_private     text not null,
   vapid_subject     text not null,
-  inquiry_blob_url  text not null,
   app_url           text not null,
   cron_secret       text not null,
   constraint push_config_singleton check (id = 1)
@@ -35,17 +34,15 @@ alter table public.push_config enable row level security;
 
 -- Populate / refresh the single row. Values:
 --   vapid_public / vapid_private / vapid_subject : from push-vapid.json (base64url, standard web-push)
---   inquiry_blob_url : the public Vercel blob the website relay writes
 --   app_url          : the phone PWA (web-push tap target)
 --   cron_secret      : freshly generated 32-byte base64url shared secret (see report)
 insert into public.push_config
-  (id, vapid_public, vapid_private, vapid_subject, inquiry_blob_url, app_url, cron_secret)
+  (id, vapid_public, vapid_private, vapid_subject, app_url, cron_secret)
 values (
   1,
   'BJ-kKbuNb4748FiB5n4x2Y9f2B89QuyRMvxFt66iovJOG2xO1ADGCNA3srgky4UbZiISFrpquq5ae6AjWB86eoI',
   'vTs75YS-_XLKB8XA9xVHnAEdVdg5kJw5IK3eAxlB-ZU',
   'mailto:mchlbloemeke@gmail.com',
-  'https://mtrjlkb3ogplcpdc.public.blob.vercel-storage.com/inquiries.json',
   'https://mobile-blond-alpha.vercel.app',
   'ZFZBYcg4Lk-vH-2HV1-NoDKsXB-iHC4SOhloN09P8-g'
 )
@@ -53,7 +50,6 @@ on conflict (id) do update set
   vapid_public     = excluded.vapid_public,
   vapid_private    = excluded.vapid_private,
   vapid_subject    = excluded.vapid_subject,
-  inquiry_blob_url = excluded.inquiry_blob_url,
   app_url          = excluded.app_url,
   cron_secret      = excluded.cron_secret;
 

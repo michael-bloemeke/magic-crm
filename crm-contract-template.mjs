@@ -168,14 +168,24 @@ function sectionHtml(sec) {
 // numbers; numbering is applied at build/generate time.
 // --- Booking-form variant (added 2026-08-02) --------------------------------
 // The agreement that goes out AFTER the client fills in the booking form. Its page 1 is a read-only
-// summary of everything they just told us, so the agreement itself must NOT re-list those facts.
-// The Event section collapses to a single accuracy line, and Services drops the scope span (the
-// summary page carries it). The Booking Fee stays: that is Michael's number, never asked on the
-// form, so it has to be stated here.
+// summary of everything they just told us, so the agreement itself does not re-list all of it.
+//
+// It DOES restate the handful of facts the agreement actually operates on, because a contract has to
+// stand up on its own: someone reading only the agreement pages should be able to see what was
+// booked. So the Event section carries the date, place and times; the Services clause carries the
+// performance scope; and Compensation carries the fee. Everything else (guest count, ages, VIPs, A/V,
+// venue notes) stays on the summary page and is bound in by the accuracy line below.
+//
+// The Booking Fee is Michael's number and is never asked on the form, so it only exists here.
 const BOOKING_EVENT_SECTION = {
   key: 'event',
   title: 'Event',
-  body: `The event details set out on the previous page are accurate and form part of this Agreement.`,
+  body: `This Agreement covers the following event:
+• Date: {{event_date}}
+• Location: {{event_location}}
+• Event start time: {{event_start_time}}
+• Performance start time: {{show_start_time}}
+The remaining event details set out on the previous page are accurate and form part of this Agreement.`,
 }
 
 export function bookingTemplateHtml() {

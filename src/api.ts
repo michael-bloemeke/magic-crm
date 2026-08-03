@@ -638,6 +638,10 @@ export type BookingStatus = {
   submission: { submittedAt: string; answers: { id: string; value: string }[] } | null
   summary: { label: string; value: string }[]
   invoiceTo: { name: string; email: string }
+  // Set once the agreement PDF has been emailed to the client automatically.
+  agreementSentAt: string
+  // Why the last automatic send failed, if it did. Cleared on a successful send.
+  agreementError: string
 }
 
 export async function loadBookingStatus(projectId: string): Promise<BookingStatus | null> {
@@ -651,13 +655,29 @@ export async function createBookingLink(projectId: string): Promise<BookingStatu
   return postJsonStrict('/api/booking/link', { projectId }, 'Could not create the booking link')
 }
 
-// Check the form store for the client's submission and apply it to the project.
-export async function pullBookingSubmission(projectId: string): Promise<{ ok: boolean; fresh?: boolean; error?: string; filledFields?: string[] }> {
+// Check the form store for the client's submission and apply it to the project. If the submission is
+// there, this also mails the agreement (the server does it inline rather than leaving it to the
+// 2-minute sweep, since pressing the button means Michael is waiting on the answer).
+export async function pullBookingSubmission(projectId: string): Promise<{
+  ok: boolean
+  fresh?: boolean
+  error?: string
+  filledFields?: string[]
+  submission?: { submittedAt: string; answers: { id: string; value: string }[] } | null
+  agreementSent?: boolean
+  agreementTo?: string
+  agreementError?: string
+}> {
   try {
     return await postJsonStrict('/api/booking/pull', { projectId }, 'Could not check for answers')
   } catch (e) {
     return { ok: false, error: String(e instanceof Error ? e.message : e) }
   }
+}
+
+// Send the agreement again, after correcting something. Only path that sends a second copy.
+export async function resendAgreement(projectId: string): Promise<{ ok: boolean; to?: string; fileName?: string }> {
+  return postJsonStrict('/api/booking/resend-agreement', { projectId }, 'Could not resend the agreement')
 }
 
 // POST a JSON call and INSIST on a JSON reply.

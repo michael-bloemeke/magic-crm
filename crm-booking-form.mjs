@@ -113,11 +113,40 @@ export function bookingFormLink(projectId) {
   const d = readFile()
   let rec = d.forms[projectId]
   if (!rec) {
-    rec = { token: newToken(), createdAt: new Date().toISOString(), sentAt: '', submission: null }
+    rec = { token: newToken(), createdAt: new Date().toISOString(), sentAt: '', submission: null, agreementSentAt: '' }
     d.forms[projectId] = rec
     writeFile(d)
   }
-  return { token: rec.token, url: `${FORM_BASE}/book/?t=${rec.token}`, sentAt: rec.sentAt, submission: rec.submission }
+  return {
+    token: rec.token,
+    url: `${FORM_BASE}/book/?t=${rec.token}`,
+    sentAt: rec.sentAt,
+    submission: rec.submission,
+    // Stamped once the agreement PDF has gone out. Also the double-send guard: the auto-sender
+    // skips any project that already has this, so a re-poll can never mail a second copy.
+    agreementSentAt: rec.agreementSentAt || '',
+    agreementError: rec.agreementError || '',
+  }
+}
+
+// Record that the agreement PDF was emailed. Clears any previous failure note.
+export function markAgreementSent(projectId) {
+  const d = readFile()
+  const rec = d.forms[projectId]
+  if (!rec) return
+  rec.agreementSentAt = new Date().toISOString()
+  rec.agreementError = ''
+  writeFile(d)
+}
+
+// Record that the auto-send FAILED, so the card can say so instead of looking like nothing happened.
+// Deliberately does NOT set agreementSentAt, so the next sweep retries.
+export function markAgreementError(projectId, message) {
+  const d = readFile()
+  const rec = d.forms[projectId]
+  if (!rec) return
+  rec.agreementError = String(message || '').slice(0, 300)
+  writeFile(d)
 }
 
 // Stamp the token onto the project row. The edge function checks incoming tokens against this, so
@@ -309,6 +338,18 @@ export function invoiceTarget(projectId) {
 // Draft (never send) the email that carries the booking-form link. Michael reviews and sends it
 // himself from Gmail, which is both his own standing rule and where he now writes everything.
 export async function draftBookingEmail(projectId, { createDraft, project }) {
+  // GATE: the performance style has to be set before the form goes out.
+  //
+  // It is the one contract fact the client is never asked for (it is what Michael sold them, not
+  // something they choose), and it fills the Services clause. Because the agreement is now built and
+  // mailed automatically the moment they submit, there is no human step left in which to notice it
+  // is missing. Left blank, the client would receive a contract whose scope of work literally reads
+  // "[Performance scope]". So it is blocked here, at the last point Michael is still in the loop.
+  if (!String(project.performanceStyle || '').trim()) {
+    throw new Error(
+      'Set the performance style in Event details first. It fills the Services clause of the agreement, and the agreement goes out automatically once they submit the form.',
+    )
+  }
   await registerToken(projectId)
   const link = bookingFormLink(projectId)
   const to = String(project.contactEmails || '').split(/[,;]/)[0].trim()

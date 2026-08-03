@@ -38,6 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail } from './crm-booking-form.mjs'
+import { autoSendPending, sendAgreement } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -208,11 +209,36 @@ export function crmDataPlugin() {
       const syncCal = () => { syncCalendarAll().catch(() => {}) }
       const t5 = setTimeout(syncCal, 20_000)
       const t6 = setInterval(syncCal, 5 * 60 * 1000)
+      // Watch for returned booking forms and mail the agreement out on its own. Every 2 minutes:
+      // fast enough that a client submitting the form has their contract within a couple of minutes,
+      // slow enough to be nothing traffic-wise. Costs ZERO database calls when no project is waiting
+      // on an agreement, which is almost always. Non-overlapping, so a slow PDF render or a hung
+      // Gmail call skips the next tick instead of stacking sends on top of each other.
+      //
+      // This only runs while the Mac is up. The PDF is rendered by pdfmake using macOS system fonts,
+      // so it cannot move to an edge function without rewriting the renderer. If a client books while
+      // Michael is out, their agreement goes the next time the CRM is running.
+      let autoSending = false
+      const sweepBooking = async () => {
+        if (autoSending) return
+        autoSending = true
+        try {
+          await autoSendPending()
+        } catch (e) {
+          console.error('[crm-data] booking agreement sweep failed:', e?.message || e)
+        } finally {
+          autoSending = false
+        }
+      }
+      const t7 = setTimeout(sweepBooking, 30_000)
+      const t8 = setInterval(sweepBooking, 2 * 60 * 1000)
       server.httpServer?.on('close', () => {
         clearTimeout(t1)
         clearInterval(t2)
         clearTimeout(t5)
         clearInterval(t6)
+        clearTimeout(t7)
+        clearInterval(t8)
         if (cacheRefreshTimer) clearInterval(cacheRefreshTimer)
       })
 
@@ -1050,9 +1076,29 @@ export function crmDataPlugin() {
         withbody(req, res, async (b) => bookingFormLink(b.projectId))
       })
       // Poll for the client's submission and apply it to the project.
+      //
+      // The 2-minute sweep would pick this up on its own, but Michael pressing "Check for answers"
+      // means he is sitting there waiting, so do the whole thing now rather than making him wonder
+      // whether the agreement went. A failure to SEND is reported without failing the pull: the
+      // answers did land on the project either way, and the sweep will retry the send.
       server.middlewares.use('/api/booking/pull', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await pullSubmission(b.projectId))
+        withbody(req, res, async (b) => {
+          const pulled = await pullSubmission(b.projectId)
+          if (!pulled.ok || !pulled.submission) return pulled
+          try {
+            const sent = await sendAgreement(b.projectId)
+            return { ...pulled, agreementSent: !sent.alreadySent, agreementTo: sent.to || '' }
+          } catch (e) {
+            return { ...pulled, agreementError: String(e?.message || e) }
+          }
+        })
+      })
+      // Re-send the agreement after fixing something on the project. The only path that sends a
+      // second copy; the automatic one never does.
+      server.middlewares.use('/api/booking/resend-agreement', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await sendAgreement(b.projectId, { force: true }))
       })
       // Current state of the booking form for a project (link, sent-at, whether it came back).
       server.middlewares.use('/api/booking/status', (req, res, next) => {
