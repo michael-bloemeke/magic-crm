@@ -21,6 +21,7 @@
 // Coordinate note: pdf-lib's origin is the BOTTOM-left of the page and y grows upward, which is the
 // opposite of most screen drawing. Everything here is written bottom-up on purpose.
 
+import zlib from 'node:zlib'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { buildContractBody } from './crm-contracts.mjs'
 import { fmtDate } from './crm-contract-template.mjs'
@@ -184,6 +185,39 @@ function firstOf(str) {
   return String(str || '').split(/[,;]/)[0].trim()
 }
 
+// Does the contract's LAST page carry any actual text?
+//
+// It often doesn't. The foot-of-page reserve flows like any other block, so on a contract that
+// already fills its final page the reserve is pushed onto a fresh one, and that page arrives holding
+// nothing but the invisible spacer rectangle. Drawing the signature at the foot of a page like that
+// leaves the client looking at a sheet that is blank down to its last two inches.
+//
+// So we ask. pdfmake writes each page under a `1 0 0 -1 0 792 cm` flip, and its streams come out in
+// page order, so the last flipped stream is the last contract page. If it shows no text-drawing
+// operator, the page is the spacer's own and the signature goes at the TOP of it instead.
+function lastContractPageHasText(buffer) {
+  const s = buffer.toString('latin1')
+  const re = /(?<!end)stream\r?\n/g
+  let m
+  let lastPage = null
+  while ((m = re.exec(s))) {
+    const start = m.index + m[0].length
+    const end = s.indexOf('endstream', start)
+    if (end < 0) continue
+    let text
+    try {
+      text = zlib.inflateSync(Buffer.from(s.slice(start, end), 'latin1')).toString('latin1')
+    } catch {
+      continue // a font or image stream, not page content
+    }
+    if (text.includes('1 0 0 -1 0 792 cm')) lastPage = text
+  }
+  // Unreadable for any reason: assume there IS text, which keeps the old foot placement. That is the
+  // safe direction to be wrong in, because the reserve guarantees the foot is clear either way.
+  if (lastPage == null) return true
+  return /\bTj\b|\bTJ\b/.test(lastPage)
+}
+
 // ---------------------------------------------------------------------------
 // Last page: typed name in place of a signature
 // ---------------------------------------------------------------------------
@@ -212,15 +246,26 @@ function stampET(iso) {
 //                          text (rather than a pre-filled field) matters, because a form field can
 //                          be retyped by whoever opens it, and a receipt that can be edited is not
 //                          a receipt.
-function drawSignatureBlock(doc, form, project, fonts, signature) {
+function drawSignatureBlock(doc, form, project, fonts, signature, onOwnPage = false) {
   const pages = doc.getPages()
   const page = pages[pages.length - 1]
   const { bold, reg, italic } = fonts
   const contentW = PAGE_W - MARGIN * 2
 
-  // The contract render reserves clear space at the foot of its final page (see
-  // FOOT_RESERVE in contractFillablePdf), so this block never lands on top of contract text.
-  let y = MARGIN + 118
+  // The contract render reserves clear space at the foot of its final page (see FOOT_RESERVE), so
+  // this block never lands on top of contract text. Where it sits depends on what else is there:
+  // at the foot of the closing text, or near the top when the reserve spilled onto a page of its own.
+  let y = onOwnPage ? PAGE_H - MARGIN - 52 : MARGIN + 118
+
+  if (onOwnPage) {
+    page.drawText('SIGNATURE', { x: MARGIN, y: y + 74, size: 13, font: bold, color: INK })
+    for (const [i, line] of wrap(
+      'This page belongs with the Agreement on the preceding pages.',
+      reg, 9.5, contentW,
+    ).entries()) {
+      page.drawText(line, { x: MARGIN, y: y + 56 - i * 12, size: 9.5, font: reg, color: MUTED })
+    }
+  }
 
   page.drawLine({ start: { x: MARGIN, y: y + 16 }, end: { x: PAGE_W - MARGIN, y: y + 16 }, thickness: 0.75, color: RULE })
 
@@ -326,8 +371,10 @@ export async function assembleFillablePdf({ project, contractPdfBuffer, summaryR
   const form = doc.getForm()
 
   // Signature block FIRST: it targets the LAST page of the contract, and prepending the summary
-  // pages afterwards would shift the indices out from under it.
-  drawSignatureBlock(doc, form, project, fonts, signature)
+  // pages afterwards would shift the indices out from under it. Ask the ORIGINAL contract buffer
+  // whether that page carries text, before the summary pages join the document and change what
+  // "last page" would mean.
+  drawSignatureBlock(doc, form, project, fonts, signature, !lastContractPageHasText(contractPdfBuffer))
   drawSummaryPage(doc, project, summaryRows, fonts)
 
   // Render the field appearances so the boxes are visible in every viewer, not just Acrobat.
