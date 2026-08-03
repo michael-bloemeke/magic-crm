@@ -115,6 +115,23 @@ export async function sendAgreement(projectId, { force = false } = {}) {
   if (!rec.signature) throw new Error("The client hasn't signed the agreement yet.")
   if (rec.agreementSentAt && !force) return { ok: true, alreadySent: true, sentAt: rec.agreementSentAt }
 
+  // The SHARED claim, not just the local one. `booking-complete` in the cloud is what normally does
+  // this now, and it stamps pdf_sent_at when it takes the job. Checking only the local file would
+  // let this send a second copy of something the cloud already delivered, because the local record
+  // knows nothing about what happened while the Mac was asleep.
+  if (!force && CRM_STORE === 'supabase') {
+    try {
+      const { data } = await sb().from('booking_submissions').select('pdf_sent_at').eq('project_id', projectId).maybeSingle()
+      if (data?.pdf_sent_at) {
+        markAgreementSent(projectId)
+        return { ok: true, alreadySent: true, sentAt: new Date(data.pdf_sent_at).toISOString() }
+      }
+    } catch {
+      // Cannot reach the database to check: refuse rather than risk a duplicate.
+      throw new Error('Could not confirm whether the agreement has already been sent.')
+    }
+  }
+
   const project = findProject(projectId)
   const to = clientEmail(project)
   if (!to) throw new Error('This project has no client email to send the agreement to.')

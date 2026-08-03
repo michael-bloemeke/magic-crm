@@ -1110,25 +1110,11 @@ export function crmDataPlugin() {
       // failing the pull: the answers and the signature landed either way, and the sweep retries.
       server.middlewares.use('/api/booking/pull', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          const pulled = await pullSubmission(b.projectId)
-          if (!pulled.ok || !pulled.signature) return pulled
-          let out = { ...pulled }
-          try {
-            const sent = await sendAgreement(b.projectId)
-            out = { ...out, agreementSent: !sent.alreadySent, agreementTo: sent.to || '' }
-          } catch (e) {
-            // Same rule as the sweep: no agreement in their hands, no invoice.
-            return { ...out, agreementError: String(e?.message || e) }
-          }
-          try {
-            const inv = await autoInvoice(b.projectId)
-            if (inv.skipped) return { ...out, invoiceSkipped: inv.skipped }
-            return { ...out, invoiceSent: !inv.alreadySent, invoiceTo: inv.to || '', invoiceAmount: inv.amount, invoiceEnvironment: inv.environment }
-          } catch (e) {
-            return { ...out, invoiceError: String(e?.message || e) }
-          }
-        })
+        // READ ONLY as of 2026-08-03. This used to send the signed agreement and raise the invoice
+        // itself. It must not any more: `booking-complete` owns both now, and this path renders the
+        // PDF with a different engine, so letting it fire would mean a client's copy looking
+        // different depending on which one got there first. It pulls state and nothing else.
+        withbody(req, res, async (b) => await pullSubmission(b.projectId))
       })
       // Re-send the signed copy, for a client who says it never arrived. The only path that sends a
       // second copy; the automatic one never does.
