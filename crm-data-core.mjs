@@ -1147,9 +1147,22 @@ export async function createProject(input = {}) {
   if (!name) throw new Error('project name is required')
   const id = slugify(name)
 
-  // The slug is the join key for stage/tasks/payments, so it must be unique.
-  if (loadAll().projects.some((p) => p.id === id)) {
-    throw new Error(`a project named "${name}" already exists`)
+  // The slug is the join key for stage/tasks/payments, so it must be unique across EVERY bucket,
+  // including the trash. A deleted project is only soft-deleted for 30 days, so its name stays
+  // reserved that whole time.
+  //
+  // That used to report a flat "already exists", which is baffling when the project is nowhere to be
+  // seen in the pipeline: you deleted it, so as far as you are concerned it is gone. Say where it
+  // actually is, and what to do about it.
+  const clash = loadAll().projects.find((p) => p.id === id)
+  if (clash) {
+    if (clash.bucket === 'deleted') {
+      throw new Error(
+        `"${name}" is in your Deleted page. Restore it, or delete it permanently there, to use the name again.`,
+      )
+    }
+    const where = clash.bucket === 'active' ? 'in the pipeline' : `in ${clash.bucket}`
+    throw new Error(`a project named "${name}" already exists ${where}`)
   }
 
   const feeRaw = input.totalFee
