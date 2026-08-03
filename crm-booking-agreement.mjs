@@ -20,7 +20,7 @@
 // This module lives apart from crm-booking-form.mjs because crm-contracts.mjs already imports that
 // one, so the orchestration cannot go there without an import cycle.
 
-import { bookingAgreementPdf, bookingAgreementTemplate } from './crm-contracts.mjs'
+import { bookingAgreementPdf, bookingAgreementTemplate, buildContractBody } from './crm-contracts.mjs'
 import { CONTRACT_VARIANTS, bookingTemplateHtml } from './crm-contract-template.mjs'
 import {
   loadForm,
@@ -93,7 +93,11 @@ export async function publishContractTemplates() {
     variant: v.id,
     label: v.label,
     hint: v.hint,
-    html: bookingTemplateHtml({ variant: v.id }),
+    // Run it through the SAME builder the desktop uses, with every field left blank. That gives the
+    // stored template the numbered clause headings and the "[Label]" placeholders (with cf-missing,
+    // which is what turns them red on the website). Publishing the raw template instead produced an
+    // agreement with unnumbered clauses and bare labels where the placeholders should be.
+    html: buildContractBody({}, { templateHtml: bookingTemplateHtml({ variant: v.id }), todayISO: '' }).html,
     sort: i,
     updated_at: new Date().toISOString(),
   }))

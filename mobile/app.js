@@ -12,7 +12,8 @@ import {
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
-  updateContact, sendEmail, saveEmailDraft,
+  updateContact,
+  loadBookingProgress, loadContractVariants, readyToBookOnPhone,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
@@ -38,55 +39,7 @@ function relColor(v) { for (var i = 0; i < CONTACT_REL.length; i++) if (CONTACT_
 // The booking workflow, by phase, mirroring the desktop project view. Each phase holds its standard
 // email steps (the "email cards"); the Booking phase also carries the document actions (placeholders
 // on the phone for now). Follow-up / check-in emails that exist in the DB are added dynamically.
-var BOOKING_PHASES = [
-  { key: 'inquiry', label: 'Inquiry', color: '#38ccda', emails: [
-    { kind: 'inquiry-response', title: 'Inquiry response', subject: 'Re: Your inquiry' },
-    { kind: 'inquiry-shark', title: 'Shark email', subject: 'Checking In' },
-    { kind: 'inquiry-breakup', title: 'Break-up email', subject: 'Following Up' },
-  ] },
-  { key: 'postcall', label: 'Post Call', color: '#f4b65c', emails: [
-    { kind: 'postcall', title: 'Post-call email', subject: 'Magician Information - Please Reply' },
-    { kind: 'shark', title: 'Shark email', subject: 'Checking In' },
-    { kind: 'breakup', title: 'Break-up email', subject: 'Following Up' },
-  ] },
-  { key: 'booking', label: 'Booking', color: '#46d189', docs: ['Invoice', 'Contract', 'Questionnaire'], emails: [
-    { kind: 'questionnaire-invite', title: 'Questionnaire invite', subject: 'A few details for your event' },
-  ] },
-  { key: 'booked', label: 'Booked', color: '#7d8cff', emails: [
-    { kind: 'booking-confirmation', title: 'Booking confirmation', subject: 'Booking Confirmed' },
-    { kind: 'checkin-1', title: 'Check-in', subject: 'Checking In' },
-  ] },
-  { key: 'postshow', label: 'Post show', color: '#c885e8', emails: [
-    { kind: 'thankyou', title: 'Thank-you email', subject: 'Thank you!' },
-  ] },
-]
-// Default subject for a step (from the phase map above; falls back by kind pattern).
-function defaultSubjectFor(kind) {
-  for (var i = 0; i < BOOKING_PHASES.length; i++) {
-    var e = BOOKING_PHASES[i].emails.find(function (x) { return x.kind === kind })
-    if (e) return e.subject || ''
-  }
-  if (/^(followup|inquiry-followup|checkin)/.test(kind)) return 'Checking In'
-  return ''
-}
-// Which phase a stored email kind belongs to (so DB follow-ups/check-ins land in the right section).
-function phaseForKind(kind) {
-  if (/^inquiry/.test(kind)) return 'inquiry'
-  if (kind === 'postcall' || kind === 'shark' || kind === 'breakup' || /^followup-/.test(kind)) return 'postcall'
-  if (kind === 'questionnaire-invite') return 'booking'
-  if (kind === 'booking-confirmation' || /^checkin-/.test(kind)) return 'booked'
-  if (kind === 'thankyou') return 'postshow'
-  return 'other'
-}
 // A human title for a dynamic email kind (followup-1 -> "Follow-up #1", etc.).
-function prettyKind(kind) {
-  var m
-  if ((m = kind.match(/^inquiry-followup-(\d+)$/))) return 'Inquiry follow-up #' + m[1]
-  if ((m = kind.match(/^followup-(\d+)$/))) return 'Follow-up #' + m[1]
-  if ((m = kind.match(/^checkin-(\d+)$/))) return 'Check-in #' + m[1]
-  if (kind === 'custom') return 'Custom email'
-  return kind
-}
 
 // Re-render whatever is currently on screen: the open project detail, else the active tab. Used after
 // a write so the change shows immediately without kicking the user out of a detail view.
@@ -655,154 +608,174 @@ function renderDetail(id, keepScroll) {
 // ---- booking / emails ----
 
 // The saved email (if any) for a project + step.
-function emailFor(p, kind) {
-  return (SNAP.emails || []).find(function (e) { return e.projectId === p.id && e.kind === kind })
-}
-// A one-line hint for the Emails & booking row: how many are sent vs drafted.
+// ---------- Booking ----------
+// One row, one action, matching the desktop. This used to be an "Emails & booking" panel listing a
+// card per workflow email (shark, break-up, follow-ups, questionnaire invite). Michael had those
+// removed: he sends the booking form and everything after it runs itself, so tracking a dozen email
+// steps by hand was work the system no longer needs anyone to do.
+
+// The four states of a booking link, in order.
+var BOOKING_STEPS = [
+  { key: 'none', label: 'Sent' },
+  { key: 'viewed', label: 'Viewed' },
+  { key: 'submitted', label: 'Details in' },
+  { key: 'signed', label: 'Signed' },
+]
+
+// One-line summary for the collapsed Booking row.
 function bookingHint(p) {
-  var mine = (SNAP.emails || []).filter(function (e) { return e.projectId === p.id })
-  if (!mine.length) return 'Not started'
-  var sent = mine.filter(function (e) { return e.status === 'sent' }).length
-  var draft = mine.length - sent
-  return [sent ? sent + ' sent' : '', draft ? draft + ' draft' + (draft > 1 ? 's' : '') : ''].filter(Boolean).join(' · ')
+  var g = BOOKING_PROGRESS[p.id]
+  if (!g) return ''
+  if (!g.linkOut) return 'Not sent'
+  if (g.stage === 'signed') return 'Signed' + (g.signedName ? ' by ' + g.signedName : '')
+  if (g.stage === 'submitted') return 'Details in, not signed'
+  if (g.stage === 'viewed') return 'Viewed, nothing back'
+  return 'Sent, not viewed'
 }
-// DB emails for a phase that aren't one of its fixed steps (follow-ups, extra check-ins).
-function dynamicEmailsForPhase(p, ph) {
-  var fixed = ph.emails.map(function (e) { return e.kind })
-  return (SNAP.emails || [])
-    .filter(function (e) { return e.projectId === p.id && phaseForKind(e.kind) === ph.key && fixed.indexOf(e.kind) < 0 })
-    .map(function (e) { return { kind: e.kind, title: prettyKind(e.kind) } })
+
+// Cache of live booking progress per project, filled when a project detail opens.
+var BOOKING_PROGRESS = {}
+function refreshBookingProgress(projectId, then) {
+  loadBookingProgress(projectId)
+    .then(function (g) { BOOKING_PROGRESS[projectId] = g; if (then) then(g) })
+    .catch(function () { /* leave the row blank rather than break the page */ })
 }
-// One email card: title + status (Sent / Draft / Not started). Tapping an existing one opens it.
-function emailCard(p, kind, title) {
-  var em = emailFor(p, kind)
-  var status = em ? (em.status === 'sent' ? 'Sent' : 'Draft') : 'Not started'
-  var scls = em ? (em.status === 'sent' ? 'sent' : 'draft') : 'none'
-  var c = el('<button class="emailcard"><span class="ec-title">' + esc(title) + '</span><span class="ec-status ' + scls + '">' + status + '</span></button>')
-  c.addEventListener('click', function () { openEmailComposer(p, kind, title, em) })
-  return c
-}
-// Booking panel: the whole workflow by phase, each phase's email cards, doc placeholders for Booking.
+
+// The booking sheet: the two gated fields, live progress, and the one button.
 function openBookingPanel(p) {
   var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
   var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove() }
-  card.appendChild(el('<div class="sheet-title">Emails & booking</div>'))
-  card.appendChild(el('<div class="hint" style="margin:-4px 0 14px">The booking workflow by stage. Tap an email to read and copy it. Editing and sending land with cloud email.</div>'))
-  BOOKING_PHASES.forEach(function (ph) {
-    var sec = el('<div class="bk-sec"></div>')
-    sec.style.setProperty('--sec', ph.color)
-    sec.appendChild(el('<div class="bk-head"><span class="psection-bar"></span><span class="psection-name">' + esc(ph.label) + '</span></div>'))
-    ph.emails.forEach(function (em) { sec.appendChild(emailCard(p, em.kind, em.title)) })
-    dynamicEmailsForPhase(p, ph).forEach(function (em) { sec.appendChild(emailCard(p, em.kind, em.title)) })
-    ;(ph.docs || []).forEach(function (d) {
-      sec.appendChild(el('<div class="emailcard placeholder"><span class="ec-title" style="color:var(--muted);font-weight:500">' + esc(d) + '</span><span class="ec-status muted">On desktop</span></div>'))
-    })
-    card.appendChild(sec)
-  })
-  var others = (SNAP.emails || []).filter(function (e) { return e.projectId === p.id && phaseForKind(e.kind) === 'other' })
-  if (others.length) {
-    var osec = el('<div class="bk-sec"></div>')
-    osec.style.setProperty('--sec', 'var(--faint)')
-    osec.appendChild(el('<div class="bk-head"><span class="psection-bar"></span><span class="psection-name">Other</span></div>'))
-    others.forEach(function (e) { osec.appendChild(emailCard(p, e.kind, prettyKind(e.kind))) })
-    card.appendChild(osec)
+  var close = function () { sheet.remove(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
+  card.appendChild(el('<div class="sheet-title">Booking</div>'))
+
+  var style = String(p.performanceStyle || '').trim()
+  var fee = Number(p.totalFee)
+  var ready = !!style && !!fee && !isNaN(fee) && fee > 0
+
+  // The two facts the client reads on the agreement. Blank means they'd be looking at a literal
+  // "[Performance scope]" on the document they're about to sign.
+  var gate = el('<div class="bk-gate' + (ready ? '' : ' bad') + '"></div>')
+  gate.appendChild(el('<div class="bk-gate-t">' + (ready ? 'Goes on the agreement' : 'Fill both to send the booking form') + '</div>'))
+  gate.appendChild(el('<div class="k">Performance style</div><div class="v">' + (style ? esc(style) : '<span class="miss">Not set</span>') + '</div>'))
+  gate.appendChild(el('<div class="k" style="margin-top:8px">Quote</div><div class="v">' + (ready ? esc(money(fee)) : '<span class="miss">Not set</span>') + '</div>'))
+  if (!ready) gate.appendChild(el('<div class="hint" style="margin-top:8px">Edit these in Event details.</div>'))
+  card.appendChild(gate)
+
+  var body = el('<div></div>')
+  card.appendChild(body)
+
+  function draw(g) {
+    body.innerHTML = ''
+    if (g && g.linkOut) {
+      var idx = BOOKING_STEPS.findIndex(function (x) { return x.key === g.stage })
+      var bar = el('<div class="bk-prog"></div>')
+      BOOKING_STEPS.forEach(function (st, i) {
+        var seg = el('<div class="bk-seg' + (i <= idx ? (i === BOOKING_STEPS.length - 1 ? ' done' : ' on') : '') + '"><span class="bk-bar"></span><span class="bk-lab">' + esc(st.label) + '</span></div>')
+        bar.appendChild(seg)
+      })
+      body.appendChild(bar)
+      if (g.variant) body.appendChild(el('<div class="hint" style="margin-top:8px">Sent with the <b>' + esc(variantLabel(g.variant)) + '</b> agreement.</div>'))
+      if (g.stage === 'signed') body.appendChild(el('<div class="hint" style="margin-top:4px">Their signed copy and the invoice were sent automatically.</div>'))
+    } else {
+      body.appendChild(el('<div class="hint" style="margin-top:10px">They fill in the event details, sign the agreement, and get invoiced without you touching anything.</div>'))
+    }
+
+    var btn = el('<button class="btn-gold" style="width:100%;margin-top:14px"' + (ready ? '' : ' disabled') + '>' + (g && g.linkOut ? 'Resend booking form' : 'Ready to book') + '</button>')
+    btn.addEventListener('click', function () { pickVariantThen(p, btn) })
+    body.appendChild(btn)
+    if (!ready) body.appendChild(el('<div class="hint" style="margin-top:6px">Add a performance style and a quote first.</div>'))
+
+    var done = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Close</button>')
+    done.addEventListener('click', close)
+    body.appendChild(done)
   }
-  var done = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Close</button>')
-  done.addEventListener('click', close)
-  card.appendChild(done)
+
+  draw(BOOKING_PROGRESS[p.id])
+  refreshBookingProgress(p.id, draw)
+
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   document.body.appendChild(sheet)
 }
+
+// Remembered so a label can be shown without another round-trip.
+var CONTRACT_VARIANTS = []
+function variantLabel(id) {
+  var v = CONTRACT_VARIANTS.find(function (x) { return x.variant === id })
+  return v ? v.label : id
+}
+
+// Choosing WHICH agreement. Two taps rather than one, on purpose: which contract a client signs is
+// not a thing to get wrong by muscle memory, and swapping it is the reason a resend exists.
+function pickVariantThen(p, btn) {
+  btn.disabled = true
+  btn.textContent = 'Loading…'
+  loadContractVariants()
+    .then(function (vs) {
+      CONTRACT_VARIANTS = vs
+      btn.disabled = false
+      btn.textContent = 'Ready to book'
+      var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+      var card = sheet.querySelector('.sheet-card')
+      var close = function () { sheet.remove() }
+      card.appendChild(el('<div class="sheet-title">Which agreement?</div>'))
+      if (!vs.length) {
+        card.appendChild(el('<div class="hint">No contract templates have been published yet. Open the Mac app once and they will appear here.</div>'))
+      }
+      vs.forEach(function (v) {
+        var b = el('<button class="emailcard" style="flex-direction:column;align-items:flex-start;gap:2px"><span class="ec-title">' + esc(v.label) + '</span><span class="hint" style="margin:0">' + esc(v.hint || '') + '</span></button>')
+        b.addEventListener('click', function () { close(); sendBooking(p, v) })
+        card.appendChild(b)
+      })
+      var cancel = el('<button class="btn-ghost" style="width:100%;margin-top:10px">Cancel</button>')
+      cancel.addEventListener('click', close)
+      card.appendChild(cancel)
+      sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+      document.body.appendChild(sheet)
+    })
+    .catch(function (e) {
+      btn.disabled = false
+      btn.textContent = 'Ready to book'
+      toast(e.message || 'Could not load the agreements', 'err')
+    })
+}
+
+// Issue the form and hand back the link. No email is sent: the phone has no Gmail drafting by
+// design, so this copies the URL for Michael to send however he likes.
+function sendBooking(p, variant) {
+  toast('Preparing…')
+  readyToBookOnPhone(p, variant.variant)
+    .then(function (r) {
+      BOOKING_PROGRESS[p.id] = null
+      refreshBookingProgress(p.id)
+      var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
+      var card = sheet.querySelector('.sheet-card')
+      var close = function () { sheet.remove(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
+      card.appendChild(el('<div class="sheet-title">Booking form ready</div>'))
+      card.appendChild(el('<div class="hint">Using the <b>' + esc(r.label) + '</b> agreement. Send this link to the client and everything after it happens on its own.</div>'))
+      card.appendChild(el('<div class="v" style="word-break:break-all;margin-top:10px;font-size:13px">' + esc(r.url) + '</div>'))
+      var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" style="flex:1">Copy link</button><button class="btn-gold" style="flex:1">Done</button></div>')
+      bar.children[0].addEventListener('click', function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(r.url).then(function () { toast('Link copied') }).catch(function () { toast('Could not copy', 'err') })
+        } else { toast('Copy not supported here', 'err') }
+      })
+      bar.children[1].addEventListener('click', close)
+      card.appendChild(bar)
+      sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+      document.body.appendChild(sheet)
+    })
+    .catch(function (e) { toast(e.message || 'Could not create the booking form', 'err') })
+}
+
 // The project's primary contact first name (for merge fields like [firstName]).
 function firstNameFor(p) {
   var n = (p.contactNames || '').split(/[,;]/)[0].trim()
   return n ? n.split(/\s+/)[0] : ''
 }
-// Fill [firstName] merge tokens in a template's text with the contact's first name.
-function mergeText(text, p) {
-  var fn = firstNameFor(p)
-  return String(text || '').replace(/\[firstName\]/gi, fn || 'there')
-}
-// Reflect a saved/sent email in SNAP.emails so the card + hint update without a full reload.
-function updateLocalEmail(projectId, kind, rec, status) {
-  SNAP.emails = SNAP.emails || []
-  var i = -1
-  for (var j = 0; j < SNAP.emails.length; j++) {
-    var e = SNAP.emails[j]
-    if (e.projectId === projectId && e.kind === kind && (status === 'sent' ? true : e.status !== 'sent')) { i = j; break }
-  }
-  var out = {
-    id: (rec && rec.id) || (i >= 0 ? SNAP.emails[i].id : ''),
-    projectId: projectId, kind: kind,
-    to: (rec && rec.to) || [], subject: (rec && rec.subject) || '', body: (rec && rec.body) || '',
-    status: status, sentAt: (rec && rec.sentAt) || '',
-  }
-  if (i >= 0) SNAP.emails[i] = out
-  else SNAP.emails.push(out)
-}
 
 // Compose + SEND an email for a booking step. Prefills from an existing draft/sent email or from the
 // step's default subject; a template picker fills subject + body (with [firstName] merged). Send goes
 // through the cloud Gmail function (works with the Mac off); Save draft writes to the emails table.
-function openEmailComposer(p, kind, title, em) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
-  card.appendChild(el('<div class="sheet-title">' + esc(title) + '</div>'))
-  if (em && em.status === 'sent') {
-    card.appendChild(el('<span class="ec-status sent" style="display:inline-block;margin:-4px 0 10px">Already sent' + (em.sentAt ? ' · ' + esc(timeAgo(em.sentAt)) : '') + '. Sending again makes a new email.</span>'))
-  }
-  card.appendChild(el('<div class="k" style="margin-bottom:4px">To</div>'))
-  var toIn = document.createElement('input'); toIn.className = 'field-input'; toIn.inputMode = 'email'
-  toIn.value = em && em.to && em.to.length ? em.to.join(', ') : (p.contactEmails || '')
-  toIn.placeholder = 'name@email.com'
-  card.appendChild(toIn)
-
-  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Subject</div>'))
-  var subjIn = document.createElement('input'); subjIn.className = 'field-input'; subjIn.value = em ? em.subject : defaultSubjectFor(kind)
-  card.appendChild(subjIn)
-
-  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Message</div>'))
-  var bodyIn = document.createElement('textarea'); bodyIn.className = 'field-input'; bodyIn.rows = 9
-  bodyIn.value = em ? templateToText(em.body) : ''
-  card.appendChild(bodyIn)
-
-  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="ec-save">Save draft</button><button class="btn-gold" id="ec-send">Send</button></div>')
-  card.appendChild(bar)
-  var bar2 = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost" id="ec-copy" style="flex:1">Copy</button><button class="btn-ghost" id="ec-close" style="flex:1">Close</button></div>')
-  card.appendChild(bar2)
-  card.appendChild(el('<div class="hint" style="margin-top:10px">Sends from michael@michaelbloemeke.com through Gmail, even with your Mac off.</div>'))
-
-  bar2.querySelector('#ec-close').addEventListener('click', close)
-  bar2.querySelector('#ec-copy').addEventListener('click', function () {
-    var text = (subjIn.value ? subjIn.value + '\n\n' : '') + bodyIn.value
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast('Copied') }).catch(function () { toast('Could not copy', 'err') })
-    else toast('Copy not supported here', 'err')
-  })
-  bar.querySelector('#ec-save').addEventListener('click', function () {
-    doWrite(saveEmailDraft({ projectId: p.id, kind: kind, to: toIn.value, subject: subjIn.value, body: bodyIn.value }), 'Draft saved', function (saved) {
-      updateLocalEmail(p.id, kind, saved, 'draft')
-      close()
-    })
-  })
-  var sendBtn = bar.querySelector('#ec-send')
-  sendBtn.addEventListener('click', function () {
-    var toArr = toIn.value.split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
-    if (!toArr.length) { toast('Add a recipient.', 'err'); return }
-    if (!subjIn.value.trim()) { toast('Add a subject.', 'err'); return }
-    if (!bodyIn.value.trim()) { toast('Write a message.', 'err'); return }
-    if (!confirm('Send to ' + toArr.join(', ') + '?')) return
-    sendBtn.disabled = true; sendBtn.textContent = 'Sending…'
-    doWrite(sendEmail({ to: toArr, subject: subjIn.value, body: bodyIn.value, projectId: p.id, kind: kind }), 'Email sent', function (r) {
-      updateLocalEmail(p.id, kind, { id: r.emailId, to: toArr, subject: subjIn.value, body: bodyIn.value, sentAt: r.sentAt }, 'sent')
-      close()
-    }).catch(function () { sendBtn.disabled = false; sendBtn.textContent = 'Send' })
-  })
-  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
-  setTimeout(function () { if (!toIn.value) toIn.focus(); else bodyIn.focus() }, 40)
-}
 
 // ---- project-detail panels (bottom sheets = the mobile form of the Mac's side panels) ----
 
@@ -1546,21 +1519,6 @@ function openContactSheet(c) {
   document.body.appendChild(sheet)
 }
 
-// Render a stored HTML email body to readable plain text: merge-field spans become [field],
-// block tags become line breaks, remaining tags are stripped, entities decoded. The Templates PAGE
-// is gone (the table was dropped 2026-07-31), but this still renders saved email bodies.
-// block tags become line breaks, remaining tags are stripped, entities decoded.
-function templateToText(html) {
-  var s = String(html || '')
-  s = s.replace(/<span[^>]*data-field="([^"]*)"[^>]*>[\s\S]*?<\/span>/gi, function (m, f) { return '[' + f + ']' })
-  s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n').replace(/<li[^>]*>/gi, '• ')
-  s = s.replace(/<[^>]+>/g, '')
-  var ta = document.createElement('textarea'); ta.innerHTML = s; s = ta.value
-  return s.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+\n/g, '\n').trim()
-}
-// ---------- data ----------
-// Builds the STAGE lookup (stageId -> { name, umbrella, color }) from the pipeline structure, exactly
-// as the old snapshot path did.
 function applySnapshot(s) {
   SNAP = s
   STAGE = {}

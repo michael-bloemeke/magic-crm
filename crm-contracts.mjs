@@ -98,12 +98,15 @@ function findProject(projectId) {
 // default from config, else the built-in), fill every field span with the project value
 // (marking unfilled ones with `cf-missing` + a [Label] placeholder), pull the Media block
 // out separately so the editor can toggle it, and renumber the section headings.
-export function buildContractBody(project, { templateHtml: override } = {}) {
+// `todayISO` is overridable so an UNFILLED template can be produced: passing '' makes the contract
+// date resolve blank like every other missing field, which is what publishContractTemplates wants.
+// Without it the stored template would carry whatever date the Mac happened to boot on.
+export function buildContractBody(project, { templateHtml: override, todayISO: todayOverride } = {}) {
   const cfg = loadConfig()
   // `override` is how the booking route injects its SHORT template without disturbing the
   // Settings-editable one the SignWell route uses.
   const templateHtml = override || (cfg.contractTemplate && String(cfg.contractTemplate).trim()) || defaultTemplateHtml()
-  const todayISO = new Date().toISOString().slice(0, 10)
+  const todayISO = todayOverride === undefined ? new Date().toISOString().slice(0, 10) : todayOverride
   const { document } = new JSDOM(`<!DOCTYPE html><body>${templateHtml}</body>`).window
   const body = document.body
   const defOf = (k) => FIELD_DEFS.find((d) => d.key === k)

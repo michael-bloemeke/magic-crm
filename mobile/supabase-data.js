@@ -969,14 +969,13 @@ export async function loadEverything() {
   // Record the sentinel BEFORE loading: a write landing mid-load leaves v ahead of what we
   // saw, so the next background poll reloads again rather than missing it.
   await noteDataVersionLoaded()
-  const [projects, structure, tasks, config, contacts, links, emails, paymentsRaw] = await Promise.all([
+  const [projects, structure, tasks, config, contacts, links, paymentsRaw] = await Promise.all([
     loadProjects(),
     loadStructure(),
     loadTasks(),
     loadConfig(),
     loadContacts(),
     loadLinks(),
-    loadEmails(),
     sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at'),
   ])
   if (paymentsRaw.error) throw paymentsRaw.error
@@ -998,11 +997,113 @@ export async function loadEverything() {
     config,
     contacts,
     links,
-    emails,
     customFields: config.customFields,
     customValues: {}, // custom values are desktop-file-only; the phone has none
     eventFieldLabels: config.eventFieldLabels,
     eventFieldHidden: config.eventFieldHidden,
     eventFieldDeleted: config.eventFieldDeleted,
+  }
+}
+
+// ---------- issuing a booking form (the phone's "Ready to book") ----------
+//
+// The desktop builds the agreement with JSDOM, which the phone obviously cannot do. So the Mac
+// publishes each contract VARIANT to `contract_templates` as rendered HTML with the `data-f` field
+// markers still unfilled, and the phone fills in this project's own numbers here. The actual
+// contract wording therefore still exists in exactly one place (the Node template); only the
+// substitution is repeated, which is a few lines of string work rather than a legal document.
+//
+// ⚠️ The five fields below mirror FIELD_DEFS in crm-contract-template.mjs. Anything the CLIENT
+// supplies (event date, address, times) is deliberately left unfilled: the `booking` edge function
+// fills those from their answers when they open the form.
+
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+function contractDateToday() {
+  const d = new Date()
+  return `${MONTHS_LONG[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+}
+function contractMoney(n) {
+  const v = Number(n)
+  if (!v || Number.isNaN(v)) return ''
+  return '$' + Math.round(v).toLocaleString('en-US')
+}
+function escapeContractHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+// Swap the contents of <span ... data-f="KEY" ...>…</span>. Same shape the edge functions use.
+function fillContractMarker(html, key, value) {
+  const re = new RegExp(`<span[^>]*data-f="${key}"[^>]*>[^<]*</span>`, 'g')
+  const out = `<span class="cf" data-f="${key}">${escapeContractHtml(value)}</span>`
+  return html.replace(re, () => out)
+}
+
+// Which agreements can be sent. Published by the Mac; read-only to the phone.
+export async function loadContractVariants() {
+  const { data, error } = await sb.from('contract_templates').select('variant,label,hint,html').order('sort')
+  if (error) throw error
+  return data || []
+}
+
+// Issue this project's booking form: pick the agreement, fill in the internal numbers, stamp the
+// token, and hand back the link for Michael to send however he likes.
+//
+// Deliberately does NOT send an email. The phone has no Gmail drafting, and he said he doesn't want
+// it to; this returns the URL so he can text or mail it himself.
+export async function readyToBookOnPhone(project, variantId) {
+  const style = String(project.performanceStyle || '').trim()
+  const fee = Number(project.totalFee)
+  const missing = []
+  if (!style) missing.push('performance style')
+  if (!fee || Number.isNaN(fee) || fee <= 0) missing.push('quote')
+  if (missing.length) {
+    throw new Error(`Set the ${missing.join(' and ')} first. The client reads both on the agreement.`)
+  }
+
+  const variants = await loadContractVariants()
+  const chosen = variants.find((v) => v.variant === variantId) || variants[0]
+  if (!chosen) throw new Error('No contract templates have been published yet. Open the Mac app once.')
+
+  let html = chosen.html
+  html = fillContractMarker(html, 'contract_date', contractDateToday())
+  html = fillContractMarker(html, 'client_name', String(project.client || ''))
+  html = fillContractMarker(html, 'client_email', String(project.contactEmails || '').split(/[,;]/)[0].trim())
+  html = fillContractMarker(html, 'client_phone', String(project.contactPhones || '').split(/[,;]/)[0].trim())
+  html = fillContractMarker(html, 'booking_fee', contractMoney(fee))
+  html = fillContractMarker(html, 'services_description', style)
+
+  // Reuse an existing token so a link already in a client's inbox keeps working.
+  const { data: row } = await sb.from('projects').select('booking_token').eq('id', project.id).maybeSingle()
+  let token = String(row?.booking_token || '')
+  if (!token) {
+    const bytes = new Uint8Array(18)
+    crypto.getRandomValues(bytes)
+    token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+
+  const { error } = await sb
+    .from('projects')
+    .update({ booking_token: token, agreement_html: html, agreement_variant: chosen.variant })
+    .eq('id', project.id)
+  if (error) throw error
+
+  return { url: `https://michaelbloemeke.com/book/?t=${token}`, variant: chosen.variant, label: chosen.label }
+}
+
+// How far the client has got, read live. Mirrors liveProgress() on the desktop.
+export async function loadBookingProgress(projectId) {
+  const [{ data: proj }, { data: row }] = await Promise.all([
+    sb.from('projects').select('booking_viewed_at, agreement_variant, booking_token').eq('id', projectId).maybeSingle(),
+    sb.from('booking_submissions').select('submitted_at, signed_at, signed_name').eq('project_id', projectId).maybeSingle(),
+  ])
+  const viewedAt = proj?.booking_viewed_at || ''
+  const submittedAt = row?.submitted_at || ''
+  const signedAt = row?.signed_at || ''
+  return {
+    stage: signedAt ? 'signed' : submittedAt ? 'submitted' : viewedAt ? 'viewed' : 'none',
+    viewedAt, submittedAt, signedAt,
+    signedName: row?.signed_name || '',
+    variant: proj?.agreement_variant || '',
+    linkOut: !!proj?.booking_token,
   }
 }
