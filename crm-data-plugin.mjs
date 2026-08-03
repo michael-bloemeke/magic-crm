@@ -38,7 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
-import { autoSendPending, sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices } from './crm-booking-agreement.mjs'
+import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -218,21 +218,28 @@ export function crmDataPlugin() {
       // This only runs while the Mac is up. The PDF is rendered by pdfmake using macOS system fonts,
       // so it cannot move to an edge function without rewriting the renderer. If a client books while
       // Michael is out, their agreement goes the next time the CRM is running.
+      // NOTE: sending the signed agreement and raising the invoice NO LONGER HAPPEN HERE. They moved
+      // to the `booking-complete` edge function on 2026-08-03, driven by pg_cron every minute, so a
+      // client who signs at 2am is finished with by 2:01am whether or not this Mac is switched on.
+      //
+      // Deliberately NOT left running as a local backstop. Both would work (every step is claimed
+      // with a conditional update, so they could not double-send), but they render the PDF with
+      // different engines, and a client receiving a different-looking document depending on whether
+      // a laptop happened to be open is worse than having no backstop.
+      //
+      // What stays here is the QuickBooks paid check, because the thing it feeds (the Google
+      // Calendar sync that drops the "Inquiry: " prefix) is itself still Mac-bound.
       let autoSending = false
       const sweepBooking = async () => {
         if (autoSending) return
         autoSending = true
         try {
-          await autoSendPending()
-          // Then ask QuickBooks about anything still unpaid. Kept on the SERVER timer rather than
-          // hanging off a front-end request, because the point is that a payment landing overnight
-          // shows up as a booking on the calendar by morning, with nobody watching the screen.
           const { paid } = await refreshPaidInvoices()
           // A newly paid invoice changes what the calendar should call the gig (isProjectBooked
           // reads the invoice), so push the change out now instead of waiting for the 5-minute tick.
           if (paid > 0) syncCalendarAll().catch(() => {})
         } catch (e) {
-          console.error('[crm-data] booking agreement sweep failed:', e?.message || e)
+          console.error('[crm-data] paid-invoice check failed:', e?.message || e)
         } finally {
           autoSending = false
         }

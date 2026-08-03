@@ -493,6 +493,10 @@ export type QuickBooksInvoice = {
   email: string
   createdAt: string
   sentAt: string
+  // Outstanding balance, and when it hit zero. Written by the paid-invoice poll on the server timer.
+  // A paid invoice also drops the "Inquiry: " prefix from the gig's calendar entry.
+  balance?: number
+  paidAt?: string
 }
 export type InvoiceOptions = { amount?: number; dueDate?: string; processingFeePercent?: number; customerName?: string; email?: string }
 
@@ -641,6 +645,14 @@ export type BookingStatus = {
   // What the client typed on the website's signing step. Null until they sign. This, not the PDF,
   // is the record of the agreement.
   signature: { name: string; date: string; signedAt: string; ip: string; agent: string } | null
+  // Live read of how far the client has got, so the card's status bar moves without a button.
+  progress?: {
+    stage: 'none' | 'viewed' | 'submitted' | 'signed'
+    viewedAt: string
+    submittedAt: string
+    signedAt: string
+    unavailable?: boolean
+  }
   // Set once the signed PDF has been emailed back to them for their records.
   agreementSentAt: string
   // Why the last automatic send failed, if it did. Cleared on a successful send.
