@@ -248,8 +248,18 @@ async function pdfFromHtml(bodyHtml, { forSigning = false, forFillable = false }
   // the end. pdf-lib later paints the checkbox + typed-name fields into that space. Because pdfmake
   // flows the spacer like any other element, a contract that would run into it simply pushes the
   // spacer onto a fresh page, which guarantees the foot of the last page is always clear.
+  //
+  // The spacer MUST be a canvas, not a text node. This was `{ text: '', height: N }` until it was
+  // caught in a real signed PDF: pdfmake has no `height` property on text, so the value was silently
+  // ignored, an empty string measured as nothing, and the contract flowed all the way to the bottom
+  // margin. pdf-lib then painted the approval line and the typed name directly on top of the closing
+  // paragraph. A canvas rect is measured and page-broken around like any other block, so the space
+  // is genuinely held. Drawn in white with zero line width so it is reserved but invisible.
   const sigItems = forFillable
-    ? [{ text: '', margin: [0, 0, 0, 0], height: FILLABLE_FOOT_RESERVE }]
+    ? [{
+        canvas: [{ type: 'rect', x: 0, y: 0, w: contentW, h: FILLABLE_FOOT_RESERVE, lineWidth: 0, lineColor: '#ffffff' }],
+        margin: [0, 0, 0, 0],
+      }]
     : forSigning
       ? [
           { text: 'Client signature:', pageBreak: 'before', margin: [0, 0, 0, 0] },

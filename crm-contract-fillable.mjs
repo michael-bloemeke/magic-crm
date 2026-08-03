@@ -300,7 +300,16 @@ function drawSignatureBlock(doc, form, project, fonts, signature) {
 // How much blank space the contract render must leave at the foot of its last page for the
 // signature block. Passed through to the pdfmake render as a trailing spacer, so if the contract
 // text would run into it, pdfmake pushes the spacer (and therefore the clear space) onto a new page.
-export const FOOT_RESERVE = 150
+//
+// The number is derived, not guessed. drawSignatureBlock starts at y = MARGIN + 118 = 184 and draws
+// its top rule at y + 16 = 200, so 200pt from the page bottom is the highest ink it puts down.
+// pdfmake's own content stops at its bottom page margin, 56. So the band that must be kept clear is
+// 200 - 56 = 144pt, and this carries a deliberate ~24pt of slack on top of that.
+//
+// If you move anything in drawSignatureBlock, re-derive this. The signed variant draws MORE than the
+// unsigned one (an audit trail under the name), but it grows DOWNWARD from the same top rule, so the
+// figure above is what governs both.
+export const FOOT_RESERVE = 168
 
 // Build the whole fillable document. `renderContract` is injected so this module doesn't need to
 // know about pdfmake; crm-contracts.mjs passes in its own renderer.
