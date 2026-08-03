@@ -48,28 +48,6 @@ import {
   sendCalendarInvite,
   listGigsEvents,
 } from './crm-calendar.mjs'
-import {
-  loadPortals,
-  loadPortal,
-  savePortal,
-  unpublishPortal,
-  buildBundle,
-  writeBundleFile,
-  deployPortal,
-  currentShareableFields,
-  PORTAL_BASE_URL,
-} from './crm-portal.mjs'
-import {
-  loadQuestionnaire,
-  loadQuestionnaires,
-  setQuestionnaire,
-  pullResponse,
-  isBlobConfigured,
-  loadUnseenSubmissions,
-  markSubmissionSeen,
-  loadTemplate as loadQuestionnaireTemplate,
-  saveTemplate as saveQuestionnaireTemplate,
-} from './crm-questionnaire.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus, inquiryFormForProject } from './crm-inquiries.mjs'
@@ -642,131 +620,6 @@ export function crmDataPlugin() {
         }
       })
 
-      // --- Client portal (settings + curated bundle preview) ---
-      server.middlewares.use('/api/portal/save', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ portal: await savePortal(b) }))
-      })
-      // Publish = save the latest config, write the curated bundle, push it live.
-      server.middlewares.use('/api/portal/publish', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          const portal = await savePortal({ projectId: b.projectId, patch: { ...(b.patch || {}), published: true } })
-          writeBundleFile(b.projectId)
-          const deploy = await deployPortal()
-          return { portal, bundle: buildBundle(b.projectId), baseUrl: PORTAL_BASE_URL, deploy }
-        })
-      })
-      // Unpublish = mark unpublished, remove the bundle file, push so the link 404s.
-      server.middlewares.use('/api/portal/unpublish', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          const portal = await unpublishPortal(b.projectId)
-          writeBundleFile(b.projectId)
-          const deploy = await deployPortal()
-          return { portal, baseUrl: PORTAL_BASE_URL, deploy }
-        })
-      })
-      server.middlewares.use('/api/portal/bundle', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
-          const projectId = url.searchParams.get('projectId') || ''
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ bundle: buildBundle(projectId) }))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
-      })
-      server.middlewares.use('/api/portal', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          // Built-ins minus deleted, plus custom fields: what may be shared on the portal right now.
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ portals: loadPortals(), shareableFields: currentShareableFields(), baseUrl: PORTAL_BASE_URL }))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
-      })
-
-      // --- Client questionnaire (optional portal add-on). Specific paths before generic. ---
-      // Turn it on/off + edit the intro. Enabling publishes the portal so the link is live and
-      // the bundle carries the questions, then redeploys (~20-40s, same as a portal publish).
-      server.middlewares.use('/api/questionnaire/set', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          const questionnaire = await setQuestionnaire(b.projectId, { enabled: b.enabled, intro: b.intro })
-          let portal = loadPortal(b.projectId)
-          if (b.enabled) portal = await savePortal({ projectId: b.projectId, patch: { published: true } })
-          writeBundleFile(b.projectId)
-          const deploy = await deployPortal()
-          const token = portal?.token || ''
-          return { questionnaire, portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '', published: !!portal?.published, deploy }
-        })
-      })
-      // Pull a project's latest submission, auto-fill its mapped fields, and (on a fresh one)
-      // rebuild + redeploy the portal so its Event details reflect what the client just entered.
-      const pullAndRepublish = async (projectId) => {
-        const result = await pullResponse(projectId)
-        if (result?.fresh) {
-          try {
-            writeBundleFile(projectId)
-            result.deploy = await deployPortal()
-          } catch (e) {
-            result.deploy = { ok: false, error: String(e?.message || e) }
-          }
-        }
-        return result
-      }
-      // Attach the project's display name to each unseen submission for the notification list.
-      const submissionsWithNames = () => {
-        const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))
-        return loadUnseenSubmissions().map((s) => ({ ...s, projectName: byId.get(s.projectId) || s.projectId }))
-      }
-
-      server.middlewares.use('/api/questionnaire/pull', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await pullAndRepublish(b.projectId))
-      })
-      // Background sweep used by the app's notification poll: pull every active-but-unanswered
-      // questionnaire (the gate is one-time, so a project that already has a response has nothing
-      // new), republishing any that just came in. Returns the current unseen submissions.
-      server.middlewares.use('/api/questionnaire/check', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async () => {
-          const qs = loadQuestionnaires()
-          let fresh = 0
-          for (const [projectId, q] of Object.entries(qs)) {
-            if (!q || !q.enabled || q.response) continue
-            const r = await pullAndRepublish(projectId)
-            if (r?.fresh) fresh++
-          }
-          return { fresh, submissions: submissionsWithNames() }
-        })
-      })
-      // The current unseen submissions (cheap; does not pull).
-      server.middlewares.use('/api/questionnaire/submissions', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ submissions: submissionsWithNames() }))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
-      })
-      // Acknowledge a submission (clears its notification). Returns the remaining unseen ones.
-      server.middlewares.use('/api/questionnaire/seen', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          await markSubmissionSeen(b.projectId)
-          return { submissions: submissionsWithNames() }
-        })
-      })
-
-      // --- Document recipients (contract signer + invoice bill-to) ---
       server.middlewares.use('/api/recipients/save', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => ({ recipient: await saveRecipient(b.projectId, b) }))
@@ -803,20 +656,6 @@ export function crmDataPlugin() {
       })
 
       // --- Global questionnaire template (Settings editor) ---
-      server.middlewares.use('/api/questionnaire-template/save', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ template: await saveQuestionnaireTemplate(b) }))
-      })
-      server.middlewares.use('/api/questionnaire-template', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ template: loadQuestionnaireTemplate() }))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
-      })
 
       // --- Status-change notifications (invoice paid, contract viewed, contract signed, task due,
       // new inquiry) ---
@@ -1047,27 +886,6 @@ export function crmDataPlugin() {
         }
       })
       // Current questionnaire state for a project (drives the card).
-      server.middlewares.use('/api/questionnaire', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
-          const projectId = url.searchParams.get('projectId') || ''
-          const portal = loadPortal(projectId)
-          const token = portal?.token || ''
-          res.setHeader('Content-Type', 'application/json')
-          res.end(
-            JSON.stringify({
-              questionnaire: loadQuestionnaire(projectId),
-              blobConfigured: isBlobConfigured(),
-              published: !!portal?.published,
-              portalUrl: token ? `${PORTAL_BASE_URL}/p/${token}` : '',
-            }),
-          )
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
-      })
 
       // --- HoneyBook inquiry sync (reads the Notion Activity Log, auto-creates projects). ---
       server.middlewares.use('/api/inquiries/check', (req, res, next) => {

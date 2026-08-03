@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
-import type { Task, InquiryNotification, QuestionnaireSubmission, StatusNotification } from '../api'
+import type { Task, InquiryNotification, StatusNotification } from '../api'
 import { TaskRow } from './TaskRow'
 
 type Props = {
@@ -9,8 +9,6 @@ type Props = {
   projects: Project[]
   inquiries: InquiryNotification[]
   onDismissInquiry: (blockId: string) => void
-  submissions: QuestionnaireSubmission[]
-  onDismissSubmission: (projectId: string) => void
   statusNotifications: StatusNotification[]
   onDismissStatus: (id: string) => void
   onToggle: (id: string, done: boolean) => void
@@ -18,7 +16,7 @@ type Props = {
   onOpenProject: (project: Project) => void
 }
 
-export function Notifications({ tasks, projects, inquiries, onDismissInquiry, submissions, onDismissSubmission, statusNotifications, onDismissStatus, onToggle, onDelete, onOpenProject }: Props) {
+export function Notifications({ tasks, projects, inquiries, onDismissInquiry, statusNotifications, onDismissStatus, onToggle, onDelete, onOpenProject }: Props) {
   const [open, setOpen] = useState(false)
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
@@ -27,7 +25,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, su
     .filter((t) => !t.done && t.dueDate && t.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const dueToday = tasks.filter((t) => !t.done && t.dueDate === today)
-  const count = statusNotifications.length + submissions.length + inquiries.length + overdue.length + dueToday.length
+  const count = statusNotifications.length + inquiries.length + overdue.length + dueToday.length
 
   const openProject = (projectId: string) => {
     const p = byId.get(projectId)
@@ -148,41 +146,6 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, su
                           </div>
                           )
                         })}
-                      </div>
-                    </section>
-                  )}
-                  {submissions.length > 0 && (
-                    <section>
-                      <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brass">
-                        Questionnaire submitted · {submissions.length}
-                      </p>
-                      <div className="space-y-1.5">
-                        {submissions.map((s) => (
-                          <div key={s.projectId} className="rounded-lg border border-line bg-surface-2/50 px-3 py-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="min-w-0 truncate text-[12.5px] font-medium text-parchment">{s.projectName}</span>
-                              <button
-                                type="button"
-                                onClick={() => onDismissSubmission(s.projectId)}
-                                className="shrink-0 text-[11px] text-faint transition-colors hover:text-parchment"
-                              >
-                                Dismiss
-                              </button>
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-faint">
-                              <span>Filled out their questionnaire</span>
-                              {byId.has(s.projectId) && (
-                                <button
-                                  type="button"
-                                  onClick={() => openProject(s.projectId)}
-                                  className="text-brass-bright underline-offset-2 hover:underline"
-                                >
-                                  View project
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
                       </div>
                     </section>
                   )}

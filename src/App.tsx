@@ -57,10 +57,6 @@ import {
   checkInquiries,
   dismissInquiry,
   type InquiryNotification,
-  loadQuestionnaireSubmissions,
-  checkQuestionnaireSubmissions,
-  markQuestionnaireSeen,
-  type QuestionnaireSubmission,
   loadStatusNotifications,
   checkStatusNotifications,
   markStatusNotificationSeen,
@@ -149,7 +145,6 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [inquiries, setInquiries] = useState<InquiryNotification[]>([])
-  const [submissions, setSubmissions] = useState<QuestionnaireSubmission[]>([])
   const [statusNotifs, setStatusNotifs] = useState<StatusNotification[]>([])
   const [archiveTarget, setArchiveTarget] = useState<Project | null>(null)
   const [completeTarget, setCompleteTarget] = useState<Project | null>(null)
@@ -393,14 +388,14 @@ function App() {
   const upcomingCount = liveTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
   // The dock badge is the in-app bell total PLUS unread client mail: status updates + questionnaire
-  // submissions + new inquiries + overdue + due-today + unread emails. It is deliberately a superset
+  // new inquiries + overdue + due-today + unread emails. It is deliberately a superset
   // of the bell (the bell does not list mail, since the Inbox is its own surface). Updates the moment
   // any of those change. No-op in a plain browser.
   useEffect(() => {
     window.crm?.setBadge?.(
-      liveStatusNotifs.length + submissions.length + inquiries.length + overdueCount + dueTodayCount + inboxUnread,
+      liveStatusNotifs.length + inquiries.length + overdueCount + dueTodayCount + inboxUnread,
     )
-  }, [liveStatusNotifs.length, submissions.length, inquiries.length, overdueCount, dueTodayCount, inboxUnread])
+  }, [liveStatusNotifs.length, inquiries.length, overdueCount, dueTodayCount, inboxUnread])
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -540,9 +535,6 @@ function App() {
     loadStatusNotifications()
       .then(setStatusNotifs)
       .catch(() => {})
-    loadQuestionnaireSubmissions()
-      .then(setSubmissions)
-      .catch(() => {})
     loadInquiries()
       .then((d) => setInquiries(d.notifications))
       .catch(() => {})
@@ -672,37 +664,6 @@ function App() {
   const dismissInquiryNotif = (blockId: string) => {
     setInquiries((prev) => prev.filter((i) => i.blockId !== blockId))
     dismissInquiry(blockId).catch(() => {})
-  }
-
-  // Notify when a client submits their questionnaire. A background sweep pulls any new submissions
-  // (auto-filling fields + republishing the portal), and the unseen ones surface in the bell.
-  useEffect(() => {
-    let alive = true
-    const run = async () => {
-      try {
-        const r = await checkQuestionnaireSubmissions()
-        if (!alive) return
-        setSubmissions(r.submissions)
-        if (r.fresh > 0) reloadProjects()
-      } catch {
-        // offline or not configured, ignore
-      }
-    }
-    loadQuestionnaireSubmissions()
-      .then((s) => alive && setSubmissions(s))
-      .catch(() => {})
-    run()
-    const timer = setInterval(run, 2 * 60 * 1000)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const dismissSubmissionNotif = (projectId: string) => {
-    setSubmissions((prev) => prev.filter((s) => s.projectId !== projectId))
-    markQuestionnaireSeen(projectId).catch(() => {})
   }
 
   // Poll for status-change notifications (invoice paid, contract viewed/signed). The sweep runs on
@@ -963,8 +924,6 @@ function App() {
       projects={liveProjects}
       inquiries={inquiries}
       onDismissInquiry={dismissInquiryNotif}
-      submissions={submissions}
-      onDismissSubmission={dismissSubmissionNotif}
       statusNotifications={liveStatusNotifs}
       onDismissStatus={dismissStatusNotif}
       onToggle={toggleTask}

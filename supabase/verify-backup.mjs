@@ -436,10 +436,7 @@ results.push(
 )
 results.push(compareMapFile('crm-invoices.json', 'invoices', REAL_RECORDS_DIR, tmp))
 results.push(compareMapFile('crm-contracts.json', 'contracts', REAL_RECORDS_DIR, tmp))
-results.push(compareMapFile('crm-questionnaire.json', 'questionnaires', REAL_RECORDS_DIR, tmp))
 // The questionnaire top-level default template lives in crm_settings; verify it round-trips too.
-results.push(compareObjectFile('crm-questionnaire.json', REAL_RECORDS_DIR, tmp, { excludeKeys: ['_meta', 'questionnaires'] }))
-results.push(compareMapFile('crm-portal.json', 'portals', REAL_RECORDS_DIR, tmp))
 results.push(compareMapFile('crm-recipients.json', 'recipients', REAL_RECORDS_DIR, tmp))
 results.push(compareMapFile('crm-inquiries.json', 'inquiries', REAL_RECORDS_DIR, tmp))
 results.push(compareObjectFile('crm-config.json', REAL_RECORDS_DIR, tmp))

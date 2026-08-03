@@ -99,8 +99,6 @@ export async function purgeProjectData(projectId) {
     'text_markers',
     'invoices',
     'contracts',
-    'questionnaires',
-    'portals',
     'recipients',
   ]
   for (const table of byProjectId) {
@@ -247,8 +245,6 @@ export async function initStore({ force = false } = {}) {
     textMarkers,
     invoices,
     contracts,
-    questionnaires,
-    portals,
     recipients,
     inquiries,
     calendarMap,
@@ -268,8 +264,6 @@ export async function initStore({ force = false } = {}) {
     getAllTextMarkers(),
     getAllInvoices(),
     getAllContracts(),
-    getAllQuestionnaires(),
-    getAllPortals(),
     getAllRecipients(),
     getAllInquiries(),
     getCalendarMap(),
@@ -290,8 +284,6 @@ export async function initStore({ force = false } = {}) {
     textMarkers,
     invoices,
     contracts,
-    questionnaires,
-    portals,
     recipients,
     inquiries,
     calendarMap,
@@ -337,7 +329,8 @@ export function getCachedExpenses() {
 export function getCachedMileageTrips() {
   return requireCache('getCachedMileageTrips').mileageTrips
 }
-// The single crm_settings row: { mileage_rate_per_mile, questionnaire_template }.
+// The single crm_settings row: { mileage_rate_per_mile }. (questionnaire_template was dropped
+// 2026-08-03 with the questionnaire feature.)
 export function getCachedCrmSettings() {
   return requireCache('getCachedCrmSettings').crmSettings
 }
@@ -359,12 +352,6 @@ export function getCachedInvoices() {
 }
 export function getCachedContracts() {
   return requireCache('getCachedContracts').contracts
-}
-export function getCachedQuestionnaires() {
-  return requireCache('getCachedQuestionnaires').questionnaires
-}
-export function getCachedPortals() {
-  return requireCache('getCachedPortals').portals
 }
 export function getCachedRecipients() {
   return requireCache('getCachedRecipients').recipients
@@ -576,18 +563,6 @@ export function cacheUpsertContract(row) {
 export function cacheRemoveContract(projectId) {
   cacheRemoveBy('contracts', projectId, 'project_id')
 }
-export function cacheUpsertQuestionnaire(row) {
-  cacheUpsertBy('questionnaires', row, 'project_id')
-}
-export function cacheRemoveQuestionnaire(projectId) {
-  cacheRemoveBy('questionnaires', projectId, 'project_id')
-}
-export function cacheUpsertPortal(row) {
-  cacheUpsertBy('portals', row, 'project_id')
-}
-export function cacheRemovePortal(projectId) {
-  cacheRemoveBy('portals', projectId, 'project_id')
-}
 export function cacheUpsertRecipient(row) {
   cacheUpsertBy('recipients', row, 'project_id')
 }
@@ -689,11 +664,11 @@ export async function deleteMileageTripsForProject(projectId) {
 export async function getCrmSettings() {
   const { data, error } = await sb()
     .from('crm_settings')
-    .select('mileage_rate_per_mile, questionnaire_template')
+    .select('mileage_rate_per_mile')
     .eq('id', 1)
     .maybeSingle()
   must(error, 'getCrmSettings')
-  return data || { mileage_rate_per_mile: null, questionnaire_template: null }
+  return data || { mileage_rate_per_mile: null }
 }
 export async function setCrmSettings(patch) {
   const { error } = await sb().from('crm_settings').upsert({ id: 1, ...patch }, { onConflict: 'id' })
@@ -797,32 +772,6 @@ export async function upsertContract(row) {
 export async function deleteContract(projectId) {
   const { error } = await sb().from('contracts').delete().eq('project_id', projectId)
   must(error, 'deleteContract')
-}
-export async function getAllQuestionnaires() {
-  const { data, error } = await sb().from('questionnaires').select('*')
-  must(error, 'getAllQuestionnaires')
-  return data || []
-}
-export async function upsertQuestionnaire(row) {
-  const { error } = await sb().from('questionnaires').upsert(row, { onConflict: 'project_id' })
-  must(error, 'upsertQuestionnaire')
-}
-export async function deleteQuestionnaire(projectId) {
-  const { error } = await sb().from('questionnaires').delete().eq('project_id', projectId)
-  must(error, 'deleteQuestionnaire')
-}
-export async function getAllPortals() {
-  const { data, error } = await sb().from('portals').select('*')
-  must(error, 'getAllPortals')
-  return data || []
-}
-export async function upsertPortal(row) {
-  const { error } = await sb().from('portals').upsert(row, { onConflict: 'project_id' })
-  must(error, 'upsertPortal')
-}
-export async function deletePortal(projectId) {
-  const { error } = await sb().from('portals').delete().eq('project_id', projectId)
-  must(error, 'deletePortal')
 }
 export async function getAllRecipients() {
   const { data, error } = await sb().from('recipients').select('*')

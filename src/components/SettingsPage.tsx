@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  loadQuestionnaireTemplate,
-  saveQuestionnaireTemplate,
   loadConfig,
   saveConfig,
   loadStructure,
@@ -12,10 +10,8 @@ import {
   syncCalendar,
   type CalendarStatus,
   type PushConfig,
-  type Question,
-  type QuestionType,
 } from '../api'
-import { EVENT_FIELDS, MAPPABLE_FIELDS, ESSENTIAL_FIELD_IDS, makeCustomFieldId, type CustomField } from '../eventFields'
+import { EVENT_FIELDS, ESSENTIAL_FIELD_IDS, makeCustomFieldId, type CustomField } from '../eventFields'
 import { type CategoryDef } from '../pipeline'
 import { RichTextEditor } from './RichTextEditor'
 
@@ -54,26 +50,17 @@ function CalRow({ label, ok }: { label: string; ok: boolean }) {
   )
 }
 
-// The Settings page. Sections: the global questionnaire editor (the question set every project's
-// questionnaire uses), event-field overrides (rename or hide fields in Event details), and the
-// email signature appended below the body on every send.
+// The Settings page. Tabs: event fields (rename or hide fields in Event details), stage
+// highlighting, the email signature, Google Calendar, and phone notifications.
+//
+// (The client-questionnaire editor lived here until 2026-08-03; the questionnaire was removed along
+// with the client portal, replaced by the booking form.)
 
-const TYPES: { value: QuestionType; label: string }[] = [
-  { value: 'text', label: 'Short text' },
-  { value: 'textarea', label: 'Long text' },
-  { value: 'date', label: 'Date' },
-  { value: 'tel', label: 'Phone' },
-  { value: 'number', label: 'Number' },
-  { value: 'select', label: 'Dropdown' },
-]
-
-const newId = () => 'q' + Math.random().toString(36).slice(2, 9)
 const inputCls =
   'w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none'
 
 // Settings tabs, so the page isn't one long scroll. Each maps to one section below.
 const SETTINGS_TABS = [
-  { id: 'questionnaire', label: 'Questionnaire' },
   { id: 'fields', label: 'Event fields' },
   { id: 'highlighting', label: 'Highlighting' },
   { id: 'email', label: 'Email' },
@@ -83,11 +70,6 @@ const SETTINGS_TABS = [
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
 
 export function SettingsPage() {
-  const [intro, setIntro] = useState('')
-  const [questions, setQuestions] = useState<Question[]>([])
-  const [qBusy, setQBusy] = useState(false)
-  const [qNote, setQNote] = useState<string | null>(null)
-
   const [labels, setLabels] = useState<Record<string, string>>({})
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [deleted, setDeleted] = useState<Set<string>>(new Set())
@@ -114,17 +96,11 @@ export function SettingsPage() {
   const [hlBusy, setHlBusy] = useState(false)
   const [hlNote, setHlNote] = useState<string | null>(null)
 
-  const [tab, setTab] = useState<SettingsTab>('questionnaire')
+  const [tab, setTab] = useState<SettingsTab>('fields')
   // A section stays mounted (so unsaved edits survive a tab switch) but hides when its tab is off.
   const sectionCls = (id: SettingsTab) => 'rounded-2xl border border-line bg-surface-2/30 p-5' + (tab === id ? '' : ' hidden')
 
   useEffect(() => {
-    loadQuestionnaireTemplate()
-      .then((t) => {
-        setIntro(t.intro || '')
-        setQuestions(t.questions || [])
-      })
-      .catch(() => {})
     loadConfig()
       .then((c) => {
         setLabels(c.eventFieldLabels || {})
@@ -197,37 +173,6 @@ export function SettingsPage() {
     }
   }
 
-  // --- Questionnaire editor ---
-  const updateQ = (i: number, patch: Partial<Question>) =>
-    setQuestions((qs) => qs.map((q, idx) => (idx === i ? { ...q, ...patch } : q)))
-  const addQ = () => setQuestions((qs) => [...qs, { id: newId(), label: '', type: 'text', required: false }])
-  const removeQ = (i: number) => setQuestions((qs) => qs.filter((_, idx) => idx !== i))
-  const moveQ = (i: number, dir: -1 | 1) =>
-    setQuestions((qs) => {
-      const j = i + dir
-      if (j < 0 || j >= qs.length) return qs
-      const next = qs.slice()
-      const tmp = next[i]
-      next[i] = next[j]
-      next[j] = tmp
-      return next
-    })
-
-  const saveQuestionnaire = async () => {
-    setQBusy(true)
-    setQNote(null)
-    try {
-      const t = await saveQuestionnaireTemplate({ intro, questions })
-      setIntro(t.intro)
-      setQuestions(t.questions)
-      setQNote('Saved. Every project questionnaire now uses this set.')
-    } catch (e) {
-      setQNote(String(e instanceof Error ? e.message : e))
-    } finally {
-      setQBusy(false)
-    }
-  }
-
   // --- Event fields ---
   const toggleHidden = (id: string) =>
     setHidden((s) => {
@@ -257,13 +202,6 @@ export function SettingsPage() {
   // Questionnaire field-mapping validity: a question can map to a built-in (minus deleted), a
   // contact field, or a custom field. If its fieldKey points at something no longer offered (a
   // deleted built-in or a removed custom field), it's a broken link.
-  const validMappable = [
-    ...MAPPABLE_FIELDS.filter((f) => !deleted.has(f.id)),
-    ...customFields.filter((f) => f.label.trim()).map((f) => ({ id: f.id, label: f.label })),
-  ]
-  const validKeys = new Set(validMappable.map((f) => f.id))
-  const isBrokenKey = (k?: string) => !!k && !validKeys.has(k)
-
   const saveFields = async () => {
     setFBusy(true)
     setFNote(null)
@@ -334,108 +272,6 @@ export function SettingsPage() {
             </button>
           ))}
         </div>
-
-        {/* Questionnaire editor */}
-        <section className={sectionCls('questionnaire')}>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-display text-[17px] text-parchment">Client questionnaire</h2>
-              <p className="mt-0.5 text-[12px] text-muted">
-                The questions every project's questionnaire asks. Map an answer to a field to auto-fill it.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={saveQuestionnaire}
-              disabled={qBusy}
-              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
-            >
-              {qBusy ? 'Saving…' : 'Save questionnaire'}
-            </button>
-          </div>
-
-          <label className="mt-4 block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Intro message</span>
-            <textarea value={intro} onChange={(e) => setIntro(e.target.value)} rows={2} className={inputCls + ' resize-y'} />
-          </label>
-
-          <div className="mt-4 space-y-3">
-            {questions.map((q, i) => (
-              <div key={q.id} className="rounded-xl border border-line bg-surface px-3 py-3">
-                <div className="flex items-start gap-2">
-                  <input
-                    value={q.label}
-                    onChange={(e) => updateQ(i, { label: e.target.value })}
-                    placeholder="Question text"
-                    className={inputCls + ' flex-1'}
-                  />
-                  <div className="flex shrink-0 flex-col items-center">
-                    <button type="button" onClick={() => moveQ(i, -1)} disabled={i === 0} className="px-1 text-faint hover:text-parchment disabled:opacity-30" aria-label="Move up">
-                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 15l6-6 6 6" /></svg>
-                    </button>
-                    <button type="button" onClick={() => moveQ(i, 1)} disabled={i === questions.length - 1} className="px-1 text-faint hover:text-parchment disabled:opacity-30" aria-label="Move down">
-                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
-                    </button>
-                  </div>
-                  <button type="button" onClick={() => removeQ(i)} className="shrink-0 px-1 pt-2 text-faint transition-colors hover:text-[#e08a6b]" aria-label="Remove question">
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /></svg>
-                  </button>
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <select value={q.type} onChange={(e) => updateQ(i, { type: e.target.value as QuestionType })} className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-[12px] text-parchment focus:border-brass-dim focus:outline-none">
-                    {TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={isBrokenKey(q.fieldKey) ? '' : q.fieldKey || ''}
-                    onChange={(e) => updateQ(i, { fieldKey: e.target.value || undefined })}
-                    className="rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-                    title="Auto-fill this project field with the answer"
-                  >
-                    <option value="">Fills: nothing</option>
-                    {validMappable.map((f) => (
-                      <option key={f.id} value={f.id}>Fills: {f.label}</option>
-                    ))}
-                  </select>
-                  <label className="flex items-center gap-1.5 text-[12px] text-muted">
-                    <input type="checkbox" checked={!!q.required} onChange={(e) => updateQ(i, { required: e.target.checked })} className="accent-brass" />
-                    Required
-                  </label>
-                  {isBrokenKey(q.fieldKey) && (
-                    <span className="flex items-center gap-1.5 text-[11.5px] text-[#e0a06b]">
-                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-                      </svg>
-                      Linked to a deleted field.
-                      <button type="button" onClick={() => updateQ(i, { fieldKey: undefined })} className="underline hover:text-parchment">
-                        Clear
-                      </button>
-                    </span>
-                  )}
-                  {q.type === 'select' && (
-                    <input
-                      value={(q.options || []).join(', ')}
-                      onChange={(e) => updateQ(i, { options: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
-                      placeholder="Options, comma-separated"
-                      className={inputCls + ' min-w-[12rem] flex-1'}
-                    />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={addQ}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-brass-bright"
-          >
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-            Add question
-          </button>
-          {qNote && <p className="mt-3 text-[11.5px] text-muted">{qNote}</p>}
-        </section>
 
         {/* Event fields */}
         <section className={sectionCls('fields')}>

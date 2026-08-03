@@ -22,7 +22,6 @@ import { ThreadReader } from './ThreadReader'
 import { MiniComms } from './MiniComms'
 import { NotesDrawer } from './NotesDrawer'
 import { EmailBuilderModal } from './EmailBuilderModal'
-import { PortalModal } from './PortalModal'
 import { ProjectActions } from './ProjectActions'
 import { DateConflictFlag } from './DateConflictFlag'
 import { EditableTitle } from './EditableTitle'
@@ -106,7 +105,6 @@ export function ProjectView({
   const [writeOpen, setWriteOpen] = useState(false)
   // The custom (new-thread) draft being edited in the composer, or null when writing a fresh email.
   const [editingDraft, setEditingDraft] = useState<ProjectEmail | null>(null)
-  const [portalOpen, setPortalOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   // The project's saved drafts (top email section): new-thread drafts (kind 'custom') and per-thread
   // reply drafts (kind 'reply-<threadId>'). Auto-saved by the composers; surfaced in the list below.
@@ -338,17 +336,6 @@ export function ProjectView({
               </svg>
               Notes
             </button>
-            <button
-              type="button"
-              onClick={() => setPortalOpen(true)}
-              title="Client portal (share a page with the client)"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[12.5px] font-semibold text-muted transition-colors hover:border-brass-dim hover:text-brass-bright"
-            >
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 12a8 8 0 1 0 16 0 8 8 0 0 0-16 0M4 12h16M12 4a13 13 0 0 1 0 16M12 4a13 13 0 0 0 0 16" />
-              </svg>
-              Portal
-            </button>
             <ProjectActions
               project={project}
               onArchive={onArchive}
@@ -428,8 +415,6 @@ export function ProjectView({
       </div>
 
       <NotesDrawer project={project} open={notesOpen} onClose={() => setNotesOpen(false)} onSaveField={onSaveField} />
-
-      <PortalModal project={project} open={portalOpen} onClose={() => setPortalOpen(false)} />
 
       <ProjectChat open={chatOpen} project={project} onClose={() => setChatOpen(false)} onProjectChanged={onProjectChanged} />
 

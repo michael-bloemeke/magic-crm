@@ -15,8 +15,7 @@
 //   crm-contacts.json, crm-links.json, crm-pipeline.json,
 //   crm-payments.json, crm-expenses.json, crm-mileage.json, crm-tasks.json,
 //   crm-emails.json, crm-notifications.json, crm-text-markers.json,
-//   crm-invoices.json, crm-contracts.json, crm-questionnaire.json (incl. the top-level default
-//   template from crm_settings), crm-portal.json, crm-recipients.json, crm-inquiries.json,
+//   crm-invoices.json, crm-contracts.json, crm-recipients.json, crm-inquiries.json,
 //   crm-config.json, crm-calendar-map.json
 // After this, the backup covers ALL crm data (every crm-*.json now lives in Supabase).
 //
@@ -43,8 +42,6 @@ import {
   getAllTextMarkers,
   getAllInvoices,
   getAllContracts,
-  getAllQuestionnaires,
-  getAllPortals,
   getAllRecipients,
   getAllInquiries,
   getCalendarMap,
@@ -358,8 +355,6 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     textMarkers,
     invoices,
     contracts,
-    questionnaires,
-    portals,
     recipients,
     inquiries,
     calendarMap,
@@ -379,8 +374,6 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     getAllTextMarkers(),
     getAllInvoices(),
     getAllContracts(),
-    getAllQuestionnaires(),
-    getAllPortals(),
     getAllRecipients(),
     getAllInquiries(),
     getCalendarMap(),
@@ -626,37 +619,6 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     })
     writeJson(targetDir, 'crm-contracts.json', { contracts: map, _meta: meta })
     written.push(`crm-contracts.json (${Object.keys(map).length})`)
-  }
-
-  // ---- 15. crm-questionnaire.json ----
-  // { questionnaires: { [projectId]: {...} }, _meta, template? }. The per-project map comes from the
-  // questionnaires rows; the GLOBAL default template lives in crm_settings.questionnaire_template.
-  // On-disk key order: questionnaires, _meta, template (template emitted only when present).
-  {
-    const map = keyedMap(questionnaires, 'project_id', 'data')
-    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-questionnaire.json'), {
-      fileName: 'crm-questionnaire.json',
-      count: Object.keys(map).length,
-      fallbackPurpose: 'Per-project client questionnaires + the global default template, mirrored from Supabase.',
-    })
-    const out = { questionnaires: map, _meta: meta }
-    const template = crmSettings?.questionnaire_template
-    if (template != null) out.template = template
-    writeJson(targetDir, 'crm-questionnaire.json', out)
-    written.push(`crm-questionnaire.json (${Object.keys(map).length})`)
-  }
-
-  // ---- 16. crm-portal.json ----
-  // { portals: { [projectId]: {...} }, _meta } from the row-per-project jsonb rows.
-  {
-    const map = keyedMap(portals, 'project_id', 'data')
-    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-portal.json'), {
-      fileName: 'crm-portal.json',
-      count: Object.keys(map).length,
-      fallbackPurpose: 'Per-project client-portal settings, mirrored from Supabase.',
-    })
-    writeJson(targetDir, 'crm-portal.json', { portals: map, _meta: meta })
-    written.push(`crm-portal.json (${Object.keys(map).length})`)
   }
 
   // ---- 17. crm-recipients.json ----
