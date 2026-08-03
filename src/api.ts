@@ -822,6 +822,18 @@ export async function pullBookingSubmission(projectId: string): Promise<{ ok: bo
   }
 }
 
+// "Ready to book": issue the form link and leave a ready-to-send draft in Gmail. Never sends.
+export async function readyToBook(projectId: string): Promise<{ ok: boolean; to: string; url: string }> {
+  const res = await fetch('/api/booking/ready', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  const d = await res.json().catch(() => ({}))
+  if (!res.ok || d.error) throw new Error(d.error || `Could not create the draft (${res.status})`)
+  return d as { ok: boolean; to: string; url: string }
+}
+
 // The agreement PDF: summary page + short contract + type-your-name. Built fresh each time.
 export function bookingAgreementPdfUrl(projectId: string, download = false): string {
   return `/api/booking/agreement-pdf?projectId=${encodeURIComponent(projectId)}${download ? '&download=1' : ''}`

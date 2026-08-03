@@ -6,14 +6,11 @@ import { to12h } from '../format'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
+import { BookingCard } from './BookingCard'
 import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { InitialInquiryModal } from './InitialInquiryModal'
-import { InvoiceCard } from './InvoiceCard'
-import { ContractCard } from './ContractCard'
 import { CalendarInviteCard } from './CalendarInviteCard'
-import { QuestionnaireCard } from './QuestionnaireCard'
-import { RecipientsCard } from './RecipientsCard'
 import { contactsForProject } from '../contacts'
 import { evalNumberFormula } from '../calc'
 
@@ -336,29 +333,16 @@ export function ProjectDetailsBody({
         </div>
       </DetailSection>
 
-      {/* Booking. Two balanced columns so the section doesn't waste vertical space: the left holds
-          the financial/recipient inputs (payments + who the documents go to), the right holds the
-          document actions (invoice, contract, questionnaire). Recipients is the tall card, so it
-          anchors the left while the three shorter action cards stack on the right. In narrow view
-          splitGrid collapses to a single stack, preserving the original top-to-bottom order. */}
+      {/* Booking: the money and the one sequence that matters. Michael cut this down on 2026-08-02
+          from four cards (Recipients / Contract / Questionnaire / Invoice) to one, because at any
+          moment only one of them was the next thing to actually do. BookingCard shows that step. */}
       <DetailSection title="Booking">
         <div className={splitGrid}>
           <div className="space-y-2">
             <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
-            <RecipientsCard project={project} contacts={linkedContacts} recipient={recipient} onChange={changeRecipient} />
           </div>
           <div className="space-y-2">
-            <InvoiceCard project={project} billToName={billToName} billToEmail={billToEmail} />
-            <ContractCard project={project} signerName={signerName} signerEmail={signerEmail} />
-            <QuestionnaireCard
-              key={project.id}
-              project={project}
-              onApplied={onProjectChanged}
-              recipientEmails={recipientEmails}
-              inviteEmail={emailFor('questionnaire-invite')}
-              onEmailSaved={upsertEmail}
-              onEmailDiscard={discardEmail}
-            />
+            <BookingCard project={project} />
             <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
         </div>

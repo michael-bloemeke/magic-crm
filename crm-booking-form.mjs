@@ -282,3 +282,49 @@ export function invoiceTarget(projectId) {
     email: String(byId.invoice_email || '').trim(),
   }
 }
+
+// ---------------------------------------------------------------------------
+// "Ready to book": issue the link and put a ready-to-send draft in Gmail
+// ---------------------------------------------------------------------------
+
+// Draft (never send) the email that carries the booking-form link. Michael reviews and sends it
+// himself from Gmail, which is both his own standing rule and where he now writes everything.
+export async function draftBookingEmail(projectId, { createDraft, project }) {
+  const link = bookingFormLink(projectId)
+  if (!link.url) {
+    throw new Error(
+      'No form address is configured yet. Add "formBaseUrl" to portal-credentials.json (the deployed booking-form URL) and try again.',
+    )
+  }
+  const to = String(project.contactEmails || '').split(/[,;]/)[0].trim()
+  if (!to) throw new Error('This project has no client email to send to.')
+  const first = String(project.client || '').trim().split(/\s+/)[0] || 'there'
+  const subject = 'Booking details'
+  const text = [
+    `Hi ${first},`,
+    '',
+    'Great news, let\'s get you on the books. I just need a few details about the event.',
+    '',
+    'Here is the form:',
+    link.url,
+    '',
+    'It takes about two minutes. Once you send it back I\'ll put together the agreement and the invoice.',
+    '',
+    'Thanks!',
+    'Michael',
+  ].join('\n')
+  const html = [
+    `<p>Hi ${escapeHtml(first)},</p>`,
+    "<p>Great news, let's get you on the books. I just need a few details about the event.</p>",
+    `<p><a href="${escapeHtml(link.url)}">Fill in your event details</a></p>`,
+    "<p>It takes about two minutes. Once you send it back I'll put together the agreement and the invoice.</p>",
+    '<p>Thanks!<br>Michael</p>',
+  ].join('')
+  await createDraft({ to, subject, body: text, html })
+  markSent(projectId)
+  return { ok: true, to, url: link.url }
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+}

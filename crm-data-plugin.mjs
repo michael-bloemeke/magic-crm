@@ -37,7 +37,7 @@ import {
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
-import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget } from './crm-booking-form.mjs'
+import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail } from './crm-booking-form.mjs'
 import {
   syncProject,
   syncTask,
@@ -118,7 +118,7 @@ import {
   TITLE as CONTRACT_TITLE,
   SIGNATURE_LINES as CONTRACT_SIGNATURE_LINES,
 } from './crm-contract-template.mjs'
-import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject } from './crm-gmail.mjs'
+import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject, createDraft as gmailCreateDraft } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { saveAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -1221,6 +1221,15 @@ export function crmDataPlugin() {
             res.setHeader('Content-Type', 'text/html')
             res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't build the agreement</h2><p>${String(e?.message || e)}</p></body>`)
           })
+      })
+      // "Ready to book": issue the link and leave a ready-to-send draft in Gmail. Never sends.
+      server.middlewares.use('/api/booking/ready', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          const project = loadAll().projects.find((p) => p.id === b.projectId)
+          if (!project) throw new Error('Project not found.')
+          return await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, project })
+        })
       })
       // Issue (or reuse) this project's booking-form link.
       server.middlewares.use('/api/booking/link', (req, res, next) => {
