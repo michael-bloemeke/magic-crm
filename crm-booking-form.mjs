@@ -16,15 +16,22 @@
 // Terminology: this is the "booking form". The old "client portal" idea is retired; only its Vercel
 // deployment and Blob submission pipeline are reused.
 //
-// The submission path is the proven one: the form POSTs to the Vercel function, which writes
-// responses/<token>.json into Vercel Blob; the CRM polls that public URL and pulls it in. No inbound
-// connection to Michael's Mac is ever required.
+// Where it all lives (reworked 2026-08-03): the form is a page on michaelbloemeke.com and posts to
+// the `booking` Supabase edge function, which writes into the booking_submissions table. That is the
+// same database the CRM already reads, so a submission is simply THERE the moment it arrives. No
+// Vercel, no Blob, no relay, and nothing that needs Michael's Mac to be awake.
+//
+// The token is the only credential, so it is stamped onto the project row (projects.booking_token).
+// The edge function refuses any token that doesn't match a project, which is what stops a stranger
+// from posting junk.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR, updateProjectField, loadAll, appendActivityLog } from './crm-data-core.mjs'
+import { CRM_STORE, sb } from './crm-store.mjs'
 
-const CRED_FILE = path.join(path.dirname(new URL(import.meta.url).pathname), 'portal-credentials.json')
+// The public site that serves the form. The link Michael sends is `${FORM_BASE}/book/<token>`.
+const FORM_BASE = 'https://michaelbloemeke.com'
 
 // ---------------------------------------------------------------------------
 // The questions
@@ -81,21 +88,8 @@ function writeFile(d) {
   }
 }
 
-function blobBaseUrl() {
-  try {
-    return String(JSON.parse(fs.readFileSync(CRED_FILE, 'utf8')).blobBaseUrl || '').replace(/\/+$/, '')
-  } catch {
-    return ''
-  }
-}
-
 export function formBaseUrl() {
-  try {
-    const d = JSON.parse(fs.readFileSync(CRED_FILE, 'utf8'))
-    return String(d.formBaseUrl || d.portalBaseUrl || '').replace(/\/+$/, '')
-  } catch {
-    return ''
-  }
+  return FORM_BASE
 }
 
 // Unguessable per-project token. Stable once issued, so re-sending the link doesn't break an
@@ -121,8 +115,15 @@ export function bookingFormLink(projectId) {
     d.forms[projectId] = rec
     writeFile(d)
   }
-  const base = formBaseUrl()
-  return { token: rec.token, url: base ? `${base}/book/${rec.token}` : '', sentAt: rec.sentAt, submission: rec.submission }
+  return { token: rec.token, url: `${FORM_BASE}/book/${rec.token}`, sentAt: rec.sentAt, submission: rec.submission }
+}
+
+// Stamp the token onto the project row. The edge function checks incoming tokens against this, so
+// without it a submission is refused. Awaited by the caller before the link is handed out.
+export async function registerToken(projectId) {
+  if (CRM_STORE !== 'supabase') return
+  const { token } = bookingFormLink(projectId)
+  await sb().from('projects').update({ booking_token: token }).eq('id', projectId)
 }
 
 export function markSent(projectId) {
@@ -196,70 +197,51 @@ async function applyAnswers(projectId, answers) {
   return filled
 }
 
-// Poll the blob store for this project's submission. A submission that has already been applied is
-// a no-op, so re-polling never clobbers Michael's later manual edits.
+// Fetch this project's submission from Supabase and apply it. A submission that has already been
+// applied is a no-op, so re-checking never clobbers Michael's later manual edits.
+//
+// This used to poll a public blob URL. It now reads the same database everything else lives in, so
+// there is no third party in the path and nothing to be suspended.
 export async function pullSubmission(projectId) {
   const d = readFile()
   const rec = d.forms[projectId]
   if (!rec) return { ok: false, error: 'No booking form has been created for this project.' }
-  const base = blobBaseUrl()
-  if (!base) return { ok: false, error: 'Form storage is not set up (missing blobBaseUrl in portal-credentials.json).' }
+  if (CRM_STORE !== 'supabase') return { ok: false, error: 'Booking forms need the Supabase store.' }
 
-  let payload = null
+  let row = null
   try {
-    const res = await fetch(`${base}/bookings/${rec.token}.json`, { cache: 'no-store' })
-    if (res.status === 404) return { ok: true, fresh: false, submission: rec.submission }
-    if (!res.ok) return { ok: false, error: `Could not read the submission (${res.status}).` }
-    payload = await res.json()
+    const { data, error } = await sb()
+      .from('booking_submissions')
+      .select('project_id, answers, submitted_at')
+      .eq('project_id', projectId)
+      .maybeSingle()
+    if (error) return { ok: false, error: error.message }
+    row = data
   } catch (e) {
     return { ok: false, error: String(e?.message || e) }
   }
-  if (!payload || !payload.submittedAt) return { ok: true, fresh: false, submission: rec.submission }
-  if (rec.submission && rec.submission.submittedAt === payload.submittedAt) {
+  if (!row) return { ok: true, fresh: false, submission: rec.submission }
+
+  const submittedAt = new Date(row.submitted_at).toISOString()
+  if (rec.submission && rec.submission.submittedAt === submittedAt) {
     return { ok: true, fresh: false, submission: rec.submission }
   }
 
-  const filled = await applyAnswers(projectId, payload.answers)
-  rec.submission = { submittedAt: payload.submittedAt, answers: payload.answers || [] }
+  const answers = Array.isArray(row.answers) ? row.answers : []
+  const filled = await applyAnswers(projectId, answers)
+  rec.submission = { submittedAt, answers }
   writeFile(d)
   try {
     await appendActivityLog(projectId, `Booking form submitted by the client. Filled: ${filled.join(', ') || 'nothing new'}.`)
   } catch {
     /* the log line is a nicety, never fail the pull over it */
   }
+  try {
+    await sb().from('booking_submissions').update({ seen: true }).eq('project_id', projectId)
+  } catch {
+    /* cosmetic flag only */
+  }
   return { ok: true, fresh: true, submission: rec.submission, filledFields: filled }
-}
-
-// House rules for anything Michael or a client READS: dates written out, times in 12-hour.
-// A date input posts '2026-11-14' and a time input posts '18:00', so both get converted here rather
-// than landing raw on the document.
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-function ordinal(n) {
-  if (n % 100 >= 11 && n % 100 <= 13) return `${n}th`
-  return `${n}${['th','st','nd','rd'][n % 10] || 'th'}`
-}
-function prettyDate(v) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim())
-  if (!m) return String(v).trim()
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  if (Number.isNaN(d.getTime())) return String(v).trim()
-  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
-  return `${days[d.getDay()]}, ${MONTHS[d.getMonth()]} ${ordinal(d.getDate())}, ${d.getFullYear()}`
-}
-function prettyTime(v) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v).trim())
-  if (!m) return String(v).trim()
-  let h = Number(m[1])
-  const suffix = h >= 12 ? 'PM' : 'AM'
-  h = h % 12 || 12
-  return `${h}:${m[2]} ${suffix}`
-}
-export function displayValue(field, raw) {
-  const v = String(raw ?? '').trim()
-  if (!v) return ''
-  if (field.type === 'date') return prettyDate(v)
-  if (field.type === 'time') return prettyTime(v)
-  return v
 }
 
 // What the client told us, as label/value pairs, for the agreement's summary page.
@@ -290,12 +272,8 @@ export function invoiceTarget(projectId) {
 // Draft (never send) the email that carries the booking-form link. Michael reviews and sends it
 // himself from Gmail, which is both his own standing rule and where he now writes everything.
 export async function draftBookingEmail(projectId, { createDraft, project }) {
+  await registerToken(projectId)
   const link = bookingFormLink(projectId)
-  if (!link.url) {
-    throw new Error(
-      'No form address is configured yet. Add "formBaseUrl" to portal-credentials.json (the deployed booking-form URL) and try again.',
-    )
-  }
   const to = String(project.contactEmails || '').split(/[,;]/)[0].trim()
   if (!to) throw new Error('This project has no client email to send to.')
   const first = String(project.client || '').trim().split(/\s+/)[0] || 'there'
