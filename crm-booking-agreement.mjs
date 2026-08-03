@@ -41,6 +41,7 @@ import {
   refreshInvoiceStatus,
   status as qbStatus,
 } from './crm-quickbooks.mjs'
+import { readFileSync } from 'node:fs'
 import { CRM_STORE, sb } from './crm-store.mjs'
 
 function findProject(projectId) {
@@ -139,6 +140,29 @@ export async function publishContractTemplates() {
   const { error } = await sb().from('contract_templates').upsert(rows, { onConflict: 'variant' })
   if (error) throw new Error(`Could not publish the contract templates: ${error.message}`)
   return { ok: true, variants: rows.map((r) => r.variant) }
+}
+
+// Fetch the agreement PDF from the CLOUD renderer, which is the one that produced the copy the
+// client received. Authenticated with the cron secret, the same key the scheduled run uses.
+export async function agreementPdfFromCloud(projectId, download = false) {
+  if (!projectId) throw new Error('Project not found.')
+  if (CRM_STORE !== 'supabase') throw new Error('The agreement PDF needs the Supabase store.')
+  const { data: cfg } = await sb().from('push_config').select('cron_secret').eq('id', 1).single()
+  const secret = cfg?.cron_secret
+  if (!secret) throw new Error('No cron secret is configured, so the renderer cannot be reached.')
+  const base = (process.env.SUPABASE_URL || '').replace(/\/$/, '') ||
+    JSON.parse(readFileSync(new URL('./supabase-credentials.json', import.meta.url), 'utf8')).url
+  const url = `${base}/functions/v1/booking-complete?projectId=${encodeURIComponent(projectId)}${download ? '&download=1' : ''}`
+  const res = await fetch(url, { headers: { 'x-cron-secret': secret } })
+  if (!res.ok) {
+    let msg = `The renderer returned ${res.status}.`
+    try { msg = (await res.json())?.error || msg } catch { /* not json */ }
+    throw new Error(msg)
+  }
+  return {
+    buffer: Buffer.from(await res.arrayBuffer()),
+    contentDisposition: res.headers.get('content-disposition') || 'inline; filename="Agreement.pdf"',
+  }
 }
 
 // The variants Michael can pick between, for the UI.

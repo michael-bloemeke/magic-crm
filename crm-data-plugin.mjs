@@ -38,7 +38,7 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
-import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking } from './crm-booking-agreement.mjs'
+import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking, agreementPdfFromCloud } from './crm-booking-agreement.mjs'
 import {
   syncProject,
   syncTask,
@@ -1070,11 +1070,18 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/booking/agreement-pdf', (req, res, next) => {
         if (req.method !== 'GET') return next()
         const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        const projectId = url.searchParams.get('projectId') || ''
         const download = url.searchParams.get('download') === '1'
-        bookingAgreementPdf(url.searchParams.get('projectId') || '')
-          .then(({ buffer, fileName }) => {
+        // PROXY to the cloud renderer rather than building it here.
+        //
+        // There used to be a local pdfmake render for this. Two renderers producing "the agreement"
+        // meant Michael could be looking at a document that differed from the one the client
+        // received, which is the one thing a contract preview must never do. The cloud copy is the
+        // one that was emailed, so that is the one to show.
+        agreementPdfFromCloud(projectId, download)
+          .then(({ buffer, contentDisposition }) => {
             res.setHeader('Content-Type', 'application/pdf')
-            res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${fileName}"`)
+            res.setHeader('Content-Disposition', contentDisposition)
             res.end(buffer)
           })
           .catch((e) => {
@@ -1083,6 +1090,7 @@ export function crmDataPlugin() {
             res.end(`<body style="font-family:sans-serif;padding:40px"><h2>Couldn't build the agreement</h2><p>${String(e?.message || e)}</p></body>`)
           })
       })
+
       // "Ready to book": issue the link, PUBLISH the agreement to the website, and leave a
       // ready-to-send draft in Gmail. Never sends the email itself.
       //

@@ -1107,3 +1107,35 @@ export async function loadBookingProgress(projectId) {
     linkOut: !!proj?.booking_token,
   }
 }
+
+// ---------- the agreement PDF, for previewing on the phone ----------
+//
+// Fetched from the CLOUD renderer, the same one that produced the copy the client received, so what
+// Michael looks at on his phone is the document that was actually signed rather than a lookalike.
+// An <iframe src> can't carry an Authorization header, so this pulls the bytes with the logged-in
+// session and hands back a blob URL for the viewer to point at.
+export async function agreementPdfUrl(projectId) {
+  const { data } = await sb.auth.getSession()
+  const token = data?.session?.access_token
+  if (!token) throw new Error('Not signed in.')
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/booking-complete?projectId=${encodeURIComponent(projectId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    let msg = `The agreement could not be built (${res.status}).`
+    try { msg = (await res.json())?.error || msg } catch (_) { /* not json */ }
+    throw new Error(msg)
+  }
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
+}
+
+// Wipe a previous booking attempt so a resend starts clean. Mirrors resetBooking() on the desktop:
+// the timestamps, the signature and the CRM's invoice record all go; the TOKEN stays so a link
+// already in the client's inbox still resolves and now serves the corrected agreement.
+export async function resetBookingOnPhone(projectId) {
+  await sb.from('booking_submissions').delete().eq('project_id', projectId)
+  await sb.from('invoices').delete().eq('project_id', projectId)
+  const { error } = await sb.from('projects').update({ booking_viewed_at: null }).eq('id', projectId)
+  if (error) throw error
+}
