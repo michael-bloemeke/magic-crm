@@ -1098,7 +1098,7 @@ function addPaymentForm(p, onDone) {
       '<div class="addrow"><input class="field-input" id="pay-date" type="date" /></div>' +
       '<div class="addrow">' +
         '<select class="field-input" id="pay-type"><option value="deposit">Deposit</option><option value="balance">Balance</option><option value="full">Paid in full</option><option value="other">Other</option></select>' +
-        '<select class="field-input" id="pay-method"><option value="">Method…</option><option>Online (HB)</option><option>Cash</option><option>Check</option><option>PayPal</option><option>Venmo</option><option>CashApp</option><option>Zelle</option></select>' +
+        '<select class="field-input" id="pay-method"><option value="">Method…</option><option>QuickBooks invoice</option><option>HoneyBook</option><option>Cash</option><option>Check</option><option>PayPal</option><option>Venmo</option><option>CashApp</option><option>Zelle</option></select>' +
       '</div>' +
       '<label class="pendrow"><input type="checkbox" id="pay-pending" /> Amount known, no date yet (pending)</label>' +
       '<div class="addrow"><button class="btn-ghost" id="pay-cancel">Cancel</button><button class="btn-gold" id="pay-save">Log payment</button></div>' +

@@ -585,7 +585,7 @@ function Payments({ projects, onOpenProject }: { projects: Project[]; onOpenProj
   const [projectId, setProjectId] = useState('')
   const [date, setDate] = useState(todayISO())
   const [type, setType] = useState('deposit')
-  const [method, setMethod] = useState('Online (HB)')
+  const [method, setMethod] = useState('QuickBooks invoice')
 
   useEffect(() => {
     loadPayments()

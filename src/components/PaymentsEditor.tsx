@@ -33,7 +33,7 @@ export function PaymentsEditor({ projectId, onChange }: Props) {
   const [payments, setPayments] = useState<Payment[] | null>(null)
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(todayISO())
-  const [method, setMethod] = useState<string>('Online (HB)')
+  const [method, setMethod] = useState<string>('QuickBooks invoice')
   const [busy, setBusy] = useState(false)
 
   const update = (list: Payment[]) => {

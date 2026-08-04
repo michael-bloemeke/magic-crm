@@ -992,7 +992,11 @@ export async function loadFinance(): Promise<FinanceSummary> {
 }
 
 // How a payment came in. Empty = unspecified.
-export const PAYMENT_METHODS = ['Online (HB)', 'Cash', 'Check', 'PayPal', 'Venmo', 'CashApp', 'Zelle'] as const
+//
+// "QuickBooks invoice" leads because it is how everything gets paid from now on. "HoneyBook" is the
+// historical one and was labelled "Online (HB)" until 2026-08-04; the 102 existing payments carrying
+// the old label were renamed in the same change, so no record has to be read twice.
+export const PAYMENT_METHODS = ['QuickBooks invoice', 'HoneyBook', 'Cash', 'Check', 'PayPal', 'Venmo', 'CashApp', 'Zelle'] as const
 // How a tip came in. Defaults to Cash (most tips are cash handed over at the gig).
 export const TIP_METHODS = ['Cash', 'Venmo', 'CashApp', 'Zelle'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number] | ''

@@ -331,7 +331,7 @@ export function loadPayments() {
 function paymentsMeta() {
   return metaBlock(
     'crm-payments.json',
-    'Cash received from projects. Each payment: projectId (client_name slug), amount, dateReceived (YYYY-MM-DD, empty if pending), pending (bool: amount known but date not yet received), type (deposit/balance/full/other), method (how it was paid: "Online (HB)" / Cash / Check / PayPal / Venmo / CashApp / Zelle, or empty). Pending payments do NOT count toward cash-received figures until a date is set. Powers the CRM Finance page cash-basis figures.',
+    'Cash received from projects. Each payment: projectId (client_name slug), amount, dateReceived (YYYY-MM-DD, empty if pending), pending (bool: amount known but date not yet received), type (deposit/balance/full/other), method (how it was paid: "QuickBooks invoice" / HoneyBook / Cash / Check / PayPal / Venmo / CashApp / Zelle, or empty; "HoneyBook" was labelled "Online (HB)" before 2026-08-04). Pending payments do NOT count toward cash-received figures until a date is set. Powers the CRM Finance page cash-basis figures.',
     'id, projectId, amount, dateReceived, pending, type, method, note, createdAt',
   )
 }
