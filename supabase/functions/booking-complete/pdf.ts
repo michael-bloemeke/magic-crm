@@ -190,13 +190,15 @@ export async function buildAgreementPdf(opts: {
   const w = new Writer(doc, fonts);
 
   // --- Page 1: what they told us -------------------------------------------
-  w.text("YOUR EVENT DETAILS", { size: 15, font: "bold" });
+  w.text("EVENT DETAILS", { size: 15, font: "bold" });
   w.y -= 5;
   w.text(`Prepared for ${opts.clientName}`, { size: 10.5, color: MUTED });
   w.y -= 4;
   w.rule(16);
+  // Third person throughout. This is a legal document that says "the Performer" everywhere else, so
+  // a sudden "me" in the opening line reads as a different voice writing it (Michael, 2026-08-04).
   w.text(
-    "These are the details you gave me. They form part of the agreement on the following pages, so if anything here is wrong, tell me before the event.",
+    "These are the details you gave Michael. They form part of the agreement on the following pages, so if anything here is wrong, tell Michael before the event.",
     { size: 10, gap: 12 },
   );
 

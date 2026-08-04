@@ -74,8 +74,10 @@ export function bookingFormEmail({ project, url }) {
     '',
     "Let me know if you have any questions, I'm always happy to answer!",
     '',
+    // No name. This template is the one Michael sends himself from Gmail as a DRAFT, so his Gmail
+    // signature supplies it (2026-08-04). Everything the CLOUD sends still signs off explicitly,
+    // because the Gmail API transmits the raw message and never appends a signature.
     'Thanks!',
-    'Michael',
   ].join('\n')
   const html = [
     WRAP_OPEN,
@@ -84,7 +86,7 @@ export function bookingFormEmail({ project, url }) {
     button(url, 'Fill in your event details'),
     p("It takes about two minutes. Once the form/agreement is submitted, you'll receive a copy for your records and an invoice.<br>As soon as the invoice is paid, you'll be finalized in my calendar and we'll be good to go!"),
     p("Let me know if you have any questions, I'm always happy to answer!"),
-    p('Thanks!<br>Michael'),
+    p('Thanks!'),
     p(`<span style="font-size:12px;color:#888">If the button doesn't work, paste this into your browser:<br>${esc(url)}</span>`),
     WRAP_CLOSE,
   ].join('')
