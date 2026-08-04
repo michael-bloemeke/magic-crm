@@ -420,6 +420,21 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
         });
         out.emailed = true;
         await logActivity(sb, project, `Signed agreement emailed to ${clientEmail}.`);
+        // Tell Michael, immediately. This fires in the same pass that delivers the client's copy, so
+        // he knows a contract is signed within a minute of it happening rather than whenever he next
+        // opens the CRM. Best-effort by design: his alert must never be the reason a client's
+        // agreement is treated as unsent.
+        try {
+          await notifyMichael(sb, {
+            project,
+            clientEmail,
+            signedName: String(row.signed_name || ""),
+            fee: Number(project.total_fee),
+            invoicingPaused: !(await autoInvoiceEnabled(sb)),
+          });
+        } catch (e) {
+          console.error(`[booking-complete] could not alert Michael for ${projectId}:`, String((e as Error)?.message ?? e));
+        }
       } catch (e) {
         // Release the claim so the next pass retries rather than the booking being stuck "sent".
         await sb.from("booking_submissions").update({ pdf_sent_at: null }).eq("project_id", projectId);
@@ -436,6 +451,14 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
     .eq("project_id", projectId)
     .maybeSingle();
   if (!fresh?.pdf_sent_at || fresh.invoice_sent_at) return out;
+
+  // PAUSED? Stop here, cleanly. Michael is taking real bookings while QuickBooks production is still
+  // waiting on Intuit, so the invoice goes out by hand. Without this switch the step would fail on
+  // every pass, exhaust its retries and fill complete_error with noise that looks like a real fault.
+  // He is emailed the moment the agreement is signed (see notifyMichael) so he can invoice straight
+  // away, which is the whole point of pausing rather than half-trying.
+  const { data: qbCfg } = await sb.from("quickbooks_config").select("auto_invoice_enabled").eq("id", 1).maybeSingle();
+  if (qbCfg && qbCfg.auto_invoice_enabled === false) return out;
 
   const fee = Number(project.total_fee);
   if (!fee || Number.isNaN(fee) || fee <= 0) throw new Error("No quote on the project to invoice.");
@@ -582,6 +605,52 @@ async function checkPaidAndConfirm(sb: SupabaseClient): Promise<{ paid: number; 
     }
   }
   return out;
+}
+
+// Is automatic invoicing switched on? Read fresh each time rather than cached, so flipping the
+// switch takes effect on the next cron pass without a redeploy.
+async function autoInvoiceEnabled(sb: SupabaseClient): Promise<boolean> {
+  const { data } = await sb.from("quickbooks_config").select("auto_invoice_enabled").eq("id", 1).maybeSingle();
+  return !data || data.auto_invoice_enabled !== false;
+}
+
+// "They signed" alert, to Michael, not the client.
+//
+// He asked for this specifically because invoicing is paused: the moment a contract is signed he
+// wants to raise the invoice by hand, and finding out hours later is the difference between looking
+// organised and looking slow. Deliberately a NEW thread rather than a reply into the client's
+// booking thread, so a message written for him can never land in their inbox.
+const MICHAEL_EMAIL = "michael@michaelbloemeke.com";
+
+async function notifyMichael(sb: SupabaseClient, opts: {
+  project: any;
+  clientEmail: string;
+  signedName: string;
+  fee: number;
+  invoicingPaused: boolean;
+}) {
+  const who = String(opts.project.project_name || opts.project.client_name || "A client");
+  const when = prettyDate(String(opts.project.event_date || ""));
+  const amount = Number.isFinite(opts.fee) && opts.fee > 0 ? `$${opts.fee.toLocaleString("en-US")}` : "(no quote set)";
+  await sendPlain(sb, {
+    to: MICHAEL_EMAIL,
+    subject: `SIGNED: ${who}${when ? ` (${when})` : ""}`,
+    html: [
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222">',
+      `<p style="margin:0 0 14px"><strong>${escapeHtml(who)}</strong> just signed the agreement.</p>`,
+      '<table cellpadding="0" cellspacing="0" style="margin:0 0 14px;font-size:15px">',
+      `<tr><td style="padding:2px 16px 2px 0;color:#666">Signed by</td><td>${escapeHtml(opts.signedName || "(no name)")}</td></tr>`,
+      when ? `<tr><td style="padding:2px 16px 2px 0;color:#666">Event date</td><td>${escapeHtml(when)}</td></tr>` : "",
+      `<tr><td style="padding:2px 16px 2px 0;color:#666">Amount</td><td>${escapeHtml(amount)}</td></tr>`,
+      `<tr><td style="padding:2px 16px 2px 0;color:#666">Their email</td><td>${escapeHtml(opts.clientEmail)}</td></tr>`,
+      "</table>",
+      opts.invoicingPaused
+        ? '<p style="margin:0 0 14px;padding:10px 12px;background:#fff4e5;border-left:3px solid #d98324"><strong>Automatic invoicing is paused.</strong> Raise and send this invoice in QuickBooks yourself, then send them the booking confirmation.</p>'
+        : '<p style="margin:0 0 14px">The invoice is going out automatically.</p>',
+      '<p style="margin:0;color:#666;font-size:13px">They already have their signed copy.</p>',
+      "</div>",
+    ].filter(Boolean).join(""),
+  });
 }
 
 // Prepend a dated line to the project's activity log, matching the CRM's own format.

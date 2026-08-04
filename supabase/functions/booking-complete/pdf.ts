@@ -25,6 +25,8 @@ const RULE = rgb(0.72, 0.68, 0.62);
 
 const BRAND = "THE AWARD-WINNING MAGIC OF MICHAEL BLOEMEKE";
 const TITLE = "PERFORMANCE SERVICES AGREEMENT";
+// Countersignature. Kept beside the brand string so the two never drift apart.
+const PERFORMER_NAME = "Michael Bloemeke";
 
 export interface Fonts {
   reg: PDFFont;
@@ -273,9 +275,34 @@ export async function buildAgreementPdf(opts: {
   w.page.drawLine({ start: { x: MARGIN, y: w.y }, end: { x: MARGIN + halfW, y: w.y }, thickness: 0.75, color: RULE });
   w.page.drawLine({ start: { x: MARGIN + halfW + 20, y: w.y }, end: { x: PAGE_W - MARGIN, y: w.y }, thickness: 0.75, color: RULE });
   w.y -= 12;
-  w.page.drawText("Signed by (typed name)", { x: MARGIN, y: w.y, size: 8, font: fonts.reg, color: MUTED });
+  w.page.drawText("Client signature (typed name)", { x: MARGIN, y: w.y, size: 8, font: fonts.reg, color: MUTED });
   w.page.drawText("Date", { x: MARGIN + halfW + 20, y: w.y, size: 8, font: fonts.reg, color: MUTED });
   w.y -= 16;
+
+  // THE COUNTERSIGNATURE. Clause 10 says "By signing below, both the Client and the Performer
+  // acknowledge...", and SIGNATURE_LINES has always defined two lines, but only the client's was
+  // ever drawn. The document promised a signature it never showed. Added 2026-08-04.
+  //
+  // Typed, exactly like the client's, because that is what the audit line below already says both
+  // parties accepted. An image of a signature would look weightier and prove less: it can be copied
+  // out of any PDF, whereas this sits beside a timestamped server-side record of the client's own
+  // submission.
+  //
+  // Only drawn once the client has actually signed. On an unsigned preview a countersignature would
+  // be claiming Michael had accepted an agreement nobody has agreed to yet.
+  if (sig) {
+    w.y -= 10;
+    w.page.drawText(sanitize(PERFORMER_NAME), { x: MARGIN, y: w.y, size: 15, font: fonts.italic, color: INK });
+    const counterDate = sanitize(sig.date || "");
+    if (counterDate) w.page.drawText(counterDate, { x: MARGIN + halfW + 20, y: w.y, size: 11, font: fonts.reg, color: INK });
+    w.y -= 6;
+    w.page.drawLine({ start: { x: MARGIN, y: w.y }, end: { x: MARGIN + halfW, y: w.y }, thickness: 0.75, color: RULE });
+    w.page.drawLine({ start: { x: MARGIN + halfW + 20, y: w.y }, end: { x: PAGE_W - MARGIN, y: w.y }, thickness: 0.75, color: RULE });
+    w.y -= 12;
+    w.page.drawText("Performer signature (typed name)", { x: MARGIN, y: w.y, size: 8, font: fonts.reg, color: MUTED });
+    w.page.drawText("Date", { x: MARGIN + halfW + 20, y: w.y, size: 8, font: fonts.reg, color: MUTED });
+    w.y -= 16;
+  }
 
   if (sig) {
     // The audit trail. This is what makes a typed name defensible: not a picture of a signature, but
