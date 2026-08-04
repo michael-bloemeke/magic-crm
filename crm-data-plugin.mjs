@@ -978,7 +978,13 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/quickbooks/callback', (req, res, next) => {
         if (req.method !== 'GET') return next()
         const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
-        qbHandleCallback({ code: url.searchParams.get('code'), realmId: url.searchParams.get('realmId') })
+        qbHandleCallback({
+          code: url.searchParams.get('code'),
+          realmId: url.searchParams.get('realmId'),
+          // Checked against the nonce authUrl() minted, so a crafted callback cannot attach someone
+          // else's QuickBooks company to this CRM.
+          state: url.searchParams.get('state'),
+        })
           .then(() => {
             res.writeHead(302, { Location: '/?qb=connected' })
             res.end()
@@ -1025,11 +1031,11 @@ export function crmDataPlugin() {
           }),
         }))
       })
-      server.middlewares.use('/api/quickbooks', (req, res, next) => {
+      server.middlewares.use('/api/quickbooks', async (req, res, next) => {
         if (req.method !== 'GET') return next()
         try {
           res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify({ status: qbStatus(), invoices: qbLoadInvoices() }))
+          res.end(JSON.stringify({ status: await qbStatus(), invoices: qbLoadInvoices() }))
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))

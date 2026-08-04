@@ -276,7 +276,7 @@ export async function sendAgreement(projectId, { force = false } = {}) {
 // a no-op forever. That record is the guard, so a retry after a partial failure (invoice created but
 // the send failed) resumes at the send rather than raising a second invoice.
 export async function autoInvoice(projectId) {
-  if (!qbConnected()) return { ok: false, skipped: 'QuickBooks is not connected.' }
+  if (!(await qbConnected())) return { ok: false, skipped: 'QuickBooks is not connected.' }
 
   const existing = qbLoadInvoices()[projectId]
   if (existing?.sentAt) return { ok: true, alreadySent: true, sentAt: existing.sentAt }
@@ -297,7 +297,7 @@ export async function autoInvoice(projectId) {
 
   await sendInvoiceForProject(projectId, to)
 
-  const env = qbStatus().environment
+  const env = (await qbStatus()).environment
   try {
     await appendActivityLog(
       projectId,
@@ -323,7 +323,7 @@ export async function autoInvoice(projectId) {
 // Cheap by construction: only projects that have an invoice sent and not yet marked paid are asked
 // about, which is a handful at most and usually none.
 export async function refreshPaidInvoices() {
-  if (!qbConnected()) return { checked: 0, paid: 0 }
+  if (!(await qbConnected())) return { checked: 0, paid: 0 }
   let invoices = {}
   try {
     invoices = qbLoadInvoices()

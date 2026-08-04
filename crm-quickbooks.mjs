@@ -14,6 +14,7 @@ import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
 import { invoiceMemo } from './crm-booking-emails.mjs'
 import {
   CRM_STORE,
+  sb,
   getCachedInvoices,
   upsertInvoice as sbUpsertInvoice,
   cacheUpsertInvoice,
@@ -39,14 +40,66 @@ function creds() {
 function apiBase(env) {
   return env === 'production' ? 'https://quickbooks.api.intuit.com' : 'https://sandbox-quickbooks.api.intuit.com'
 }
-function readToken() {
+// ---------------------------------------------------------------------------
+// Where the token lives
+// ---------------------------------------------------------------------------
+//
+// ONE COPY, in Supabase. This is not a preference, it is a correctness requirement: Intuit ROTATES
+// the refresh token every time it is used and eventually stops honouring the old one. Two stores
+// (a file here, a row in the cloud) means whichever side refreshes last silently invalidates the
+// other, and the failure shows up as a dead connection at the worst possible moment.
+//
+// That is exactly what this code used to do. The Mac read and wrote quickbooks-token.json while the
+// `booking-complete` edge function read and wrote quickbooks_config, and nothing synced them. Fixed
+// 2026-08-04. The local file is now only a fallback for a non-Supabase store, and is left on disk
+// untouched so an older checkout can still be recovered from it.
+//
+// Only realm_id / refresh_token / access_token / access_expires_at live in the row. The client id
+// and secret still come from the local credentials file on this side, because the Mac is where they
+// are entered.
+
+async function readToken() {
+  if (CRM_STORE === 'supabase') {
+    const { data, error } = await sb()
+      .from('quickbooks_config')
+      .select('realm_id, refresh_token, access_token, access_expires_at')
+      .eq('id', 1)
+      .maybeSingle()
+    if (error || !data) return null
+    if (!data.refresh_token || !data.realm_id) return null
+    return {
+      realmId: data.realm_id,
+      refresh_token: data.refresh_token,
+      access_token: data.access_token || '',
+      // The file format tracked age as obtained_at + expires_in; the row stores the absolute expiry.
+      // Convert so freshToken()'s arithmetic stays identical either way.
+      expires_in: 3600,
+      obtained_at: data.access_expires_at ? new Date(data.access_expires_at).getTime() - 3600 * 1000 : 0,
+    }
+  }
   try {
     return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'))
   } catch {
     return null
   }
 }
-function writeToken(t) {
+
+async function writeToken(t) {
+  if (CRM_STORE === 'supabase') {
+    const { error } = await sb()
+      .from('quickbooks_config')
+      .update({
+        realm_id: String(t.realmId || ''),
+        refresh_token: String(t.refresh_token || ''),
+        access_token: t.access_token || null,
+        access_expires_at: new Date(Date.now() + (t.expires_in ?? 3600) * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', 1)
+    // Losing this write means losing the connection, so it must not fail quietly.
+    if (error) throw new Error(`Could not save the QuickBooks token: ${error.message}`)
+    return
+  }
   fs.writeFileSync(TOKEN_FILE, JSON.stringify(t, null, 2) + '\n')
 }
 
@@ -54,24 +107,32 @@ export function isConfigured() {
   const c = creds()
   return !!(c && c.clientId && !String(c.clientId).startsWith('PASTE') && c.clientSecret && !String(c.clientSecret).startsWith('PASTE'))
 }
-export function isConnected() {
-  const t = readToken()
+export async function isConnected() {
+  const t = await readToken()
   return !!(t && t.refresh_token && t.realmId)
 }
-export function status() {
-  return { configured: isConfigured(), connected: isConnected(), environment: creds()?.environment || 'sandbox' }
+export async function status() {
+  return { configured: isConfigured(), connected: await isConnected(), environment: creds()?.environment || 'sandbox' }
 }
 
 // --- OAuth2 -----------------------------------------------------------------
+
+// The CSRF nonce for the connect currently in flight. In memory rather than on disk because it is
+// meaningful for the seconds between clicking Connect and Intuit redirecting back; a restart in that
+// window just means clicking Connect again. Previously a state was generated here and then never
+// checked on the way back, which made it decorative.
+let PENDING_STATE = ''
+
 export function authUrl() {
   const c = creds()
   if (!isConfigured()) throw new Error('QuickBooks credentials are not set up.')
+  PENDING_STATE = crypto.randomBytes(16).toString('hex')
   const params = new URLSearchParams({
     client_id: c.clientId,
     response_type: 'code',
     scope: SCOPE,
     redirect_uri: c.redirectUri,
-    state: crypto.randomBytes(12).toString('hex'),
+    state: PENDING_STATE,
   })
   return `${AUTH_BASE}?${params.toString()}`
 }
@@ -93,15 +154,30 @@ async function tokenRequest(bodyParams) {
   return JSON.parse(text)
 }
 
-export async function handleCallback({ code, realmId }) {
+export async function handleCallback({ code, realmId, state }) {
   const c = creds()
   if (!code || !realmId) throw new Error('Missing code or realmId from QuickBooks.')
+  // CSRF: the state we minted in authUrl() has to come back untouched. Without this check anyone
+  // could hand Michael a crafted callback URL and attach THEIR QuickBooks company to his CRM, which
+  // would quietly send his clients' invoices into someone else's books.
+  if (!PENDING_STATE || state !== PENDING_STATE) {
+    PENDING_STATE = ''
+    throw new Error('That callback did not match the request we started. Click Connect again.')
+  }
+  PENDING_STATE = ''
   const t = await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: c.redirectUri })
-  writeToken({ ...t, realmId, obtained_at: Date.now() })
+  await writeToken({ ...t, realmId, obtained_at: Date.now() })
   return { ok: true }
 }
 
-export function disconnect() {
+export async function disconnect() {
+  if (CRM_STORE === 'supabase') {
+    // NOT NULL columns, so blank rather than null. Both are treated as disconnected by readToken().
+    await sb()
+      .from('quickbooks_config')
+      .update({ realm_id: '', refresh_token: '', access_token: null, access_expires_at: null, updated_at: new Date().toISOString() })
+      .eq('id', 1)
+  }
   try {
     fs.unlinkSync(TOKEN_FILE)
   } catch {
@@ -111,14 +187,18 @@ export function disconnect() {
 }
 
 // Return a valid access token, refreshing if it's near expiry.
+//
+// The write-back matters more than it looks: Intuit returns a NEW refresh token on every refresh and
+// retires the old one, so failing to store it loses the connection. Since the store is now shared
+// with the cloud function, both sides pick up the rotation.
 async function freshToken() {
-  const t = readToken()
+  const t = await readToken()
   if (!t || !t.refresh_token) throw new Error('QuickBooks is not connected.')
   const ageMs = Date.now() - (t.obtained_at || 0)
   if (t.access_token && ageMs < ((t.expires_in || 3600) - 120) * 1000) return t
   const nt = await tokenRequest({ grant_type: 'refresh_token', refresh_token: t.refresh_token })
   const merged = { ...t, ...nt, obtained_at: Date.now() }
-  writeToken(merged)
+  await writeToken(merged)
   return merged
 }
 
