@@ -8,9 +8,13 @@
 
 export const BRAND = 'The Award-Winning Magic of Michael Bloemeke'
 export const TITLE = 'PERFORMANCE SERVICES AGREEMENT'
+// CLIENT ONLY. A performer line used to sit here and the Acceptance clause used to say "both the
+// Client and the Performer" sign, but no renderer ever drew a performer signature, so the document
+// promised something it did not deliver. Michael's call (2026-08-04): drop the expectation rather
+// than add a countersignature. His acceptance is shown by issuing the agreement and performing it,
+// which is normal for a vendor agreement, and a blank line nobody fills is worse than no line.
 export const SIGNATURE_LINES = [
   'Client signature: ______________________________     Date: ____________',
-  'Performer signature: ___________________________     Date: ____________',
 ]
 const PERFORMER_LINE = 'Performer: Michael Bloemeke, michael@michaelbloemeke.com, (919) 239-9898'
 
@@ -91,7 +95,7 @@ const SECTIONS = [
   {
     key: 'acceptance',
     title: 'Acceptance',
-    body: `By signing below, both the Client and the Performer acknowledge their understanding and acceptance of these terms.`,
+    body: `By signing below, the Client acknowledges their understanding and acceptance of these terms. This Agreement is offered by the Performer and takes effect once the Client has signed it and the Booking Fee has been received in full.`,
   },
 ]
 

@@ -265,12 +265,12 @@ async function pdfFromHtml(bodyHtml, { forSigning = false, forFillable = false }
       }]
     : forSigning
       ? [
+          // Client only. The performer line was dropped 2026-08-04: no renderer ever filled it, and
+          // an empty signature line on a document the client is signing reads as unfinished.
           { text: 'Client signature:', pageBreak: 'before', margin: [0, 0, 0, 0] },
-          { text: 'Performer signature: ___________________________     Date: ____________', margin: [0, 48, 0, 0] },
         ]
       : [
           { text: SIGNATURE_LINES[0], margin: [0, 6, 0, 0] },
-          { text: SIGNATURE_LINES[1], margin: [0, 10, 0, 0] },
         ]
   const docDef = {
     pageSize: 'LETTER',
