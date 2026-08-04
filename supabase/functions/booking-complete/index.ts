@@ -265,20 +265,16 @@ const QB_MINOR = "70";
 const qbBase = (env: string) =>
   env === "production" ? "https://quickbooks.api.intuit.com" : "https://sandbox-quickbooks.api.intuit.com";
 
-// Michael's wording on the invoice itself. QuickBooks sends the invoice email (one message carrying
-// both the pay button and the PDF, which is what he wants), and the surrounding email body is a
-// company-level setting in QBO that the API cannot set per invoice. CustomerMemo IS settable per
-// invoice and renders on the document, so this is where his message rides along.
+// NO CustomerMemo is set here, deliberately.
 //
-// ⚠️ Must stay in step with invoiceMemo() in crm-booking-emails.mjs, which is what the Mac sends.
-// This was missing here until 2026-08-03: the Mac attached it, the cloud did not, and since the
-// Mac's sweep was retired every real invoice would have gone out with no message at all.
-const INVOICE_MEMO = [
-  "The Invoice is attached, please remit payment at your earliest convenience.",
-  "Thank you for your business, I appreciate it very much!!",
-  "",
-  "NOTE: Quickbooks does have a processing fee for online payment, so if you'd prefer to avoid that, I'm happy to do cash, check, PayPal, Venmo, CashApp, or Zelle. Just let me know.",
-].join("\n");
+// It briefly carried invoiceMemo() from crm-booking-emails.mjs, but that text ("The Invoice is
+// attached, please remit payment...") was written by Michael as the EMAIL that accompanies an
+// invoice, not as the note printed on the invoice document. They are different pieces of writing
+// doing different jobs, and he did not want one silently reused as the other (2026-08-04).
+//
+// So the invoice carries whatever QuickBooks' own company settings put on it, which is where an
+// invoice-facing message belongs. If a per-invoice memo is ever wanted, set CustomerMemo below with
+// wording written for that purpose rather than borrowed from the email.
 
 async function qbClient(sb: SupabaseClient) {
   const { data: cfg, error } = await sb.from("quickbooks_config").select("*").eq("id", 1).single();
@@ -496,7 +492,6 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
         body: JSON.stringify({
           CustomerRef: { value: customer.Id },
           BillEmail: { Address: invoiceEmail },
-          CustomerMemo: { value: INVOICE_MEMO.slice(0, 1000) },
           Line: [{
             DetailType: "SalesItemLineDetail",
             Amount: fee,
