@@ -11,7 +11,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
-import { invoiceMemo } from './crm-booking-emails.mjs'
+
 import {
   CRM_STORE,
   sb,
@@ -363,10 +363,12 @@ export async function createInvoiceForProject(projectId, opts = {}) {
     })
   }
   const body = { CustomerRef: { value: customer.Id }, Line: lines }
-  // The message the client reads on the invoice. QuickBooks sends the invoice itself (one email with
-  // the pay button and the PDF, which is what Michael prefers), and CustomerMemo is the piece the API
-  // lets us customise per invoice. Verified settable against the sandbox 2026-08-03.
-  const memo = String(opts.memo ?? invoiceMemo()).trim()
+  // A per-invoice memo is only set if a caller explicitly passes one. It used to default to
+  // invoiceMemo(), but that text was written as the EMAIL that accompanies an invoice, not as the
+  // note printed on the invoice document, and reusing it here made one piece of writing do two jobs
+  // nobody chose (removed 2026-08-04). The invoice-facing wording now lives where it belongs, in
+  // QuickBooks' own Sales > Messages settings, which also covers invoices Michael raises by hand.
+  const memo = String(opts.memo ?? '').trim()
   if (memo) body.CustomerMemo = { value: memo.slice(0, 1000) }
   if (email) body.BillEmail = { Address: email }
   const due = String(opts.dueDate || '').trim()
