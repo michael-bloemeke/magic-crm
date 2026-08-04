@@ -28,7 +28,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { RECORDS_DIR, updateProjectField, loadAll, appendActivityLog } from './crm-data-core.mjs'
-import { CRM_STORE, sb } from './crm-store.mjs'
+import { CRM_STORE, sb, getCachedContacts, getCachedLinksMap } from './crm-store.mjs'
 import { bookingFormEmail } from './crm-booking-emails.mjs'
 
 // The public site that serves the form. The link is `${FORM_BASE}/book/?t=<token>`: /book/ is a real
@@ -410,6 +410,44 @@ export function invoiceTarget(projectId) {
   }
 }
 
+// Where do we send the booking form?
+//
+// A project stores contact details TWICE, and only one was ever consulted here:
+//
+//   1. projects.contact_emails, plain text on the project. The website inquiry function fills this
+//      in, so leads that arrive through the site have always worked.
+//   2. The linked CONTACT record, via contact_links. This is what the project page's Contact section
+//      and the contact side-panel actually display.
+//
+// So a project created BY HAND, with an existing contact linked to it, showed an email on screen
+// while contact_emails sat empty, and "Ready to book" refused with "no client email to send to".
+// Michael hit exactly that on 2026-08-04 and reasonably replied "i do have his email as you can see".
+// He was right; the code was looking in one drawer while the UI showed him the other.
+//
+// Now: the project's own field wins if set, otherwise the first linked contact with an email.
+export function clientEmailFor(project) {
+  const direct = String(project?.contactEmails || '').split(/[,;]/)[0].trim()
+  if (direct) return direct
+  try {
+    if (CRM_STORE !== 'supabase') return ''
+    const ids = getCachedLinksMap()[project.id] || []
+    if (!ids.length) return ''
+    const byId = new Map(getCachedContacts().map((c) => [c.id, c]))
+    for (const id of ids) {
+      // contacts.emails is a Postgres ARRAY, unlike projects.contact_emails which is comma-separated
+      // text. Handle both rather than relying on Array.toString() joining with commas by luck.
+      const raw = byId.get(id)?.emails
+      const list = Array.isArray(raw) ? raw : String(raw || '').split(/[,;]/)
+      const email = list.map((e) => String(e || '').trim()).find(Boolean)
+      if (email) return email
+    }
+  } catch {
+    // A cache that is not warm yet must not turn into a confusing failure; fall through to "none"
+    // and let the caller say so plainly.
+  }
+  return ''
+}
+
 // ---------------------------------------------------------------------------
 // "Ready to book": issue the link and put a ready-to-send draft in Gmail
 // ---------------------------------------------------------------------------
@@ -441,8 +479,12 @@ export async function draftBookingEmail(projectId, { createDraft, project }) {
   }
   await registerToken(projectId)
   const link = bookingFormLink(projectId)
-  const to = String(project.contactEmails || '').split(/[,;]/)[0].trim()
-  if (!to) throw new Error('This project has no client email to send to.')
+  const to = clientEmailFor(project)
+  if (!to) {
+    throw new Error(
+      'No client email on this project. Add one in the Contact section, or on the linked contact record.',
+    )
+  }
   const { subject, text, html } = bookingFormEmail({ project, url: link.url })
   const draft = await createDraft({ to, subject, body: text, html })
   markSent(projectId)
