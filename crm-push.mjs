@@ -13,8 +13,10 @@ import { fileURLToPath } from 'node:url'
 import { loadAll, loadTasks } from './crm-data-core.mjs'
 import { sendWebPush } from './crm-webpush.mjs'
 
-// The deployed phone app, used as the tap target for web-push notifications.
-const APP_URL = 'https://mobile-blond-alpha.vercel.app'
+// The deployed phone app, used as the tap target for web-push notifications. Moved off Vercel to
+// michaelbloemeke.com/crm/ on 2026-08-03. The cloud sender reads the same value from
+// push_config.app_url; keep the two in step or a tapped notification opens the wrong place.
+const APP_URL = 'https://michaelbloemeke.com/crm/'
 
 const CONFIG_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'push-config.json')
 const DEFAULT_SERVER = 'https://ntfy.sh'

@@ -3,6 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <!-- This app is served from michaelbloemeke.com/crm/, a public domain, so it must never be
+         indexed. On Vercel this came from an X-Robots-Tag header in vercel.json; on Cloudflare it
+         travels with the file instead. robots.txt also disallows /crm/. Neither is a security
+         control: the real gate is the Supabase login plus RLS, which is why a stranger finding this
+         page sees only a sign-in screen. -->
+    <meta name="robots" content="noindex, nofollow" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Magic CRM" />
