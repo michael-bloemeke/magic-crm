@@ -226,7 +226,10 @@ async function qb(pathPart, opts = {}) {
   }
   if (!res.ok) {
     const msg = data?.Fault?.Error?.[0]?.Detail || data?.Fault?.Error?.[0]?.Message || text.slice(0, 300)
-    throw new Error(`QuickBooks API ${res.status}: ${msg}`)
+    // intuit_tid identifies this exact request in Intuit's own systems. It is the first thing their
+    // support asks for, and an error report without it is close to untraceable on their side.
+    const tid = res.headers.get('intuit_tid') || ''
+    throw new Error(`QuickBooks API ${res.status}: ${msg}${tid ? ` [intuit_tid ${tid}]` : ''}`)
   }
   return data
 }

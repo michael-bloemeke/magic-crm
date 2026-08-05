@@ -320,7 +320,14 @@ async function qbClient(sb: SupabaseClient) {
     const text = await res.text();
     let body: any = null;
     try { body = text ? JSON.parse(text) : null; } catch { /* the send endpoint answers with nothing */ }
-    if (!res.ok) throw new Error(`QuickBooks ${res.status}: ${body?.Fault?.Error?.[0]?.Message || text.slice(0, 200)}`);
+    if (!res.ok) {
+      // intuit_tid is Intuit's own id for this exact request. It is the first thing their support
+      // asks for, and without it a ticket is "an invoice failed at some point" with nothing they can
+      // trace. Carried into the error message so it lands in complete_error and the function logs.
+      const tid = res.headers.get("intuit_tid") || res.headers.get("Intuit_Tid") || "";
+      const detail = body?.Fault?.Error?.[0]?.Message || text.slice(0, 200);
+      throw new Error(`QuickBooks ${res.status}: ${detail}${tid ? ` [intuit_tid ${tid}]` : ""}`);
+    }
     return body;
   };
   return { call, environment: cfg.environment as string };
@@ -543,11 +550,27 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
 // asleep while it happens. The confirmation replies into the BOOKING thread rather than the invoice
 // one, because QuickBooks sends the invoice and we have no thread of our own to reply into. He still
 // ends up with four emails across two conversations: his, and QuickBooks'.
+// THROTTLED to once every 15 minutes, not once a minute like the rest of the sweep.
+//
+// This used to ask QuickBooks about every outstanding invoice on every pass: roughly 1,440 calls a
+// day per unpaid invoice, to learn something that is just as useful known a quarter of an hour later.
+// Nobody is refreshing their inbox waiting on a "you're booked in" email to the second. The parts
+// that DO need to be immediate (the signed agreement to the client, the alert to Michael) are not
+// affected; they still run every minute.
+const PAID_CHECK_EVERY_MS = 15 * 60 * 1000;
+
 async function checkPaidAndConfirm(sb: SupabaseClient): Promise<{ paid: number; confirmed: number }> {
   const out = { paid: 0, confirmed: 0 };
   const { data: rows } = await sb.from("invoices").select("project_id, data");
   const outstanding = (rows || []).filter((r: any) => r.data?.invoiceId && r.data?.sentAt && !r.data?.confirmSentAt);
   if (!outstanding.length) return out;
+
+  // Only worth throttling once we know there is something to check, so a quiet period costs nothing
+  // and does not keep pushing the timestamp forward.
+  const { data: cfg } = await sb.from("quickbooks_config").select("paid_check_at").eq("id", 1).maybeSingle();
+  const last = cfg?.paid_check_at ? new Date(cfg.paid_check_at).getTime() : 0;
+  if (Date.now() - last < PAID_CHECK_EVERY_MS) return out;
+  await sb.from("quickbooks_config").update({ paid_check_at: new Date().toISOString() }).eq("id", 1);
 
   let call: any = null;
   try {
@@ -645,6 +668,46 @@ async function notifyMichael(sb: SupabaseClient, opts: {
       '<p style="margin:0;color:#666;font-size:13px">They already have their signed copy.</p>',
       "</div>",
     ].filter(Boolean).join(""),
+  });
+}
+
+// "This booking is stuck" alert. The counterpart to notifyMichael(): that one says a contract was
+// signed, this one says the chain afterwards could not finish. Deliberately blunt about what the
+// client has and has not received, because that is the thing he has to act on.
+async function notifyMichaelFailed(sb: SupabaseClient, projectId: string, error: string) {
+  const { data: project } = await sb
+    .from("projects")
+    .select("id, client_name, project_name, contact_emails, event_date")
+    .eq("id", projectId)
+    .maybeSingle();
+  const { data: row } = await sb
+    .from("booking_submissions")
+    .select("pdf_sent_at, invoice_sent_at")
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  const who = String(project?.project_name || project?.client_name || projectId);
+  const when = prettyDate(String(project?.event_date || ""));
+  const gotAgreement = !!row?.pdf_sent_at;
+
+  await sendPlain(sb, {
+    to: MICHAEL_EMAIL,
+    subject: `BOOKING STUCK: ${who}`,
+    html: [
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222">',
+      `<p style="margin:0 0 14px">The booking for <strong>${escapeHtml(who)}</strong>${when ? ` (${escapeHtml(when)})` : ""} could not be completed automatically, and it has stopped retrying.</p>`,
+      '<p style="margin:0 0 6px;color:#666">What the client has:</p>',
+      '<ul style="margin:0 0 14px;padding-left:20px">',
+      `<li>Signed agreement: <strong>${gotAgreement ? "sent" : "NOT sent"}</strong></li>`,
+      `<li>Invoice: <strong>${row?.invoice_sent_at ? "sent" : "not sent"}</strong></li>`,
+      "</ul>",
+      `<p style="margin:0 0 14px;padding:10px 12px;background:#fdecea;border-left:3px solid #c0392b"><strong>Error:</strong><br>${escapeHtml(error)}</p>`,
+      gotAgreement
+        ? '<p style="margin:0 0 14px">They do have their signed copy, so this is not urgent from their side.</p>'
+        : '<p style="margin:0 0 14px"><strong>They have not received their signed agreement.</strong> Send it manually, or fix the cause and clear complete_attempts to let it retry.</p>',
+      `<p style="margin:0;color:#666;font-size:13px">Project: ${escapeHtml(projectId)}</p>`,
+      "</div>",
+    ].join(""),
   });
 }
 
@@ -759,10 +822,29 @@ Deno.serve(async (req) => {
     } catch (e) {
       const msg = String((e as Error)?.message ?? e).slice(0, 400);
       errors[row.project_id] = msg;
+      const attempts = (row.complete_attempts ?? 0) + 1;
       await sb.from("booking_submissions")
-        .update({ complete_error: msg, complete_attempts: (row.complete_attempts ?? 0) + 1 })
+        .update({ complete_error: msg, complete_attempts: attempts })
         .eq("project_id", row.project_id);
       console.error(`[booking-complete] ${row.project_id}: ${msg}`);
+
+      // TELL MICHAEL, once, when we have given up.
+      //
+      // Until 2026-08-05 a failure was completely silent: the error went into complete_error and sat
+      // there, shown in no screen and no alert. A client could sign, the agreement email could fail,
+      // the retries could quietly exhaust, and the first he would know is them asking where their
+      // copy was.
+      //
+      // Fired on the attempt that REACHES the cap, not on every failure, because the row is excluded
+      // from the query once attempts hit MAX_ATTEMPTS. So this sends exactly one email per stuck
+      // booking, after a transient problem has had eight chances to resolve itself.
+      if (attempts >= MAX_ATTEMPTS) {
+        try {
+          await notifyMichaelFailed(sb, row.project_id, msg);
+        } catch (mailErr) {
+          console.error(`[booking-complete] could not send the failure alert for ${row.project_id}:`, String((mailErr as Error)?.message ?? mailErr));
+        }
+      }
     }
   }
   const paidResult = await checkPaidAndConfirm(sb);
