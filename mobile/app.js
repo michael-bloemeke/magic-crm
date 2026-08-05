@@ -305,6 +305,11 @@ function openNewProject() {
   sheet.querySelector('#np-cancel').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   sheet.querySelector('#np-cphone').addEventListener('blur', function (e) { /* light hint; server normalizes on save */ })
+  attachContactSuggest(sheet.querySelector('#np-cname'), function (c) {
+    var em = sheet.querySelector('#np-cemail'), ph = sheet.querySelector('#np-cphone')
+    if (!em.value.trim()) em.value = (c.emails || [])[0] || ''
+    if (!ph.value.trim()) ph.value = (c.phones || [])[0] || ''
+  })
   sheet.querySelector('#np-save').addEventListener('click', function () {
     var name = sheet.querySelector('#np-name').value.trim()
     if (!name) { toast('Enter a project name.', 'err'); return }
@@ -910,6 +915,9 @@ function projectFieldRow(p, key, label, kind, onSaved) {
     wrap.appendChild(el('<div class="k" style="margin-bottom:5px">' + esc(label) + '</div>'))
     var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
     input.className = 'field-input'; if (kind === 'date') input.type = 'date'; input.value = cur; if (kind === 'textarea') input.rows = 3
+    // 'money' brings up the numeric keypad instead of the full keyboard. Not type="number", which on
+    // iOS adds spinners and rejects a stray comma outright rather than letting the server clean it.
+    if (kind === 'money') input.inputMode = 'decimal'
     wrap.appendChild(input)
     var save = function () {
       var nv = input.value
@@ -1068,6 +1076,11 @@ var EDITABLE_DETAIL_FIELDS = [
   ['numberOfGuests', 'Guest count', 'text'],
   ['ageOfGuests', 'Guest ages', 'text'],
   ['performanceStyle', 'Performance', 'text'],
+  // The QUOTE. Missing from this list until 2026-08-05, which meant the phone blocked "Ready to book"
+  // on a field the phone gave you no way to fill: the booking gate said "edit these in Event details"
+  // and Event details did not offer it. Sits next to Performance because those two are the pair that
+  // the client actually reads on the agreement.
+  ['totalFee', 'Quote', 'money'],
   ['av', 'AV', 'text'],
   ['vips', 'VIPs', 'text'],
   ['bookingSource', 'Booking source', 'text'],
@@ -1132,6 +1145,61 @@ function addPaymentForm(p, onDone) {
   return wrap
 }
 
+// Suggest people Michael already knows, instead of making him retype them.
+//
+// The phone stored contact details as free text on the project and offered no lookup at all, so
+// adding "Jack Kelly" to a new project meant typing his name, email and phone from memory even
+// though the contact was already in the CRM. Worse than tedious: a typo'd email is the difference
+// between a booking form arriving and not.
+//
+// Deliberately a plain list rather than <datalist>: datalist rendering on iOS Safari is inconsistent
+// and cannot show the email underneath, which is the bit that tells two similarly-named people apart.
+//
+// Picking someone fills the other fields too, via onPick. Michael can still type a name that matches
+// nobody; this only ever offers, never restricts.
+function attachContactSuggest(input, onPick) {
+  var box = el('<div class="sugg" hidden></div>')
+  input.insertAdjacentElement('afterend', box)
+
+  function hide() { box.hidden = true; box.innerHTML = '' }
+
+  function draw() {
+    var q = String(input.value || '').trim().toLowerCase()
+    if (q.length < 2) return hide()
+    var all = SNAP.contacts || []
+    var hits = all.filter(function (c) {
+      var hay = ((c.name || '') + ' ' + (c.emails || []).join(' ')).toLowerCase()
+      return hay.indexOf(q) >= 0
+    })
+    // An exact match is not a suggestion, it is what they already typed.
+    if (hits.length === 1 && (hits[0].name || '').toLowerCase() === q) return hide()
+    if (!hits.length) return hide()
+    hits.sort(function (a, b) { return (a.name || '').toLowerCase() < (b.name || '').toLowerCase() ? -1 : 1 })
+    box.innerHTML = ''
+    hits.slice(0, 6).forEach(function (c) {
+      var sub = (c.emails || [])[0] || (c.phones || [])[0] || ''
+      var row = el(
+        '<div class="sugg-row"><div class="sugg-n">' + esc(c.name || '(no name)') + '</div>' +
+        (sub ? '<div class="sugg-s">' + esc(sub) + '</div>' : '') + '</div>'
+      )
+      // mousedown, not click: on a focused input the blur fires first and would tear the list down
+      // before the tap ever lands.
+      row.addEventListener('mousedown', function (e) {
+        e.preventDefault()
+        input.value = c.name || ''
+        hide()
+        if (onPick) onPick(c)
+      })
+      box.appendChild(row)
+    })
+    box.hidden = false
+  }
+
+  input.addEventListener('input', draw)
+  input.addEventListener('focus', draw)
+  input.addEventListener('blur', function () { setTimeout(hide, 120) })
+}
+
 // A modal sheet to edit the project's contact fields (names / emails / phones on the project row).
 // Phones are normalized on save (formatPhoneField), matching the desktop.
 function openContactEditor(p) {
@@ -1147,7 +1215,13 @@ function openContactEditor(p) {
   card.appendChild(el('<div class="k" style="margin:10px 0 4px">Phones</div>'))
   var phIn = document.createElement('input'); phIn.className = 'field-input'; phIn.value = p.contactPhones || ''
   card.appendChild(phIn)
-  card.appendChild(el('<div class="hint">Phone numbers get auto-formatted on save.</div>'))
+  // Only fill the blanks. Overwriting an email he has already corrected by hand, just because the
+  // stored contact says otherwise, would be the app arguing with him.
+  attachContactSuggest(nameIn, function (c) {
+    if (!emIn.value.trim()) emIn.value = (c.emails || [])[0] || ''
+    if (!phIn.value.trim()) phIn.value = (c.phones || [])[0] || ''
+  })
+  card.appendChild(el('<div class="hint">Start typing a name to pull in someone you already have. Phone numbers get auto-formatted on save.</div>'))
   var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
   var close = function () { sheet.remove() }
   bar.children[0].addEventListener('click', close)

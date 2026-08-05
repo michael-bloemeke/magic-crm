@@ -9,8 +9,10 @@
 // (v8 re-enabled in-app web-push subscribe on the Supabase login flow; v7 added writes; v6 was the
 // passcode+snapshot -> Supabase login + live-reads switchover.)
 // v11: moved off Vercel to michaelbloemeke.com/crm/ (2026-08-03), plus the event-date booking gate.
+// v12: Quote is editable on the phone at last (it gated Ready to book while being unreachable), and
+// contact name fields suggest people already in the CRM instead of demanding retyping.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v11'
+var CACHE = 'mcrm-v12'
 var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {
