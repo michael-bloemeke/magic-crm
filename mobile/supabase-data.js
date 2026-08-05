@@ -642,6 +642,56 @@ export async function updateContact(id, patch = {}) {
   return { ok: true, id, patch: row }
 }
 
+// Create a contact record and link it to a project, or link an existing one.
+//
+// WHY THIS EXISTS. Until 2026-08-05 the phone wrote contact details as plain TEXT onto the project
+// (contact_names / contact_emails / contact_phones) and never touched the contacts table. The desktop
+// does both: a real contacts row plus a contact_links join. So a person added on the phone existed
+// only as a string on one project. They did not appear in Contacts, could not be reused, and had no
+// history.
+//
+// It also caused a live failure: "Ready to book" reads the linked contact when the project's own
+// email field is blank, so a project built one way behaved differently from a project built the
+// other. Michael hit that on Jack Kelly and quite reasonably said "i do have his email as you can
+// see".
+//
+// linkOrCreateContact takes what the sheet collected and does the right thing either way:
+//   - contactId given (he picked a suggestion) -> just link it, leave their record alone
+//   - no id, but a name -> create the contact, then link it
+//
+// Best-effort by design: the project has already been written by the time this runs, and a failure
+// to build the join must never make a saved project look unsaved. The text fields on the project are
+// still written either way, so nothing regresses if this fails.
+export async function linkOrCreateContact(projectId, { contactId = '', name = '', email = '', phone = '' } = {}) {
+  if (!projectId) return { ok: false, skipped: 'no project' }
+  let id = String(contactId || '').trim()
+
+  if (!id) {
+    const clean = String(name || '').trim()
+    if (!clean) return { ok: false, skipped: 'no name' }
+    const row = {
+      name: clean,
+      emails: toList(email),
+      phones: toList(phone).map((p) => formatPhoneField(p)),
+      tags: [],
+      // Matches what the desktop defaults a hand-added contact to: a client, currently in play.
+      type: 'Client',
+      relationship: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    const { data, error } = await sb.from('contacts').insert(row).select('id').single()
+    if (error) throw error
+    id = String(data.id)
+  }
+
+  const { error: linkErr } = await sb
+    .from('contact_links')
+    .upsert({ project_id: projectId, contact_id: id }, { onConflict: 'project_id,contact_id' })
+  if (linkErr) throw linkErr
+  return { ok: true, contactId: id }
+}
+
 // Load contacts (id + editable fields) so the phone can show/edit them. Mirrors the read shape of
 // crm-contacts.mjs (jsonb arrays -> string arrays).
 export async function loadContacts() {

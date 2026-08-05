@@ -12,7 +12,7 @@ import {
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
-  updateContact,
+  updateContact, loadContacts, linkOrCreateContact,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
@@ -305,7 +305,13 @@ function openNewProject() {
   sheet.querySelector('#np-cancel').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   sheet.querySelector('#np-cphone').addEventListener('blur', function (e) { /* light hint; server normalizes on save */ })
-  attachContactSuggest(sheet.querySelector('#np-cname'), function (c) {
+  // Which existing contact he picked, if any. Cleared the moment he edits the name by hand, because
+  // at that point he is describing somebody else and linking the old record would be wrong.
+  var pickedContactId = ''
+  var npName = sheet.querySelector('#np-cname')
+  npName.addEventListener('input', function () { pickedContactId = '' })
+  attachContactSuggest(npName, function (c) {
+    pickedContactId = c.id
     var em = sheet.querySelector('#np-cemail'), ph = sheet.querySelector('#np-cphone')
     if (!em.value.trim()) em.value = (c.emails || [])[0] || ''
     if (!ph.value.trim()) ph.value = (c.phones || [])[0] || ''
@@ -330,6 +336,19 @@ function openNewProject() {
       close()
       BUCKET = 'active'
       renderDetail(proj.id)
+      // Build the real contact record + link AFTER the project exists. Deliberately not awaited and
+      // deliberately not able to fail the create: the project is already saved and on screen, and a
+      // join-table hiccup must not make a successful save look broken.
+      linkOrCreateContact(proj.id, {
+        contactId: pickedContactId,
+        name: input.contactNames,
+        email: input.contactEmails,
+        phone: input.contactPhones,
+      }).then(function (r) {
+        if (r && r.ok) refreshContactsCache()
+      }).catch(function (e) {
+        console.error('[mobile] could not link the contact:', e && e.message)
+      })
     })
   })
   document.body.appendChild(sheet)
@@ -1157,6 +1176,15 @@ function addPaymentForm(p, onDone) {
 //
 // Picking someone fills the other fields too, via onPick. Michael can still type a name that matches
 // nobody; this only ever offers, never restricts.
+// Pull the contact list again after we have added one, so the next suggestion box knows about the
+// person just created without waiting for a full app reload. Silent on failure: a stale suggestion
+// list is a minor annoyance, an error toast about it would be noise.
+function refreshContactsCache() {
+  return loadContacts()
+    .then(function (list) { if (SNAP) SNAP.contacts = list })
+    .catch(function () {})
+}
+
 function attachContactSuggest(input, onPick) {
   var box = el('<div class="sugg" hidden></div>')
   input.insertAdjacentElement('afterend', box)
@@ -1217,7 +1245,10 @@ function openContactEditor(p) {
   card.appendChild(phIn)
   // Only fill the blanks. Overwriting an email he has already corrected by hand, just because the
   // stored contact says otherwise, would be the app arguing with him.
+  var pickedContactId = ''
+  nameIn.addEventListener('input', function () { pickedContactId = '' })
   attachContactSuggest(nameIn, function (c) {
+    pickedContactId = c.id
     if (!emIn.value.trim()) emIn.value = (c.emails || [])[0] || ''
     if (!phIn.value.trim()) phIn.value = (c.phones || [])[0] || ''
   })
@@ -1231,8 +1262,20 @@ function openContactEditor(p) {
     if (nameIn.value !== (p.contactNames || '')) writes.push(updateProjectField(p.id, 'contactNames', nameIn.value).then(function (r) { p.contactNames = r.value }))
     if (emIn.value !== (p.contactEmails || '')) writes.push(updateProjectField(p.id, 'contactEmails', emIn.value).then(function (r) { p.contactEmails = r.value }))
     if (phIn.value !== (p.contactPhones || '')) writes.push(updateProjectField(p.id, 'contactPhones', phIn.value).then(function (r) { p.contactPhones = r.value }))
-    if (!writes.length) { close(); return }
-    doWrite(Promise.all(writes), 'Contact updated', function () { close(); renderDetail(p.id, true) })
+    // Same as the new-project sheet: keep the project's text fields (nothing downstream changes) AND
+    // build the contacts row + link, so a person added here is a real contact rather than a string.
+    var linkIt = function () {
+      return linkOrCreateContact(p.id, {
+        contactId: pickedContactId,
+        name: nameIn.value,
+        email: emIn.value,
+        phone: phIn.value,
+      }).then(function (r) {
+        if (r && r.ok) refreshContactsCache()
+      }).catch(function (e) { console.error('[mobile] could not link the contact:', e && e.message) })
+    }
+    if (!writes.length) { linkIt(); close(); return }
+    doWrite(Promise.all(writes), 'Contact updated', function () { linkIt(); close(); renderDetail(p.id, true) })
   })
   card.appendChild(bar)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
