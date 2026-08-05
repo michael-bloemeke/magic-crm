@@ -1,6 +1,6 @@
 {
-  "name": "Magic CRM",
-  "short_name": "Magic CRM",
+  "name": "Bloom CRM",
+  "short_name": "Bloom CRM",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -1,4 +1,4 @@
-/* Service worker for Magic CRM mobile: offline shell cache + web push (push lands on the lock
+/* Service worker for Bloom CRM mobile: offline shell cache + web push (push lands on the lock
    screen even with the app closed). The snapshot is network-first so it's always fresh when online
    and still available offline. */
 
@@ -11,8 +11,9 @@
 // v11: moved off Vercel to michaelbloemeke.com/crm/ (2026-08-03), plus the event-date booking gate.
 // v12: Quote editable on the phone; contact fields suggest existing contacts.
 // v13: contacts added on the phone are now REAL contact records with a project link, not loose text.
+// v14: renamed to Bloom CRM; Event details rebuilt as full-size always-visible fields with an X.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v13'
+var CACHE = 'mcrm-v14'
 var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
 
 self.addEventListener('install', function (e) {
@@ -53,7 +54,7 @@ self.addEventListener('fetch', function (e) {
 self.addEventListener('push', function (e) {
   var data = {}
   try { data = e.data ? e.data.json() : {} } catch (_) { data = { body: e.data ? e.data.text() : '' } }
-  var title = data.title || 'Magic CRM'
+  var title = data.title || 'Bloom CRM'
   var opts = {
     body: data.body || '',
     icon: './icon-192.png',

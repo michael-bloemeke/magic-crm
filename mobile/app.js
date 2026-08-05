@@ -1,4 +1,4 @@
-/* Magic CRM mobile. Logs in with Supabase Auth and reads LIVE data straight from the database (RLS
+/* Bloom CRM mobile. Logs in with Supabase Auth and reads LIVE data straight from the database (RLS
    lets the logged-in user read everything; the publishable key alone reads nothing). Login is
    once-per-device (supabase-js persists the session). Read-only for now: the view renders live data;
    writes are a later stage and slot into supabase-data.js behind the load*() functions.
@@ -960,21 +960,61 @@ function projectFieldRow(p, key, label, kind, onSaved) {
 }
 
 // Details: all the editable event fields.
+// Every event field, each one a real text box showing its current value.
+//
+// It used to be a compact tap-to-reveal list: label on the left, value hidden until you opened that
+// one row. That fits more on screen and is worse to actually use. Michael's point (2026-08-05): he
+// wants to READ the guest count without opening the guest count, and would rather scroll a longer
+// list than play hide and seek with fourteen fields.
+//
+// So: full-width inputs, always showing their value, saved on blur. The header is pinned with a real
+// X, because the old way out was tapping the few pixels of backdrop above the sheet.
 function openDetailsPanel(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove(); renderDetail(p.id, true) }
-  function rebuild() {
-    card.innerHTML = ''
-    card.appendChild(el('<div class="sheet-title">Edit details</div>'))
-    var kv = el('<div class="kv"></div>')
-    EDITABLE_DETAIL_FIELDS.forEach(function (f) { kv.appendChild(projectFieldRow(p, f[0], f[1], f[2], rebuild)) })
-    card.appendChild(kv)
-    var done = el('<button class="btn-gold" style="width:100%;margin-top:14px">Done</button>')
-    done.addEventListener('click', close)
-    card.appendChild(done)
-  }
-  rebuild()
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title">Event details</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div>' +
+      '<div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var dirty = false
+  var close = function () { sheet.remove(); if (dirty) renderDetail(p.id, true) }
+
+  EDITABLE_DETAIL_FIELDS.forEach(function (f) {
+    var key = f[0], label = f[1], kind = f[2]
+    var cur = key === 'projectName' ? (p.client || '') : (p[key] == null ? '' : String(p[key]))
+    var fld = el('<div class="fld"><div class="fld-l">' + esc(label) + '</div></div>')
+    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+    input.className = 'field-input'
+    input.value = cur
+    if (kind === 'date') input.type = 'date'
+    if (kind === 'money') input.inputMode = 'decimal'
+    if (kind === 'textarea') input.rows = 3
+    input.placeholder = 'Not set'
+    // Save on blur only, and only when it actually changed. Saving per keystroke would fire a write
+    // for every letter typed on a phone keyboard.
+    input.addEventListener('blur', function () {
+      var nv = input.value
+      if (nv === cur) return
+      doWrite(updateProjectField(p.id, key, nv), 'Saved', function (r) {
+        if (key === 'projectName') p.client = r.value; else p[key] = r.value
+        cur = r.value == null ? '' : String(r.value)
+        input.value = cur
+        dirty = true
+      }).catch(function () { input.value = cur })
+    })
+    fld.appendChild(input)
+    body.appendChild(fld)
+  })
+
+  var done = el('<button class="btn-gold" style="width:100%;margin-top:6px">Done</button>')
+  done.addEventListener('click', close)
+  body.appendChild(done)
+
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   document.body.appendChild(sheet)
 }
@@ -1473,7 +1513,7 @@ function render() {
   else if (TAB === 'tasks') renderTasks()
   else if (TAB === 'alerts') renderAlerts()
   else if (TAB === 'money') renderMoney()
-  var title = $('#pagetitle'); if (title) title.textContent = PAGE_TITLES[TAB] || 'Magic CRM'
+  var title = $('#pagetitle'); if (title) title.textContent = PAGE_TITLES[TAB] || 'Bloom CRM'
   updateCounts()
   updateDrawerActive()
 }

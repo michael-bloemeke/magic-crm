@@ -11,11 +11,11 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Magic CRM" />
+    <meta name="apple-mobile-web-app-title" content="Bloom CRM" />
     <meta name="theme-color" content="#14151c" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
-    <title>Magic CRM</title>
+    <title>Bloom CRM</title>
     <style>
       /* App color system (phone). Independent of the desktop's theme. */
       :root {
@@ -159,6 +159,20 @@
       .sheet-card { width: 100%; background: var(--surface); border-top-left-radius: 20px; border-top-right-radius: 20px; border-top: 1px solid var(--line-strong); padding: 18px 16px calc(20px + var(--safe-bot)); animation: sheetUp 0.18s ease-out; max-height: 90vh; overflow-y: auto; }
       @keyframes sheetUp { from { transform: translateY(30px); opacity: 0.6; } to { transform: translateY(0); opacity: 1; } }
       .sheet-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+      /* A sheet with a pinned header and its own scrolling body. The plain .sheet-card scrolls as one
+         piece, which on a long form pushes the title away and leaves no way out except tapping the
+         sliver of backdrop above the sheet. */
+      .sheet-card.sheet-tall { display: flex; flex-direction: column; max-height: 88vh; padding-top: 12px; }
+      .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); flex: none; }
+      .sheet-head .sheet-title { margin: 0; }
+      .sheet-x { flex: none; width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--line-strong);
+                 background: var(--surface2); color: var(--muted); display: flex; align-items: center; justify-content: center; }
+      .sheet-x:active { background: var(--line); }
+      .sheet-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-top: 12px; }
+      /* One always-visible field. The value is readable without tapping, which was the whole point:
+         previously every value was hidden behind its own label and had to be opened to be read. */
+      .fld { margin-bottom: 14px; }
+      .fld-l { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
 
       /* Toast */
       #toast { position: fixed; left: 50%; bottom: calc(92px + var(--safe-bot)); transform: translateX(-50%) translateY(20px); z-index: 70; background: var(--surface2); color: var(--parchment); border: 1px solid var(--line-strong); padding: 10px 16px; border-radius: 999px; font-size: 13.5px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; max-width: 88vw; text-align: center; }
@@ -334,7 +348,7 @@
   <body>
     <div id="login" class="hidden">
       <div class="box">
-        <h2>Magic CRM</h2>
+        <h2>Bloom CRM</h2>
         <p>Sign in to your CRM</p>
         <input id="email" type="email" inputmode="email" placeholder="Email" autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false" />
         <input id="password" type="password" placeholder="Password" autocomplete="current-password" autocorrect="off" autocapitalize="off" spellcheck="false" />
@@ -367,7 +381,7 @@
     <div id="drawer" class="hidden">
       <div class="drawer-backdrop" id="drawer-backdrop"></div>
       <aside class="drawer-panel">
-        <div class="drawer-brand">Magic CRM</div>
+        <div class="drawer-brand">Bloom CRM</div>
         <nav class="drawer-nav" id="drawer-nav">
           <button data-page="home">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
