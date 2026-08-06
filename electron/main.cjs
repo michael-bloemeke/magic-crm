@@ -1,8 +1,8 @@
-// Electron main process for the Magic CRM.
+// Electron main process for the Bloom CRM.
 //
 // Stage 1 packaging: wrap the EXISTING local app (the Vite dev server + its data API) in a
 // native macOS window with the brass "M" dock icon and a dock badge that mirrors unread items.
-// It reuses the same server the "Open Magic CRM.command" starts (node22 + `npm run dev` on 5199),
+// It reuses the same server the "Open Bloom CRM.command" starts (node22 + `npm run dev` on 5199),
 // so behavior is identical to today, just in an app window instead of a browser tab.
 //
 // If a server is already running on :5199 (e.g. you launched the .command), we attach to it and
@@ -19,7 +19,7 @@ const { spawn } = require('child_process')
 
 const PORT = 5199
 const BASE_URL = `http://localhost:${PORT}`
-// In dev the repo is one level up from electron/. Once packaged into Magic CRM.app, __dirname is
+// In dev the repo is one level up from electron/. Once packaged into Bloom CRM.app, __dirname is
 // inside the app bundle, so point at the real repo on disk (the data API + node_modules live there).
 // Override with MAGIC_CRM_ROOT if the repo ever moves.
 const ROOT = app.isPackaged
@@ -84,7 +84,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 680,
-    title: 'Magic CRM',
+    title: 'Bloom CRM',
     backgroundColor: '#17130f',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })
@@ -103,8 +103,8 @@ app.whenReady().then(async () => {
       'data:text/html,' +
         encodeURIComponent(
           '<body style="font-family:-apple-system,sans-serif;background:#17130f;color:#e6c590;padding:48px;line-height:1.6">' +
-            "<h2>Couldn't start the Magic CRM server.</h2>" +
-            '<p>Make sure node22 is installed at ~/.local/node22 and try again, or start it with the “Open Magic CRM.command”.</p></body>',
+            "<h2>Couldn't start the Bloom CRM server.</h2>" +
+            '<p>Make sure node22 is installed at ~/.local/node22 and try again, or start it with the “Open Bloom CRM.command”.</p></body>',
         ),
     )
   }

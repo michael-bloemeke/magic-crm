@@ -1149,7 +1149,7 @@ function App() {
                     <p className="font-display text-[20px] text-parchment">Couldn’t load your projects</p>
                     <p className="mt-2 text-[13px] leading-relaxed text-muted">{error}</p>
                     <p className="mt-3 text-[12px] text-faint">
-                      Make sure the app is running through the dev server (the Open Magic CRM launcher), which serves
+                      Make sure the app is running through the dev server (the Open Bloom CRM launcher), which serves
                       your Project Records.
                     </p>
                   </div>

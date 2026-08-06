@@ -14,7 +14,7 @@
   },
   "build": {
     "appId": "com.michaelbloemeke.magic-crm",
-    "productName": "Magic CRM",
+    "productName": "Bloom CRM",
     "directories": {
       "output": "release"
     },

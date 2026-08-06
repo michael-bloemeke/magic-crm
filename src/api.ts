@@ -727,7 +727,7 @@ async function postJsonStrict<T>(path: string, body: unknown, whatFailed: string
     d = JSON.parse(text)
   } catch {
     throw new Error(
-      `${whatFailed}: the CRM server didn't recognise ${path}. It's probably running an older build. Quit Magic CRM and reopen it, then try again.`,
+      `${whatFailed}: the CRM server didn't recognise ${path}. It's probably running an older build. Quit Bloom CRM and reopen it, then try again.`,
     )
   }
   if (!res.ok || d.error) throw new Error(d.error || `${whatFailed} (${res.status})`)

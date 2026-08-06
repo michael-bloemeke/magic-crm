@@ -10,7 +10,20 @@
 // and call them from the view. supabase-js is already configured with the session, so a write is just
 // `sb.from('tasks').update({done}).eq('id', id)`. No UI wiring is built yet.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// VENDORED, not loaded from a CDN (2026-08-05).
+//
+// This used to be `import ... from 'https://esm.sh/@supabase/supabase-js@2'`, which meant the app
+// downloaded and executed third-party code on every open, unpinned to any version. If esm.sh were
+// ever compromised or DNS-hijacked, that code would run INSIDE Michael's logged-in session and could
+// read every client record in the CRM. That is the single realest path to a data breach here, and it
+// had nothing to do with who hosts the files: the import happened in the browser regardless.
+//
+// vendor/ now holds supabase-js 2.112.1 plus the Node shims it needs, with every import rewritten to
+// a local path. Nothing in the app loads code from any other origin.
+//
+// To update: re-fetch the bundle from esm.sh, re-point its /node/*.mjs imports at ./node-*.js, and
+// check the closure again. Deliberately a manual, visible step rather than an automatic one.
+import { createClient } from './vendor/supabase-js.js'
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js'
 
 // supabase-js persists the session in localStorage (persistSession + autoRefreshToken default on), so

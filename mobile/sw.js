@@ -12,9 +12,17 @@
 // v12: Quote editable on the phone; contact fields suggest existing contacts.
 // v13: contacts added on the phone are now REAL contact records with a project link, not loose text.
 // v14: renamed to Bloom CRM; Event details rebuilt as full-size always-visible fields with an X.
+// v15: supabase-js VENDORED. The app no longer executes code fetched from esm.sh on every open.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v14'
-var SHELL = ['./', './index.html', './app.js', './config.js', './supabase-data.js', './manifest.webmanifest', './icon-192.png', './icon-512.png']
+var CACHE = 'mcrm-v15'
+var SHELL = [
+  './', './index.html', './app.js', './config.js', './supabase-data.js',
+  './manifest.webmanifest', './icon-192.png', './icon-512.png',
+  // Vendored supabase-js + its Node shims. Part of the shell now: the app cannot start without them,
+  // and they are ours rather than a CDN's, so they belong in the offline cache like everything else.
+  './vendor/supabase-js.js', './vendor/node-process.js', './vendor/node-buffer.js',
+  './vendor/node-events.js', './vendor/node-tty.js', './vendor/node-async_hooks.js',
+]
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL) }).then(function () { return self.skipWaiting() }))
@@ -29,9 +37,9 @@ self.addEventListener('activate', function (e) {
 })
 
 // Network-first for our own app shell (so updates are always fresh when online), falling back to the
-// cache only when offline. Cross-origin requests (the esm.sh supabase-js CDN import + the Supabase
-// REST/auth API) are left entirely to the browser: they must always hit the network and must never be
-// served from a stale cache, so we don't intercept them at all.
+// cache only when offline. Cross-origin requests (now just the Supabase REST/auth API, since
+// supabase-js is vendored) are left entirely to the browser: they must always hit the network and
+// must never be served from a stale cache, so we don't intercept them at all.
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return
   var url

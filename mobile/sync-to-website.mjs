@@ -36,6 +36,13 @@ const FILES = [
   'manifest.webmanifest',
   'icon-192.png',
   'icon-512.png',
+  // supabase-js and the Node shims it needs, vendored so the app loads no code from another origin.
+  'vendor/supabase-js.js',
+  'vendor/node-process.js',
+  'vendor/node-buffer.js',
+  'vendor/node-events.js',
+  'vendor/node-tty.js',
+  'vendor/node-async_hooks.js',
 ]
 
 const check = process.argv.includes('--check')
@@ -66,6 +73,8 @@ for (const name of FILES) {
   }
   drifted.push(name)
   if (check) continue
+  // FILES can contain nested paths (vendor/*), so make sure the folder exists before writing.
+  mkdirSync(dirname(to), { recursive: true })
   writeFileSync(to, from)
   changed += 1
 }
@@ -73,9 +82,11 @@ for (const name of FILES) {
 // Anything in the destination we did not put there is a leftover from an older layout (the dead
 // api/ folder, say). Flag it rather than silently serving it.
 if (existsSync(DEST)) {
+  // Folders that FILES legitimately writes into are not strays.
+  const okDirs = new Set(FILES.filter((f) => f.includes('/')).map((f) => f.split('/')[0]))
   for (const name of readdirSync(DEST)) {
     const isDir = statSync(join(DEST, name)).isDirectory()
-    if (isDir || !FILES.includes(name)) {
+    if (isDir ? !okDirs.has(name) : !FILES.includes(name)) {
       console.warn(`STRAY in Website/crm: ${name}${isDir ? '/' : ''}  (not part of the app; delete it)`)
     }
   }
