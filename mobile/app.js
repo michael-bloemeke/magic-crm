@@ -779,22 +779,85 @@ function renderDetail(id, keepScroll) {
   addContactBtn.addEventListener('click', function () { openAddContact(p) })
   v.appendChild(addContactBtn)
 
+  // ---- tasks: inline, right under the contacts ----
+  v.appendChild(tasksSection(p))
+
   // ---- details: compact inline summary, full editing behind a panel ----
+  // Details stays behind a button on purpose: it is ~20 fields, which would bury everything below it.
   v.appendChild(sectionLabel('Details'))
   v.appendChild(eventSummary(p))
   v.appendChild(panelRow('Edit all details', '', function () { openDetailsPanel(p) }))
 
-  // ---- booking workflow (phase-organized email cards + document placeholders) ----
-  v.appendChild(panelRow('Emails & booking', bookingHint(p), function () { openBookingPanel(p) }))
+  // ---- booking: the gate + Ready to book, inline ----
+  v.appendChild(bookingSection(p))
 
-  // ---- tasks + payments: panel buttons with at-a-glance hints ----
-  var openTasks = SNAP.tasks.filter(function (t) { return t.projectId === id && !t.done }).length
-  v.appendChild(panelRow('Tasks', openTasks ? openTasks + ' open' : 'None', function () { openTasksPanel(p) }))
-  var recv = receivedFor(id)
-  var pend = (SNAP.payments || []).some(function (x) { return x.projectId === id && x.pending })
-  v.appendChild(panelRow('Payments', recv ? money(recv) + ' received' + (pend ? ' · pending' : '') : (pend ? 'Pending' : 'None logged'), function () { openPaymentsPanel(p) }))
+  // ---- payments: last section, with Log right there ----
+  v.appendChild(paymentsSection(p))
 
   if (!keepScroll) window.scrollTo(0, 0)
+}
+
+// Everything below used to be a row of buttons that each opened a sheet: "Emails & booking",
+// "Tasks", "Payments". Michael, 2026-08-06: the only one that earns a dialog is Event details
+// (about twenty fields, which would bury the rest of the page). The other three are short, so
+// hiding them behind a tap meant two taps to reach a one-tap action, most obviously "Payments ->
+// Log". They are now sections on the page itself.
+
+// A section heading with an action button on the right ("Tasks    + Add").
+function sectionHead(text, actionLabel, onAction) {
+  var row = el('<div class="section-label sec-head"><span class="dot"></span><span class="sec-t">' + esc(text) + '</span></div>')
+  if (actionLabel && onAction) {
+    var b = el('<button class="addbtn"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>' + esc(actionLabel) + '</button>')
+    b.addEventListener('click', onAction)
+    row.appendChild(b)
+  }
+  return row
+}
+
+// Open tasks for a project, with Add inline. Rebuilds itself in place so ticking one off does not
+// re-render (and re-scroll) the whole project page.
+function tasksSection(p) {
+  var wrap = el('<div></div>')
+  function rebuild() {
+    wrap.innerHTML = ''
+    var slot = el('<div></div>')
+    var open = (SNAP.tasks || []).filter(function (t) { return t.projectId === p.id && !t.done })
+    open.sort(function (a, b) { return (a.dueDate || '') < (b.dueDate || '') ? -1 : 1 })
+    wrap.appendChild(sectionHead(open.length ? 'Tasks  ·  ' + open.length + ' open' : 'Tasks', 'Add', function () {
+      if (slot.firstChild) { slot.innerHTML = ''; return } // second tap closes the form again
+      slot.appendChild(addTaskForm(p.id, rebuild))
+    }))
+    wrap.appendChild(slot)
+    if (open.length) open.forEach(function (t) { wrap.appendChild(taskCard(t, false, rebuild)) })
+    else wrap.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">No open tasks.</div>'))
+  }
+  rebuild()
+  return wrap
+}
+
+// Payments for a project, with Log inline. Last section on the page.
+function paymentsSection(p) {
+  var wrap = el('<div></div>')
+  function rebuild() {
+    wrap.innerHTML = ''
+    var slot = el('<div></div>')
+    var pays = (SNAP.payments || []).filter(function (x) { return x.projectId === p.id })
+      .sort(function (a, b) { return String(b.dateReceived || '').localeCompare(String(a.dateReceived || '')) })
+    var recv = receivedFor(p.id)
+    wrap.appendChild(sectionHead(recv ? 'Payments  ·  ' + money(recv) + ' received' : 'Payments', 'Log', function () {
+      if (slot.firstChild) { slot.innerHTML = ''; return }
+      slot.appendChild(addPaymentForm(p, rebuild))
+    }))
+    wrap.appendChild(slot)
+    if (pays.length) {
+      pays.forEach(function (pm) {
+        var lbl = [pm.type, pm.method].filter(Boolean).join(' · ')
+        wrap.appendChild(el('<div class="card" style="pointer-events:none"><div class="row1"><span class="name" style="font-size:14.5px">' + esc(money(pm.amount) || String(pm.amount)) + (pm.pending ? ' <span style="color:var(--faint);font-size:12px">(pending)</span>' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(pm.dateReceived ? fmtShort(pm.dateReceived) : '') + '</span></div>' + (lbl ? '<div class="meta">' + esc(lbl) + '</div>' : '') + '</div>'))
+      })
+    } else wrap.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">No payments logged.</div>'))
+  }
+  rebuild()
+  return wrap
 }
 
 // ---- booking / emails ----
@@ -823,17 +886,6 @@ function bookingStamp(iso) {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-// One-line summary for the collapsed Booking row.
-function bookingHint(p) {
-  var g = BOOKING_PROGRESS[p.id]
-  if (!g) return ''
-  if (!g.linkOut) return 'Not sent'
-  if (g.stage === 'signed') return 'Signed' + (g.signedName ? ' by ' + g.signedName : '')
-  if (g.stage === 'submitted') return 'Details in, not signed'
-  if (g.stage === 'viewed') return 'Viewed, nothing back'
-  return 'Sent, not viewed'
-}
-
 // Cache of live booking progress per project, filled when a project detail opens.
 var BOOKING_PROGRESS = {}
 function refreshBookingProgress(projectId, then) {
@@ -843,11 +895,9 @@ function refreshBookingProgress(projectId, then) {
 }
 
 // The booking sheet: the two gated fields, live progress, and the one button.
-function openBookingPanel(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
-  card.appendChild(el('<div class="sheet-title">Booking</div>'))
+function bookingSection(p) {
+  var card = el('<div></div>')
+  card.appendChild(sectionLabel('Booking'))
 
   var style = String(p.performanceStyle || '').trim()
   var fee = Number(p.totalFee)
@@ -855,17 +905,27 @@ function openBookingPanel(p) {
   var eventDate = String(p.eventDate || '').trim()
   var dateOk = /^\d{4}-\d{2}-\d{2}$/.test(eventDate)
   var ready = !!style && feeOk && dateOk
+  // Only a live project can be sent a booking form. Completed / archived / deleted projects still
+  // show their booking history and their signed agreement, but not the gate or the send button.
+  //
+  // This mattered once the section came out of its sheet: "Ready to book" on a finished gig used to
+  // be three taps behind a panel, and would now be one, sitting right there on a job that already
+  // happened. Sending a client a fresh agreement for a show they have paid for is not a mistake
+  // worth leaving one tap away.
+  var canSend = p.bucket === 'active'
 
   // The three facts the client reads on the agreement. Blank means they'd be looking at a literal
   // "[Performance scope]" or "[Event date]" on the document they're about to sign. The date is not
   // asked on the form by design, so nothing downstream can fill it in.
-  var gate = el('<div class="bk-gate' + (ready ? '' : ' bad') + '"></div>')
-  gate.appendChild(el('<div class="bk-gate-t">' + (ready ? 'Goes on the agreement' : 'Fill these to send the booking form') + '</div>'))
-  gate.appendChild(el('<div class="k">Performance style</div><div class="v">' + (style ? esc(style) : '<span class="miss">Not set</span>') + '</div>'))
-  gate.appendChild(el('<div class="k" style="margin-top:8px">Quote</div><div class="v">' + (feeOk ? esc(money(fee)) : '<span class="miss">Not set</span>') + '</div>'))
-  gate.appendChild(el('<div class="k" style="margin-top:8px">Event date</div><div class="v">' + (dateOk ? esc(fmtDate(eventDate)) : '<span class="miss">Not set</span>') + '</div>'))
-  if (!ready) gate.appendChild(el('<div class="hint" style="margin-top:8px">Edit these in Event details.</div>'))
-  card.appendChild(gate)
+  if (canSend) {
+    var gate = el('<div class="bk-gate' + (ready ? '' : ' bad') + '"></div>')
+    gate.appendChild(el('<div class="bk-gate-t">' + (ready ? 'Goes on the agreement' : 'Fill these to send the booking form') + '</div>'))
+    gate.appendChild(el('<div class="k">Performance style</div><div class="v">' + (style ? esc(style) : '<span class="miss">Not set</span>') + '</div>'))
+    gate.appendChild(el('<div class="k" style="margin-top:8px">Quote</div><div class="v">' + (feeOk ? esc(money(fee)) : '<span class="miss">Not set</span>') + '</div>'))
+    gate.appendChild(el('<div class="k" style="margin-top:8px">Event date</div><div class="v">' + (dateOk ? esc(fmtDate(eventDate)) : '<span class="miss">Not set</span>') + '</div>'))
+    if (!ready) gate.appendChild(el('<div class="hint" style="margin-top:8px">Edit these in Event details.</div>'))
+    card.appendChild(gate)
+  }
 
   var body = el('<div></div>')
   card.appendChild(body)
@@ -888,25 +948,23 @@ function openBookingPanel(p) {
         chip.addEventListener('click', function () { openPdfPreview(p) })
         body.appendChild(chip)
       }
-    } else {
+    } else if (canSend) {
       body.appendChild(el('<div class="hint" style="margin-top:10px">They fill in the event details, sign the agreement, and get invoiced without you touching anything.</div>'))
+    } else {
+      body.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">No booking form was sent for this project.</div>'))
     }
 
+    if (!canSend) return
     var btn = el('<button class="btn-gold" style="width:100%;margin-top:14px"' + (ready ? '' : ' disabled') + '>' + (g && g.linkOut ? 'Resend booking form' : 'Ready to book') + '</button>')
     btn.addEventListener('click', function () { pickVariantThen(p, btn, !!(g && g.linkOut)) })
     body.appendChild(btn)
     if (!ready) body.appendChild(el('<div class="hint" style="margin-top:6px">Add a performance style, a quote and an event date first.</div>'))
-
-    var done = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Close</button>')
-    done.addEventListener('click', close)
-    body.appendChild(done)
   }
 
   draw(BOOKING_PROGRESS[p.id])
   refreshBookingProgress(p.id, draw)
 
-  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
+  return card
 }
 
 // Preview the agreement in place, the way a mail client shows an attachment. No download first:
@@ -947,13 +1005,17 @@ function variantLabel(id) {
 // Choosing WHICH agreement. Two taps rather than one, on purpose: which contract a client signs is
 // not a thing to get wrong by muscle memory, and swapping it is the reason a resend exists.
 function pickVariantThen(p, btn, isResend) {
+  // Restore whatever it said, rather than hardcoding "Ready to book": on a project that already has
+  // a form out, this button reads "Resend booking form" and relabelling it would be a lie. Barely
+  // noticeable when this lived in a sheet that got dismissed; obvious now it sits on the page.
+  var label = btn.textContent
   btn.disabled = true
   btn.textContent = 'Loading…'
   loadContractVariants()
     .then(function (vs) {
       CONTRACT_VARIANTS = vs
       btn.disabled = false
-      btn.textContent = 'Ready to book'
+      btn.textContent = label
       var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
       var card = sheet.querySelector('.sheet-card')
       var close = function () { sheet.remove() }
@@ -975,7 +1037,7 @@ function pickVariantThen(p, btn, isResend) {
     })
     .catch(function (e) {
       btn.disabled = false
-      btn.textContent = 'Ready to book'
+      btn.textContent = label
       toast(e.message || 'Could not load the agreements', 'err')
     })
 }
@@ -1190,64 +1252,6 @@ function openDetailsPanel(p) {
   body.appendChild(done)
 
   sheet.querySelector('.sheet-x').addEventListener('click', close)
-  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
-}
-
-// Tasks for this project (toggle / delete / add).
-function openTasksPanel(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove(); renderDetail(p.id, true) }
-  function rebuild() {
-    card.innerHTML = ''
-    var head = el('<div class="tabhead" style="margin:0 0 8px"><div class="sheet-title" style="margin:0">Tasks</div><button class="addbtn" id="pt-add"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add</button></div>')
-    card.appendChild(head)
-    var slot = el('<div></div>'); card.appendChild(slot)
-    head.querySelector('#pt-add').addEventListener('click', function () {
-      if (slot.firstChild) { slot.innerHTML = ''; return }
-      slot.appendChild(addTaskForm(p.id, function () { rebuild() }))
-    })
-    var ptasks = SNAP.tasks.filter(function (t) { return t.projectId === p.id && !t.done })
-    ptasks.sort(function (a, b) { return (a.dueDate || '') < (b.dueDate || '') ? -1 : 1 })
-    if (ptasks.length) ptasks.forEach(function (t) { card.appendChild(taskCard(t, false, rebuild)) })
-    else card.appendChild(el('<div class="empty" style="padding:12px">No open tasks.</div>'))
-    var done = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
-    done.addEventListener('click', close)
-    card.appendChild(done)
-  }
-  rebuild()
-  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
-}
-
-// Payments for this project (log deposit / balance / pending).
-function openPaymentsPanel(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove(); renderDetail(p.id, true) }
-  function rebuild() {
-    card.innerHTML = ''
-    var head = el('<div class="tabhead" style="margin:0 0 8px"><div class="sheet-title" style="margin:0">Payments</div><button class="addbtn" id="pay-add"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Log</button></div>')
-    card.appendChild(head)
-    var slot = el('<div></div>'); card.appendChild(slot)
-    head.querySelector('#pay-add').addEventListener('click', function () {
-      if (slot.firstChild) { slot.innerHTML = ''; return }
-      slot.appendChild(addPaymentForm(p, function () { rebuild() }))
-    })
-    var pays = (SNAP.payments || []).filter(function (x) { return x.projectId === p.id })
-      .sort(function (a, b) { return String(b.dateReceived || '').localeCompare(String(a.dateReceived || '')) })
-    if (pays.length) {
-      pays.forEach(function (pm) {
-        var lbl = [pm.type, pm.method].filter(Boolean).join(' · ')
-        card.appendChild(el('<div class="card" style="pointer-events:none"><div class="row1"><span class="name" style="font-size:14.5px">' + esc(money(pm.amount) || String(pm.amount)) + (pm.pending ? ' <span style="color:var(--faint);font-size:12px">(pending)</span>' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">' + esc(pm.dateReceived ? fmtShort(pm.dateReceived) : '') + '</span></div>' + (lbl ? '<div class="meta">' + esc(lbl) + '</div>' : '') + '</div>'))
-      })
-    } else card.appendChild(el('<div class="empty" style="padding:12px">No payments logged.</div>'))
-    var done = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
-    done.addEventListener('click', close)
-    card.appendChild(done)
-  }
-  rebuild()
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
   document.body.appendChild(sheet)
 }

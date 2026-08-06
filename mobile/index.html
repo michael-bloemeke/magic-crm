@@ -76,6 +76,10 @@
       main { padding: 12px 14px 20px; }
       .section-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint); margin: 18px 4px 8px; display: flex; align-items: center; gap: 8px; }
       .section-label:first-child { margin-top: 4px; }
+      /* Section heading carrying its own action ("Tasks   + Add"). The button opts out of the
+         heading's uppercase/tracking, which would otherwise make "Add" read as another label. */
+      .sec-head .sec-t { flex: 1; min-width: 0; }
+      .sec-head .addbtn { text-transform: none; letter-spacing: normal; margin: -6px 0; }
       .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); flex: none; }
 
       /* Cards */
