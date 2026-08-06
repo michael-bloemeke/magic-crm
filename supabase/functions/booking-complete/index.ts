@@ -455,13 +455,25 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
     .maybeSingle();
   if (!fresh?.pdf_sent_at || fresh.invoice_sent_at) return out;
 
-  // PAUSED? Stop here, cleanly. Michael is taking real bookings while QuickBooks production is still
-  // waiting on Intuit, so the invoice goes out by hand. Without this switch the step would fail on
-  // every pass, exhaust its retries and fill complete_error with noise that looks like a real fault.
-  // He is emailed the moment the agreement is signed (see notifyMichael) so he can invoice straight
-  // away, which is the whole point of pausing rather than half-trying.
-  const { data: qbCfg } = await sb.from("quickbooks_config").select("auto_invoice_enabled").eq("id", 1).maybeSingle();
+  // Two independent switches, because raising an invoice and sending it to a client are different
+  // decisions (Michael, 2026-08-05):
+  //
+  //   auto_invoice_enabled  - build the invoice in QuickBooks at all. Off = stop here cleanly, so the
+  //                           step does not fail on every pass and fill complete_error with noise.
+  //   auto_send_invoice     - ALSO email it to the client. Off = the invoice is left as a draft in
+  //                           QuickBooks for him to review and send by hand. He is supervising the
+  //                           first few until he trusts the wording and the totals.
+  //
+  // Either way the invoice is recorded against the project, so the CRM tracks its status whether it
+  // sent it or he did.
+  const { data: qbCfg } = await sb
+    .from("quickbooks_config")
+    .select("auto_invoice_enabled, auto_send_invoice, processing_fee_percent")
+    .eq("id", 1)
+    .maybeSingle();
   if (qbCfg && qbCfg.auto_invoice_enabled === false) return out;
+  const sendIt = !!qbCfg?.auto_send_invoice;
+  const feePct = Number(qbCfg?.processing_fee_percent ?? 0);
 
   const fee = Number(project.total_fee);
   if (!fee || Number.isNaN(fee) || fee <= 0) throw new Error("No quote on the project to invoice.");
@@ -494,17 +506,35 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
     if (!ref?.invoiceId) {
       const customer = await ensureCustomer(call, invoiceTo, invoiceEmail);
       const item = await ensureServiceItem(call, "Magic Performance");
+      const lines: unknown[] = [{
+        DetailType: "SalesItemLineDetail",
+        Amount: fee,
+        Description: "Magic performance",
+        SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: fee },
+      }];
+
+      // Card processing fee as its own visible line, so the client covers it rather than Michael
+      // absorbing it out of the quote. A separate line rather than an inflated total, because the
+      // client should be able to see what they are paying for. Mirrors createInvoiceForProject on
+      // the Mac. Percentage lives in quickbooks_config, so changing it needs no redeploy.
+      let processingFee = 0;
+      if (feePct > 0) {
+        processingFee = Math.round(fee * feePct) / 100; // fee * (pct/100), to 2dp
+        const feeItem = await ensureServiceItem(call, "Card Processing Fee");
+        lines.push({
+          DetailType: "SalesItemLineDetail",
+          Amount: processingFee,
+          Description: `Card processing fee (${feePct}%)`,
+          SalesItemLineDetail: { ItemRef: { value: feeItem.Id }, Qty: 1, UnitPrice: processingFee },
+        });
+      }
+
       const created = await call("/invoice", {
         method: "POST",
         body: JSON.stringify({
           CustomerRef: { value: customer.Id },
           BillEmail: { Address: invoiceEmail },
-          Line: [{
-            DetailType: "SalesItemLineDetail",
-            Amount: fee,
-            Description: "Magic performance",
-            SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: fee },
-          }],
+          Line: lines,
         }),
       });
       const inv = created.Invoice;
@@ -513,7 +543,7 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
         docNumber: inv.DocNumber || "",
         total: inv.TotalAmt,
         amount: fee,
-        processingFee: 0,
+        processingFee,
         dueDate: inv.DueDate || "",
         customer: customer.DisplayName,
         email: invoiceEmail,
@@ -522,20 +552,38 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
       };
     }
 
-    // The send endpoint insists on octet-stream with an empty body; JSON here makes it 500.
-    await call(`/invoice/${ref.invoiceId}/send?sendTo=${encodeURIComponent(invoiceEmail)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-    });
-    ref.sentAt = new Date().toISOString();
+    if (sendIt) {
+      // The send endpoint insists on octet-stream with an empty body; JSON here makes it 500.
+      await call(`/invoice/${ref.invoiceId}/send?sendTo=${encodeURIComponent(invoiceEmail)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      ref.sentAt = new Date().toISOString();
+    }
     ref.email = invoiceEmail;
     await sb.from("invoices").upsert({ project_id: projectId, data: ref }, { onConflict: "project_id" });
     out.invoiced = true;
+
+    const totalStr = `$${Number(ref.total ?? fee).toLocaleString("en-US")}`;
+    const feeNote = ref.processingFee ? ` (incl. $${Number(ref.processingFee).toLocaleString("en-US")} card fee)` : "";
+    const sandboxNote = environment === "sandbox" ? " (QuickBooks sandbox)." : ".";
     await logActivity(
       sb,
       project,
-      `Invoice ${ref.docNumber ? `#${ref.docNumber} ` : ""}for $${fee.toLocaleString("en-US")} sent to ${invoiceEmail}${environment === "sandbox" ? " (QuickBooks sandbox)." : "."}`,
+      sendIt
+        ? `Invoice ${ref.docNumber ? `#${ref.docNumber} ` : ""}for ${totalStr}${feeNote} sent to ${invoiceEmail}${sandboxNote}`
+        : `Invoice ${ref.docNumber ? `#${ref.docNumber} ` : ""}for ${totalStr}${feeNote} DRAFTED in QuickBooks for ${invoiceEmail}. Review and send it yourself${sandboxNote}`,
     );
+
+    // He asked to supervise the first few sends, so tell him there is one waiting rather than
+    // leaving it sitting in QuickBooks for him to happen across.
+    if (!sendIt) {
+      try {
+        await notifyMichaelInvoiceDrafted(sb, project, ref, invoiceEmail);
+      } catch (e) {
+        console.error(`[booking-complete] could not send the drafted-invoice alert for ${projectId}:`, String((e as Error)?.message ?? e));
+      }
+    }
   } catch (e) {
     await sb.from("booking_submissions").update({ invoice_sent_at: null }).eq("project_id", projectId);
     throw e;
@@ -562,7 +610,11 @@ const PAID_CHECK_EVERY_MS = 15 * 60 * 1000;
 async function checkPaidAndConfirm(sb: SupabaseClient): Promise<{ paid: number; confirmed: number }> {
   const out = { paid: 0, confirmed: 0 };
   const { data: rows } = await sb.from("invoices").select("project_id, data");
-  const outstanding = (rows || []).filter((r: any) => r.data?.invoiceId && r.data?.sentAt && !r.data?.confirmSentAt);
+  // Watch every invoice we RAISED, whether or not we sent it. While auto_send_invoice is off Michael
+  // sends them by hand from QuickBooks, and those still need tracking: he asked for the status in the
+  // CRM regardless of who pressed send. Requiring sentAt here (as it did until 2026-08-05) would have
+  // meant a drafted-then-hand-sent invoice was never noticed as paid, so no booking confirmation.
+  const outstanding = (rows || []).filter((r: any) => r.data?.invoiceId && !r.data?.confirmSentAt);
   if (!outstanding.length) return out;
 
   // Only worth throttling once we know there is something to check, so a quiet period costs nothing
@@ -666,6 +718,32 @@ async function notifyMichael(sb: SupabaseClient, opts: {
         ? '<p style="margin:0 0 14px;padding:10px 12px;background:#fff4e5;border-left:3px solid #d98324"><strong>Automatic invoicing is paused.</strong> Raise and send this invoice in QuickBooks yourself, then send them the booking confirmation.</p>'
         : '<p style="margin:0 0 14px">The invoice is going out automatically.</p>',
       '<p style="margin:0;color:#666;font-size:13px">They already have their signed copy.</p>',
+      "</div>",
+    ].filter(Boolean).join(""),
+  });
+}
+
+// "There is an invoice waiting for you to send" alert. Only fires while auto_send_invoice is off.
+async function notifyMichaelInvoiceDrafted(sb: SupabaseClient, project: any, ref: any, invoiceEmail: string) {
+  const who = String(project?.project_name || project?.client_name || project?.id || "A client");
+  const total = `$${Number(ref.total ?? 0).toLocaleString("en-US")}`;
+  const feeLine = ref.processingFee
+    ? `<tr><td style="padding:2px 16px 2px 0;color:#666">Card fee</td><td>$${Number(ref.processingFee).toLocaleString("en-US")}</td></tr>`
+    : "";
+  await sendPlain(sb, {
+    to: MICHAEL_EMAIL,
+    subject: `INVOICE READY TO SEND: ${who} ${total}`,
+    html: [
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222">',
+      `<p style="margin:0 0 14px">An invoice for <strong>${escapeHtml(who)}</strong> has been drafted in QuickBooks. <strong>It has not been sent.</strong></p>`,
+      '<table cellpadding="0" cellspacing="0" style="margin:0 0 14px;font-size:15px">',
+      `<tr><td style="padding:2px 16px 2px 0;color:#666">Invoice</td><td>${escapeHtml(ref.docNumber ? "#" + ref.docNumber : "(no number)")}</td></tr>`,
+      `<tr><td style="padding:2px 16px 2px 0;color:#666">Total</td><td><strong>${total}</strong></td></tr>`,
+      feeLine,
+      `<tr><td style="padding:2px 16px 2px 0;color:#666">To</td><td>${escapeHtml(invoiceEmail)}</td></tr>`,
+      "</table>",
+      '<p style="margin:0 0 14px;padding:10px 12px;background:#eef3fb;border-left:3px solid #3a6ea5">Open it in QuickBooks, check it reads the way you want, and hit send. The CRM will track it for payment either way.</p>',
+      '<p style="margin:0;color:#666;font-size:13px">They already have their signed agreement.</p>',
       "</div>",
     ].filter(Boolean).join(""),
   });
