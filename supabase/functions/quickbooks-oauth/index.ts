@@ -68,9 +68,20 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const sb = db();
 
-  // This function's own address, which must match the Redirect URI registered with Intuit EXACTLY,
-  // character for character. Derived from the request rather than hardcoded so it cannot drift.
-  const redirectUri = `${url.origin}${url.pathname}`;
+  // This function's PUBLIC address, which must match the Redirect URI registered with Intuit exactly.
+  //
+  // ⚠️ Do NOT derive this from the incoming request. It was `${url.origin}${url.pathname}` until
+  // 2026-08-05, which looked tidy and was wrong twice over: inside the edge runtime the request
+  // arrives as plain http, and the `/functions/v1` prefix has already been stripped by the time the
+  // handler sees it. So we were sending Intuit
+  //     http://yfmacqvcmkogvkcxfjkr.supabase.co/quickbooks-oauth
+  // and Intuit correctly rejected it with "the redirect_uri query parameter value is invalid".
+  //
+  // Built from SUPABASE_URL instead: stable, correct, and still not hardcoding the project ref.
+  // The SAME string has to go out on both hops, because Intuit re-checks it during the token
+  // exchange, which is why it is computed once here.
+  const base = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
+  const redirectUri = `${base}/functions/v1/quickbooks-oauth`;
 
   const { data: cfg, error: cfgErr } = await sb.from("quickbooks_config").select("*").eq("id", 1).single();
   if (cfgErr || !cfg) return page("Not configured", "<p>There is no QuickBooks configuration row to work with.</p>", 500);
