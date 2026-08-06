@@ -43,7 +43,7 @@ values (
   'BJ-kKbuNb4748FiB5n4x2Y9f2B89QuyRMvxFt66iovJOG2xO1ADGCNA3srgky4UbZiISFrpquq5ae6AjWB86eoI',
   'vTs75YS-_XLKB8XA9xVHnAEdVdg5kJw5IK3eAxlB-ZU',
   'mailto:mchlbloemeke@gmail.com',
-  'https://mobile-blond-alpha.vercel.app',
+  'https://michaelbloemeke.com/crm/',
   'ZFZBYcg4Lk-vH-2HV1-NoDKsXB-iHC4SOhloN09P8-g'
 )
 on conflict (id) do update set
