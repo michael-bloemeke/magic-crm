@@ -422,7 +422,11 @@ function openNewProject() {
       staged.reduce(function (chain, s) {
         return chain.then(function () {
           return linkOrCreateContact(proj.id, { contactId: s.contactId, name: s.name, email: s.email, phone: s.phone })
-            .then(function (r) { if (r && r.ok) noteLinkLocally(proj.id, r.contactId) })
+            .then(function (r) {
+              if (!r || !r.ok) return
+              noteContactLocally(r.contactId, s)
+              noteLinkLocally(proj.id, r.contactId)
+            })
         })
       }, Promise.resolve())
         .then(function () { return Promise.all([refreshContactsCache(), refreshLinksCache()]) })
@@ -484,6 +488,11 @@ function projectCard(p, accent) {
 function statusText(p) {
   if (p.bucket === 'completed') return 'Completed' + (p.completedDate ? '  ·  ' + fmtDate(p.completedDate) : '')
   if (p.bucket === 'archived') return 'Archived' + (p.archiveReason ? '  ·  ' + p.archiveReason : '')
+  if (p.bucket === 'deleted') {
+    var left = deletedDaysLeft(p)
+    if (left == null) return 'Deleted'
+    return 'Deleted  ·  ' + (left === 0 ? 'purges today' : left + (left === 1 ? ' day' : ' days') + ' left to restore')
+  }
   return ''
 }
 
@@ -1417,6 +1426,23 @@ function noteLinkLocally(projectId, contactId) {
   if (ids.indexOf(contactId) < 0) ids = ids.concat([contactId])
   SNAP.links[projectId] = ids
 }
+
+// A contact that was just CREATED is not in the local contacts cache yet, and contactsForProject
+// resolves ids through that cache. Without this, adding a brand-new person linked them correctly but
+// showed nothing until the background refresh landed, which reads as "it didn't work". Provisional
+// row; the refresh overwrites it with the real one moments later.
+function noteContactLocally(id, chosen) {
+  if (!SNAP || !id) return
+  SNAP.contacts = SNAP.contacts || []
+  if (SNAP.contacts.some(function (c) { return c.id === id })) return
+  SNAP.contacts = SNAP.contacts.concat([{
+    id: id,
+    name: chosen.name || '',
+    emails: chosen.email ? [chosen.email] : [],
+    phones: chosen.phone ? [chosen.phone] : [],
+    type: 'Client', relationship: 'active', engagement: '', tags: [], notes: '',
+  }])
+}
 function forgetLinkLocally(projectId, contactId) {
   if (!SNAP || !SNAP.links) return
   SNAP.links[projectId] = (SNAP.links[projectId] || []).filter(function (x) { return x !== contactId })
@@ -1538,6 +1564,7 @@ function attachContactToProject(p, chosen) {
       phone: chosen.phone,
     }).then(function (r) {
       if (!r || !r.ok) return r
+      noteContactLocally(r.contactId, chosen)
       noteLinkLocally(p.id, r.contactId)
       if (!hasPrimary) {
         // First person on the project becomes the primary.
