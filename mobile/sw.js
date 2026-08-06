@@ -15,8 +15,11 @@
 // v15: supabase-js VENDORED. The app no longer executes code fetched from esm.sh on every open.
 // v16: delete is now reversible (Deleted page, not permanent); proper Add-contact picker; the
 // details panel no longer scrolls sideways.
+// v17: a project can hold MULTIPLE contacts (add, not replace); New project uses the same contact
+// picker instead of three free-text boxes; Completed / Archived / Deleted are their own pages rather
+// than tabs on Pipeline, so soft-deleted projects finally have somewhere to be restored from.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v16'
+var CACHE = 'mcrm-v17'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

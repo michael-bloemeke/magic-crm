@@ -12,20 +12,28 @@ import {
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
-  updateContact, loadContacts, linkOrCreateContact,
+  updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
 var SNAP = null
 var TAB = 'home' // current page (drawer destination)
-var BUCKET = 'active' // which pipeline segment is showing: 'active' | 'completed' | 'archived'
 var CONTACT_FILTER = 'all' // contacts page relationship filter
 var COLLAPSED = {} // pipeline section label -> collapsed? (persists per session)
 var STAGE = {} // stageId -> { name, umbrella, color }
 var DETAIL_ID = null // when non-null, the detail view for this project is on screen (not a tab)
 
-var PAGE_TITLES = { home: 'Home', pipeline: 'Pipeline', contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money' }
+var PAGE_TITLES = {
+  home: 'Home', pipeline: 'Pipeline', completed: 'Completed', archived: 'Archived', deleted: 'Deleted',
+  contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money',
+}
+
+// Completed / Archived / Deleted are their own pages now (2026-08-06). They used to be a segmented
+// control on top of Pipeline, which meant the pipeline page was really four pages wearing a trench
+// coat and Deleted had nowhere to live at all. Each bucket maps 1:1 to a drawer destination.
+var BUCKET_PAGES = { active: 'pipeline', completed: 'completed', archived: 'archived', deleted: 'deleted' }
+function pageForBucket(b) { return BUCKET_PAGES[b] || 'pipeline' }
 
 // Contact relationship options (mirrors src/contacts.ts RELATIONSHIP_OPTIONS; FISM colors).
 var CONTACT_REL = [
@@ -153,35 +161,31 @@ function fieldRows(p) {
 function stageInfo(id) { return STAGE[id] || { name: '', umbrella: '', color: 'var(--brass)' } }
 
 // ---------- views ----------
-// Count projects per bucket for the segmented control.
-function bucketCounts() {
-  var c = { active: 0, completed: 0, archived: 0 }
-  ;(SNAP && SNAP.projects ? SNAP.projects : []).forEach(function (p) { if (c[p.bucket] != null) c[p.bucket]++ })
-  return c
+// Count projects in one bucket (drives the drawer nav counts).
+function bucketCount(b) {
+  var n = 0
+  ;(SNAP && SNAP.projects ? SNAP.projects : []).forEach(function (p) { if (p.bucket === b) n++ })
+  return n
 }
 
-function renderPipeline() {
+// The shared body of every project-list page. `bucket` picks the pool; `emptyText` is what to say
+// when there is nothing in it (each page deserves its own sentence, not a generic "no projects").
+// Only the active pipeline gets the stage-grouped board and the New-project button; the history
+// pages get the flat, date-sorted record list.
+function renderProjectList(bucket, opts) {
   DETAIL_ID = null
+  var o = opts || {}
   var v = $('#view')
   v.innerHTML = ''
-  var pt = $('#pagetitle'); if (pt) pt.textContent = 'Pipeline'
+  var pt = $('#pagetitle'); if (pt) pt.textContent = PAGE_TITLES[pageForBucket(bucket)] || 'Pipeline'
 
-  // Segmented bucket switch: Active / Completed / Archived (with live counts). Completed + Archived
-  // are the history the phone was previously blind to.
-  var counts = bucketCounts()
-  var seg = el('<div class="seg"></div>')
-  ;[['active', 'Active'], ['completed', 'Completed'], ['archived', 'Archived']].forEach(function (b) {
-    var btn = el('<button' + (BUCKET === b[0] ? ' class="on"' : '') + '>' + b[1] + '<span class="segn">' + counts[b[0]] + '</span></button>')
-    btn.addEventListener('click', function () { if (BUCKET !== b[0]) { BUCKET = b[0]; renderPipeline() } })
-    seg.appendChild(btn)
-  })
-  v.appendChild(seg)
+  if (o.note) v.appendChild(el('<div class="pagenote">' + esc(o.note) + '</div>'))
 
-  v.appendChild(el('<input class="search" id="q" placeholder="Search ' + BUCKET + ' projects…" />'))
+  var pool = SNAP.projects.filter(function (p) { return p.bucket === bucket })
+  v.appendChild(el('<input class="search" id="q" placeholder="' + esc(o.searchLabel || 'Search projects…') + '" />'))
   var list = el('<div id="plist"></div>')
   v.appendChild(list)
 
-  var pool = SNAP.projects.filter(function (p) { return p.bucket === BUCKET })
   function draw(filter) {
     var f = (filter || '').toLowerCase().trim()
     var items = pool.filter(function (p) {
@@ -189,13 +193,39 @@ function renderPipeline() {
       return (p.client + ' ' + (p.eventLocation || '') + ' ' + (p.eventType || '') + ' ' + (p.contactNames || '')).toLowerCase().indexOf(f) >= 0
     })
     list.innerHTML = ''
-    if (!items.length) { list.appendChild(el('<div class="empty">No matching projects.</div>')); return }
-    if (BUCKET === 'active') drawActive(list, items)
-    else drawRecords(list, items)
+    if (!items.length) {
+      list.appendChild(el('<div class="empty">' + esc(f ? 'No matching projects.' : o.emptyText || 'Nothing here.') + '</div>'))
+      return
+    }
+    if (bucket === 'active') drawActive(list, items)
+    else drawRecords(list, items, bucket)
   }
   draw('')
   $('#q').addEventListener('input', function (e) { draw(e.target.value) })
-  ensureFab() // the "New project" button belongs to the pipeline tab
+}
+
+function renderPipeline() {
+  renderProjectList('active', { searchLabel: 'Search active projects…', emptyText: 'No active projects.' })
+  ensureFab() // the "New project" button belongs to the pipeline page only
+}
+
+function renderCompleted() {
+  renderProjectList('completed', { searchLabel: 'Search completed projects…', emptyText: 'No completed projects yet.' })
+}
+
+function renderArchived() {
+  renderProjectList('archived', {
+    searchLabel: 'Search archived projects…',
+    emptyText: 'Nothing archived.',
+  })
+}
+
+function renderDeleted() {
+  renderProjectList('deleted', {
+    searchLabel: 'Search deleted projects…',
+    emptyText: 'Nothing deleted. (Deleting a project sends it here, not into the void.)',
+    note: 'Deleted projects stay here for 30 days and can be restored with everything attached. After that they are purged for good.',
+  })
 }
 
 // A phone-palette color per umbrella (the structure's own colors are desktop CSS vars, unavailable
@@ -246,7 +276,16 @@ function stageSection(label, color, projects) {
 }
 
 // Completed / archived records: newest first by event date (fallback completed date), grouped by year.
-function drawRecords(list, items) {
+function drawRecords(list, items, bucket) {
+  // Deleted is ordered by WHEN IT WAS DELETED, newest first, and not grouped by year: what matters
+  // on that page is how much of the 30-day window is left, not when the event was.
+  if (bucket === 'deleted') {
+    items.slice().sort(function (a, b) {
+      var ad = a.deletedAt || '', bd = b.deletedAt || ''
+      return bd < ad ? -1 : bd > ad ? 1 : 0
+    }).forEach(function (p) { list.appendChild(projectCard(p)) })
+    return
+  }
   var sorted = items.slice().sort(function (a, b) {
     var ad = a.eventDate || a.completedDate || ''
     var bd = b.eventDate || b.completedDate || ''
@@ -295,30 +334,70 @@ function openNewProject() {
       '<select class="stagesel" id="np-stage">' + stageOpts + '</select></div>' +
       '<div class="addrow"><input class="field-input" id="np-date" type="date" /><input class="field-input" id="np-fee" inputmode="decimal" placeholder="Fee" /></div>' +
       '<input class="field-input" id="np-loc" placeholder="Location" style="margin-top:8px" />' +
-      '<input class="field-input" id="np-cname" placeholder="Contact name" style="margin-top:8px" />' +
-      '<div class="addrow"><input class="field-input" id="np-cemail" inputmode="email" placeholder="Contact email" /><input class="field-input" id="np-cphone" inputmode="tel" placeholder="Contact phone" /></div>' +
-      '<textarea class="field-input" id="np-notes" rows="2" placeholder="Notes" style="margin-top:8px"></textarea>' +
+      '<div class="fld-l" style="margin:14px 0 6px">Contacts</div>' +
+      '<div id="np-contacts"></div>' +
+      '<button class="btn-ghost" id="np-addcontact" style="width:100%">+ Add contact</button>' +
+      '<textarea class="field-input" id="np-notes" rows="2" placeholder="Notes" style="margin-top:12px"></textarea>' +
       '<div class="addrow" style="margin-top:14px"><button class="btn-ghost" id="np-cancel">Cancel</button><button class="btn-gold" id="np-save">Create project</button></div>' +
     '</div></div>'
   )
   var close = function () { sheet.remove() }
   sheet.querySelector('#np-cancel').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  sheet.querySelector('#np-cphone').addEventListener('blur', function (e) { /* light hint; server normalizes on save */ })
-  // Which existing contact he picked, if any. Cleared the moment he edits the name by hand, because
-  // at that point he is describing somebody else and linking the old record would be wrong.
-  var pickedContactId = ''
-  var npName = sheet.querySelector('#np-cname')
-  npName.addEventListener('input', function () { pickedContactId = '' })
-  attachContactSuggest(npName, function (c) {
-    pickedContactId = c.id
-    var em = sheet.querySelector('#np-cemail'), ph = sheet.querySelector('#np-cphone')
-    if (!em.value.trim()) em.value = (c.emails || [])[0] || ''
-    if (!ph.value.trim()) ph.value = (c.phones || [])[0] || ''
+
+  // Contacts staged for this project, in the order they were added. The first is the primary.
+  //
+  // This replaced three free-text boxes (name / email / phone) on 2026-08-06. Typing a person in by
+  // hand meant retyping details the CRM already had, only ever produced ONE contact, and made a
+  // near-duplicate record whenever the spelling drifted. Now it is the same picker the project view
+  // uses, so a project starts life with real linked contacts. The project does not exist yet, so
+  // these are held here and linked once it does.
+  var staged = []
+
+  function drawStaged() {
+    var host = sheet.querySelector('#np-contacts')
+    host.innerHTML = ''
+    staged.forEach(function (s, i) {
+      var sub = [s.email, s.phone].filter(Boolean).join('  ·  ')
+      var row = el(
+        '<div class="card" style="margin-bottom:6px;cursor:default">' +
+          '<div class="cc-head"><div class="name" style="font-size:14px;flex:1;min-width:0">' + esc(s.name) +
+          (i === 0 && staged.length > 1 ? '<span class="cc-primary">Primary</span>' : '') + '</div>' +
+          '<button class="cc-x" aria-label="Remove"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>' +
+          (sub ? '<div class="meta">' + esc(sub) + '</div>' : '') +
+        '</div>'
+      )
+      row.querySelector('.cc-x').addEventListener('click', function () { staged.splice(i, 1); drawStaged() })
+      host.appendChild(row)
+    })
+  }
+
+  sheet.querySelector('#np-addcontact').addEventListener('click', function () {
+    var exclude = {}
+    staged.forEach(function (s) { if (s.contactId) exclude[s.contactId] = true })
+    openContactPicker({
+      title: 'Add contact',
+      excludeIds: exclude,
+      createHint: 'This creates a contact in the CRM and attaches it to the new project. Phone numbers are auto-formatted.',
+      createLabel: 'Add to project',
+      onChoose: function (chosen) {
+        staged.push({
+          contactId: chosen.contact ? chosen.contact.id : '',
+          name: chosen.name,
+          email: chosen.email,
+          phone: chosen.phone,
+        })
+        drawStaged()
+      },
+    })
   })
+
   sheet.querySelector('#np-save').addEventListener('click', function () {
     var name = sheet.querySelector('#np-name').value.trim()
     if (!name) { toast('Enter a project name.', 'err'); return }
+    // The first staged contact seeds the project's own contact fields (the primary), matching what
+    // attachContactToProject does. Everyone else is a link only.
+    var primary = staged[0] || { name: '', email: '', phone: '' }
     var input = {
       clientName: name,
       eventType: sheet.querySelector('#np-type').value,
@@ -326,43 +405,58 @@ function openNewProject() {
       eventDate: sheet.querySelector('#np-date').value,
       totalFee: sheet.querySelector('#np-fee').value,
       eventLocation: sheet.querySelector('#np-loc').value,
-      contactNames: sheet.querySelector('#np-cname').value,
-      contactEmails: sheet.querySelector('#np-cemail').value,
-      contactPhones: sheet.querySelector('#np-cphone').value,
+      contactNames: primary.name,
+      contactEmails: primary.email,
+      contactPhones: primary.phone,
       projectNotes: sheet.querySelector('#np-notes').value,
     }
     doWrite(createProject(input, SNAP.structure), 'Project created', function (proj) {
       SNAP.projects.push(proj)
       close()
-      BUCKET = 'active'
+      TAB = 'pipeline' // a new project is always active, so back out lands on the pipeline
       renderDetail(proj.id)
-      // Build the real contact record + link AFTER the project exists. Deliberately not awaited and
+      // Build the real contact records + links AFTER the project exists. Deliberately not awaited and
       // deliberately not able to fail the create: the project is already saved and on screen, and a
-      // join-table hiccup must not make a successful save look broken.
-      linkOrCreateContact(proj.id, {
-        contactId: pickedContactId,
-        name: input.contactNames,
-        email: input.contactEmails,
-        phone: input.contactPhones,
-      }).then(function (r) {
-        if (r && r.ok) refreshContactsCache()
-      }).catch(function (e) {
-        console.error('[mobile] could not link the contact:', e && e.message)
-      })
+      // join-table hiccup must not make a successful save look broken. Sequential so the link order
+      // (and therefore the primary) matches what he staged.
+      staged.reduce(function (chain, s) {
+        return chain.then(function () {
+          return linkOrCreateContact(proj.id, { contactId: s.contactId, name: s.name, email: s.email, phone: s.phone })
+            .then(function (r) { if (r && r.ok) noteLinkLocally(proj.id, r.contactId) })
+        })
+      }, Promise.resolve())
+        .then(function () { return Promise.all([refreshContactsCache(), refreshLinksCache()]) })
+        .then(function () { if (DETAIL_ID === proj.id) renderDetail(proj.id, true) })
+        .catch(function (e) { console.error('[mobile] could not link the contacts:', e && e.message) })
     })
   })
   document.body.appendChild(sheet)
   setTimeout(function () { var e = sheet.querySelector('#np-name'); if (e) e.focus() }, 40)
 }
 function sectionLabel(text) { return el('<div class="section-label"><span class="dot"></span>' + esc(text) + '</div>') }
+// Days left in a soft-deleted project's 30-day restore window. Null when it was never stamped
+// (older deletes, before deleted_at existed), which the caller renders as a plain "Deleted".
+var DELETED_TTL_DAYS = 30
+function deletedDaysLeft(p) {
+  var t = Date.parse(p.deletedAt || '')
+  if (!isFinite(t)) return null
+  var left = DELETED_TTL_DAYS - Math.floor((Date.now() - t) / 86400000)
+  return left > 0 ? left : 0
+}
+
 // The status pill for a project card, by bucket: active -> its stage; completed -> "Done · <date>";
-// archived -> the archive reason (or "Archived").
+// archived -> the archive reason (or "Archived"); deleted -> how long is left to restore it.
 function cardPill(p) {
   if (p.bucket === 'completed') {
     var d = p.completedDate || p.eventDate
     return { text: 'Done' + (d ? '  ·  ' + fmtShort(d) : ''), cls: 'done' }
   }
   if (p.bucket === 'archived') return { text: p.archiveReason || 'Archived', cls: 'arch' }
+  if (p.bucket === 'deleted') {
+    var left = deletedDaysLeft(p)
+    if (left == null) return { text: 'Deleted', cls: 'del' }
+    return { text: left === 0 ? 'Purges today' : left + (left === 1 ? ' day left' : ' days left'), cls: 'del' }
+  }
   var si = stageInfo(p.stageId)
   return si.name ? { text: si.name, cls: '' } : null
 }
@@ -518,7 +612,9 @@ function openArchiveSheet(p) {
 function doRestore(p) {
   doWrite(restoreProject(p.id), 'Back in the pipeline', function (r) {
     p.bucket = 'active'; p.stageId = r.stageId || 'inquiry'; p.archiveReason = ''; p.completedDate = ''
+    p.deletedAt = '' // no stale delete stamp on a project that is live again
     p.activityLog = r.activityLog
+    TAB = 'pipeline' // it lives on the active board now, so that is where backing out should land
     renderDetail(p.id)
   })
 }
@@ -534,9 +630,11 @@ function doDelete(p) {
   doWrite(deleteProject(p.id), 'Moved to Deleted', function () {
     p.bucket = 'deleted'
     p.stageId = ''
-    SNAP.projects = SNAP.projects.filter(function (x) { return x.id !== p.id })
+    p.deletedAt = new Date().toISOString()
+    // Kept in SNAP deliberately: it has to still be there for the Deleted page to list it. It used
+    // to be spliced out here, back when the phone had nowhere to show deleted projects.
     DETAIL_ID = null
-    renderPipeline()
+    navigate('deleted')
   })
 }
 
@@ -573,8 +671,11 @@ function renderDetail(id, keepScroll) {
   removeFab()
   var v = $('#view'); v.innerHTML = ''
   var pt = $('#pagetitle'); if (pt) pt.textContent = p.client || 'Project'
-  var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>Pipeline</button>')
-  back.addEventListener('click', renderPipeline)
+  // Back goes to the page this project actually lives on, not always Pipeline: opening a completed
+  // project and being dumped into the active board on the way out is disorienting.
+  var backPage = pageForBucket(p.bucket)
+  var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' + esc(PAGE_TITLES[backPage] || 'Pipeline') + '</button>')
+  back.addEventListener('click', function () { navigate(backPage) })
   v.appendChild(back)
   var si = stageInfo(p.stageId)
   v.appendChild(el(
@@ -598,21 +699,74 @@ function renderDetail(id, keepScroll) {
     v.appendChild(stagePicker(p))
   }
 
-  // ---- contact: kept inline (Call / Text / Email is a primary phone action) ----
-  var emails = (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
-  var phones = (p.contactPhones || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
-  v.appendChild(sectionLabel('Contact'))
-  var contactCard = el('<div class="card" style="pointer-events:none"></div>')
-  contactCard.appendChild(el('<div class="name" style="font-size:14.5px">' + esc(p.contactNames || '(no name)') + '</div>'))
-  if (emails.length) contactCard.appendChild(el('<div class="meta">' + esc(emails.join(', ')) + '</div>'))
-  if (phones.length) contactCard.appendChild(el('<div class="meta">' + esc(phones.join(', ')) + '</div>'))
-  v.appendChild(contactCard)
-  var actions = el('<div class="contact"></div>')
-  if (phones[0]) actions.appendChild(el('<a href="tel:' + esc(phones[0]) + '">Call</a>'))
-  if (phones[0]) actions.appendChild(el('<a href="sms:' + esc(phones[0]) + '">Text</a>'))
-  if (emails[0]) actions.appendChild(el('<a href="mailto:' + esc(emails[0]) + '">Email</a>'))
-  if (actions.children.length) v.appendChild(actions)
-  var addContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">' + (p.contactNames ? 'Change contact' : 'Add contact') + '</button>')
+  // ---- contacts: kept inline (Call / Text / Email is a primary phone action) ----
+  //
+  // A project can have any number of people on it, same as the Mac. Until 2026-08-06 this section
+  // showed exactly one and the button said "Change contact", so the only way to add a second person
+  // was to overwrite the first. Michael: "it only allows me to change the contact, not add a contact
+  // so theres multiple."
+  //
+  // The first card is the PRIMARY (the project's own contact fields) and is marked as such, because
+  // that is who the contract and invoice go to. The rest come from the contact_links join.
+  var linked = contactsForProject(p)
+  v.appendChild(sectionLabel(linked.length > 1 ? 'Contacts' : 'Contact'))
+
+  // A project whose contact was only ever typed in as text (older projects, or one built on the Mac
+  // before links existed) still has a primary worth showing, so fall back to the text fields.
+  var primaryName = String(p.contactNames || '').trim()
+  var hasLinkedPrimary = linked.some(function (c) { return String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase() })
+  var cards = linked.map(function (c) {
+    return {
+      id: c.id,
+      contact: c,
+      name: c.name || '(no name)',
+      emails: (c.emails || []).filter(Boolean),
+      phones: (c.phones || []).filter(Boolean),
+      primary: String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase(),
+    }
+  })
+  if (primaryName && !hasLinkedPrimary) {
+    cards.unshift({
+      id: '',
+      contact: null,
+      name: primaryName,
+      emails: (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean),
+      phones: (p.contactPhones || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean),
+      primary: true,
+    })
+  }
+  // Primary first, so the person the paperwork is addressed to is always at the top.
+  cards.sort(function (a, b) { return (b.primary ? 1 : 0) - (a.primary ? 1 : 0) })
+
+  if (!cards.length) {
+    v.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nobody on this project yet.</div>'))
+  }
+  cards.forEach(function (row) {
+    var wrap = el('<div class="contactblock"></div>')
+    var card = el('<div class="card contactcard"></div>')
+    var head = el('<div class="cc-head"></div>')
+    head.appendChild(el('<div class="name" style="font-size:14.5px">' + esc(row.name) +
+      (row.primary && cards.length > 1 ? '<span class="cc-primary">Primary</span>' : '') + '</div>'))
+    // Only a linked contact can be unlinked; a text-only primary has no join row to delete. Editing
+    // it lives in Event details, where the contact fields already are.
+    if (row.id) {
+      var x = el('<button class="cc-x" aria-label="Remove from project"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>')
+      x.addEventListener('click', function (e) { e.stopPropagation(); detachContactFromProject(p, row.contact) })
+      head.appendChild(x)
+    }
+    card.appendChild(head)
+    if (row.emails.length) card.appendChild(el('<div class="meta">' + esc(row.emails.join(', ')) + '</div>'))
+    if (row.phones.length) card.appendChild(el('<div class="meta">' + esc(row.phones.join(', ')) + '</div>'))
+    wrap.appendChild(card)
+    var actions = el('<div class="contact"></div>')
+    if (row.phones[0]) actions.appendChild(el('<a href="tel:' + esc(row.phones[0]) + '">Call</a>'))
+    if (row.phones[0]) actions.appendChild(el('<a href="sms:' + esc(row.phones[0]) + '">Text</a>'))
+    if (row.emails[0]) actions.appendChild(el('<a href="mailto:' + esc(row.emails[0]) + '">Email</a>'))
+    if (actions.children.length) wrap.appendChild(actions)
+    v.appendChild(wrap)
+  })
+
+  var addContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">Add contact</button>')
   addContactBtn.addEventListener('click', function () { openAddContact(p) })
   v.appendChild(addContactBtn)
 
@@ -876,13 +1030,20 @@ function openActionsPanel(p) {
     arch.addEventListener('click', function () { close(); openArchiveSheet(p) })
     stack.appendChild(comp); stack.appendChild(arch)
   } else {
-    var rest = el('<button class="btn-gold" style="width:100%">Return to pipeline</button>')
+    var rest = el('<button class="btn-gold" style="width:100%">' + (p.bucket === 'deleted' ? 'Restore project' : 'Return to pipeline') + '</button>')
     rest.addEventListener('click', function () { close(); doRestore(p) })
     stack.appendChild(rest)
   }
-  var del = el('<button class="btn-danger">Delete permanently</button>')
-  del.addEventListener('click', function () { close(); doDelete(p) })
-  stack.appendChild(del)
+  // Not shown on a project that is already deleted: there is nothing left for it to do, and the
+  // permanent purge deliberately lives only on the Mac (and the 30-day sweep).
+  //
+  // It also used to be labelled "Delete permanently", which stopped being true when delete became a
+  // soft move on 2026-08-05. A button that overstates what it does is worse than no button.
+  if (p.bucket !== 'deleted') {
+    var del = el('<button class="btn-danger">Move to Deleted</button>')
+    del.addEventListener('click', function () { close(); doDelete(p) })
+    stack.appendChild(del)
+  }
   card.appendChild(stack)
   var cancel = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
   cancel.addEventListener('click', close)
@@ -1230,83 +1391,66 @@ function refreshContactsCache() {
     .catch(function () {})
 }
 
-function attachContactSuggest(input, onPick) {
-  var box = el('<div class="sugg" hidden></div>')
-  input.insertAdjacentElement('afterend', box)
 
-  function hide() { box.hidden = true; box.innerHTML = '' }
-
-  function draw() {
-    var q = String(input.value || '').trim().toLowerCase()
-    if (q.length < 2) return hide()
-    var all = SNAP.contacts || []
-    var hits = all.filter(function (c) {
-      var hay = ((c.name || '') + ' ' + (c.emails || []).join(' ')).toLowerCase()
-      return hay.indexOf(q) >= 0
-    })
-    // An exact match is not a suggestion, it is what they already typed.
-    if (hits.length === 1 && (hits[0].name || '').toLowerCase() === q) return hide()
-    if (!hits.length) return hide()
-    hits.sort(function (a, b) { return (a.name || '').toLowerCase() < (b.name || '').toLowerCase() ? -1 : 1 })
-    box.innerHTML = ''
-    hits.slice(0, 6).forEach(function (c) {
-      var sub = (c.emails || [])[0] || (c.phones || [])[0] || ''
-      var row = el(
-        '<div class="sugg-row"><div class="sugg-n">' + esc(c.name || '(no name)') + '</div>' +
-        (sub ? '<div class="sugg-s">' + esc(sub) + '</div>' : '') + '</div>'
-      )
-      // mousedown, not click: on a focused input the blur fires first and would tear the list down
-      // before the tap ever lands.
-      row.addEventListener('mousedown', function (e) {
-        e.preventDefault()
-        input.value = c.name || ''
-        hide()
-        if (onPick) onPick(c)
-      })
-      box.appendChild(row)
-    })
-    box.hidden = false
-  }
-
-  input.addEventListener('input', draw)
-  input.addEventListener('focus', draw)
-  input.addEventListener('blur', function () { setTimeout(hide, 120) })
+// Every contact record linked to a project, in link order. The join table (contact_links) is the
+// truth here, exactly as on the Mac: a project can have any number of people on it.
+function contactsForProject(p) {
+  var ids = ((SNAP && SNAP.links) || {})[p.id] || []
+  var byId = {}
+  ;((SNAP && SNAP.contacts) || []).forEach(function (c) { byId[c.id] = c })
+  return ids.map(function (id) { return byId[id] }).filter(Boolean)
 }
 
-// ADD CONTACT: pick someone already in the CRM, or create one. Mirrors the Mac.
+// Re-read the join table after a link/unlink so the card list matches the database. Silent on
+// failure for the same reason as refreshContactsCache: a stale list is a nuisance, a toast is noise.
+function refreshLinksCache() {
+  return loadLinks()
+    .then(function (m) { if (SNAP) SNAP.links = m })
+    .catch(function () {})
+}
+
+// Optimistic local edits to SNAP.links, so the UI updates on tap instead of after a round trip.
+function noteLinkLocally(projectId, contactId) {
+  if (!SNAP) return
+  SNAP.links = SNAP.links || {}
+  var ids = SNAP.links[projectId] || []
+  if (ids.indexOf(contactId) < 0) ids = ids.concat([contactId])
+  SNAP.links[projectId] = ids
+}
+function forgetLinkLocally(projectId, contactId) {
+  if (!SNAP || !SNAP.links) return
+  SNAP.links[projectId] = (SNAP.links[projectId] || []).filter(function (x) { return x !== contactId })
+}
+
+// CONTACT PICKER: choose someone already in the CRM, or create a new one. Mirrors the Mac's
+// ProjectContactPickerModal, including the "+ Create a new contact" escape hatch at the bottom.
 //
 // The phone used to offer only "Edit contact info": three free-text boxes where you retyped a name,
 // an email and a phone that the CRM already knew, with no link to the contact record. Michael's words
 // (2026-08-05): "this makes no sense". He was right. A contact is one thing, not three strings.
 //
-// Picking an existing person brings their name, email and phone across together AND links the record,
-// so the project behaves the same whether it was built here or on the Mac.
-function openAddContact(p) {
+// Generic on purpose (2026-08-06): the project detail view and the New-project sheet both open it.
+// The sheet has no project yet, so this only COLLECTS a choice; what to do with it is the caller's
+// business. onChoose gets { contact, name, email, phone } where contact is null for a brand-new one.
+function openContactPicker(opts) {
+  var o = opts || {}
+  var exclude = o.excludeIds || {}
   var sheet = el(
     '<div class="sheet"><div class="sheet-card sheet-tall">' +
-      '<div class="sheet-head"><div class="sheet-title">Add contact</div>' +
+      '<div class="sheet-head"><div class="sheet-title">' + esc(o.title || 'Add contact') + '</div>' +
       '<button class="sheet-x" aria-label="Close">' +
       '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
       '</button></div><div class="sheet-body"></div>' +
     '</div></div>'
   )
   var body = sheet.querySelector('.sheet-body')
-  var close = function () { sheet.remove(); renderDetail(p.id, true) }
+  var close = function () { sheet.remove(); if (o.onClose) o.onClose() }
   sheet.querySelector('.sheet-x').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
 
-  // Write the chosen person onto the project AND link the contact record.
-  function apply(contact, name, email, phone) {
-    var writes = []
-    if (name !== (p.contactNames || '')) writes.push(updateProjectField(p.id, 'contactNames', name).then(function (r) { p.contactNames = r.value }))
-    if (email !== (p.contactEmails || '')) writes.push(updateProjectField(p.id, 'contactEmails', email).then(function (r) { p.contactEmails = r.value }))
-    if (phone !== (p.contactPhones || '')) writes.push(updateProjectField(p.id, 'contactPhones', phone).then(function (r) { p.contactPhones = r.value }))
-    doWrite(Promise.all(writes), 'Contact added', function () {
-      linkOrCreateContact(p.id, { contactId: contact ? contact.id : '', name: name, email: email, phone: phone })
-        .then(function (r) { if (r && r.ok) refreshContactsCache() })
-        .catch(function (e) { console.error('[mobile] link failed:', e && e.message) })
-      close()
-    })
+  function choose(contact, name, email, phone) {
+    sheet.remove()
+    if (o.onChoose) o.onChoose({ contact: contact || null, name: name, email: email, phone: phone })
   }
 
   function drawPick() {
@@ -1321,19 +1465,23 @@ function openAddContact(p) {
 
     function draw() {
       var q = String(search.value || '').trim().toLowerCase()
-      var all = (SNAP.contacts || []).slice()
+      // Anyone already on this project is filtered out: offering to add them twice is a dead end.
+      var all = ((SNAP && SNAP.contacts) || []).filter(function (c) { return !exclude[c.id] })
       var hits = q
         ? all.filter(function (c) { return ((c.name || '') + ' ' + (c.emails || []).join(' ')).toLowerCase().indexOf(q) >= 0 })
         : all
       hits.sort(function (a, b) { return (a.name || '').toLowerCase() < (b.name || '').toLowerCase() ? -1 : 1 })
       list.innerHTML = ''
-      if (!hits.length) { list.appendChild(el('<div class="empty" style="padding:16px">No matching contacts.</div>')); return }
+      if (!hits.length) {
+        list.appendChild(el('<div class="empty" style="padding:16px">' + (q ? 'No matching contacts.' : 'No other contacts to add.') + '</div>'))
+        return
+      }
       hits.slice(0, 40).forEach(function (c) {
         var sub = [(c.emails || [])[0], (c.phones || [])[0]].filter(Boolean).join('  ·  ')
         var row = el('<button class="card" style="margin-bottom:6px"><div class="name" style="font-size:14.5px">' + esc(c.name || '(no name)') + '</div>' +
           (sub ? '<div class="meta">' + esc(sub) + '</div>' : '') + '</button>')
         row.addEventListener('click', function () {
-          apply(c, c.name || '', (c.emails || [])[0] || '', (c.phones || [])[0] || '')
+          choose(c, c.name || '', (c.emails || [])[0] || '', (c.phones || [])[0] || '')
         })
         list.appendChild(row)
       })
@@ -1353,13 +1501,13 @@ function openAddContact(p) {
     var emIn = document.createElement('input'); emIn.className = 'field-input'; emIn.placeholder = 'Email'; emIn.inputMode = 'email'; emIn.style.marginTop = '8px'
     var phIn = document.createElement('input'); phIn.className = 'field-input'; phIn.placeholder = 'Phone'; phIn.inputMode = 'tel'; phIn.style.marginTop = '8px'
     body.appendChild(nameIn); body.appendChild(emIn); body.appendChild(phIn)
-    body.appendChild(el('<div class="hint">This creates a contact in the CRM and attaches it to this project. Phone numbers are auto-formatted.</div>'))
+    body.appendChild(el('<div class="hint">' + esc(o.createHint || 'This creates a contact in the CRM and attaches it to this project. Phone numbers are auto-formatted.') + '</div>'))
 
-    var save = el('<button class="btn-gold" style="width:100%;margin-top:14px">Create and attach</button>')
+    var save = el('<button class="btn-gold" style="width:100%;margin-top:14px">' + esc(o.createLabel || 'Create and attach') + '</button>')
     save.addEventListener('click', function () {
       var name = nameIn.value.trim()
       if (!name) { toast('Enter a name.', 'err'); return }
-      apply(null, name, emIn.value.trim(), phIn.value.trim())
+      choose(null, name, emIn.value.trim(), phIn.value.trim())
     })
     body.appendChild(save)
 
@@ -1370,6 +1518,81 @@ function openAddContact(p) {
 
   drawPick()
   document.body.appendChild(sheet)
+}
+
+// Add a contact to a project: always an ADD, never a replace.
+//
+// The project's own contact_names / contact_emails / contact_phones columns hold the PRIMARY contact
+// only. That is the person the booking form, the contract and the QuickBooks invoice are addressed
+// to (see clientEmailFor in crm-booking-form.mjs), so they are written only when the project has no
+// primary yet. Everyone added after that is a join row and nothing else, which is exactly what the
+// desktop's linkContactToProject does. Adding a second contact must never silently re-address a
+// contract at them.
+function attachContactToProject(p, chosen) {
+  var hasPrimary = !!String(p.contactNames || '').trim()
+  doWrite(
+    linkOrCreateContact(p.id, {
+      contactId: chosen.contact ? chosen.contact.id : '',
+      name: chosen.name,
+      email: chosen.email,
+      phone: chosen.phone,
+    }).then(function (r) {
+      if (!r || !r.ok) return r
+      noteLinkLocally(p.id, r.contactId)
+      if (!hasPrimary) {
+        // First person on the project becomes the primary.
+        return Promise.all([
+          updateProjectField(p.id, 'contactNames', chosen.name).then(function (x) { p.contactNames = x.value }),
+          updateProjectField(p.id, 'contactEmails', chosen.email).then(function (x) { p.contactEmails = x.value }),
+          updateProjectField(p.id, 'contactPhones', chosen.phone).then(function (x) { p.contactPhones = x.value }),
+        ]).then(function () { return r })
+      }
+      return r
+    }),
+    'Contact added',
+    function () {
+      Promise.all([refreshContactsCache(), refreshLinksCache()]).then(function () { renderDetail(p.id, true) })
+      renderDetail(p.id, true)
+    },
+  )
+}
+
+// Remove a contact from a project. Unlinks only: the contact record survives, because the same
+// person is usually on other projects too.
+//
+// If the one being removed IS the primary, the next remaining contact is promoted into the project's
+// contact fields. Leaving a project with contacts attached but a stale name in contact_names would
+// send the next contract to somebody who is no longer on the job.
+function detachContactFromProject(p, contact) {
+  if (!confirm('Remove ' + (contact.name || 'this contact') + ' from "' + p.client + '"?\n\nThey stay in your Contacts, they are just no longer on this project.')) return
+  var wasPrimary = String(p.contactNames || '').trim().toLowerCase() === String(contact.name || '').trim().toLowerCase()
+  doWrite(
+    unlinkContact(p.id, contact.id).then(function () {
+      forgetLinkLocally(p.id, contact.id)
+      if (!wasPrimary) return
+      var next = contactsForProject(p)[0]
+      return Promise.all([
+        updateProjectField(p.id, 'contactNames', next ? next.name || '' : '').then(function (x) { p.contactNames = x.value }),
+        updateProjectField(p.id, 'contactEmails', next ? (next.emails || [])[0] || '' : '').then(function (x) { p.contactEmails = x.value }),
+        updateProjectField(p.id, 'contactPhones', next ? (next.phones || [])[0] || '' : '').then(function (x) { p.contactPhones = x.value }),
+      ])
+    }),
+    'Contact removed',
+    function () {
+      refreshLinksCache().then(function () { renderDetail(p.id, true) })
+      renderDetail(p.id, true)
+    },
+  )
+}
+
+function openAddContact(p) {
+  var exclude = {}
+  contactsForProject(p).forEach(function (c) { exclude[c.id] = true })
+  openContactPicker({
+    title: 'Add contact',
+    excludeIds: exclude,
+    onChoose: function (chosen) { attachContactToProject(p, chosen) },
+  })
 }
 
 // A task row with a tap-to-toggle checkbox on the left, the title/meta in the middle (tapping the
@@ -1545,6 +1768,13 @@ function updateCounts() {
   var due = dueCount()
   setTabCount('nav-badge-alerts', alerts)
   setTabCount('nav-badge-tasks', due)
+  // Plain counts on the history pages, so the drawer says how much is in each without opening it.
+  ;['completed', 'archived', 'deleted'].forEach(function (b) {
+    var elc = $('#nav-count-' + b)
+    if (!elc) return
+    var n = bucketCount(b)
+    elc.textContent = n ? String(n) : ''
+  })
   // Number on the home-screen app icon = new alerts + tasks needing attention.
   try {
     if (navigator.setAppBadge) {
@@ -1559,6 +1789,9 @@ function render() {
   if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
   if (TAB === 'home') renderHome()
   else if (TAB === 'pipeline') renderPipeline()
+  else if (TAB === 'completed') renderCompleted()
+  else if (TAB === 'archived') renderArchived()
+  else if (TAB === 'deleted') renderDeleted()
   else if (TAB === 'contacts') renderContacts()
   else if (TAB === 'tasks') renderTasks()
   else if (TAB === 'alerts') renderAlerts()
@@ -1766,7 +1999,7 @@ function openContactSheet(c) {
       linked.forEach(function (p) {
         var pill = p.bucket === 'completed' ? 'done' : p.bucket === 'archived' ? 'arch' : ''
         var row = el('<button class="card" style="margin-bottom:7px"><div class="row1"><span class="name" style="font-size:14px">' + esc(p.client) + '</span><span class="pill ' + pill + '">' + esc(p.bucket) + '</span></div></button>')
-        row.addEventListener('click', function () { close(); BUCKET = p.bucket; TAB = 'pipeline'; renderDetail(p.id) })
+        row.addEventListener('click', function () { close(); TAB = pageForBucket(p.bucket); renderDetail(p.id) })
         card.appendChild(row)
       })
     }

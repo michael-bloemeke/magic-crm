@@ -138,6 +138,8 @@ function projectFromRow(p) {
     flags: Array.isArray(p.flags) ? p.flags.map(String) : [],
     archiveReason: str(p.archive_reason),
     completedDate: str(p.completed_date),
+    // When it was soft-deleted. The Deleted page counts the 30-day window down from this.
+    deletedAt: str(p.deleted_at),
     activityLog: Array.isArray(p.activity_log) ? p.activity_log.map(String) : [],
   }
 }
@@ -191,7 +193,7 @@ const NOTIF_LABELS = {
 export async function loadProjects() {
   const { data, error } = await sb
     .from('projects')
-    .select('id,client_name,project_name,bucket,stage_id,status,event_type,event_date,event_start_time,show_start_time,event_location,venue_type,indoors_or_outdoors,number_of_guests,age_of_guests,performance_style,total_fee,total_fee_text,tips,mileage,vips,av,booking_source,event_summary,event_description,project_notes,contact_names,contact_emails,contact_phones,flags,archive_reason,completed_date,activity_log')
+    .select('id,client_name,project_name,bucket,stage_id,status,event_type,event_date,event_start_time,show_start_time,event_location,venue_type,indoors_or_outdoors,number_of_guests,age_of_guests,performance_style,total_fee,total_fee_text,tips,mileage,vips,av,booking_source,event_summary,event_description,project_notes,contact_names,contact_emails,contact_phones,flags,archive_reason,completed_date,deleted_at,activity_log')
   if (error) throw error
   return (data || []).map(projectFromRow)
 }
@@ -705,6 +707,20 @@ export async function linkOrCreateContact(projectId, { contactId = '', name = ''
   return { ok: true, contactId: id }
 }
 
+// Detach a contact from a project. Deletes only the join row: the contact record itself is left
+// alone, because the same person is very often on other projects. Mirrors the desktop's
+// unlinkContactFromProject, which likewise only ever touches contact_links.
+export async function unlinkContact(projectId, contactId) {
+  if (!projectId || !contactId) throw new Error('Project and contact are required.')
+  const { error } = await sb
+    .from('contact_links')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('contact_id', contactId)
+  if (error) throw error
+  return { ok: true, projectId, contactId }
+}
+
 // Load contacts (id + editable fields) so the phone can show/edit them. Mirrors the read shape of
 // crm-contacts.mjs (jsonb arrays -> string arrays).
 export async function loadContacts() {
@@ -901,7 +917,9 @@ export async function restoreProject(id) {
   if ((str(cur.bucket) || 'active') === 'active') throw new Error('Project is already active.')
   const existing = Array.isArray(cur.activity_log) ? cur.activity_log.map(String) : []
   const activity_log = [`${logDate()}: Project returned to the active pipeline.`, ...existing]
-  const patch = { bucket: 'active', stage_id: ORPHAN_STAGE, archive_reason: null, completed_date: null, activity_log }
+  // deleted_at is cleared too, so a project restored from the Deleted page does not carry a stale
+  // delete stamp around. The desktop's restoreProject does the same (crm-data-core.mjs).
+  const patch = { bucket: 'active', stage_id: ORPHAN_STAGE, archive_reason: null, completed_date: null, deleted_at: null, activity_log }
   const { error } = await sb.from('projects').update(patch).eq('id', id)
   if (error) throw error
   return { ok: true, id, bucket: 'active', stageId: ORPHAN_STAGE, activityLog: activity_log }
