@@ -162,13 +162,17 @@
       /* A sheet with a pinned header and its own scrolling body. The plain .sheet-card scrolls as one
          piece, which on a long form pushes the title away and leaves no way out except tapping the
          sliver of backdrop above the sheet. */
-      .sheet-card.sheet-tall { display: flex; flex-direction: column; max-height: 88vh; padding-top: 12px; }
+      .sheet-card.sheet-tall { display: flex; flex-direction: column; max-height: 88vh; padding-top: 12px; overflow-x: hidden; }
       .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); flex: none; }
       .sheet-head .sheet-title { margin: 0; }
       .sheet-x { flex: none; width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--line-strong);
                  background: var(--surface2); color: var(--muted); display: flex; align-items: center; justify-content: center; }
       .sheet-x:active { background: var(--line); }
-      .sheet-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-top: 12px; }
+      /* Vertical only. Something a hair wider than the container (a long placeholder, a textarea's
+         resize grip) let the whole panel slide sideways, which made reading down a list of fields
+         unnecessarily fiddly. Nothing in here ever needs horizontal scrolling. */
+      .sheet-body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-top: 12px; }
+      .sheet-body .field-input { max-width: 100%; }
       /* One always-visible field. The value is readable without tapping, which was the whole point:
          previously every value was hidden behind its own label and had to be opened to be read. */
       .fld { margin-bottom: 14px; }

@@ -910,17 +910,36 @@ export async function restoreProject(id) {
 // deleteProject: permanent, no undo. Purges the project's overlay data (tasks / payments / mileage
 // trips) then deletes the project row; contact_links rows cascade via their FK (ON DELETE CASCADE).
 // Mirrors deleteProject + deletePaymentsForProject + deleteTripsForProject on the desktop.
+// SOFT delete: move to the 'deleted' bucket, stamped, exactly like crm-data-core.deleteProject.
+//
+// ⚠️ This used to HARD delete (2026-08-05). It removed the project row outright and, worse, wiped its
+// tasks, payments and mileage_trips first. So a mis-tap on a phone permanently destroyed financial
+// records with no undo, while the same button on the Mac moved the project to a Deleted page it could
+// be restored from for 30 days. Two buttons with the same label and wildly different consequences.
+//
+// Nothing is destroyed here beyond the bucket flip, so restoring is lossless. Permanent purge stays
+// where it belongs: the desktop's explicit "Delete permanently" action, or the 30-day auto-sweep.
 export async function deleteProject(id) {
   if (!id) throw new Error('Project id is required.')
-  const child = await Promise.all([
-    sb.from('tasks').delete().eq('project_id', id),
-    sb.from('payments').delete().eq('project_id', id),
-    sb.from('mileage_trips').delete().eq('project_id', id),
-  ])
-  for (const c of child) if (c && c.error) throw c.error
-  const { error } = await sb.from('projects').delete().eq('id', id)
+  const { data: row, error: readErr } = await sb
+    .from('projects')
+    .select('bucket, activity_log')
+    .eq('id', id)
+    .maybeSingle()
+  if (readErr) throw readErr
+  if (!row) throw new Error('Project not found.')
+  if (str(row.bucket) === 'deleted') return { ok: true, id, alreadyDeleted: true }
+
+  const activity_log = [
+    `${logDate()}: Project moved to Deleted.`,
+    ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
+  ]
+  const { error } = await sb
+    .from('projects')
+    .update({ bucket: 'deleted', stage_id: null, deleted_at: new Date().toISOString(), activity_log })
+    .eq('id', id)
   if (error) throw error
-  return { ok: true, id }
+  return { ok: true, id, to: 'deleted' }
 }
 
 // ---------- contact links ----------

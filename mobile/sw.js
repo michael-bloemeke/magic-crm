@@ -13,8 +13,10 @@
 // v13: contacts added on the phone are now REAL contact records with a project link, not loose text.
 // v14: renamed to Bloom CRM; Event details rebuilt as full-size always-visible fields with an X.
 // v15: supabase-js VENDORED. The app no longer executes code fetched from esm.sh on every open.
+// v16: delete is now reversible (Deleted page, not permanent); proper Add-contact picker; the
+// details panel no longer scrolls sideways.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v15'
+var CACHE = 'mcrm-v16'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

@@ -523,13 +523,18 @@ function doRestore(p) {
   })
 }
 
-// Permanent delete (project + its tasks / payments / mileage). Confirm-gated, no undo.
+// Move to Deleted. Reversible for 30 days, matching the Mac.
+//
+// This used to permanently destroy the project AND its tasks, payments and mileage, with the wording
+// "There is no undo." Same button, same label, on the Mac moved it to a restorable Deleted page.
+// Fixed 2026-08-05. Nothing is destroyed now; tasks and payments stay attached and come back intact
+// if it is restored, which is why they are no longer pruned from the local snapshot here.
 function doDelete(p) {
-  if (!confirm('Delete "' + p.client + '" permanently?\n\nThis removes the project and its tasks, payments, and mileage. There is no undo.')) return
-  doWrite(deleteProject(p.id), 'Deleted', function () {
+  if (!confirm('Move "' + p.client + '" to Deleted?\n\nIt leaves the pipeline but nothing is lost. You can restore it from the Deleted page for 30 days.')) return
+  doWrite(deleteProject(p.id), 'Moved to Deleted', function () {
+    p.bucket = 'deleted'
+    p.stageId = ''
     SNAP.projects = SNAP.projects.filter(function (x) { return x.id !== p.id })
-    SNAP.tasks = (SNAP.tasks || []).filter(function (t) { return t.projectId !== p.id })
-    SNAP.payments = (SNAP.payments || []).filter(function (pm) { return pm.projectId !== p.id })
     DETAIL_ID = null
     renderPipeline()
   })
@@ -607,9 +612,9 @@ function renderDetail(id, keepScroll) {
   if (phones[0]) actions.appendChild(el('<a href="sms:' + esc(phones[0]) + '">Text</a>'))
   if (emails[0]) actions.appendChild(el('<a href="mailto:' + esc(emails[0]) + '">Email</a>'))
   if (actions.children.length) v.appendChild(actions)
-  var editContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">Edit contact info</button>')
-  editContactBtn.addEventListener('click', function () { openContactEditor(p) })
-  v.appendChild(editContactBtn)
+  var addContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">' + (p.contactNames ? 'Change contact' : 'Add contact') + '</button>')
+  addContactBtn.addEventListener('click', function () { openAddContact(p) })
+  v.appendChild(addContactBtn)
 
   // ---- details: compact inline summary, full editing behind a panel ----
   v.appendChild(sectionLabel('Details'))
@@ -1268,57 +1273,102 @@ function attachContactSuggest(input, onPick) {
   input.addEventListener('blur', function () { setTimeout(hide, 120) })
 }
 
-// A modal sheet to edit the project's contact fields (names / emails / phones on the project row).
-// Phones are normalized on save (formatPhoneField), matching the desktop.
-function openContactEditor(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  card.appendChild(el('<div class="sheet-title">Edit contact</div>'))
-  card.appendChild(el('<div class="k" style="margin-bottom:4px">Names</div>'))
-  var nameIn = document.createElement('input'); nameIn.className = 'field-input'; nameIn.value = p.contactNames || ''
-  card.appendChild(nameIn)
-  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Emails</div>'))
-  var emIn = document.createElement('input'); emIn.className = 'field-input'; emIn.value = p.contactEmails || ''
-  card.appendChild(emIn)
-  card.appendChild(el('<div class="k" style="margin:10px 0 4px">Phones</div>'))
-  var phIn = document.createElement('input'); phIn.className = 'field-input'; phIn.value = p.contactPhones || ''
-  card.appendChild(phIn)
-  // Only fill the blanks. Overwriting an email he has already corrected by hand, just because the
-  // stored contact says otherwise, would be the app arguing with him.
-  var pickedContactId = ''
-  nameIn.addEventListener('input', function () { pickedContactId = '' })
-  attachContactSuggest(nameIn, function (c) {
-    pickedContactId = c.id
-    if (!emIn.value.trim()) emIn.value = (c.emails || [])[0] || ''
-    if (!phIn.value.trim()) phIn.value = (c.phones || [])[0] || ''
-  })
-  card.appendChild(el('<div class="hint">Start typing a name to pull in someone you already have. Phone numbers get auto-formatted on save.</div>'))
-  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
-  var close = function () { sheet.remove() }
-  bar.children[0].addEventListener('click', close)
-  bar.children[1].addEventListener('click', function () {
-    // Write each changed field (names/emails as-is; phones normalized by updateProjectField).
-    var writes = []
-    if (nameIn.value !== (p.contactNames || '')) writes.push(updateProjectField(p.id, 'contactNames', nameIn.value).then(function (r) { p.contactNames = r.value }))
-    if (emIn.value !== (p.contactEmails || '')) writes.push(updateProjectField(p.id, 'contactEmails', emIn.value).then(function (r) { p.contactEmails = r.value }))
-    if (phIn.value !== (p.contactPhones || '')) writes.push(updateProjectField(p.id, 'contactPhones', phIn.value).then(function (r) { p.contactPhones = r.value }))
-    // Same as the new-project sheet: keep the project's text fields (nothing downstream changes) AND
-    // build the contacts row + link, so a person added here is a real contact rather than a string.
-    var linkIt = function () {
-      return linkOrCreateContact(p.id, {
-        contactId: pickedContactId,
-        name: nameIn.value,
-        email: emIn.value,
-        phone: phIn.value,
-      }).then(function (r) {
-        if (r && r.ok) refreshContactsCache()
-      }).catch(function (e) { console.error('[mobile] could not link the contact:', e && e.message) })
-    }
-    if (!writes.length) { linkIt(); close(); return }
-    doWrite(Promise.all(writes), 'Contact updated', function () { linkIt(); close(); renderDetail(p.id, true) })
-  })
-  card.appendChild(bar)
+// ADD CONTACT: pick someone already in the CRM, or create one. Mirrors the Mac.
+//
+// The phone used to offer only "Edit contact info": three free-text boxes where you retyped a name,
+// an email and a phone that the CRM already knew, with no link to the contact record. Michael's words
+// (2026-08-05): "this makes no sense". He was right. A contact is one thing, not three strings.
+//
+// Picking an existing person brings their name, email and phone across together AND links the record,
+// so the project behaves the same whether it was built here or on the Mac.
+function openAddContact(p) {
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title">Add contact</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var close = function () { sheet.remove(); renderDetail(p.id, true) }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+
+  // Write the chosen person onto the project AND link the contact record.
+  function apply(contact, name, email, phone) {
+    var writes = []
+    if (name !== (p.contactNames || '')) writes.push(updateProjectField(p.id, 'contactNames', name).then(function (r) { p.contactNames = r.value }))
+    if (email !== (p.contactEmails || '')) writes.push(updateProjectField(p.id, 'contactEmails', email).then(function (r) { p.contactEmails = r.value }))
+    if (phone !== (p.contactPhones || '')) writes.push(updateProjectField(p.id, 'contactPhones', phone).then(function (r) { p.contactPhones = r.value }))
+    doWrite(Promise.all(writes), 'Contact added', function () {
+      linkOrCreateContact(p.id, { contactId: contact ? contact.id : '', name: name, email: email, phone: phone })
+        .then(function (r) { if (r && r.ok) refreshContactsCache() })
+        .catch(function (e) { console.error('[mobile] link failed:', e && e.message) })
+      close()
+    })
+  }
+
+  function drawPick() {
+    body.innerHTML = ''
+    body.appendChild(el('<div class="fld-l" style="margin-bottom:8px">Choose someone already in the CRM</div>'))
+    var search = document.createElement('input')
+    search.className = 'field-input'
+    search.placeholder = 'Search contacts…'
+    body.appendChild(search)
+    var list = el('<div style="margin-top:8px"></div>')
+    body.appendChild(list)
+
+    function draw() {
+      var q = String(search.value || '').trim().toLowerCase()
+      var all = (SNAP.contacts || []).slice()
+      var hits = q
+        ? all.filter(function (c) { return ((c.name || '') + ' ' + (c.emails || []).join(' ')).toLowerCase().indexOf(q) >= 0 })
+        : all
+      hits.sort(function (a, b) { return (a.name || '').toLowerCase() < (b.name || '').toLowerCase() ? -1 : 1 })
+      list.innerHTML = ''
+      if (!hits.length) { list.appendChild(el('<div class="empty" style="padding:16px">No matching contacts.</div>')); return }
+      hits.slice(0, 40).forEach(function (c) {
+        var sub = [(c.emails || [])[0], (c.phones || [])[0]].filter(Boolean).join('  ·  ')
+        var row = el('<button class="card" style="margin-bottom:6px"><div class="name" style="font-size:14.5px">' + esc(c.name || '(no name)') + '</div>' +
+          (sub ? '<div class="meta">' + esc(sub) + '</div>' : '') + '</button>')
+        row.addEventListener('click', function () {
+          apply(c, c.name || '', (c.emails || [])[0] || '', (c.phones || [])[0] || '')
+        })
+        list.appendChild(row)
+      })
+    }
+    search.addEventListener('input', draw)
+    draw()
+
+    var newBtn = el('<button class="btn-gold" style="width:100%;margin-top:14px">+ Create a new contact</button>')
+    newBtn.addEventListener('click', drawNew)
+    body.appendChild(newBtn)
+  }
+
+  function drawNew() {
+    body.innerHTML = ''
+    body.appendChild(el('<div class="fld-l" style="margin-bottom:8px">New contact</div>'))
+    var nameIn = document.createElement('input'); nameIn.className = 'field-input'; nameIn.placeholder = 'Name  *'
+    var emIn = document.createElement('input'); emIn.className = 'field-input'; emIn.placeholder = 'Email'; emIn.inputMode = 'email'; emIn.style.marginTop = '8px'
+    var phIn = document.createElement('input'); phIn.className = 'field-input'; phIn.placeholder = 'Phone'; phIn.inputMode = 'tel'; phIn.style.marginTop = '8px'
+    body.appendChild(nameIn); body.appendChild(emIn); body.appendChild(phIn)
+    body.appendChild(el('<div class="hint">This creates a contact in the CRM and attaches it to this project. Phone numbers are auto-formatted.</div>'))
+
+    var save = el('<button class="btn-gold" style="width:100%;margin-top:14px">Create and attach</button>')
+    save.addEventListener('click', function () {
+      var name = nameIn.value.trim()
+      if (!name) { toast('Enter a name.', 'err'); return }
+      apply(null, name, emIn.value.trim(), phIn.value.trim())
+    })
+    body.appendChild(save)
+
+    var back = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Back to existing contacts</button>')
+    back.addEventListener('click', drawPick)
+    body.appendChild(back)
+  }
+
+  drawPick()
   document.body.appendChild(sheet)
 }
 
