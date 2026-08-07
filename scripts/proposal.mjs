@@ -2,6 +2,10 @@
 //
 // Proposal pages from the command line, until the CRM grows a panel for them.
 //
+// ⚠️ RUN IT WITH NODE 22: `~/.local/node22/bin/node scripts/proposal.mjs …`. The Mac's system Node
+// is 20.12, and supabase-js needs a native WebSocket it does not have, so it fails with a confusing
+// "native WebSocket not found" instead of anything about the version.
+//
 //   node scripts/proposal.mjs new <project-id>          start a draft, seeded from the event type
 //   node scripts/proposal.mjs show <project-id>         print the row and the link
 //   node scripts/proposal.mjs edit <project-id> <file>  apply a JSON patch written by hand
@@ -38,8 +42,12 @@ import {
   ensureProposal, loadProposal, saveProposal, publishProposal,
   retireProposal, proposalStats, proposalGaps, proposalUrl,
 } from '../crm-proposals.mjs'
-import { sb } from '../crm-store.mjs'
+import { sb, CRM_STORE, initStore } from '../crm-store.mjs'
 import { loadAll } from '../crm-data-core.mjs'
+
+// Under CRM_STORE=supabase every synchronous project read comes out of a cache the app normally
+// fills at startup. A standalone script has no startup, so it fills it here or loadAll() throws.
+if (CRM_STORE === 'supabase') await initStore()
 
 const [cmd, projectId, arg] = process.argv.slice(2)
 
