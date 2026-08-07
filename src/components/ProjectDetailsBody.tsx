@@ -285,17 +285,29 @@ export function ProjectDetailsBody({
           from four cards (Recipients / Contract / Questionnaire / Invoice) to one, because at any
           moment only one of them was the next thing to actually do. BookingCard shows that step. */}
       <DetailSection title="Booking">
+        {/* LAYOUT, reworked 2026-08-07. Payments used to own a whole column to itself, which on a
+            project with no payments yet is a tall empty half of the screen next to three stacked
+            cards. Now the two columns are the SEQUENCE (what to do next), balanced so their heights
+            roughly match, and the payments log runs full width underneath.
+
+            Reading order top to bottom is also the real order of events: send the proposal, send the
+            booking form, put it on the calendar, then log the money when it lands. */}
         <div className={splitGrid}>
           <div className="space-y-2">
-            <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
-          </div>
-          <div className="space-y-2">
-            {/* Sits ABOVE the booking card because that is the order it happens in: the proposal
-                goes out after the sales call, and the booking form only after they say yes. */}
+            {/* Left column is the two things that go out BEFORE they say yes, plus the invite.
+                Together these come out near the height of the booking card beside them. */}
             <ProposalCard project={project} />
-            <BookingCard project={project} onSaveField={onSaveField} />
             <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
+          <div className="space-y-2">
+            <BookingCard project={project} onSaveField={onSaveField} />
+          </div>
+        </div>
+        {/* The money, last and full width. It is a log, so it reads better as wide rows than as a
+            narrow column, and it is the thing Michael touches after everything above is done. */}
+        <div className="mt-5 rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.10)]">
+          <p className="mb-2 text-[13px] font-medium text-parchment">Payments</p>
+          <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
         </div>
       </DetailSection>
 
