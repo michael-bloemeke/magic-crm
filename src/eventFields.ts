@@ -19,6 +19,12 @@ export const EVENT_FIELDS: { id: string; label: string }[] = [
   { id: 'bookingSource', label: 'Booking source' },
 ]
 
+// Fixed choices for Indoors / Outdoors. These MUST stay identical to the `indoors_or_outdoors`
+// options in BOOKING_FIELDS (crm-booking-form.mjs) and their copy in Website/book/index.html: the
+// client picks from this list on the booking form and the answer is written straight back onto the
+// project, so a mismatch means the form can write a value the CRM's own dropdown cannot show.
+export const INDOOR_OUTDOOR_OPTIONS = ['Indoors', 'Outdoors', 'Both']
+
 // Fields a questionnaire answer can auto-fill: the event fields plus the day-of contact details.
 export const MAPPABLE_FIELDS: { id: string; label: string }[] = [
   ...EVENT_FIELDS,

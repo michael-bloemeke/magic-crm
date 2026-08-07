@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
 import { loadConfig, loadCustomValues, loadInquiryForm, loadStructure, saveCustomValue, TIP_METHODS, type Contact, type InquiryForm, type Payment, type ProjectLinks, type Task } from '../api'
-import { type CustomField } from '../eventFields'
+import { type CustomField, INDOOR_OUTDOOR_OPTIONS } from '../eventFields'
 import { to12h } from '../format'
 import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
@@ -268,7 +268,7 @@ export function ProjectDetailsBody({
           {shown('ageOfGuests') && <EditableField label={lbl('ageOfGuests', 'Guest ages')} multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} missing={miss('ageOfGuests')} />}
           {shown('eventLocation') && <EditableField label={lbl('eventLocation', 'Location')} multiline value={project.eventLocation} onSave={save('eventLocation')} missing={miss('eventLocation')} />}
           {shown('venueType') && <EditableField label={lbl('venueType', 'Venue type')} multiline value={project.venueType} onSave={save('venueType')} missing={miss('venueType')} />}
-          {shown('indoorsOrOutdoors') && <EditableField label={lbl('indoorsOrOutdoors', 'Indoors / Outdoors')} multiline value={project.indoorsOrOutdoors} onSave={save('indoorsOrOutdoors')} missing={miss('indoorsOrOutdoors')} />}
+          {shown('indoorsOrOutdoors') && <EditableField label={lbl('indoorsOrOutdoors', 'Indoors / Outdoors')} options={INDOOR_OUTDOOR_OPTIONS} value={project.indoorsOrOutdoors} onSave={save('indoorsOrOutdoors')} missing={miss('indoorsOrOutdoors')} placeholder="Choose one…" />}
           {shown('performanceStyle') && <EditableField label={lbl('performanceStyle', 'Performance')} multiline value={project.performanceStyle} onSave={save('performanceStyle')} missing={miss('performanceStyle')} />}
           {shown('av') && <EditableField label={lbl('av', 'AV')} multiline value={project.av} onSave={save('av')} missing={miss('av')} />}
           {shown('vips') && <EditableField label={lbl('vips', 'VIPs')} multiline value={project.vips} onSave={save('vips')} missing={miss('vips')} />}

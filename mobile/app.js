@@ -1397,16 +1397,31 @@ function openDetailsPanel(p) {
     var key = f[0], label = f[1], kind = f[2]
     var cur = key === 'projectName' ? (p.client || '') : (p[key] == null ? '' : String(p[key]))
     var fld = el('<div class="fld"><div class="fld-l">' + esc(label) + '</div></div>')
-    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+    var input
+    if (kind === 'select') {
+      // A fixed list the CLIENT also picks from on the booking form, so the two must agree. Any
+      // older free-text value is kept as an extra option rather than silently dropped.
+      input = document.createElement('select')
+      var opts = [''].concat(f[3] || [])
+      if (cur && opts.indexOf(cur) < 0) opts.push(cur)
+      opts.forEach(function (o) {
+        var el2 = document.createElement('option')
+        el2.value = o
+        el2.textContent = o || 'Not set'
+        input.appendChild(el2)
+      })
+    } else {
+      input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+    }
     input.className = 'field-input'
     input.value = cur
     if (kind === 'date') input.type = 'date'
     if (kind === 'money') input.inputMode = 'decimal'
     if (kind === 'textarea') input.rows = 3
-    input.placeholder = 'Not set'
+    if (kind !== 'select') input.placeholder = 'Not set'
     // Save on blur only, and only when it actually changed. Saving per keystroke would fire a write
     // for every letter typed on a phone keyboard.
-    input.addEventListener('blur', function () {
+    var save = function () {
       var nv = input.value
       if (nv === cur) return
       doWrite(updateProjectField(p.id, key, nv), 'Saved', function (r) {
@@ -1415,7 +1430,10 @@ function openDetailsPanel(p) {
         input.value = cur
         dirty = true
       }).catch(function () { input.value = cur })
-    })
+    }
+    // A dropdown commits on change; a typed field waits for blur, because saving per keystroke
+    // would fire a write for every letter typed on a phone keyboard.
+    input.addEventListener(kind === 'select' ? 'change' : 'blur', save)
     fld.appendChild(input)
     body.appendChild(fld)
   })
@@ -1448,7 +1466,10 @@ var EDITABLE_DETAIL_FIELDS = [
   ['showStartTime', 'Show start', 'text'],
   ['eventLocation', 'Location', 'text'],
   ['venueType', 'Venue type', 'text'],
-  ['indoorsOrOutdoors', 'Indoors / Outdoors', 'text'],
+  // Fixed choices, matching BOOKING_FIELDS in crm-booking-form.mjs and src/eventFields.ts. The
+  // client picks from this same list on the booking form and the answer writes straight onto the
+  // project, so the two lists have to stay identical.
+  ['indoorsOrOutdoors', 'Indoors / Outdoors', 'select', ['Indoors', 'Outdoors', 'Both']],
   ['numberOfGuests', 'Guest count', 'text'],
   ['ageOfGuests', 'Guest ages', 'text'],
   ['performanceStyle', 'Performance', 'text'],

@@ -28,8 +28,9 @@
 // contact is removable now, primary included. Also the new Bloom CRM icon.
 // v21: contact_links carries a position (0 = primary), so link order is deterministic instead of
 // whatever Postgres returned, and adding a contact appends rather than reassigning the primary.
+// v22: Indoors / Outdoors is a dropdown (Indoors / Outdoors / Both), matching the booking form.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v21'
+var CACHE = 'mcrm-v22'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

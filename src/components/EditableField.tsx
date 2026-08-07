@@ -8,6 +8,10 @@ type Props = {
   type?: 'text' | 'date'
   prefix?: string
   placeholder?: string
+  // When present the field becomes a dropdown of these choices instead of free text. Used where the
+  // CRM has to agree with a fixed list the client also sees (Indoors / Outdoors / Both on the
+  // booking form): free text on one side and a picker on the other guarantees they drift.
+  options?: string[]
   // Optional normalizer applied when the field commits (e.g. phone formatting).
   format?: (value: string) => string
   // Flags this field as a blank that matters (Event details, where a gap is a problem). Tints the
@@ -17,7 +21,7 @@ type Props = {
 
 // An always-editable field: looks like text, becomes clearly editable on
 // hover/focus, and saves on blur (or Enter, for single-line). No edit button.
-export function EditableField({ label, value, onSave, multiline, type = 'text', prefix, placeholder = 'Add…', format, missing }: Props) {
+export function EditableField({ label, value, onSave, multiline, type = 'text', prefix, placeholder = 'Add…', format, missing, options }: Props) {
   const [val, setVal] = useState(value)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
@@ -68,7 +72,27 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
       )}
       <div className="flex items-start">
         {prefix && <span className="mt-1 mr-0.5 text-[14px] text-muted">{prefix}</span>}
-        {multiline ? (
+        {options ? (
+          // Saves on change, not on blur: a dropdown has no "still typing" state to wait out.
+          <select
+            value={val}
+            onChange={(e) => {
+              setVal(e.target.value)
+              if (e.target.value !== (value ?? '').trim()) onSave(e.target.value)
+            }}
+            className={`${base} cursor-pointer`}
+          >
+            <option value="">{placeholder}</option>
+            {options.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+            {/* An older free-text value that is not one of the choices still shows, rather than the
+                field looking empty and quietly discarding what was there. */}
+            {!!val.trim() && !options.includes(val) && <option value={val}>{val}</option>}
+          </select>
+        ) : multiline ? (
           <textarea
             ref={taRef}
             value={val}
@@ -92,7 +116,9 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
               }
             }}
             placeholder={placeholder}
-            className={`${base} ${type === 'date' ? '[color-scheme:dark]' : ''}`}
+            // color-scheme was pinned to dark here for the old near-black theme, which left the
+            // native date picker rendering dark on the light one.
+            className={`${base} ${type === 'date' ? '[color-scheme:light]' : ''}`}
           />
         )}
       </div>

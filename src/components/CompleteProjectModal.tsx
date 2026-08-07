@@ -94,7 +94,7 @@ export function CompleteProjectModal({ project, onCancel, onConfirm, onPaymentsC
                     type="date"
                     value={eventDate}
                     onChange={(e) => setEventDate(e.target.value)}
-                    className="input [color-scheme:dark] w-44"
+                    className="input [color-scheme:light] w-44"
                   />
                   {!eventDateOk && <span className="text-[11px] text-[#dc2626]">required</span>}
                 </div>

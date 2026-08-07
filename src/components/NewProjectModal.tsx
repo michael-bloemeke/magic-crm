@@ -155,7 +155,7 @@ export function NewProjectModal({ open, contacts, categories, onClose, onCreated
                   </div>
                 </Field>
                 <Field label="Event date">
-                  <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="input w-full [color-scheme:dark]" />
+                  <input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="input w-full [color-scheme:light]" />
                 </Field>
                 <Field label="Quote">
                   <input value={fee} onChange={(e) => setFee(e.target.value)} placeholder="$" className="input w-full" />
