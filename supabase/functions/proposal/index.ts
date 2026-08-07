@@ -170,11 +170,21 @@ function normalisePackages(raw: unknown): unknown[] {
 }
 
 // Real reviews only, verbatim, with the reviewer's name. Nothing is generated here.
+//
+// `highlight` is a list of phrases inside the quote to pick out in gold. Lifted from the slide
+// deck's reviews page, which does the same thing in cyan and is the best idea on it: a five-line
+// review is a wall of text nobody reads, and three emphasised phrases make it scannable in a second
+// without changing a word. The phrases must appear in the text verbatim; the page ignores any that
+// do not, so this can never alter what a client actually said.
 function normaliseReviews(raw: unknown): unknown[] {
   if (!Array.isArray(raw)) return [];
   return raw.slice(0, 5).map((x) => {
     const o = (x ?? {}) as Record<string, unknown>;
-    return { name: clean(o.name), text: clean(o.text) };
+    return {
+      name: clean(o.name),
+      text: clean(o.text),
+      highlight: Array.isArray(o.highlight) ? o.highlight.map(clean).filter(Boolean).slice(0, 4) : [],
+    };
   }).filter((r) => r.text);
 }
 
