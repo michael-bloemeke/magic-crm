@@ -708,6 +708,7 @@ export function crmDataPlugin() {
         'contract-signed': 'Contract signed',
         'task-due': 'Task due',
         'new-inquiry': 'New inquiry',
+        'proposal-viewed': 'Proposal viewed',
       }
       const withNotifNames = (events) => {
         const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))

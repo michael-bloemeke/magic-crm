@@ -130,6 +130,11 @@ export async function pushNotification(ev, count) {
       message = `${who} viewed their contract.`
       tags = ['eyes']
       break
+    case 'proposal-viewed':
+      title = 'Proposal opened'
+      message = `${who} opened their proposal.`
+      tags = ['eyes']
+      break
     case 'invoice-paid':
       title = 'Invoice paid'
       message = `${who} paid their invoice.`

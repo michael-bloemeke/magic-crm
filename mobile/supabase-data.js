@@ -184,6 +184,7 @@ const NOTIF_LABELS = {
   'contract-signed': 'Contract signed',
   'task-due': 'Task due',
   'new-inquiry': 'New inquiry',
+  'proposal-viewed': 'Proposal viewed',
 }
 
 // ---------- loaders (one per tab; the seams for later writes) ----------

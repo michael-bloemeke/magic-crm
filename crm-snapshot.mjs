@@ -28,6 +28,7 @@ const NOTIF_LABELS = {
   'contract-signed': 'Contract signed',
   'task-due': 'Task due',
   'new-inquiry': 'New inquiry',
+  'proposal-viewed': 'Proposal viewed',
 }
 
 // Curated per-project fields for the phone (drops nothing client-facing-sensitive beyond what the
