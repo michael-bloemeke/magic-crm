@@ -44,7 +44,7 @@ export function TagEditor({ tags, knownTags, onChange, onNewTag }: Props) {
             <button
               type="button"
               onClick={() => onChange(tags.filter((x) => x !== t))}
-              className="text-faint hover:text-[#e08a6b]"
+              className="text-faint hover:text-[#dc2626]"
               aria-label={`Remove ${t}`}
             >
               <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">

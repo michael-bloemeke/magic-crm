@@ -52,7 +52,7 @@ export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, m
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onCancel} aria-hidden />
           <motion.div
-            className="relative w-full max-w-md rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="relative w-full max-w-md rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -86,9 +86,9 @@ export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, m
                 />
               </label>
               {hasMissing && (
-                <div className="rounded-lg border border-[#e0a98b]/40 bg-[#e0a98b]/10 px-3 py-2.5">
-                  <p className="text-[11.5px] font-semibold text-[#e0a98b]">These contract fields are blank:</p>
-                  <ul className="mt-1 list-disc pl-4 text-[11.5px] leading-relaxed text-[#e0a98b]">
+                <div className="rounded-lg border border-[#f0a9a0]/40 bg-[#f0a9a0]/10 px-3 py-2.5">
+                  <p className="text-[11.5px] font-semibold text-[#f0a9a0]">These contract fields are blank:</p>
+                  <ul className="mt-1 list-disc pl-4 text-[11.5px] leading-relaxed text-[#f0a9a0]">
                     {missingFields.map((f) => (
                       <li key={f}>{f}</li>
                     ))}
@@ -104,7 +104,7 @@ export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, m
                 </div>
               )}
               {testMode && (
-                <p className="text-[11px] leading-relaxed text-[#e0a98b]">
+                <p className="text-[11px] leading-relaxed text-[#f0a9a0]">
                   Test mode: SignWell sends a watermarked, non-binding test document. Flip <span className="text-parchment">testMode</span> to false in signwell-credentials.json for real, binding signatures.
                 </p>
               )}
@@ -121,7 +121,7 @@ export function SignerModal({ open, defaultName, defaultEmail, testMode, busy, m
                 type="button"
                 disabled={!valid || busy}
                 onClick={() => onSend(name.trim(), email.trim())}
-                className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {busy ? 'Sending…' : 'Send for signature'}
               </button>

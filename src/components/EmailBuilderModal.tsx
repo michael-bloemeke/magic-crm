@@ -483,7 +483,7 @@ export function EmailBuilderModal({
           >
             <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
             <motion.div
-              className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_90px_-40px_rgba(0,0,0,0.9)]"
+              className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_90px_-40px_rgba(0,0,0,0.18)]"
               initial={{ y: 16, opacity: 0, scale: 0.98 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: 16, opacity: 0 }}
@@ -572,7 +572,7 @@ export function EmailBuilderModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110"
+                  className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110"
                 >
                   Done
                 </button>
@@ -596,7 +596,7 @@ export function EmailBuilderModal({
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={handleClose} aria-hidden />
           <motion.div
-            className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_90px_-40px_rgba(0,0,0,0.9)]"
+            className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_90px_-40px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -657,7 +657,7 @@ export function EmailBuilderModal({
                   {replyMode && (
                     <div className="mt-2">
                       {threadsError ? (
-                        <p className="text-[11.5px] text-[#e08a6b]">
+                        <p className="text-[11.5px] text-[#dc2626]">
                           Couldn’t load conversations.{' '}
                           <button type="button" onClick={retryLoadThreads} className="font-semibold underline hover:text-parchment">
                             Retry
@@ -800,7 +800,7 @@ export function EmailBuilderModal({
                           type="button"
                           onClick={() => removeAttachment(a)}
                           aria-label={`Remove ${a.name}`}
-                          className="rounded p-0.5 text-faint transition-colors hover:text-[#e08a6b]"
+                          className="rounded p-0.5 text-faint transition-colors hover:text-[#dc2626]"
                         >
                           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                             <path d="M6 6l12 12M18 6L6 18" />
@@ -822,7 +822,7 @@ export function EmailBuilderModal({
                     Attach
                   </button>
                   {attachMenuOpen && (
-                    <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-surface-2 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
+                    <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-surface-2 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.18)]">
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
@@ -867,7 +867,7 @@ export function EmailBuilderModal({
                     type="button"
                     onClick={discard}
                     disabled={busy}
-                    className="shrink-0 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-[#e08a6b] transition-colors hover:brightness-110 disabled:opacity-40"
+                    className="shrink-0 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-[#dc2626] transition-colors hover:brightness-110 disabled:opacity-40"
                   >
                     Discard draft
                   </button>
@@ -897,7 +897,7 @@ export function EmailBuilderModal({
                   type="button"
                   onClick={send}
                   disabled={!canSend}
-                  className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+                  className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
                 >
                   {busy ? 'Working…' : confirmUnfilled ? 'Send anyway' : 'Send'}
                 </button>

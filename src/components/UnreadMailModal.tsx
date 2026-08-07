@@ -58,21 +58,21 @@ export function UnreadMailModal({ open, onClose, onOpenProject, onThreadRead }: 
           <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
 
           <motion.div
-            className="relative flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[#e3dfd6] bg-[#f4f2ed] shadow-[0_30px_70px_-25px_rgba(0,0,0,0.9)]"
+            className="relative flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[#dfe3e8] bg-[#f5f7f9] shadow-[0_30px_70px_-25px_rgba(0,0,0,0.18)]"
             initial={{ y: 18, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 18, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="flex items-center justify-between gap-4 border-b border-[#e3dfd6] bg-white px-5 py-3">
+            <div className="flex items-center justify-between gap-4 border-b border-[#dfe3e8] bg-white px-5 py-3">
               <div>
-                <p className="text-[14px] font-semibold text-[#201c17]">Unread mail</p>
-                <p className="text-[11.5px] text-[#6f6a60]">New messages from your active clients</p>
+                <p className="text-[14px] font-semibold text-[#14171b]">Unread mail</p>
+                <p className="text-[11.5px] text-[#545b64]">New messages from your active clients</p>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-[#d8d3c8] bg-white p-1.5 text-[#6f6a60] transition-colors hover:bg-[#f6f4ef]"
+                className="rounded-lg border border-[#d1d7de] bg-white p-1.5 text-[#545b64] transition-colors hover:bg-[#f7f9fb]"
                 aria-label="Close"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -83,15 +83,15 @@ export function UnreadMailModal({ open, onClose, onOpenProject, onThreadRead }: 
 
             <div className="board-scroll min-h-0 flex-1 overflow-y-auto">
               {error ? (
-                <p className="px-5 py-12 text-center text-[13px] text-[#8a6a2f]">{error}</p>
+                <p className="px-5 py-12 text-center text-[13px] text-[#545b64]">{error}</p>
               ) : !data ? (
-                <p className="animate-pulse px-5 py-12 text-center text-[13px] text-[#8a857a]">Loading…</p>
+                <p className="animate-pulse px-5 py-12 text-center text-[13px] text-[#858d97]">Loading…</p>
               ) : !data.connected ? (
-                <p className="px-5 py-12 text-center text-[13px] text-[#8a857a]">
+                <p className="px-5 py-12 text-center text-[13px] text-[#858d97]">
                   Connect Gmail to see unread client mail here.
                 </p>
               ) : threads.length === 0 ? (
-                <p className="px-5 py-14 text-center text-[13px] text-[#8a857a]">No unread client messages. Inbox zero.</p>
+                <p className="px-5 py-14 text-center text-[13px] text-[#858d97]">No unread client messages. Inbox zero.</p>
               ) : (
                 <div className="space-y-2.5 p-4">
                   {threads.map((t) => (

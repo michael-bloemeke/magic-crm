@@ -74,7 +74,7 @@ export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0
               <span
                 title="A payment is pending (amount logged, date not yet received)"
                 className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-                style={{ color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }}
+                style={{ color: '#2563eb', backgroundColor: 'color-mix(in oklab, #2563eb 16%, transparent)' }}
               >
                 <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="9" />

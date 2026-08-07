@@ -125,7 +125,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
         <p className="py-10 text-center text-[12.5px] text-faint">Nothing here.</p>
       ) : (
         <>
-          <Section title="Overdue" color="#e08a6b" items={data.overdue} />
+          <Section title="Overdue" color="#dc2626" items={data.overdue} />
           <Section title="Due today" color="var(--color-brass)" items={data.dueToday} />
           <Section title="Upcoming" color="var(--color-umb-postcall)" items={data.upcoming} />
           <CompletedSection items={data.completed} />
@@ -173,7 +173,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             type="button"
             onClick={submitNew}
             disabled={!newTitle.trim()}
-            className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+            className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
           >
             Add task
           </button>

@@ -110,7 +110,7 @@ export function PaymentsEditor({ projectId, onChange }: Props) {
               <button
                 type="button"
                 onClick={() => remove(p.id)}
-                className="text-faint transition-colors hover:text-[#e08a6b]"
+                className="text-faint transition-colors hover:text-[#dc2626]"
                 aria-label="Delete payment"
               >
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

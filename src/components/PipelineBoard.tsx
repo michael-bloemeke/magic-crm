@@ -41,7 +41,7 @@ function ColorSwatch({ color, onPick }: { color: string; onPick: (c: string) => 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
-          <div className="absolute left-0 top-6 z-50 flex w-[124px] flex-wrap gap-1.5 rounded-lg border border-line-strong bg-surface p-2 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.9)]">
+          <div className="absolute left-0 top-6 z-50 flex w-[124px] flex-wrap gap-1.5 rounded-lg border border-line-strong bg-surface p-2 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.18)]">
             {CATEGORY_COLORS.map((c) => (
               <button
                 key={c}
@@ -147,7 +147,7 @@ export function PipelineBoard({
                         onClick={() => onDeleteCategory(umbrella.id)}
                         title="Delete category"
                         aria-label="Delete category"
-                        className="rounded-md border border-line p-0.5 text-faint transition-colors hover:border-[#e08a6b] hover:text-[#e08a6b]"
+                        className="rounded-md border border-line p-0.5 text-faint transition-colors hover:border-[#dc2626] hover:text-[#dc2626]"
                       >
                         <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />

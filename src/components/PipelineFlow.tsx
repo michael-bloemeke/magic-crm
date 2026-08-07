@@ -482,7 +482,7 @@ export function PipelineFlow({ pipeline, onOpenFull, onOpenSide, unread, pending
                           ? `color-mix(in oklab, ${node.accent} 85%, transparent)`
                           : 'var(--color-line-strong)',
                     boxShadow: isDragging
-                      ? `0 14px 34px -10px rgba(0,0,0,0.7), 0 0 0 1px ${node.accent}`
+                      ? `0 14px 34px -10px rgba(0,0,0,0.14), 0 0 0 1px ${node.accent}`
                       : isTarget || isSelected
                         ? `0 0 0 2px ${node.accent}, 0 0 22px -6px ${node.accent}`
                         : hasProjects

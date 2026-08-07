@@ -57,7 +57,7 @@ export function ContactDetail({ contact, linkedProjects, knownTags, onNewTag, on
           <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
 
           <motion.aside
-            className="board-scroll relative h-full w-[460px] max-w-[92vw] overflow-y-auto border-l border-line-strong bg-surface shadow-[-30px_0_60px_-30px_rgba(0,0,0,0.9)]"
+            className="board-scroll relative h-full w-[460px] max-w-[92vw] overflow-y-auto border-l border-line-strong bg-surface shadow-[-30px_0_60px_-30px_rgba(0,0,0,0.18)]"
             initial={{ x: 36, opacity: 0.4 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 36, opacity: 0 }}
@@ -218,7 +218,7 @@ export function ContactDetail({ contact, linkedProjects, knownTags, onNewTag, on
                       type="button"
                       onClick={onDelete}
                       className="rounded-md border px-2.5 py-1 text-[12px] font-semibold transition-colors"
-                      style={{ borderColor: 'color-mix(in oklab, #e08a6b 55%, transparent)', color: '#f0a087' }}
+                      style={{ borderColor: 'color-mix(in oklab, #dc2626 55%, transparent)', color: '#ef4444' }}
                     >
                       Delete
                     </button>
@@ -234,7 +234,7 @@ export function ContactDetail({ contact, linkedProjects, knownTags, onNewTag, on
                   <button
                     type="button"
                     onClick={() => setConfirmingDelete(true)}
-                    className="text-[12px] font-medium text-faint transition-colors hover:text-[#e08a6b]"
+                    className="text-[12px] font-medium text-faint transition-colors hover:text-[#dc2626]"
                   >
                     Delete contact
                   </button>

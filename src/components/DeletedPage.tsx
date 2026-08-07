@@ -70,7 +70,7 @@ export function DeletedPage({ projects, onOpenFull, onOpenSide, onRestore, onPur
                         className={[
                           'shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold',
                           urgent
-                            ? 'border-[#e08a6b]/50 bg-[#e08a6b]/10 text-[#e08a6b]'
+                            ? 'border-[#dc2626]/50 bg-[#dc2626]/10 text-[#dc2626]'
                             : 'border-line bg-surface-3/60 text-muted',
                         ].join(' ')}
                       >
@@ -95,7 +95,7 @@ export function DeletedPage({ projects, onOpenFull, onOpenSide, onRestore, onPur
                   onClick={() => onPurge(p)}
                   title="Delete permanently now (cannot be undone)"
                   aria-label="Delete permanently"
-                  className="inline-flex shrink-0 items-center justify-center rounded-lg border border-line p-2 text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b]"
+                  className="inline-flex shrink-0 items-center justify-center rounded-lg border border-line p-2 text-faint transition-colors hover:border-[#dc2626]/60 hover:text-[#dc2626]"
                 >
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6M10 11v6M14 11v6" />

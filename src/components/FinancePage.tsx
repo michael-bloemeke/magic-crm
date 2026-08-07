@@ -267,7 +267,7 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
                 <button
                   type="button"
                   onClick={() => setGoalDraft((d) => d.filter((_, j) => j !== i))}
-                  className="text-faint transition-colors hover:text-[#e08a6b]"
+                  className="text-faint transition-colors hover:text-[#dc2626]"
                   title="Remove"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -435,7 +435,7 @@ function BreakdownModal({ breakdown, onClose, onOpenProject }: { breakdown: Brea
         >
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
           <motion.div
-            className="relative flex max-h-[70vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="relative flex max-h-[70vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -699,7 +699,7 @@ function Payments({ projects, onOpenProject }: { projects: Project[]; onOpenProj
                 <button
                   type="button"
                   onClick={() => remove(p.id)}
-                  className="shrink-0 text-faint opacity-0 transition-opacity hover:text-[#e08a6b] group-hover:opacity-100"
+                  className="shrink-0 text-faint opacity-0 transition-opacity hover:text-[#dc2626] group-hover:opacity-100"
                   title="Delete"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -968,7 +968,7 @@ function Expenses() {
               <button
                 type="button"
                 onClick={() => remove(e.id)}
-                className="shrink-0 text-faint opacity-0 transition-opacity hover:text-[#e08a6b] group-hover:opacity-100"
+                className="shrink-0 text-faint opacity-0 transition-opacity hover:text-[#dc2626] group-hover:opacity-100"
                 title="Delete"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1117,7 +1117,7 @@ function Mileage({ projects }: { projects: Project[] }) {
               <button
                 type="button"
                 onClick={() => remove(t.id)}
-                className="shrink-0 text-faint opacity-0 transition-opacity hover:text-[#e08a6b] group-hover:opacity-100"
+                className="shrink-0 text-faint opacity-0 transition-opacity hover:text-[#dc2626] group-hover:opacity-100"
                 title="Delete"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

@@ -69,7 +69,7 @@ export function ProjectContactPickerModal({ open, contacts, linkedIds, onPick, o
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.985 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="relative z-10 flex max-h-[72vh] w-[460px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_80px_-30px_rgba(0,0,0,0.9)]"
+            className="relative z-10 flex max-h-[72vh] w-[460px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_80px_-30px_rgba(0,0,0,0.18)]"
           >
             {creating ? (
               <CreateForm
@@ -214,7 +214,7 @@ function CreateForm({
         <button
           type="submit"
           disabled={!name.trim()}
-          className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+          className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
         >
           Create contact
         </button>

@@ -105,7 +105,7 @@ export function FilesPage() {
         <input ref={inputRef} type="file" multiple className="hidden" onChange={(e) => upload(e.target.files)} />
       </div>
 
-      {error && <p className="mb-4 text-[12.5px] text-[#e08a6b]">{error}</p>}
+      {error && <p className="mb-4 text-[12.5px] text-[#dc2626]">{error}</p>}
 
       {!files ? (
         <p className="animate-pulse text-[13px] text-faint">Loading files…</p>
@@ -153,7 +153,7 @@ export function FilesPage() {
                   type="button"
                   onClick={() => remove(f.name)}
                   title="Delete"
-                  className="rounded-md border border-line p-1.5 text-muted transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b]"
+                  className="rounded-md border border-line p-1.5 text-muted transition-colors hover:border-[#dc2626]/60 hover:text-[#dc2626]"
                 >
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />

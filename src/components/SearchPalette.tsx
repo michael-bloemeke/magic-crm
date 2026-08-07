@@ -155,7 +155,7 @@ export function SearchPalette({ projects, contacts, categories, open, onClose, o
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -12, scale: 0.985 }}
             transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-            className="relative z-10 flex max-h-[70vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_80px_-30px_rgba(0,0,0,0.9)]"
+            className="relative z-10 flex max-h-[70vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_80px_-30px_rgba(0,0,0,0.18)]"
           >
             {/* Input */}
             <div className="flex items-center gap-3 border-b border-line px-4">

@@ -46,7 +46,7 @@ export function ConfirmDialog({
           <motion.div
             role="alertdialog"
             aria-modal="true"
-            className="relative w-full max-w-[400px] rounded-2xl border border-line-strong bg-surface p-6 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.9)]"
+            className="relative w-full max-w-[400px] rounded-2xl border border-line-strong bg-surface p-6 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.18)]"
             initial={{ scale: 0.96, y: 8, opacity: 0.6 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.97, y: 6, opacity: 0 }}
@@ -67,9 +67,9 @@ export function ConfirmDialog({
                 onClick={onConfirm}
                 className="rounded-lg border px-3.5 py-2 text-[12.5px] font-semibold transition-colors"
                 style={{
-                  borderColor: 'color-mix(in oklab, #e08a6b 55%, transparent)',
-                  color: '#f0a087',
-                  backgroundColor: 'color-mix(in oklab, #e08a6b 14%, transparent)',
+                  borderColor: 'color-mix(in oklab, #dc2626 55%, transparent)',
+                  color: '#ef4444',
+                  backgroundColor: 'color-mix(in oklab, #dc2626 14%, transparent)',
                 }}
               >
                 {confirmLabel}

@@ -39,7 +39,7 @@ export function NotesDrawer({
         >
           <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
           <motion.aside
-            className="board-scroll relative h-full w-[460px] max-w-[92vw] overflow-y-auto border-l border-line-strong bg-surface shadow-[-30px_0_60px_-30px_rgba(0,0,0,0.9)]"
+            className="board-scroll relative h-full w-[460px] max-w-[92vw] overflow-y-auto border-l border-line-strong bg-surface shadow-[-30px_0_60px_-30px_rgba(0,0,0,0.18)]"
             initial={{ x: 36, opacity: 0.4 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 36, opacity: 0 }}

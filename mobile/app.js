@@ -37,10 +37,10 @@ function pageForBucket(b) { return BUCKET_PAGES[b] || 'pipeline' }
 
 // Contact relationship options (mirrors src/contacts.ts RELATIONSHIP_OPTIONS; FISM colors).
 var CONTACT_REL = [
-  { v: 'active', label: 'Active', color: '#38ccda' },
-  { v: 'yes', label: 'Yes', color: '#46d189' },
-  { v: 'maybe', label: 'Maybe', color: '#f4b65c' },
-  { v: 'no', label: 'No', color: '#f26d63' },
+  { v: 'active', label: 'Active', color: '#0e7490' },
+  { v: 'yes', label: 'Yes', color: '#15803d' },
+  { v: 'maybe', label: 'Maybe', color: '#b45309' },
+  { v: 'no', label: 'No', color: '#dc2626' },
 ]
 function relColor(v) { for (var i = 0; i < CONTACT_REL.length; i++) if (CONTACT_REL[i].v === v) return CONTACT_REL[i].color; return 'var(--faint)' }
 
@@ -134,7 +134,8 @@ function doWrite(promise, okMsg, after) {
 // Today as YYYY-MM-DD, and the stage label for a given stage id.
 function stageName(id) { return (STAGE[id] || {}).name || '' }
 
-// Event detail fields, in desktop order, with label overrides / hidden / deleted applied + customs.
+// The event-detail fields, in the desktop's order. Settings can relabel, hide or delete any of them
+// (SNAP.eventFieldLabels / eventFieldHidden / eventFieldDeleted), which allFieldRows applies.
 var EVENT_FIELDS = [
   ['eventSummary', 'Description'], ['eventDate', 'Event date'], ['eventStartTime', 'Event start'],
   ['showStartTime', 'Show start'], ['totalFee', 'Quote'], ['numberOfGuests', 'Guest Count'],
@@ -142,22 +143,7 @@ var EVENT_FIELDS = [
   ['indoorsOrOutdoors', 'Indoors / Outdoors'], ['performanceStyle', 'Performance'],
   ['av', 'AV'], ['vips', 'VIPs'], ['bookingSource', 'Booking source'],
 ]
-function fieldRows(p) {
-  var labels = SNAP.eventFieldLabels || {}, hidden = SNAP.eventFieldHidden || [], deleted = SNAP.eventFieldDeleted || []
-  var rows = []
-  EVENT_FIELDS.forEach(function (f) {
-    var id = f[0]
-    if (hidden.indexOf(id) >= 0 || deleted.indexOf(id) >= 0) return
-    var val = id === 'totalFee' ? money(p.totalFee) : (id === 'eventDate' ? fmtDate(p.eventDate) : p[id])
-    if (val == null || String(val).trim() === '') return
-    rows.push({ k: labels[id] || f[1], v: val })
-  })
-  ;(SNAP.customFields || []).forEach(function (cf) {
-    var v = (SNAP.customValues[p.id] || {})[cf.id]
-    if (v && String(v).trim()) rows.push({ k: cf.label, v: v })
-  })
-  return rows
-}
+
 function stageInfo(id) { return STAGE[id] || { name: '', umbrella: '', color: 'var(--brass)' } }
 
 // ---------- views ----------
@@ -174,6 +160,7 @@ function bucketCount(b) {
 // pages get the flat, date-sorted record list.
 function renderProjectList(bucket, opts) {
   DETAIL_ID = null
+  removeProjectTabs() // the project tab bar belongs to a project, not to a list of them
   var o = opts || {}
   var v = $('#view')
   v.innerHTML = ''
@@ -231,9 +218,9 @@ function renderDeleted() {
 // A phone-palette color per umbrella (the structure's own colors are desktop CSS vars, unavailable
 // here). Keyed by role, then by position, so the sections stay visually distinct in the app palette.
 function umbrellaColor(u, i) {
-  var byRole = { first: '#38ccda', booked: '#46d189', postshow: '#c885e8' }
+  var byRole = { first: '#0e7490', booked: '#15803d', postshow: '#7c3aed' }
   if (u && u.role && byRole[u.role]) return byRole[u.role]
-  var ramp = ['#38ccda', '#f4b65c', '#46d189', '#c885e8', '#7d8cff']
+  var ramp = ['#0e7490', '#b45309', '#15803d', '#7c3aed', '#2563eb']
   return ramp[i % ramp.length]
 }
 
@@ -647,32 +634,22 @@ function doDelete(p) {
   })
 }
 
-// A small top-bar "panel" chip (Notes / Activity / Actions).
-function panelChip(label, svgInner, onClick) {
-  var b = el('<button class="panelchip"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + svgInner + '</svg><span>' + esc(label) + '</span></button>')
-  b.addEventListener('click', onClick)
-  return b
-}
-// A full-width row button that opens a panel, with an optional right-aligned hint (count / total).
-function panelRow(label, hint, onClick) {
-  var b = el('<button class="panelrow"><span class="pr-label">' + esc(label) + '</span>' + (hint ? '<span class="pr-hint">' + esc(hint) + '</span>' : '') + '<svg class="pr-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>')
-  b.addEventListener('click', onClick)
-  return b
-}
-// Compact, read-only summary of a project's key facts (shown inline; full editing is in the panel).
-function eventSummary(p) {
-  var rows = []
-  if (p.eventDate) rows.push(['Date', fmtDate(p.eventDate)])
-  if (p.eventLocation) rows.push(['Location', p.eventLocation])
-  if (p.numberOfGuests) rows.push(['Guests', p.numberOfGuests])
-  if (p.venueType) rows.push(['Venue', p.venueType])
-  if (p.performanceStyle) rows.push(['Performance', p.performanceStyle])
-  if (p.eventDescription) rows.push(['Description', p.eventDescription])
-  if (!rows.length) return el('<div class="empty" style="padding:6px 2px;text-align:left">No details yet. Tap below to add.</div>')
-  var kv = el('<div class="kv"></div>')
-  rows.forEach(function (r) { kv.appendChild(el('<div class="item"><div class="k">' + esc(r[0]) + '</div><div class="v">' + esc(r[1]) + '</div></div>')) })
-  return kv
-}
+// A project is now four TABS with a shared header, not one long scroll of sections.
+//
+// Michael, 2026-08-06: "this one page filled to so many buttons and sections". The page had grown a
+// stage picker, a contacts block, tasks, details, booking and payments stacked end to end, and the
+// stage dropdown alone took a whole section for a single value.
+//
+// The header block (name, stage, contacts, Actions) repeats on every tab so the things you always
+// want are always there. It is NOT sticky by request: it scrolls away like any other content.
+// Everything that mutates the project's shape (stage, contacts, lifecycle) lives behind Actions.
+var PROJECT_TABS = [
+  ['booking', 'Booking', '<path d="M5 3h11l4 4v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><path d="M9 13h6M9 17h4"/>'],
+  ['details', 'Details', '<path d="M4 5h16M4 12h16M4 19h10"/>'],
+  ['tasks', 'Tasks', '<path d="M9 11l3 3L20 6"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
+  ['notes', 'Notes', '<path d="M4 4h16v12l-4 4H4z"/><path d="M20 16h-4v4"/>'],
+]
+var PTAB = 'booking' // which tab of the project view is showing
 
 function renderDetail(id, keepScroll) {
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
@@ -686,42 +663,74 @@ function renderDetail(id, keepScroll) {
   var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' + esc(PAGE_TITLES[backPage] || 'Pipeline') + '</button>')
   back.addEventListener('click', function () { navigate(backPage) })
   v.appendChild(back)
+
+  v.appendChild(projectHeader(p))
+
+  if (PTAB === 'details') v.appendChild(detailsTab(p))
+  else if (PTAB === 'tasks') v.appendChild(tasksSection(p))
+  else if (PTAB === 'notes') v.appendChild(notesTab(p))
+  else v.appendChild(bookingTab(p))
+
+  ensureProjectTabs(p)
+  if (!keepScroll) window.scrollTo(0, 0)
+}
+
+// The block that repeats at the top of every tab: who and what this project is, plus the one button
+// that changes it. Deliberately plain content, so it scrolls out of the way.
+function projectHeader(p) {
   var si = stageInfo(p.stageId)
-  v.appendChild(el(
-    '<div class="detail-head"><div class="client">' + esc(p.client) + '</div>' +
-    '<div class="line">' + esc([p.eventType, si.name].filter(Boolean).join('  ·  ')) + '</div>' +
-    (p.totalFee != null && p.totalFee !== '' ? '<div class="line" style="color:var(--brass-bright);margin-top:6px">' + esc(money(p.totalFee)) + '</div>' : '') +
-    (p.bucket !== 'active' ? '<div class="statusline" style="margin-top:8px">' + esc(statusText(p)) + '</div>' : '') +
-    '</div>'
-  ))
+  var head = el('<div class="phead"></div>')
 
-  // ---- top panel bar: Notes / Activity / Actions (Actions holds Complete·Archive·Delete·Restore) ----
-  var bar = el('<div class="panelbar"></div>')
-  bar.appendChild(panelChip('Notes', '<path d="M4 7h16M4 12h11M4 17h14"/>', function () { openNotesPanel(p) }))
-  bar.appendChild(panelChip('Activity', '<path d="M3 12h4l2.5 7 5-14 2.5 7h4"/>', function () { openActivityPanel(p) }))
-  bar.appendChild(panelChip('Actions', '<circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/>', function () { openActionsPanel(p) }))
-  v.appendChild(bar)
+  var top = el('<div class="phead-top"></div>')
+  top.appendChild(el('<div class="phead-name">' + esc(p.client) + '</div>'))
+  var act = el('<button class="phead-act" aria-label="Actions"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg></button>')
+  act.addEventListener('click', function () { openActionsPanel(p) })
+  top.appendChild(act)
+  head.appendChild(top)
 
-  // ---- stage picker (with the desktop gates) — active projects only, kept inline (core action) ----
+  var meta = [p.eventType, p.eventDate ? fmtDate(p.eventDate) : ''].filter(Boolean).join('  ·  ')
+  if (meta) head.appendChild(el('<div class="phead-meta">' + esc(meta) + '</div>'))
+
+  // Stage is a label here, not a control. It used to be a full-width dropdown in its own section,
+  // which spent a lot of screen on one word; changing it now lives in Actions.
+  var chips = el('<div class="phead-chips"></div>')
   if (p.bucket === 'active') {
-    v.appendChild(sectionLabel('Stage'))
-    v.appendChild(stagePicker(p))
+    if (si.name) chips.appendChild(el('<span class="pill" style="margin:0;color:' + si.color + ';border-color:color-mix(in oklab,' + si.color + ' 45%, var(--line))">' + esc(si.name) + '</span>'))
+  } else {
+    chips.appendChild(el('<span class="pill ' + (p.bucket === 'completed' ? 'done' : p.bucket === 'archived' ? 'arch' : 'del') + '" style="margin:0">' + esc(statusText(p)) + '</span>'))
   }
+  if (p.totalFee != null && p.totalFee !== '') chips.appendChild(el('<span class="phead-fee">' + esc(money(p.totalFee)) + '</span>'))
+  if (chips.children.length) head.appendChild(chips)
 
-  // ---- contacts: kept inline (Call / Text / Email is a primary phone action) ----
-  //
-  // A project can have any number of people on it, same as the Mac. Until 2026-08-06 this section
-  // showed exactly one and the button said "Change contact", so the only way to add a second person
-  // was to overwrite the first. Michael: "it only allows me to change the contact, not add a contact
-  // so theres multiple."
-  //
-  // The first card is the PRIMARY (the project's own contact fields) and is marked as such, because
-  // that is who the contract and invoice go to. The rest come from the contact_links join.
+  // Contacts: shown, not managed. Call / Text / Email stay one tap away because that is the whole
+  // point of having the CRM on a phone; add and remove moved to Actions.
+  var linked = projectContactCards(p)
+  if (linked.length) {
+    var cwrap = el('<div class="phead-contacts"></div>')
+    linked.forEach(function (row) {
+      var line = el('<div class="phead-c"></div>')
+      line.appendChild(el('<div class="phead-cn">' + esc(row.name) + (row.primary && linked.length > 1 ? '<span class="cc-primary">Primary</span>' : '') + '</div>'))
+      var sub = [row.emails[0], row.phones[0]].filter(Boolean).join('  ·  ')
+      if (sub) line.appendChild(el('<div class="phead-cs">' + esc(sub) + '</div>'))
+      var actions = el('<div class="contact" style="margin-top:6px"></div>')
+      if (row.phones[0]) actions.appendChild(el('<a href="tel:' + esc(row.phones[0]) + '">Call</a>'))
+      if (row.phones[0]) actions.appendChild(el('<a href="sms:' + esc(row.phones[0]) + '">Text</a>'))
+      if (row.emails[0]) actions.appendChild(el('<a href="mailto:' + esc(row.emails[0]) + '">Email</a>'))
+      if (actions.children.length) line.appendChild(actions)
+      cwrap.appendChild(line)
+    })
+    head.appendChild(cwrap)
+  } else {
+    head.appendChild(el('<div class="phead-nc">No contact on this project. Add one from Actions.</div>'))
+  }
+  return head
+}
+
+// The contacts on a project, resolved for display. The linked records are the truth; a project whose
+// contact was only ever typed in as text (older ones, or built on the Mac before links existed)
+// still has a primary worth showing, so fall back to the project's own fields.
+function projectContactCards(p) {
   var linked = contactsForProject(p)
-  v.appendChild(sectionLabel(linked.length > 1 ? 'Contacts' : 'Contact'))
-
-  // A project whose contact was only ever typed in as text (older projects, or one built on the Mac
-  // before links existed) still has a primary worth showing, so fall back to the text fields.
   var primaryName = String(p.contactNames || '').trim()
   var hasLinkedPrimary = linked.some(function (c) { return String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase() })
   var cards = linked.map(function (c) {
@@ -731,7 +740,7 @@ function renderDetail(id, keepScroll) {
       name: c.name || '(no name)',
       emails: (c.emails || []).filter(Boolean),
       phones: (c.phones || []).filter(Boolean),
-      primary: String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase(),
+      primary: !!primaryName && String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase(),
     }
   })
   if (primaryName && !hasLinkedPrimary) {
@@ -744,57 +753,177 @@ function renderDetail(id, keepScroll) {
       primary: true,
     })
   }
-  // Primary first, so the person the paperwork is addressed to is always at the top.
   cards.sort(function (a, b) { return (b.primary ? 1 : 0) - (a.primary ? 1 : 0) })
+  return cards
+}
 
-  if (!cards.length) {
-    v.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nobody on this project yet.</div>'))
-  }
-  cards.forEach(function (row) {
-    var wrap = el('<div class="contactblock"></div>')
-    var card = el('<div class="card contactcard"></div>')
-    var head = el('<div class="cc-head"></div>')
-    head.appendChild(el('<div class="name" style="font-size:14.5px">' + esc(row.name) +
-      (row.primary && cards.length > 1 ? '<span class="cc-primary">Primary</span>' : '') + '</div>'))
-    // Only a linked contact can be unlinked; a text-only primary has no join row to delete. Editing
-    // it lives in Event details, where the contact fields already are.
-    if (row.id) {
-      var x = el('<button class="cc-x" aria-label="Remove from project"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>')
-      x.addEventListener('click', function (e) { e.stopPropagation(); detachContactFromProject(p, row.contact) })
-      head.appendChild(x)
-    }
-    card.appendChild(head)
-    if (row.emails.length) card.appendChild(el('<div class="meta">' + esc(row.emails.join(', ')) + '</div>'))
-    if (row.phones.length) card.appendChild(el('<div class="meta">' + esc(row.phones.join(', ')) + '</div>'))
-    wrap.appendChild(card)
-    var actions = el('<div class="contact"></div>')
-    if (row.phones[0]) actions.appendChild(el('<a href="tel:' + esc(row.phones[0]) + '">Call</a>'))
-    if (row.phones[0]) actions.appendChild(el('<a href="sms:' + esc(row.phones[0]) + '">Text</a>'))
-    if (row.emails[0]) actions.appendChild(el('<a href="mailto:' + esc(row.emails[0]) + '">Email</a>'))
-    if (actions.children.length) wrap.appendChild(actions)
-    v.appendChild(wrap)
+// ---- the four tabs ----
+
+// Booking: the send flow plus the money. What is left once stage, contacts, details, tasks and notes
+// each have a home of their own.
+function bookingTab(p) {
+  var wrap = el('<div></div>')
+  wrap.appendChild(bookingSection(p))
+  wrap.appendChild(paymentsSection(p))
+  return wrap
+}
+
+// Details: EVERY event field, including the blank ones, which are called out in red. A field you
+// have not filled is the thing you most need to see, and a list that silently omits them cannot
+// tell you what is missing. Editing stays behind a button: twenty live inputs on a phone is a
+// minefield of accidental edits.
+function detailsTab(p) {
+  var wrap = el('<div></div>')
+  wrap.appendChild(sectionLabel('Event details'))
+  var rows = allFieldRows(p)
+  var missing = rows.filter(function (r) { return r.empty }).length
+  var kv = el('<div class="kv kv-full"></div>')
+  rows.forEach(function (r) {
+    kv.appendChild(el(
+      '<div class="item' + (r.empty ? ' miss' : '') + '"><div class="k">' + esc(r.k) + '</div>' +
+      '<div class="v">' + (r.empty ? 'Not set' : esc(r.v)) + '</div></div>'
+    ))
   })
+  wrap.appendChild(kv)
+  if (missing) wrap.appendChild(el('<div class="hint" style="margin-top:8px">' + missing + (missing === 1 ? ' field is' : ' fields are') + ' still blank.</div>'))
+  var edit = el('<button class="btn-gold" style="width:100%;margin-top:14px">Edit details</button>')
+  edit.addEventListener('click', function () { openDetailsPanel(p) })
+  wrap.appendChild(edit)
+  return wrap
+}
 
-  var addContactBtn = el('<button class="btn-ghost" style="margin-top:8px;width:100%">Add contact</button>')
-  addContactBtn.addEventListener('click', function () { openAddContact(p) })
-  v.appendChild(addContactBtn)
+// Every event field with its value, blanks included and flagged. This replaced fieldRows(), which
+// silently dropped anything unset because it fed a compact summary; the Details tab wants the
+// opposite, since an unfilled field is the one thing a summary can never tell you about.
+function allFieldRows(p) {
+  var labels = SNAP.eventFieldLabels || {}, hidden = SNAP.eventFieldHidden || [], deleted = SNAP.eventFieldDeleted || []
+  var rows = []
+  EVENT_FIELDS.forEach(function (f) {
+    var id = f[0]
+    if (hidden.indexOf(id) >= 0 || deleted.indexOf(id) >= 0) return
+    var val = id === 'totalFee' ? money(p.totalFee) : (id === 'eventDate' ? fmtDate(p.eventDate) : p[id])
+    var empty = val == null || String(val).trim() === ''
+    rows.push({ k: labels[id] || f[1], v: empty ? '' : String(val), empty: empty })
+  })
+  ;(SNAP.customFields || []).forEach(function (cf) {
+    var v = (SNAP.customValues[p.id] || {})[cf.id]
+    var empty = !v || !String(v).trim()
+    rows.push({ k: cf.label, v: empty ? '' : String(v), empty: empty })
+  })
+  return rows
+}
 
-  // ---- tasks: inline, right under the contacts ----
-  v.appendChild(tasksSection(p))
+// Notes: the fuller write-up, then the working notes, then the activity log.
+//
+// These are two different things and are kept apart on purpose. The write-up expands on the event
+// details (what the job actually is); the notes are Michael's own remarks about the event, the
+// client, whatever he wants to remember. Each gets its own Edit.
+function notesTab(p) {
+  var wrap = el('<div></div>')
 
-  // ---- details: compact inline summary, full editing behind a panel ----
-  // Details stays behind a button on purpose: it is ~20 fields, which would bury everything below it.
-  v.appendChild(sectionLabel('Details'))
-  v.appendChild(eventSummary(p))
-  v.appendChild(panelRow('Edit all details', '', function () { openDetailsPanel(p) }))
+  wrap.appendChild(sectionLabel('Additional details'))
+  wrap.appendChild(textBlock(p.eventDescription, 'Nothing written up yet.'))
+  var e1 = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Edit additional details</button>')
+  e1.addEventListener('click', function () {
+    openTextEditor(p, 'eventDescription', 'Additional details', 'What the event is and what you need to know about it.')
+  })
+  wrap.appendChild(e1)
 
-  // ---- booking: the gate + Ready to book, inline ----
-  v.appendChild(bookingSection(p))
+  wrap.appendChild(sectionLabel('Notes'))
+  wrap.appendChild(textBlock(p.projectNotes, 'No notes yet.'))
+  var e2 = el('<button class="btn-ghost" style="width:100%;margin-top:8px">Edit notes</button>')
+  e2.addEventListener('click', function () {
+    openTextEditor(p, 'projectNotes', 'Notes', 'Anything you want to remember about this one.')
+  })
+  wrap.appendChild(e2)
 
-  // ---- payments: last section, with Log right there ----
-  v.appendChild(paymentsSection(p))
+  wrap.appendChild(sectionLabel('Activity'))
+  wrap.appendChild(addNoteBox(p))
+  var logWrap = el('<div></div>')
+  renderLog(logWrap, p)
+  wrap.appendChild(logWrap)
+  return wrap
+}
 
-  if (!keepScroll) window.scrollTo(0, 0)
+// A read-only paragraph of project text, preserving the line breaks he typed.
+function textBlock(text, emptyText) {
+  var t = String(text == null ? '' : text).trim()
+  if (!t) return el('<div class="empty" style="padding:6px 2px;text-align:left">' + esc(emptyText) + '</div>')
+  return el('<div class="card textblock" style="pointer-events:none">' + esc(t).replace(/\n/g, '<br>') + '</div>')
+}
+
+// A full-height editor for one long text field (the write-up, the notes).
+function openTextEditor(p, field, title, hint) {
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title">' + esc(title) + '</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var close = function () { sheet.remove() }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  if (hint) body.appendChild(el('<div class="hint" style="margin:0 0 8px">' + esc(hint) + '</div>'))
+  var ta = document.createElement('textarea')
+  ta.className = 'field-input'
+  ta.rows = 12
+  ta.value = p[field] == null ? '' : String(p[field])
+  body.appendChild(ta)
+  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+  bar.children[0].addEventListener('click', close)
+  bar.children[1].addEventListener('click', function () {
+    var nv = ta.value
+    if (nv === (p[field] == null ? '' : String(p[field]))) { close(); return }
+    doWrite(updateProjectField(p.id, field, nv), 'Saved', function (r) {
+      p[field] = r.value
+      close()
+      if (DETAIL_ID === p.id) renderDetail(p.id, true)
+    })
+  })
+  body.appendChild(bar)
+  document.body.appendChild(sheet)
+  setTimeout(function () { ta.focus() }, 40)
+}
+
+// ---- the bottom tab bar ----
+//
+// Lives on document.body rather than inside #view so it stays put while the page scrolls, and so
+// clearing #view on every render does not take it with it. Rebuilt per render so the Tasks badge
+// and the active tab are always current.
+function ensureProjectTabs(p) {
+  removeProjectTabs()
+  var bar = el('<nav id="ptabs"></nav>')
+  var due = (SNAP.tasks || []).filter(function (t) {
+    if (t.projectId !== p.id || t.done) return false
+    var st = dueState(t.dueDate, t.dueTime)
+    return st === 'due' || st === 'overdue'
+  }).length
+  PROJECT_TABS.forEach(function (t) {
+    var key = t[0]
+    var b = el(
+      '<button class="ptab' + (PTAB === key ? ' on' : '') + '">' +
+        '<span class="ptab-i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + t[2] + '</svg>' +
+        (key === 'tasks' && due ? '<span class="ptab-badge">' + due + '</span>' : '') +
+        '</span>' +
+        '<span class="ptab-l">' + esc(t[1]) + '</span>' +
+      '</button>'
+    )
+    b.addEventListener('click', function () {
+      if (PTAB === key) return
+      PTAB = key
+      renderDetail(p.id)
+    })
+    bar.appendChild(b)
+  })
+  document.body.appendChild(bar)
+  document.body.classList.add('has-ptabs')
+}
+function removeProjectTabs() {
+  var b = $('#ptabs'); if (b) b.remove()
+  document.body.classList.remove('has-ptabs')
 }
 
 // Everything below used to be a row of buttons that each opened a sheet: "Emails & booking",
@@ -1093,6 +1222,22 @@ function openActionsPanel(p) {
   var close = function () { sheet.remove() }
   card.appendChild(el('<div class="sheet-title">Actions</div>'))
   if (p.bucket !== 'active') card.appendChild(el('<div class="statusline" style="margin:-4px 0 12px">' + esc(statusText(p)) + '</div>'))
+
+  // Stage and contacts moved in here on 2026-08-06. Both used to be full sections on the project
+  // page: the stage was a whole block spent on one dropdown, and the contacts block carried its own
+  // add/remove controls. They are edits, not information, so they belong with the other edits.
+  var edits = el('<div class="actstack" style="margin-bottom:14px"></div>')
+  if (p.bucket === 'active') {
+    var st = el('<button class="actrow"><span class="ar-l">Change stage</span><span class="ar-v">' + esc(stageName(p.stageId) || 'Not set') + '</span></button>')
+    st.addEventListener('click', function () { close(); openStageSheet(p) })
+    edits.appendChild(st)
+  }
+  var nC = projectContactCards(p).length
+  var ct = el('<button class="actrow"><span class="ar-l">Contacts</span><span class="ar-v">' + (nC ? nC + (nC === 1 ? ' person' : ' people') : 'None') + '</span></button>')
+  ct.addEventListener('click', function () { close(); openContactsSheet(p) })
+  edits.appendChild(ct)
+  card.appendChild(edits)
+
   var stack = el('<div class="actstack"></div>')
   if (p.bucket === 'active') {
     var comp = el('<button class="btn-gold" style="width:100%">Complete project</button>')
@@ -1123,77 +1268,86 @@ function openActionsPanel(p) {
   document.body.appendChild(sheet)
 }
 
-// Notes: the free-text project_notes field.
-function openNotesPanel(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
+// Change the stage. A list of tappable rows rather than a <select>: on a phone a native picker for
+// something you change a handful of times per project is more friction than a list, and the list can
+// show the umbrella each stage belongs to.
+function openStageSheet(p) {
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title">Stage</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
   var close = function () { sheet.remove() }
-  card.appendChild(el('<div class="sheet-title">Notes</div>'))
-  var ta = document.createElement('textarea'); ta.className = 'field-input'; ta.rows = 8; ta.value = p.projectNotes || ''; ta.placeholder = 'Notes about this project…'
-  card.appendChild(ta)
-  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Close</button><button class="btn-gold">Save</button></div>')
-  bar.children[0].addEventListener('click', close)
-  bar.children[1].addEventListener('click', function () {
-    var nv = ta.value
-    if (nv === (p.projectNotes || '')) { close(); return }
-    doWrite(updateProjectField(p.id, 'projectNotes', nv), 'Saved', function (r) { p.projectNotes = r.value; close() })
-  })
-  card.appendChild(bar)
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+
+  ;(SNAP.structure.umbrellas || []).forEach(function (u) {
+    body.appendChild(sectionLabel(u.label))
+    ;(u.stages || []).forEach(function (s) {
+      var on = s.id === p.stageId
+      var row = el('<button class="actrow' + (on ? ' on' : '') + '"><span class="ar-l">' + esc(s.name) + '</span>' + (on ? '<span class="ar-v">Current</span>' : '') + '</button>')
+      row.addEventListener('click', function () {
+        if (on) { close(); return }
+        // The desktop gates live in setStage (Post Show blocked, Booked needs a received payment).
+        // A blocked move throws and is toasted; the sheet stays open so he can pick something else.
+        doWrite(setStage(p.id, s.id, SNAP.structure, SNAP.payments || []), 'Moved to ' + s.name, function () {
+          p.stageId = s.id
+          close()
+          renderDetail(p.id, true)
+        }).catch(function () {})
+      })
+      body.appendChild(row)
+    })
+  })
   document.body.appendChild(sheet)
 }
 
-// Activity: add a dated note + read the activity log.
-function openActivityPanel(p) {
-  var sheet = el('<div class="sheet"><div class="sheet-card"></div></div>')
-  var card = sheet.querySelector('.sheet-card')
-  var close = function () { sheet.remove() }
-  card.appendChild(el('<div class="sheet-title">Activity</div>'))
-  card.appendChild(addNoteBox(p))
-  var logWrap = el('<div id="log-' + esc(p.id) + '"></div>')
-  renderLog(logWrap, p)
-  card.appendChild(logWrap)
-  var done = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Close</button>')
-  done.addEventListener('click', close)
-  card.appendChild(done)
+// Manage who is on the project: add someone, or take someone off. Viewing them (and calling /
+// texting / emailing them) stays in the header where it is one tap from anywhere.
+function openContactsSheet(p) {
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title">Contacts</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var close = function () { sheet.remove(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
   sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
-  document.body.appendChild(sheet)
-}
 
-// One editable project field, inline within a panel (mirrors contactField but writes a project field).
-function projectFieldRow(p, key, label, kind, onSaved) {
-  var cur = key === 'projectName' ? (p.client || '') : (p[key] == null ? '' : String(p[key]))
-  var disp = (key === 'eventDate' && cur) ? fmtDate(cur) : cur
-  var wrap = el('<div class="item kv-tap" style="cursor:pointer"></div>')
-  wrap.appendChild(el('<div class="k">' + esc(label) + '</div><div class="v">' + (String(cur).trim() ? esc(disp) : '<span style="color:var(--faint)">Tap to add</span>') + '</div>'))
-  wrap.addEventListener('click', function () {
-    wrap.innerHTML = ''
-    wrap.appendChild(el('<div class="k" style="margin-bottom:5px">' + esc(label) + '</div>'))
-    var input = kind === 'textarea' ? document.createElement('textarea') : document.createElement('input')
-    input.className = 'field-input'; if (kind === 'date') input.type = 'date'; input.value = cur; if (kind === 'textarea') input.rows = 3
-    // 'money' brings up the numeric keypad instead of the full keyboard. Not type="number", which on
-    // iOS adds spinners and rejects a stray comma outright rather than letting the server clean it.
-    if (kind === 'money') input.inputMode = 'decimal'
-    wrap.appendChild(input)
-    var save = function () {
-      var nv = input.value
-      if (nv === cur) { onSaved(); return }
-      doWrite(updateProjectField(p.id, key, nv), 'Saved', function (r) {
-        if (key === 'projectName') p.client = r.value; else p[key] = r.value
-        onSaved()
-      }).catch(function () { onSaved() })
-    }
-    if (kind === 'textarea') {
-      var bar = el('<div class="addrow" style="margin-top:8px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
-      bar.children[0].addEventListener('click', function (e) { e.stopPropagation(); onSaved() })
-      bar.children[1].addEventListener('click', function (e) { e.stopPropagation(); save() })
-      wrap.appendChild(bar)
-    } else {
-      input.addEventListener('blur', save)
-    }
-    setTimeout(function () { input.focus() }, 30)
-  })
-  return wrap
+  function rebuild() {
+    body.innerHTML = ''
+    var cards = projectContactCards(p)
+    if (!cards.length) body.appendChild(el('<div class="empty" style="padding:14px">Nobody on this project yet.</div>'))
+    cards.forEach(function (row) {
+      var card = el('<div class="card contactcard"></div>')
+      var head = el('<div class="cc-head"></div>')
+      head.appendChild(el('<div class="name" style="font-size:14.5px;flex:1;min-width:0">' + esc(row.name) +
+        (row.primary && cards.length > 1 ? '<span class="cc-primary">Primary</span>' : '') + '</div>'))
+      // Only a linked contact has a join row to delete. A text-only primary is edited in Event details.
+      if (row.id) {
+        var x = el('<button class="cc-x" aria-label="Remove from project"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>')
+        x.addEventListener('click', function () { detachContactFromProject(p, row.contact, rebuild) })
+        head.appendChild(x)
+      }
+      card.appendChild(head)
+      var sub = [row.emails.join(', '), row.phones.join(', ')].filter(Boolean)
+      sub.forEach(function (line) { card.appendChild(el('<div class="meta">' + esc(line) + '</div>')) })
+      body.appendChild(card)
+    })
+    var add = el('<button class="btn-gold" style="width:100%;margin-top:14px">Add contact</button>')
+    add.addEventListener('click', function () { openAddContact(p, rebuild) })
+    body.appendChild(add)
+  }
+  rebuild()
+  document.body.appendChild(sheet)
 }
 
 // Details: all the editable event fields.
@@ -1264,41 +1418,6 @@ function renderLog(wrap, p) {
   lines.slice(0, 20).forEach(function (line) {
     wrap.appendChild(el('<div class="log">' + esc(typeof line === 'string' ? line : (line && line.text) || JSON.stringify(line)) + '</div>'))
   })
-}
-
-// The stage <select>: shows every stage grouped by umbrella. On change, calls setStage with the
-// desktop gates (Post Show blocked; Booked needs a received payment). If a gate throws, the select
-// snaps back to the current stage and the error is toasted.
-function stagePicker(p) {
-  var wrap = el('<div class="card" style="pointer-events:auto"></div>')
-  var sel = document.createElement('select')
-  sel.className = 'stagesel'
-  ;(SNAP.structure.umbrellas || []).forEach(function (u) {
-    var og = document.createElement('optgroup')
-    og.label = u.label
-    ;(u.stages || []).forEach(function (st) {
-      var o = document.createElement('option')
-      o.value = st.id
-      o.textContent = st.name
-      if (st.id === p.stageId) o.selected = true
-      og.appendChild(o)
-    })
-    sel.appendChild(og)
-  })
-  var prev = p.stageId
-  sel.addEventListener('change', function () {
-    var next = sel.value
-    if (next === prev) return
-    doWrite(setStage(p.id, next, SNAP.structure, SNAP.payments || []), 'Moved to ' + stageName(next), function () {
-      p.stageId = next
-      prev = next
-      renderDetail(p.id) // refresh the header stage label; pipeline grouping updates on next visit
-    }).catch(function () {
-      sel.value = prev // gate blocked -> revert the dropdown
-    })
-  })
-  wrap.appendChild(sel)
-  return wrap
 }
 
 // The allow-listed editable event fields, in a sensible order. Each maps a camelCase project key to a
@@ -1558,7 +1677,8 @@ function openContactPicker(opts) {
 // primary yet. Everyone added after that is a join row and nothing else, which is exactly what the
 // desktop's linkContactToProject does. Adding a second contact must never silently re-address a
 // contract at them.
-function attachContactToProject(p, chosen) {
+function attachContactToProject(p, chosen, after) {
+  var redraw = after || function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }
   var hasPrimary = !!String(p.contactNames || '').trim()
   doWrite(
     linkOrCreateContact(p.id, {
@@ -1582,8 +1702,8 @@ function attachContactToProject(p, chosen) {
     }),
     'Contact added',
     function () {
-      Promise.all([refreshContactsCache(), refreshLinksCache()]).then(function () { renderDetail(p.id, true) })
-      renderDetail(p.id, true)
+      Promise.all([refreshContactsCache(), refreshLinksCache()]).then(redraw)
+      redraw()
     },
   )
 }
@@ -1594,8 +1714,9 @@ function attachContactToProject(p, chosen) {
 // If the one being removed IS the primary, the next remaining contact is promoted into the project's
 // contact fields. Leaving a project with contacts attached but a stale name in contact_names would
 // send the next contract to somebody who is no longer on the job.
-function detachContactFromProject(p, contact) {
+function detachContactFromProject(p, contact, after) {
   if (!confirm('Remove ' + (contact.name || 'this contact') + ' from "' + p.client + '"?\n\nThey stay in your Contacts, they are just no longer on this project.')) return
+  var redraw = after || function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }
   var wasPrimary = String(p.contactNames || '').trim().toLowerCase() === String(contact.name || '').trim().toLowerCase()
   doWrite(
     unlinkContact(p.id, contact.id).then(function () {
@@ -1610,19 +1731,19 @@ function detachContactFromProject(p, contact) {
     }),
     'Contact removed',
     function () {
-      refreshLinksCache().then(function () { renderDetail(p.id, true) })
-      renderDetail(p.id, true)
+      refreshLinksCache().then(redraw)
+      redraw()
     },
   )
 }
 
-function openAddContact(p) {
+function openAddContact(p, after) {
   var exclude = {}
   contactsForProject(p).forEach(function (c) { exclude[c.id] = true })
   openContactPicker({
     title: 'Add contact',
     excludeIds: exclude,
-    onChoose: function (chosen) { attachContactToProject(p, chosen) },
+    onChoose: function (chosen) { attachContactToProject(p, chosen, after) },
   })
 }
 
@@ -1800,7 +1921,7 @@ function updateCounts() {
   setTabCount('nav-badge-alerts', alerts)
   setTabCount('nav-badge-tasks', due)
   // Plain counts on the history pages, so the drawer says how much is in each without opening it.
-  ;['completed', 'archived', 'deleted'].forEach(function (b) {
+  ;['active', 'completed', 'archived', 'deleted'].forEach(function (b) {
     var elc = $('#nav-count-' + b)
     if (!elc) return
     var n = bucketCount(b)
@@ -1818,6 +1939,7 @@ function updateCounts() {
 
 function render() {
   if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
+  removeProjectTabs() // any full page render means we are no longer inside a project
   if (TAB === 'home') renderHome()
   else if (TAB === 'pipeline') renderPipeline()
   else if (TAB === 'completed') renderCompleted()

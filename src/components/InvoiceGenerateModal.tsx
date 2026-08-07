@@ -89,7 +89,7 @@ export function InvoiceGenerateModal({ project, mode, billToName, billToEmail, o
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onCancel} aria-hidden />
 
           <motion.div
-            className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -189,7 +189,7 @@ export function InvoiceGenerateModal({ project, mode, billToName, billToEmail, o
                 <span className="text-[15px] font-semibold text-parchment">{money(total)}</span>
               </div>
 
-              {error && <p className="text-[11.5px] leading-relaxed text-[#e08a6b]">{error}</p>}
+              {error && <p className="text-[11.5px] leading-relaxed text-[#dc2626]">{error}</p>}
             </div>
 
             <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-line bg-surface/95 px-6 py-4 backdrop-blur">
@@ -204,7 +204,7 @@ export function InvoiceGenerateModal({ project, mode, billToName, billToEmail, o
                 type="button"
                 disabled={!validAmt || busy}
                 onClick={create}
-                className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {busy ? 'Creating…' : mode === 'regenerate' ? 'Regenerate' : 'Create invoice'}
               </button>

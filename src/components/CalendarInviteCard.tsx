@@ -84,7 +84,7 @@ function CalendarInviteModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+        className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
       >
         <div className="px-6 pt-5">
           <h3 className="font-display text-[19px] text-parchment">Calendar invite</h3>
@@ -171,7 +171,7 @@ function CalendarInviteModal({
             type="button"
             onClick={send}
             disabled={!canSend}
-            className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+            className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
           >
             {busy ? 'Sending…' : 'Send invite'}
           </button>

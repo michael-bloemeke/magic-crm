@@ -89,24 +89,24 @@ export function InboxPage({ onOpenProject, onThreadRead }: Props) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-[#e3dfd6] bg-[#f4f2ed] shadow-[0_24px_60px_-34px_rgba(0,0,0,0.85)]">
-        <div className="flex items-center justify-between gap-4 border-b border-[#e3dfd6] bg-white px-5 py-3">
+      <div className="overflow-hidden rounded-2xl border border-[#dfe3e8] bg-[#f5f7f9] shadow-[0_24px_60px_-34px_rgba(0,0,0,0.17)]">
+        <div className="flex items-center justify-between gap-4 border-b border-[#dfe3e8] bg-white px-5 py-3">
           <div>
-            <p className="text-[13px] font-semibold text-[#201c17]">Pipeline inbox</p>
-            <p className="text-[11.5px] text-[#6f6a60]">Conversations with contacts on your active projects</p>
+            <p className="text-[13px] font-semibold text-[#14171b]">Pipeline inbox</p>
+            <p className="text-[11.5px] text-[#545b64]">Conversations with contacts on your active projects</p>
           </div>
-          <span className="shrink-0 text-[11.5px] tabular-nums text-[#8a857a]">
+          <span className="shrink-0 text-[11.5px] tabular-nums text-[#858d97]">
             {data.threads.length} {data.threads.length === 1 ? 'thread' : 'threads'}
             {unreadTotal > 0 ? ` · ${unreadTotal} unread` : ''}
           </span>
         </div>
 
         {data.error && (
-          <p className="px-5 py-3 text-[12.5px] text-[#8a6a2f]">Connected to Gmail, but couldn't load mail: {data.error}</p>
+          <p className="px-5 py-3 text-[12.5px] text-[#545b64]">Connected to Gmail, but couldn't load mail: {data.error}</p>
         )}
 
         {data.threads.length === 0 ? (
-          <p className="mx-auto max-w-md px-5 py-14 text-center text-[13px] leading-relaxed text-[#8a857a]">
+          <p className="mx-auto max-w-md px-5 py-14 text-center text-[13px] leading-relaxed text-[#858d97]">
             No conversations found with any active project's contacts yet.
           </p>
         ) : (
@@ -169,20 +169,20 @@ function InboxThreadDrawer({
         >
           <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
           <motion.aside
-            className="board-scroll relative flex h-full w-[560px] max-w-[94vw] flex-col overflow-y-auto border-l border-[#e3dfd6] bg-[#f4f2ed] shadow-[-30px_0_60px_-30px_rgba(0,0,0,0.9)]"
+            className="board-scroll relative flex h-full w-[560px] max-w-[94vw] flex-col overflow-y-auto border-l border-[#dfe3e8] bg-[#f5f7f9] shadow-[-30px_0_60px_-30px_rgba(0,0,0,0.18)]"
             initial={{ x: 40, opacity: 0.4 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[#e3dfd6] bg-white px-5 py-3.5">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-[#dfe3e8] bg-white px-5 py-3.5">
               <div className="min-w-0">
-                <p className="truncate text-[14px] font-semibold text-[#201c17]">{thread.subject}</p>
+                <p className="truncate text-[14px] font-semibold text-[#14171b]">{thread.subject}</p>
                 {thread.project && (
                   <button
                     type="button"
                     onClick={() => onOpenProject(thread.project!.id)}
-                    className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#d8c7a4] bg-[#f3ead3] px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#8a6a2f] transition-colors hover:bg-[#ecdfbf]"
+                    className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#c3d6f8] bg-[#eaf0fd] px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#545b64] transition-colors hover:bg-[#dbe6fb]"
                     title="Open project"
                   >
                     {thread.project.client}
@@ -193,7 +193,7 @@ function InboxThreadDrawer({
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="shrink-0 rounded-lg border border-[#d8d3c8] bg-white p-1.5 text-[#6f6a60] transition-colors hover:bg-[#f6f4ef]"
+                className="shrink-0 rounded-lg border border-[#d1d7de] bg-white p-1.5 text-[#545b64] transition-colors hover:bg-[#f7f9fb]"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <path d="M6 6l12 12M18 6L6 18" />
@@ -207,38 +207,38 @@ function InboxThreadDrawer({
                 // Unsent Gmail draft: never dress it up as a sent message (see crm-gmail.mjs).
                 if (m.isDraft) {
                   return (
-                    <div key={i} className="rounded-lg border border-dashed border-[#e0cfa6] bg-[#fdf8ec] p-3">
+                    <div key={i} className="rounded-lg border border-dashed border-[#a9c2f6] bg-[#f4f8fe] p-3">
                       <div className="mb-1.5 flex items-center justify-between gap-2 text-[11.5px]">
-                        <span className="font-semibold text-[#8a6a2f]">Unsent draft</span>
-                        <span className="shrink-0 font-medium text-[#a08a5c]">Not sent</span>
+                        <span className="font-semibold text-[#545b64]">Unsent draft</span>
+                        <span className="shrink-0 font-medium text-[#545b64]">Not sent</span>
                       </div>
-                      <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#6b6250]">{m.body}</p>
+                      <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#4a5058]">{m.body}</p>
                     </div>
                   )
                 }
                 return (
                   <div
                     key={i}
-                    className={['rounded-lg border p-3', mine ? 'border-[#cfe0f5] bg-[#eef4fc]' : 'border-[#e8e4db] bg-white'].join(' ')}
+                    className={['rounded-lg border p-3', mine ? 'border-[#cfe0f5] bg-[#eef4fc]' : 'border-[#e4e8ec] bg-white'].join(' ')}
                   >
                     <div className="mb-1.5 flex items-center justify-between gap-2 text-[11.5px]">
-                      <span className={mine ? 'font-semibold text-[#2c5a9e]' : 'font-semibold text-[#201c17]'}>
+                      <span className={mine ? 'font-semibold text-[#2c5a9e]' : 'font-semibold text-[#14171b]'}>
                         {mine ? 'Michael Bloemeke' : m.fromName}
                       </span>
-                      <span className="shrink-0 tabular-nums text-[#8a857a]">{m.date}</span>
+                      <span className="shrink-0 tabular-nums text-[#858d97]">{m.date}</span>
                     </div>
-                    <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#2c2820]">{m.body}</p>
+                    <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#1f2429]">{m.body}</p>
                   </div>
                 )
               })}
             </div>
 
             {thread.project && (
-              <div className="sticky bottom-0 border-t border-[#ece8e0] bg-[#f4f2ed] px-4 py-3">
+              <div className="sticky bottom-0 border-t border-[#eaedf1] bg-[#f5f7f9] px-4 py-3">
                 <button
                   type="button"
                   onClick={() => onOpenProject(thread.project!.id)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#d8d3c8] bg-white px-3 py-1.5 text-[12px] font-medium text-[#5f5a50] transition-colors hover:bg-[#f6f4ef]"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#d1d7de] bg-white px-3 py-1.5 text-[12px] font-medium text-[#3f454c] transition-colors hover:bg-[#f7f9fb]"
                 >
                   Open {thread.project.client} to reply
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -298,15 +298,15 @@ export function InboxRow({
     <div
       className={[
         'overflow-hidden rounded-xl border',
-        unread > 0 ? 'border-[#e0c386] bg-[#fcf6ea]' : 'border-[#e3dfd6] bg-white',
+        unread > 0 ? 'border-[#e0c386] bg-[#fcf6ea]' : 'border-[#dfe3e8] bg-white',
       ].join(' ')}
     >
       <div className="flex w-full items-center gap-2 px-4 py-3">
         <button type="button" onClick={act} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          {unread > 0 && <span className="h-2 w-2 shrink-0 self-start mt-1 rounded-full bg-[#cb9b5d]" title={`${unread} unread`} />}
+          {unread > 0 && <span className="h-2 w-2 shrink-0 self-start mt-1 rounded-full bg-[#2563eb]" title={`${unread} unread`} />}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className={['truncate text-[14px]', unread > 0 ? 'font-bold text-[#17130d]' : 'font-semibold text-[#201c17]'].join(' ')}>
+              <p className={['truncate text-[14px]', unread > 0 ? 'font-bold text-[#17130d]' : 'font-semibold text-[#14171b]'].join(' ')}>
                 {thread.subject}
               </p>
               {thread.project && (
@@ -324,19 +324,19 @@ export function InboxRow({
                       onOpenProject(thread.project!.id)
                     }
                   }}
-                  className="shrink-0 rounded-full border border-[#d8c7a4] bg-[#f3ead3] px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#8a6a2f] transition-colors hover:bg-[#ecdfbf]"
+                  className="shrink-0 rounded-full border border-[#c3d6f8] bg-[#eaf0fd] px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[#545b64] transition-colors hover:bg-[#dbe6fb]"
                   title="Open project"
                 >
                   {thread.project.client}
                 </span>
               )}
               {unread > 0 && (
-                <span className="shrink-0 rounded-full bg-[#cb9b5d] px-1.5 py-0.5 text-[9.5px] font-bold text-white">
+                <span className="shrink-0 rounded-full bg-[#2563eb] px-1.5 py-0.5 text-[9.5px] font-bold text-white">
                   {unread} new
                 </span>
               )}
             </div>
-            <p className={['mt-0.5 truncate text-[12px]', unread > 0 ? 'text-[#5a5347]' : 'text-[#6f6a60]'].join(' ')}>
+            <p className={['mt-0.5 truncate text-[12px]', unread > 0 ? 'text-[#3b4148]' : 'text-[#545b64]'].join(' ')}>
               {preview}
             </p>
           </div>
@@ -348,7 +348,7 @@ export function InboxRow({
             onClick={doMarkRead}
             disabled={marking}
             title="Mark as read"
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#d8d3c8] bg-white px-2 py-1 text-[10.5px] font-medium text-[#6f6a60] transition-colors hover:bg-[#f6f4ef] disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#d1d7de] bg-white px-2 py-1 text-[10.5px] font-medium text-[#545b64] transition-colors hover:bg-[#f7f9fb] disabled:opacity-50"
           >
             <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20 6L9 17l-5-5" />
@@ -357,11 +357,11 @@ export function InboxRow({
           </button>
         )}
 
-        <span className="shrink-0 text-[11px] tabular-nums text-[#8a857a]">{thread.lastDate}</span>
+        <span className="shrink-0 text-[11px] tabular-nums text-[#858d97]">{thread.lastDate}</span>
         <button type="button" onClick={act} aria-label={onOpen ? 'Open' : open ? 'Collapse' : 'Expand'} className="shrink-0">
           <svg
             viewBox="0 0 24 24"
-            className={['h-4 w-4 text-[#9b958a] transition-transform', !onOpen && open ? 'rotate-180' : ''].join(' ')}
+            className={['h-4 w-4 text-[#949ba4] transition-transform', !onOpen && open ? 'rotate-180' : ''].join(' ')}
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
@@ -374,22 +374,22 @@ export function InboxRow({
       </div>
 
       {open && (
-        <div className="border-t border-[#ece8e0] bg-[#faf9f6] px-4 pb-4 pt-3">
+        <div className="border-t border-[#eaedf1] bg-[#fafbfc] px-4 pb-4 pt-3">
           <div className="space-y-2.5">
             {ordered.map((m, i) => {
               const mine = m.from === ME
               return (
                 <div
                   key={i}
-                  className={['rounded-lg border p-3', mine ? 'border-[#cfe0f5] bg-[#eef4fc]' : 'border-[#e8e4db] bg-white'].join(' ')}
+                  className={['rounded-lg border p-3', mine ? 'border-[#cfe0f5] bg-[#eef4fc]' : 'border-[#e4e8ec] bg-white'].join(' ')}
                 >
                   <div className="mb-1.5 flex items-center justify-between gap-2 text-[11.5px]">
-                    <span className={mine ? 'font-semibold text-[#2c5a9e]' : 'font-semibold text-[#201c17]'}>
+                    <span className={mine ? 'font-semibold text-[#2c5a9e]' : 'font-semibold text-[#14171b]'}>
                       {mine ? 'Michael Bloemeke' : m.fromName}
                     </span>
-                    <span className="shrink-0 tabular-nums text-[#8a857a]">{m.date}</span>
+                    <span className="shrink-0 tabular-nums text-[#858d97]">{m.date}</span>
                   </div>
-                  <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#2c2820]">{m.body}</p>
+                  <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#1f2429]">{m.body}</p>
                 </div>
               )
             })}
@@ -398,7 +398,7 @@ export function InboxRow({
             <button
               type="button"
               onClick={() => onOpenProject(thread.project!.id)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[#d8d3c8] bg-white px-3 py-1.5 text-[12px] font-medium text-[#5f5a50] transition-colors hover:bg-[#f6f4ef]"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[#d1d7de] bg-white px-3 py-1.5 text-[12px] font-medium text-[#3f454c] transition-colors hover:bg-[#f7f9fb]"
             >
               Open {thread.project.client} to reply
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

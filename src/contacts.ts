@@ -7,10 +7,11 @@ import type { Project } from './pipeline'
 // Relationship options in display order. 'active' (blue) = in the pipeline now;
 // yes/no/maybe are the durable post-pipeline dispositions.
 export const RELATIONSHIP_OPTIONS: { v: Exclude<Relationship, ''>; label: string; color: string }[] = [
-  { v: 'active', label: 'Active', color: '#5b8fe0' },
+  { v: 'active', label: 'Active', color: '#0e7490' },
   { v: 'yes', label: 'Yes', color: 'var(--color-umb-booked)' },
-  { v: 'maybe', label: 'Maybe', color: 'var(--color-brass-bright)' },
-  { v: 'no', label: 'No', color: '#e08a6b' },
+  // Amber, not the accent: the accent is now blue and would have collided with "Active".
+  { v: 'maybe', label: 'Maybe', color: '#b45309' },
+  { v: 'no', label: 'No', color: '#dc2626' },
 ]
 
 export const REL_COLOR: Record<string, string> = Object.fromEntries(

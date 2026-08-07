@@ -70,7 +70,7 @@ export function CompleteProjectModal({ project, onCancel, onConfirm, onPaymentsC
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onCancel} aria-hidden />
 
           <motion.div
-            className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -96,7 +96,7 @@ export function CompleteProjectModal({ project, onCancel, onConfirm, onPaymentsC
                     onChange={(e) => setEventDate(e.target.value)}
                     className="input [color-scheme:dark] w-44"
                   />
-                  {!eventDateOk && <span className="text-[11px] text-[#e08a6b]">required</span>}
+                  {!eventDateOk && <span className="text-[11px] text-[#dc2626]">required</span>}
                 </div>
               </label>
 
@@ -114,7 +114,7 @@ export function CompleteProjectModal({ project, onCancel, onConfirm, onPaymentsC
                     className="input w-40"
                   />
                   <span className="text-[12px] text-faint">mi</span>
-                  {!mileageOk && <span className="text-[11px] text-[#e08a6b]">required</span>}
+                  {!mileageOk && <span className="text-[11px] text-[#dc2626]">required</span>}
                 </div>
               </label>
 
@@ -124,9 +124,9 @@ export function CompleteProjectModal({ project, onCancel, onConfirm, onPaymentsC
                 </span>
                 {payments != null &&
                   (fee == null ? (
-                    <p className="mb-1 text-[11px] text-[#e08a6b]">Set a fee on this project first so its payments can be reconciled to it.</p>
+                    <p className="mb-1 text-[11px] text-[#dc2626]">Set a fee on this project first so its payments can be reconciled to it.</p>
                   ) : !paidInFull ? (
-                    <p className="mb-1 text-[11px] text-[#e08a6b]">
+                    <p className="mb-1 text-[11px] text-[#dc2626]">
                       Paid ${Math.round(receivedTotal).toLocaleString('en-US')} of ${Math.round(fee).toLocaleString('en-US')}. ${Math.round(remaining ?? 0).toLocaleString('en-US')} still outstanding, must be paid in full to complete.
                     </p>
                   ) : (

@@ -59,7 +59,7 @@ function DeleteButton({ onClick, compact, permanent }: { onClick: () => void; co
       onClick={onClick}
       title={permanent ? 'Delete permanently (cannot be undone)' : 'Delete this project (kept in Deleted for 30 days)'}
       aria-label={permanent ? 'Delete permanently' : 'Delete project'}
-      className={`inline-flex items-center justify-center rounded-lg border border-line text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b] ${
+      className={`inline-flex items-center justify-center rounded-lg border border-line text-faint transition-colors hover:border-[#dc2626]/60 hover:text-[#dc2626] ${
         compact ? 'p-1.5' : 'p-2'
       }`}
     >

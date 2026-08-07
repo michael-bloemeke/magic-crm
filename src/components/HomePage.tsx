@@ -83,7 +83,7 @@ export function HomePage({
         </StatCard>
 
         <StatCard label="Overdue" onClick={() => onNavigate('tasks')}>
-          <p className="font-display text-[28px] leading-none tabular-nums" style={{ color: overdue.length ? '#e08a6b' : 'var(--color-muted)' }}>
+          <p className="font-display text-[28px] leading-none tabular-nums" style={{ color: overdue.length ? '#dc2626' : 'var(--color-muted)' }}>
             {overdue.length}
           </p>
           <p className="mt-1 text-[11px] text-faint">tasks past due</p>
@@ -318,7 +318,7 @@ function DailyDuties() {
                   type="button"
                   onClick={() => removeDuty(d.id)}
                   aria-label={`Remove ${d.label}`}
-                  className="shrink-0 text-faint transition-colors hover:text-[#e08a6b]"
+                  className="shrink-0 text-faint transition-colors hover:text-[#dc2626]"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M6 6l12 12M18 6L6 18" />

@@ -134,7 +134,7 @@ export function BookingCard({
   const reachedIdx = STEPS.findIndex((s) => s.key === stage)
 
   return (
-    <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.35)]">
+    <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.10)]">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] font-medium text-parchment">Booking</p>
         <div className="flex items-center gap-1.5">
@@ -372,7 +372,7 @@ function PdfPreview({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <div className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]">
+      <div className="relative flex h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]">
         <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
           <p className="truncate text-[13px] font-medium text-parchment">{title}</p>
           <div className="flex flex-none items-center gap-2">

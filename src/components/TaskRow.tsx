@@ -12,7 +12,7 @@ type Props = {
   onOpenProject?: () => void
 }
 
-const OVERDUE = '#e08a6b'
+const OVERDUE = '#dc2626'
 
 // "13:00" -> "1:00 PM" for display. Empty for an all-day task.
 function fmtTime(hhmm: string): string {

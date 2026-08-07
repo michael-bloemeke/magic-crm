@@ -258,13 +258,13 @@ export function RichTextEditor({
 
   // Toolbar/border colors swap with the tone; the editable surface stays the white .email-rte.
   const wrapCls = light
-    ? 'overflow-hidden rounded-lg border border-[#dcd7cc] bg-white focus-within:border-[#cb9b5d]'
+    ? 'overflow-hidden rounded-lg border border-[#d8dde3] bg-white focus-within:border-[#2563eb]'
     : 'overflow-hidden rounded-lg border border-line bg-surface-2 focus-within:border-brass-dim'
   const barCls = light
-    ? 'flex flex-wrap items-center gap-0.5 border-b border-[#ece8e0] bg-[#f4f2ed] px-1.5 py-1'
+    ? 'flex flex-wrap items-center gap-0.5 border-b border-[#eaedf1] bg-[#f5f7f9] px-1.5 py-1'
     : 'flex flex-wrap items-center gap-0.5 border-b border-line bg-surface-3/40 px-1.5 py-1'
   const btnCls = light
-    ? 'rounded-md p-1.5 text-[#6f6a60] transition-colors hover:bg-[#efece4] hover:text-[#201c17]'
+    ? 'rounded-md p-1.5 text-[#545b64] transition-colors hover:bg-[#eaedf1] hover:text-[#14171b]'
     : 'rounded-md p-1.5 text-muted transition-colors hover:bg-surface-3 hover:text-parchment'
 
   return (
@@ -353,7 +353,7 @@ export function RichTextEditor({
                 <>
                   <div className="fixed inset-0 z-[80]" onClick={() => setFieldMenuOpen(false)} aria-hidden />
                   <div
-                    className="fixed z-[81] max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-2 py-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]"
+                    className="fixed z-[81] max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-2 py-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.18)]"
                     style={{ top: fieldMenuPos.top, left: fieldMenuPos.left }}
                   >
                     {smartFields.map((f) => (
@@ -388,12 +388,12 @@ export function RichTextEditor({
       {linkBar && (
         <div className={[
           'flex items-center gap-2 border-b px-2.5 py-1.5 text-[11.5px]',
-          light ? 'border-[#ece8e0] bg-[#f4f2ed]' : 'border-line bg-surface-3/60',
+          light ? 'border-[#eaedf1] bg-[#f5f7f9]' : 'border-line bg-surface-3/60',
         ].join(' ')}>
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
           </svg>
-          <span className={['min-w-0 flex-1 truncate', light ? 'text-[#6f6a60]' : 'text-muted'].join(' ')} title={linkBar.href}>
+          <span className={['min-w-0 flex-1 truncate', light ? 'text-[#545b64]' : 'text-muted'].join(' ')} title={linkBar.href}>
             {linkBar.href || '(no URL)'}
           </span>
           <div className="flex shrink-0 items-center gap-1">
@@ -403,7 +403,7 @@ export function RichTextEditor({
             <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={editLink} className="rounded-md px-2 py-1 font-medium text-muted transition-colors hover:bg-surface-3 hover:text-parchment">
               Edit
             </button>
-            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={removeLink} className="rounded-md px-2 py-1 font-medium text-[#e08a6b] transition-colors hover:bg-surface-3">
+            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={removeLink} className="rounded-md px-2 py-1 font-medium text-[#dc2626] transition-colors hover:bg-surface-3">
               Remove
             </button>
           </div>

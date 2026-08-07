@@ -10,7 +10,7 @@ import type { GigEvent, Task } from '../api'
 const COLORS = {
   booked: 'var(--color-umb-booked)', // green
   unbooked: 'var(--color-umb-postcall)', // blue / teal
-  task: '#e08a6b', // coral
+  task: '#dc2626', // coral
   gcal: '#c084fc', // manually-added Google "Gigs" calendar events (purple)
 }
 

@@ -68,7 +68,7 @@ export function ArchiveReasonModal({ project, reasons, onReasonsChange, onCancel
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onCancel} aria-hidden />
 
           <motion.div
-            className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="board-scroll relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -95,7 +95,7 @@ export function ArchiveReasonModal({ project, reasons, onReasonsChange, onCancel
                     <button
                       type="button"
                       onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
-                      className="shrink-0 text-faint transition-colors hover:text-[#e08a6b]"
+                      className="shrink-0 text-faint transition-colors hover:text-[#dc2626]"
                       title="Remove"
                     >
                       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

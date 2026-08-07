@@ -78,7 +78,7 @@ export function ProjectChat({
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => !busy && onClose()} aria-hidden />
           <motion.div
-            className="relative flex h-full w-full max-w-md flex-col border-l border-line-strong bg-surface shadow-[0_0_80px_-20px_rgba(0,0,0,0.9)]"
+            className="relative flex h-full w-full max-w-md flex-col border-l border-line-strong bg-surface shadow-[0_0_80px_-20px_rgba(0,0,0,0.18)]"
             initial={{ x: 40, opacity: 0.6 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
@@ -115,7 +115,7 @@ export function ProjectChat({
                   <div
                     className={[
                       'max-w-[85%] whitespace-pre-line rounded-xl px-3 py-2 text-[13px] leading-relaxed',
-                      m.role === 'user' ? 'bg-brass text-[#231a0c]' : 'border border-line bg-surface-2/50 text-parchment',
+                      m.role === 'user' ? 'bg-brass text-[#ffffff]' : 'border border-line bg-surface-2/50 text-parchment',
                     ].join(' ')}
                   >
                     {m.text}
@@ -123,13 +123,13 @@ export function ProjectChat({
                 </div>
               ))}
               {busy && <p className="text-[12px] text-faint">Claude is working. This can take up to a minute.</p>}
-              {error && <p className="text-[12px] leading-relaxed text-[#e08a6b]">{error}</p>}
+              {error && <p className="text-[12px] leading-relaxed text-[#dc2626]">{error}</p>}
               <div ref={bottomRef} />
             </div>
 
             <div className="border-t border-line px-5 py-4">
               {!avail && (
-                <p className="mb-2 text-[11px] leading-relaxed text-[#e08a6b]">
+                <p className="mb-2 text-[11px] leading-relaxed text-[#dc2626]">
                   Claude is not set up yet. In Terminal run "claude setup-token", paste the token into
                   magic-crm/claude-credentials.json, then restart the CRM.
                 </p>
@@ -149,7 +149,7 @@ export function ProjectChat({
                   type="button"
                   onClick={send}
                   disabled={busy || !input.trim()}
-                  className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+                  className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
                 >
                   {busy ? '…' : 'Send'}
                 </button>

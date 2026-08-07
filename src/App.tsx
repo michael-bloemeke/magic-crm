@@ -48,7 +48,6 @@ import {
   type PipelineStructure,
   type Project,
 } from './pipeline'
-import { getTheme, applyTheme, type ThemeId } from './theme'
 import {
   loadProjects,
   loadTasks,
@@ -169,13 +168,6 @@ function App() {
   const [contactPane, setContactPane] = useState<Contact | null>(null) // a contact open in the side pane
   const [contactPickerProject, setContactPickerProject] = useState<Project | null>(null)
   const [tagLibrary, setTagLibrary] = useState<string[]>([])
-  const [theme, setTheme] = useState<ThemeId>(getTheme)
-
-  const changeTheme = (id: ThemeId) => {
-    setTheme(id)
-    applyTheme(id)
-  }
-
   // Cmd/Ctrl-K opens global search from anywhere.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -986,8 +978,6 @@ function App() {
         taskAlerts={taskAlerts}
         inboxUnread={inboxUnread}
         onOpenSearch={() => setSearchOpen(true)}
-        theme={theme}
-        onChangeTheme={changeTheme}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
@@ -1079,7 +1069,7 @@ function App() {
                 {page === 'tasks' && (
                   <div className="flex items-center gap-5 text-right">
                     <div>
-                      <p className="font-display text-[24px] leading-none tabular-nums" style={{ color: '#e08a6b' }}>
+                      <p className="font-display text-[24px] leading-none tabular-nums" style={{ color: '#dc2626' }}>
                         {String(overdueCount).padStart(2, '0')}
                       </p>
                       <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-faint">Overdue</p>

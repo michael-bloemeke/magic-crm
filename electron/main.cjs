@@ -85,7 +85,9 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: 'Bloom CRM',
-    backgroundColor: '#17130f',
+    // Matches --color-canvas in src/index.css, so the window does not flash a dark panel
+    // before the app paints.
+    backgroundColor: '#eef0f3',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })
   win.loadURL(BASE_URL)
@@ -102,7 +104,7 @@ app.whenReady().then(async () => {
     win.loadURL(
       'data:text/html,' +
         encodeURIComponent(
-          '<body style="font-family:-apple-system,sans-serif;background:#17130f;color:#e6c590;padding:48px;line-height:1.6">' +
+          '<body style="font-family:-apple-system,sans-serif;background:#eef0f3;color:#14171b;padding:48px;line-height:1.6">' +
             "<h2>Couldn't start the Bloom CRM server.</h2>" +
             '<p>Make sure node22 is installed at ~/.local/node22 and try again, or start it with the “Open Bloom CRM.command”.</p></body>',
         ),

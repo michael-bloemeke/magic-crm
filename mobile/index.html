@@ -10,49 +10,59 @@
          page sees only a sign-in screen. -->
     <meta name="robots" content="noindex, nofollow" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "default" (dark status-bar text), not "black-translucent". Translucent draws the clock and
+         battery in WHITE over the page, which was right on the old near-black theme and invisible on
+         the light one. This also stops the page from running under the status bar, so --safe-top
+         reports 0 and the header padding collapses to its base value on its own. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Bloom CRM" />
-    <meta name="theme-color" content="#14151c" />
+    <meta name="theme-color" content="#eef0f3" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Bloom CRM</title>
     <style>
-      /* App color system (phone). Independent of the desktop's theme. */
+      /* App color system (phone). Deliberately the SAME palette as the desktop's src/index.css, so
+         the two apps stop looking like different products.
+
+         One scheme, no options. This was "Indigo Nocturne" (graphite + electric indigo) while the
+         desktop had six of its own; Michael, 2026-08-06: "the color scheme is abysmal... I just want
+         a simple and sleek color design". Light neutral grey page, white cards, near-black text, one
+         restrained blue accent, semantics dark enough to read on a light background.
+
+         The token names are historical (--brass, --parchment) and kept on purpose: they are used in
+         hundreds of places across app.js and this stylesheet. Read "brass" as "accent" and
+         "parchment" as "body text". */
       :root {
-        /* "Indigo Nocturne": a cool graphite base with an electric indigo primary, plus green / amber /
-           coral / teal semantics so blocks, buttons, and sections stay visually distinct. */
-        --bg: #14151c;
-        --surface: #1c1e28;      /* cards */
-        --surface2: #252834;     /* inputs / raised */
-        --surface3: #30343f;     /* active / hover */
-        --line: rgba(196, 201, 224, 0.10);
-        --line-strong: rgba(196, 201, 224, 0.20);
-        --parchment: #eef0f7;    /* primary text (name kept for compatibility) */
-        --muted: #a6abbb;
-        --faint: #6e7382;
-        --brass: #7d8cff;        /* primary accent (indigo) */
-        --brass-bright: #9aa6ff;
-        --brass-dim: #464b7d;
-        --green: #46d189;        /* money / booked / done / yes */
-        --amber: #f4b65c;        /* pending / due today / maybe */
-        --red: #f26d63;          /* overdue / danger / no */
-        --teal: #38ccda;         /* secondary / info */
-        --violet: #c885e8;       /* extra category accent */
-        --ink-on-accent: #12131d; /* dark text on a light accent button */
+        --bg: #eef0f3;           /* page */
+        --surface: #ffffff;      /* cards */
+        --surface2: #f5f7f9;     /* inputs / raised */
+        --surface3: #eaedf1;     /* active / pressed */
+        --line: rgba(15, 22, 32, 0.11);
+        --line-strong: rgba(15, 22, 32, 0.18);
+        --parchment: #14171b;    /* primary text */
+        --muted: #545b64;
+        --faint: #858d97;
+        --brass: #2563eb;        /* primary accent */
+        --brass-bright: #1a4fd0; /* stronger, not lighter: contrast comes from going darker here */
+        --brass-dim: #a9c2f6;
+        --green: #15803d;        /* money / booked / done / yes */
+        --amber: #b45309;        /* pending / due today / maybe */
+        --red: #dc2626;          /* overdue / danger / no */
+        --teal: #0e7490;         /* secondary / info */
+        --violet: #7c3aed;       /* extra category accent */
+        --ink-on-accent: #ffffff; /* text on a filled accent button */
         --safe-top: env(safe-area-inset-top, 0px);
         --safe-bot: env(safe-area-inset-bottom, 0px);
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; padding: 0; background: var(--bg); color: var(--parchment); }
+      /* Flat. The two radial glows that used to sit here were built for a near-black screen and read
+         as smudges on a light one. */
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Hanken Grotesk', system-ui, sans-serif;
         font-size: 15px;
         line-height: 1.45;
         overscroll-behavior-y: none;
-        background-image:
-          radial-gradient(120% 80% at 50% -10%, rgba(125, 140, 255, 0.11) 0%, rgba(125, 140, 255, 0.03) 34%, transparent 62%),
-          radial-gradient(90% 60% at 88% 2%, rgba(56, 204, 218, 0.10) 0%, transparent 55%);
-        background-attachment: fixed;
       }
       button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
       a { color: var(--brass-bright); }
@@ -99,9 +109,6 @@
 
       /* Detail */
       .back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; margin-bottom: 6px; }
-      .detail-head { padding: 4px 4px 10px; }
-      .detail-head .client { font-size: 22px; font-weight: 600; }
-      .detail-head .line { color: var(--muted); font-size: 13.5px; margin-top: 4px; }
       .kv { display: grid; grid-template-columns: 1fr; gap: 0; }
       .kv .item { padding: 11px 0; border-bottom: 1px solid var(--line); }
       .kv .k { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--faint); }
@@ -110,7 +117,6 @@
       .contact a { flex: 1; text-align: center; padding: 9px; border: 1px solid var(--line); border-radius: 10px; color: var(--brass-bright); font-size: 13.5px; text-decoration: none; }
 
       /* One person on a project: their card plus their own Call/Text/Email row. Repeats per contact. */
-      .contactblock { margin-bottom: 12px; }
       .contactcard { cursor: default; }
       .cc-head { display: flex; align-items: flex-start; gap: 8px; }
       .cc-head .name { flex: 1; min-width: 0; }
@@ -122,7 +128,7 @@
       /* --- editing UI (Stage C) --- */
       /* Buttons */
       .btn-gold { background: var(--brass); color: var(--ink-on-accent); font-weight: 700; padding: 10px 14px; border-radius: 10px; font-size: 14px; }
-      .btn-gold:active { filter: brightness(1.1); }
+      .btn-gold:active { filter: brightness(0.92); }
       .btn-ghost { border: 1px solid var(--line-strong); color: var(--muted); padding: 10px 14px; border-radius: 10px; font-size: 14px; background: var(--surface); }
       .btn-ghost:active { background: var(--surface2); }
       .addbtn { display: inline-flex; align-items: center; gap: 5px; color: var(--brass-bright); font-size: 13px; font-weight: 600; padding: 6px 10px; border: 1px solid color-mix(in oklab, var(--brass) 40%, var(--line)); border-radius: 999px; }
@@ -183,7 +189,7 @@
       .fld-l { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
 
       /* Toast */
-      #toast { position: fixed; left: 50%; bottom: calc(92px + var(--safe-bot)); transform: translateX(-50%) translateY(20px); z-index: 70; background: var(--surface2); color: var(--parchment); border: 1px solid var(--line-strong); padding: 10px 16px; border-radius: 999px; font-size: 13.5px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; max-width: 88vw; text-align: center; }
+      #toast { position: fixed; left: 50%; bottom: calc(92px + var(--safe-bot)); transform: translateX(-50%) translateY(20px); z-index: 70; background: var(--surface2); color: var(--parchment); border: 1px solid var(--line-strong); padding: 10px 16px; border-radius: 999px; font-size: 13.5px; box-shadow: 0 8px 24px rgba(15,22,32,0.16); opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s; max-width: 88vw; text-align: center; }
       #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
       #toast.err { border-color: color-mix(in oklab, var(--red) 60%, var(--line)); color: var(--red); }
 
@@ -203,7 +209,7 @@
       .pill.del { color: var(--red); border-color: color-mix(in oklab, var(--red) 45%, var(--line)); }
 
       /* Floating New-project button */
-      #fab { position: fixed; right: 16px; bottom: calc(24px + var(--safe-bot)); z-index: 30; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(160deg, var(--brass-bright), var(--brass)); color: var(--ink-on-accent); display: grid; place-items: center; box-shadow: 0 8px 22px rgba(0,0,0,0.45), 0 0 0 1px color-mix(in oklab, var(--brass) 60%, transparent); }
+      #fab { position: fixed; right: 16px; bottom: calc(24px + var(--safe-bot)); z-index: 30; width: 54px; height: 54px; border-radius: 50%; background: linear-gradient(160deg, var(--brass-bright), var(--brass)); color: var(--ink-on-accent); display: grid; place-items: center; box-shadow: 0 8px 22px rgba(15,22,32,0.20), 0 0 0 1px color-mix(in oklab, var(--brass) 60%, transparent); }
       #fab:active { filter: brightness(1.08); transform: translateY(1px); }
 
       /* Lifecycle actions (project detail) */
@@ -214,17 +220,51 @@
       .btn-danger:active { background: color-mix(in oklab, var(--red) 12%, transparent); }
       .payline { font-size: 12.5px; color: var(--muted); margin-top: 12px; line-height: 1.5; }
 
-      /* Project-detail panel buttons */
-      .panelbar { display: flex; gap: 8px; margin: 8px 0 4px; }
-      .panelchip { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border-radius: 11px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600; }
-      .panelchip:active { background: var(--surface2); }
-      .panelchip svg { color: var(--brass-bright); }
-      .panelrow { width: 100%; display: flex; align-items: center; gap: 10px; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); margin-bottom: 9px; }
-      .panelrow:active { background: var(--surface2); }
-      .pr-label { font-size: 14.5px; font-weight: 600; color: var(--parchment); }
-      .pr-hint { margin-left: auto; font-size: 12.5px; color: var(--muted); }
-      .pr-chev { color: var(--faint); flex: none; }
       .actstack { display: flex; flex-direction: column; gap: 9px; }
+      /* A tappable row inside the Actions sheet: label left, current value right. */
+      .actrow { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); text-align: left; }
+      .actrow:active { background: var(--surface2); }
+      .actrow.on { border-color: color-mix(in oklab, var(--brass) 45%, var(--line)); }
+      .actrow .ar-l { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: var(--parchment); }
+      .actrow .ar-v { font-size: 12.5px; color: var(--muted); }
+      .actrow.on .ar-v { color: var(--brass-bright); }
+
+      /* Project header: the block repeated at the top of every project tab. Scrolls away with the
+         page by design (Michael: not a sticky nav bar), it is just always the first thing. */
+      .phead { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 13px 14px; margin: 4px 0 14px; }
+      .phead-top { display: flex; align-items: flex-start; gap: 10px; }
+      .phead-name { flex: 1; min-width: 0; font-size: 20px; font-weight: 600; line-height: 1.25; }
+      .phead-act { flex: none; margin: -4px -6px 0 0; padding: 6px 8px; border-radius: 9px; color: var(--muted); }
+      .phead-act:active { background: var(--surface2); color: var(--parchment); }
+      .phead-meta { color: var(--muted); font-size: 13.5px; margin-top: 4px; }
+      .phead-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+      .phead-fee { font-size: 14px; font-weight: 600; color: var(--brass-bright); font-variant-numeric: tabular-nums; }
+      .phead-contacts { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 11px; display: flex; flex-direction: column; gap: 12px; }
+      .phead-c { min-width: 0; }
+      .phead-cn { font-size: 14.5px; font-weight: 600; }
+      .phead-cs { font-size: 12.5px; color: var(--muted); margin-top: 1px; word-break: break-word; }
+      .phead-nc { margin-top: 11px; border-top: 1px solid var(--line); padding-top: 11px; font-size: 12.5px; color: var(--faint); }
+
+      /* Details tab: every field, blanks included and called out. */
+      .kv-full .item.miss .k { color: var(--red); }
+      .kv-full .item.miss .v { color: var(--red); opacity: 0.75; font-style: italic; }
+      .textblock { font-size: 14.5px; line-height: 1.5; color: var(--parchment); white-space: normal; word-break: break-word; }
+
+      /* Bottom tab bar, shown only inside a project. Fixed to the viewport; body gets matching
+         padding via .has-ptabs so the last section is never trapped underneath it. */
+      #ptabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; background: color-mix(in oklab, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--line-strong); padding-bottom: var(--safe-bot); }
+      .ptab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 9px 4px 7px; color: var(--faint); }
+      .ptab .ptab-i { position: relative; display: block; line-height: 0; }
+      .ptab svg { width: 22px; height: 22px; }
+      .ptab-l { font-size: 10.5px; font-weight: 600; letter-spacing: 0.01em; }
+      .ptab.on { color: var(--brass-bright); }
+      .ptab:active { color: var(--muted); }
+      .ptab.on:active { color: var(--brass); }
+      .ptab-badge { position: absolute; top: -5px; right: -9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--red); color: var(--ink-on-accent); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+      /* #app already reserves 80px + safe area at the bottom (it was there for the New-project
+         button), which clears the ~58px tab bar. This only tops it up so the last control on a tab
+         is not sitting flush against the bar. */
+      body.has-ptabs #app { padding-bottom: calc(96px + var(--safe-bot)); }
 
       /* Booking workflow (phase sections + email cards) */
       .bk-sec { margin-bottom: 16px; }
@@ -249,7 +289,7 @@
       #drawer { position: fixed; inset: 0; z-index: 40; }
       .drawer-backdrop { position: absolute; inset: 0; background: rgba(4, 6, 12, 0.55); backdrop-filter: blur(2px); animation: fadeIn 0.18s ease; }
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-      .drawer-panel { position: absolute; top: 0; bottom: 0; left: 0; width: 80%; max-width: 300px; background: var(--surface); border-right: 1px solid var(--line-strong); box-shadow: 8px 0 34px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; padding: calc(14px + var(--safe-top)) 0 calc(12px + var(--safe-bot)); animation: drawerIn 0.2s ease-out; }
+      .drawer-panel { position: absolute; top: 0; bottom: 0; left: 0; width: 80%; max-width: 300px; background: var(--surface); border-right: 1px solid var(--line-strong); box-shadow: 8px 0 34px rgba(15,22,32,0.18); display: flex; flex-direction: column; padding: calc(14px + var(--safe-top)) 0 calc(12px + var(--safe-bot)); animation: drawerIn 0.2s ease-out; }
       @keyframes drawerIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
       .drawer-brand { font-size: 18px; font-weight: 700; color: var(--brass-bright); padding: 4px 20px 14px; letter-spacing: 0.3px; border-bottom: 1px solid var(--line); }
       .drawer-nav { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
@@ -397,6 +437,7 @@
           <button data-page="pipeline">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>
             Pipeline
+            <span class="navcount" id="nav-count-active"></span>
           </button>
           <button data-page="completed">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="M9 11l3 3L22 4"/></svg>

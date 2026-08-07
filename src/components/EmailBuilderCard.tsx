@@ -64,7 +64,7 @@ export function EmailBuilderCard({
   }
 
   return (
-    <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.35)]">
+    <div className="rounded-xl border border-line-strong bg-surface-3/60 px-4 py-3 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.10)]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <p className="truncate text-[13px] font-medium text-parchment">{title}</p>
@@ -79,7 +79,7 @@ export function EmailBuilderCard({
               onClick={onDelete}
               aria-label={`Delete ${title}`}
               title={`Delete ${title}`}
-              className="text-faint transition-colors hover:text-[#e08a6b]"
+              className="text-faint transition-colors hover:text-[#dc2626]"
             >
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6M10 11v6M14 11v6" />
@@ -112,7 +112,7 @@ export function EmailBuilderCard({
             type="button"
             onClick={sendNow}
             disabled={busy}
-            className="rounded-lg bg-brass px-3 py-1.5 text-[12px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+            className="rounded-lg bg-brass px-3 py-1.5 text-[12px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
           >
             {busy ? 'Sending…' : 'Send'}
           </button>
@@ -147,7 +147,7 @@ function Badge({ tone, children }: { tone: 'booked' | 'amber' | 'reply'; childre
       ? { color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }
       : tone === 'reply'
         ? { color: '#7aa2e3', backgroundColor: 'color-mix(in oklab, #7aa2e3 16%, transparent)' }
-        : { color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }
+        : { color: '#2563eb', backgroundColor: 'color-mix(in oklab, #2563eb 16%, transparent)' }
   return (
     <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.1em]" style={style}>
       {children}

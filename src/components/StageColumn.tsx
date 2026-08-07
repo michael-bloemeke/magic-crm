@@ -105,7 +105,7 @@ export function StageColumn({
                 onClick={onDelete}
                 title="Delete stage"
                 aria-label="Delete stage"
-                className="rounded-md p-0.5 text-faint transition-colors hover:text-[#e08a6b]"
+                className="rounded-md p-0.5 text-faint transition-colors hover:text-[#dc2626]"
               >
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />

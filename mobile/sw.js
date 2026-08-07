@@ -20,8 +20,11 @@
 // than tabs on Pipeline, so soft-deleted projects finally have somewhere to be restored from.
 // v18: Tasks, Booking and Payments are sections ON the project page instead of buttons that open a
 // sheet. Only Event details still hides behind a button (too many fields to inline).
+// v19: the project view is four tabs (Booking / Details / Tasks / Notes) with a shared header that
+// carries the name, stage, contacts and Actions; stage and contact management moved into Actions.
+// Also the whole app is relit: one light-grey scheme, matching the Mac, replacing "Indigo Nocturne".
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v18'
+var CACHE = 'mcrm-v19'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

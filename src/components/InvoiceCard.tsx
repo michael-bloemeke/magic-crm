@@ -128,7 +128,7 @@ export function InvoiceCard({ project, billToName, billToEmail }: { project: Pro
               type="button"
               onClick={send}
               disabled={busy}
-              className="rounded-lg bg-brass px-3 py-1.5 text-[12px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+              className="rounded-lg bg-brass px-3 py-1.5 text-[12px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
             >
               {busy ? 'Working…' : invoice.sentAt ? 'Send again' : 'Send to client'}
             </button>

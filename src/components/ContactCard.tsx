@@ -46,7 +46,7 @@ export function ContactCard({
         onClick={() => onRemove(contact)}
         title="Remove this contact from the project"
         aria-label="Remove contact from project"
-        className="flex w-9 shrink-0 items-center justify-center border-l border-line/60 text-faint opacity-0 transition-all hover:bg-surface-3 hover:text-[#e08a6b] group-hover:opacity-100"
+        className="flex w-9 shrink-0 items-center justify-center border-l border-line/60 text-faint opacity-0 transition-all hover:bg-surface-3 hover:text-[#dc2626] group-hover:opacity-100"
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 6l12 12M18 6L6 18" />

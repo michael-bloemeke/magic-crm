@@ -142,7 +142,7 @@ function ThreadRow({
       className={[
         'flex w-full items-center gap-1.5 rounded-lg border px-2 py-2 transition-colors',
         starred
-          ? 'border-[#e0a93a]/55 bg-[#e0a93a]/10'
+          ? 'border-[#ca8a04]/55 bg-[#ca8a04]/10'
           : unread > 0
             ? 'border-brass-dim/50 bg-surface-3/40'
             : 'border-line bg-surface-2/50 hover:border-line-strong',
@@ -155,7 +155,7 @@ function ThreadRow({
           title={starred ? 'Unstar (also unstars in Gmail)' : 'Star (also stars in Gmail)'}
           aria-label={starred ? 'Unstar conversation' : 'Star conversation'}
           aria-pressed={starred}
-          className={['shrink-0 rounded p-0.5 transition-colors', starred ? 'text-[#e0a93a]' : 'text-faint hover:text-[#e0a93a]'].join(' ')}
+          className={['shrink-0 rounded p-0.5 transition-colors', starred ? 'text-[#ca8a04]' : 'text-faint hover:text-[#ca8a04]'].join(' ')}
         >
           <StarIcon filled={starred} />
         </button>
@@ -168,7 +168,7 @@ function ThreadRow({
               {thread.subject}
             </p>
             {hasDraft && (
-              <span className="shrink-0 rounded-full border border-[#e0cfa6]/40 bg-[#e0a93a]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#e0b860]">
+              <span className="shrink-0 rounded-full border border-[#a9c2f6]/40 bg-[#ca8a04]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#2563eb]">
                 Draft
               </span>
             )}
@@ -190,15 +190,15 @@ function DraftRow({ email, onOpen }: { email: ProjectEmail; onOpen: () => void }
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-center gap-2.5 rounded-lg border border-dashed border-[#e0cfa6]/40 bg-[#e0a93a]/[0.06] px-3 py-2 text-left transition-colors hover:border-[#e0cfa6]/70"
+      className="flex w-full items-center gap-2.5 rounded-lg border border-dashed border-[#a9c2f6]/40 bg-[#ca8a04]/[0.06] px-3 py-2 text-left transition-colors hover:border-[#a9c2f6]/70"
     >
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-[#e0b860]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
       </svg>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate text-[12.5px] text-parchment/90">{email.subject || '(no subject)'}</p>
-          <span className="shrink-0 rounded-full border border-[#e0cfa6]/40 bg-[#e0a93a]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#e0b860]">
+          <span className="shrink-0 rounded-full border border-[#a9c2f6]/40 bg-[#ca8a04]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#2563eb]">
             Draft
           </span>
         </div>

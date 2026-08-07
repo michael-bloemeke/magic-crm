@@ -48,7 +48,7 @@ function DisplayCard({
         }
       }}
       className={[
-        'group/card relative flex cursor-pointer flex-col overflow-hidden rounded-xl border p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-14px_rgba(0,0,0,0.8)]',
+        'group/card relative flex cursor-pointer flex-col overflow-hidden rounded-xl border p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-14px_rgba(0,0,0,0.16)]',
         unreadCount > 0
           ? 'border-brass-dim bg-surface-3/80 hover:border-brass-dim'
           : 'border-line bg-surface-2/80 hover:border-line-strong hover:bg-surface-3/80',
@@ -93,7 +93,7 @@ function DisplayCard({
         <span
           title="A payment is pending (amount logged, date not yet received)"
           className="mt-1 inline-flex w-fit items-center gap-1 rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em]"
-          style={{ color: '#d9a441', backgroundColor: 'color-mix(in oklab, #d9a441 16%, transparent)' }}
+          style={{ color: '#2563eb', backgroundColor: 'color-mix(in oklab, #2563eb 16%, transparent)' }}
         >
           <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="9" />

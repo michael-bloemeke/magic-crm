@@ -2,40 +2,56 @@
 
 /* ----------------------------------------------------------------------------
    Bloom CRM — design tokens
-   Aesthetic: warm near-black "stage" canvas, champagne-brass accents,
-   editorial serif wordmark (Fraunces) + refined grotesk UI (Hanken Grotesk).
+
+   ONE theme. There is no picker and no data-theme attribute any more.
+
+   There used to be six (Ember, FISM, Light, Dark, Grey, Grape), each redefining
+   every token, plus a picker in the sidebar. Michael, 2026-08-06: "the color
+   scheme is abysmal... I think those all look terrible... I just want a simple
+   and sleek color design". Six half-tuned palettes is also six times the surface
+   area for any future color to go wrong in, and only one of them was ever on
+   screen. So: a light neutral-grey canvas, near-black text, one restrained blue
+   accent, and semantic colors dark enough to read on a light background.
+
+   The token NAMES are historical (brass, parchment) and are kept on purpose:
+   they are baked into Tailwind utility classes across ~50 components
+   (text-brass-bright, bg-surface-2, ...). Renaming them would be a large
+   mechanical edit with real breakage risk and no user-visible payoff. Read
+   "brass" as "accent" and "parchment" as "body text".
 ---------------------------------------------------------------------------- */
 @theme {
   --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
   --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
 
-  /* Canvas + surfaces */
-  --color-canvas: #100e0c;
-  --color-surface: #17130f;
-  --color-surface-2: #1c1813;
-  --color-surface-3: #221d17;
-  --color-surface-4: #2c2720;
-  --color-surface-5: #38322a;
+  /* Canvas + surfaces. The page is grey, cards are white, and each step up is
+     slightly darker so raised elements read without needing shadows. */
+  --color-canvas: #eef0f3;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f7f9;
+  --color-surface-3: #eaedf1;
+  --color-surface-4: #dfe3e8;
+  --color-surface-5: #d1d7de;
 
-  /* Brass / champagne accent family */
-  --color-brass: #cb9b5d;
-  --color-brass-bright: #e6c590;
-  --color-brass-dim: #8c6f47;
+  /* Accent. "bright" is DARKER than the base here, the opposite of the old dark
+     themes: on a light background, emphasis comes from more contrast, not less. */
+  --color-brass: #2563eb;
+  --color-brass-bright: #1a4fd0;
+  --color-brass-dim: #a9c2f6;
 
   /* Text */
-  --color-parchment: #efe9dd;
-  --color-muted: #a89e8d;
-  --color-faint: #74695a;
+  --color-parchment: #14171b;
+  --color-muted: #545b64;
+  --color-faint: #858d97;
 
   /* Hairlines */
-  --color-line: rgba(233, 218, 192, 0.08);
-  --color-line-strong: rgba(233, 218, 192, 0.14);
+  --color-line: rgba(15, 22, 32, 0.11);
+  --color-line-strong: rgba(15, 22, 32, 0.18);
 
-  /* Umbrella accents (tuned for dark canvas) */
-  --color-umb-inquiry: #99a0ab;
-  --color-umb-postcall: #6f9bd1;
-  --color-umb-booked: #7fbc8c;
-  --color-umb-archive: #bd8f5e;
+  /* Umbrella accents (tuned for a light canvas: all pass on white and on grey) */
+  --color-umb-inquiry: #64748b;
+  --color-umb-postcall: #2563eb;
+  --color-umb-booked: #15803d;
+  --color-umb-archive: #b45309;
 }
 
 @layer base {
@@ -45,6 +61,9 @@
     height: 100%;
   }
 
+  /* Flat and plain on purpose. The old canvas carried two radial "stage
+     spotlight" gradients and an SVG film-grain overlay; both were built for a
+     near-black room and turn to visible dirt on a light one. */
   body {
     margin: 0;
     background-color: var(--color-canvas);
@@ -52,57 +71,32 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    /* Stage spotlight: a soft warm glow from top center, never harsh. */
-    background-image:
-      radial-gradient(
-        120% 80% at 50% -10%,
-        rgba(203, 155, 93, 0.1) 0%,
-        rgba(203, 155, 93, 0.03) 32%,
-        transparent 60%
-      ),
-      radial-gradient(
-        90% 60% at 85% 0%,
-        rgba(111, 155, 209, 0.05) 0%,
-        transparent 55%
-      );
-    background-attachment: fixed;
-  }
-
-  /* Fine film grain for depth — subtle, premium, not noisy. */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   ::selection {
-    background: rgba(203, 155, 93, 0.28);
+    background: rgba(37, 99, 235, 0.18);
     color: var(--color-brass-bright);
   }
 }
 
-/* Slim, warm scrollbars for the horizontal board */
+/* Slim scrollbars for the horizontal board */
 @layer utilities {
   .board-scroll {
     scrollbar-width: thin;
-    scrollbar-color: rgba(203, 155, 93, 0.28) transparent;
+    scrollbar-color: rgba(15, 22, 32, 0.26) transparent;
   }
   .board-scroll::-webkit-scrollbar {
     height: 10px;
     width: 10px;
   }
   .board-scroll::-webkit-scrollbar-thumb {
-    background: rgba(203, 155, 93, 0.22);
+    background: rgba(15, 22, 32, 0.2);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
   .board-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(203, 155, 93, 0.4);
+    background: rgba(15, 22, 32, 0.34);
     background-clip: content-box;
   }
 }
@@ -119,253 +113,10 @@
 }
 .input:focus {
   outline: none;
-  border-color: var(--color-brass-dim);
+  border-color: var(--color-brass);
 }
 .input::placeholder {
   color: var(--color-faint);
-}
-
-/* ----------------------------------------------------------------------------
-   THEMES
-   The @theme block above is EMBER (the default, also data-theme="ember").
-   FISM redefines the same tokens in deep royal navy + gold, matching the FISM
-   award artwork used on michaelbloemeke.com. Switching themes only sets
-   data-theme on <html>; these higher-specificity overrides cascade everywhere.
----------------------------------------------------------------------------- */
-:root[data-theme='fism'] {
-  /* Dominant surfaces are a near-neutral charcoal with a whisper of blue (so the
-     app reads "blue-themed," not drowned in blue); the ramp climbs toward true
-     royal blue only for raised cards/panels, mirroring the website's FISM logic
-     (neutral charcoal dominant, saturated royal reserved for brand moments). */
-  --color-canvas: #0a0d14;
-  --color-surface: #0e1220;
-  --color-surface-2: #141a2b;
-  --color-surface-3: #1b2339;
-  --color-surface-4: #243358;
-  --color-surface-5: #2f4170;
-
-  /* Gold accent family (the FISM medal gold) */
-  --color-brass: #cda85f;
-  --color-brass-bright: #ecc879;
-  --color-brass-dim: #8a7440;
-
-  /* Text (neutral, no blue tint, per the website's FISM rules) */
-  --color-parchment: #f1f3f9;
-  --color-muted: #a7adc0;
-  --color-faint: #6a7187;
-
-  /* Hairlines (cool) */
-  --color-line: rgba(200, 214, 255, 0.08);
-  --color-line-strong: rgba(200, 214, 255, 0.15);
-
-  /* Pipeline category accents: deliberately NOT three blues. Silver (new) ->
-     teal (in conversation) -> green (booked) all pop against the charcoal-navy
-     so the stages are easy to tell apart. */
-  --color-umb-inquiry: #aab2cc;
-  --color-umb-postcall: #46c2d6;
-  --color-umb-booked: #5fcf8f;
-  --color-umb-archive: #cda85f;
-}
-
-/* FISM stage glow: gold from top center, a royal-blue wash upper-right. */
-:root[data-theme='fism'] body {
-  background-image:
-    radial-gradient(
-      120% 80% at 50% -10%,
-      rgba(201, 169, 97, 0.1) 0%,
-      rgba(201, 169, 97, 0.03) 32%,
-      transparent 60%
-    ),
-    radial-gradient(90% 60% at 85% 0%, rgba(40, 70, 140, 0.2) 0%, transparent 55%);
-}
-:root[data-theme='fism'] ::selection {
-  background: rgba(201, 169, 97, 0.3);
-  color: var(--color-brass-bright);
-}
-:root[data-theme='fism'] .board-scroll {
-  scrollbar-color: rgba(201, 169, 97, 0.3) transparent;
-}
-
-/* --- LIGHT: bright neutral surfaces, near-black text, gold accent. The surface ramp inverts vs the
-   dark themes: cards are white (surface) and each higher step is a slightly darker grey (so hover /
-   nested states stay visible on white). The brass family also inverts — "bright" is the DARKEST gold
-   (accent text needs contrast on white), "dim" is the lightest (soft borders). --- */
-:root[data-theme='light'] {
-  /* Warm off-white surfaces (a hint of cream, not stark grey) so the canvas has life. */
-  /* A greyer canvas so the near-white cards clearly sit above it (a white card on off-white was the
-     culprit); headers step a shade darker to band off the card. */
-  --color-canvas: #e3dfd6;
-  --color-surface: #ffffff;
-  --color-surface-2: #fbf9f4;
-  --color-surface-3: #f0ece3;
-  --color-surface-4: #e3ded2;
-  --color-surface-5: #d3cdbf;
-
-  --color-brass: #b07d2a;
-  --color-brass-bright: #8a5e14;
-  --color-brass-dim: #d6c188;
-
-  --color-parchment: #201d17;
-  --color-muted: #5c574d;
-  --color-faint: #8d877a;
-
-  --color-line: rgba(40, 32, 18, 0.11);
-  --color-line-strong: rgba(40, 32, 18, 0.2);
-
-  /* Saturated, distinct pipeline pops that carry the color on a bright canvas. */
-  --color-umb-inquiry: #6d7280;
-  --color-umb-postcall: #2f74c4;
-  --color-umb-booked: #2f9d57;
-  --color-umb-archive: #c07b1f;
-}
-:root[data-theme='light'] body {
-  background-image:
-    radial-gradient(120% 80% at 50% -10%, rgba(176, 125, 42, 0.06) 0%, transparent 55%),
-    radial-gradient(90% 60% at 85% 0%, rgba(47, 116, 184, 0.05) 0%, transparent 55%);
-}
-:root[data-theme='light'] body::before {
-  opacity: 0.02; /* grain barely-there on a bright canvas */
-}
-:root[data-theme='light'] ::selection {
-  background: rgba(176, 125, 42, 0.22);
-  color: #5a3e0e;
-}
-:root[data-theme='light'] .board-scroll {
-  scrollbar-color: rgba(20, 25, 40, 0.28) transparent;
-}
-:root[data-theme='light'] .board-scroll::-webkit-scrollbar-thumb {
-  background: rgba(20, 25, 40, 0.22);
-  background-clip: content-box;
-}
-:root[data-theme='light'] .board-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 25, 40, 0.38);
-  background-clip: content-box;
-}
-
-/* --- DARK: neutral near-black greys with a soft blue accent (distinct from Ember's warmth and
-   FISM's navy). Same ramp direction as the dark themes: higher surface = lighter. --- */
-:root[data-theme='dark'] {
-  /* Cool slate: canvas is clearly the darkest, then wide, deliberate steps so raised panels lift
-     off it and stack (canvas -> card -> header). */
-  --color-canvas: #0b0c10;
-  --color-surface: #15171e;
-  --color-surface-2: #1e212b;
-  --color-surface-3: #2a2f3d;
-  --color-surface-4: #363d4e;
-  --color-surface-5: #454e63;
-
-  --color-brass: #7cabe0;
-  --color-brass-bright: #b6d6f5;
-  --color-brass-dim: #45608a;
-
-  --color-parchment: #e9ebf0;
-  --color-muted: #99a0ad;
-  --color-faint: #626976;
-
-  --color-line: rgba(216, 226, 245, 0.09);
-  --color-line-strong: rgba(216, 226, 245, 0.2);
-
-  /* A warm amber archive against the cool blue accent gives the theme two-tone contrast. */
-  --color-umb-inquiry: #9aa2b5;
-  --color-umb-postcall: #6ea8e6;
-  --color-umb-booked: #5ecb86;
-  --color-umb-archive: #e0a55c;
-}
-:root[data-theme='dark'] body {
-  background-image:
-    radial-gradient(120% 80% at 50% -10%, rgba(124, 171, 224, 0.06) 0%, transparent 55%),
-    radial-gradient(90% 60% at 85% 0%, rgba(124, 171, 224, 0.04) 0%, transparent 55%);
-}
-:root[data-theme='dark'] ::selection {
-  background: rgba(124, 171, 224, 0.28);
-  color: var(--color-brass-bright);
-}
-:root[data-theme='dark'] .board-scroll {
-  scrollbar-color: rgba(124, 171, 224, 0.28) transparent;
-}
-
-/* --- GREY: a muted mid-tone "in between" light and dark — medium-grey surfaces, light text, warm
-   bronze accent. --- */
-:root[data-theme='grey'] {
-  /* Warm-neutral mid grey. The canvas drops a notch and the steps widen, so cards + headers stack
-     with visible depth instead of melting together. */
-  --color-canvas: #302e34;
-  --color-surface: #3b3941;
-  --color-surface-2: #46444e;
-  --color-surface-3: #54515d;
-  --color-surface-4: #62606d;
-  --color-surface-5: #716e7d;
-
-  --color-brass: #cb9f66;
-  --color-brass-bright: #e7c793;
-  --color-brass-dim: #8a6f43;
-
-  --color-parchment: #f2f1f3;
-  --color-muted: #c4c1c8;
-  --color-faint: #97949c;
-
-  --color-line: rgba(255, 255, 255, 0.11);
-  --color-line-strong: rgba(255, 255, 255, 0.21);
-
-  /* Cool blue + green pops read against the warm grey and the bronze accent. */
-  --color-umb-inquiry: #bcbac4;
-  --color-umb-postcall: #85b0e0;
-  --color-umb-booked: #86cc9c;
-  --color-umb-archive: #cb9f66;
-}
-:root[data-theme='grey'] body {
-  background-image:
-    radial-gradient(120% 80% at 50% -10%, rgba(200, 166, 112, 0.07) 0%, transparent 55%),
-    radial-gradient(90% 60% at 85% 0%, rgba(255, 255, 255, 0.03) 0%, transparent 55%);
-}
-:root[data-theme='grey'] ::selection {
-  background: rgba(200, 166, 112, 0.3);
-  color: var(--color-brass-bright);
-}
-:root[data-theme='grey'] .board-scroll {
-  scrollbar-color: rgba(200, 166, 112, 0.3) transparent;
-}
-
-/* --- GRAPE: from the coolors palette (shadow grey -> vintage grape -> dusty grape, dusk blue,
-   gunmetal). Deep purple-grey canvas whose ramp climbs toward grape; a dusty-grape violet accent;
-   and dusk-blue + green + gold pipeline pops so it's colorful, not one flat hue. --- */
-:root[data-theme='grape'] {
-  /* Deeper shadow-grape canvas with wide steps up through grape, so panels lift and stack. */
-  --color-canvas: #191521;
-  --color-surface: #241d30;
-  --color-surface-2: #2e2740;
-  --color-surface-3: #3a3252;
-  --color-surface-4: #473e66;
-  --color-surface-5: #564d7e;
-
-  /* Dusty-grape violet accent (5F5AA2 lifted so dark button text stays legible). */
-  --color-brass: #8480cc;
-  --color-brass-bright: #b7b3ee;
-  --color-brass-dim: #524e86;
-
-  --color-parchment: #f0eef7;
-  --color-muted: #b3aec6;
-  --color-faint: #7c7794;
-
-  --color-line: rgba(200, 195, 235, 0.1);
-  --color-line-strong: rgba(200, 195, 235, 0.2);
-
-  --color-umb-inquiry: #9a95b6; /* lavender-grey */
-  --color-umb-postcall: #6f8fd4; /* dusk blue (355691) */
-  --color-umb-booked: #6ecb8a; /* green pop */
-  --color-umb-archive: #cba36a; /* warm gold pop against the purple */
-}
-:root[data-theme='grape'] body {
-  background-image:
-    radial-gradient(120% 80% at 50% -10%, rgba(132, 128, 204, 0.12) 0%, transparent 58%),
-    radial-gradient(90% 60% at 85% 0%, rgba(53, 86, 145, 0.16) 0%, transparent 55%);
-}
-:root[data-theme='grape'] ::selection {
-  background: rgba(132, 128, 204, 0.32);
-  color: var(--color-brass-bright);
-}
-:root[data-theme='grape'] .board-scroll {
-  scrollbar-color: rgba(132, 128, 204, 0.32) transparent;
 }
 
 /* Rich-text email editor + read-only receipt (both carry .email-rte). This surface is styled to

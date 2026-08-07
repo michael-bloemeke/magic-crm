@@ -398,7 +398,7 @@ function DetailSection({
   return (
     <section
       className={[
-        'rounded-2xl border bg-surface-2/70 shadow-[0_4px_16px_-4px_rgba(0,0,0,0.4)] transition-colors',
+        'rounded-2xl border bg-surface-2/70 shadow-[0_4px_16px_-4px_rgba(0,0,0,0.12)] transition-colors',
         alert ? '' : highlight ? 'border-brass-dim ring-1 ring-brass-dim/40' : 'border-line-strong',
       ].join(' ')}
       style={alert ? { borderColor: 'color-mix(in oklab, #ef4444 55%, transparent)', boxShadow: '0 0 0 1px color-mix(in oklab, #ef4444 25%, transparent)' } : undefined}

@@ -44,7 +44,7 @@ function CalRow({ label, ok }: { label: string; ok: boolean }) {
           Found
         </span>
       ) : (
-        <span className="text-[11.5px] font-semibold text-[#e0b060]">Not found</span>
+        <span className="text-[11.5px] font-semibold text-[#2563eb]">Not found</span>
       )}
     </div>
   )
@@ -265,7 +265,7 @@ export function SettingsPage() {
               onClick={() => setTab(t.id)}
               className={[
                 'rounded-lg px-3.5 py-1.5 text-[12.5px] font-medium transition-colors',
-                tab === t.id ? 'bg-brass text-[#231a0c]' : 'border border-line text-muted hover:border-line-strong hover:text-parchment',
+                tab === t.id ? 'bg-brass text-[#ffffff]' : 'border border-line text-muted hover:border-line-strong hover:text-parchment',
               ].join(' ')}
             >
               {t.label}
@@ -284,7 +284,7 @@ export function SettingsPage() {
               type="button"
               onClick={saveFields}
               disabled={fBusy}
-              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
             >
               {fBusy ? 'Saving…' : 'Save fields'}
             </button>
@@ -331,7 +331,7 @@ export function SettingsPage() {
                       onClick={() => deleteBuiltin(f.id)}
                       title="Delete this field (reversible: it moves to Removed below)"
                       aria-label="Delete field"
-                      className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b]"
+                      className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-faint transition-colors hover:border-[#dc2626]/60 hover:text-[#dc2626]"
                     >
                       <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
@@ -360,7 +360,7 @@ export function SettingsPage() {
                     onClick={() => removeCustom(f.id)}
                     title="Delete this custom field"
                     aria-label="Delete custom field"
-                    className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-faint transition-colors hover:border-[#e08a6b]/60 hover:text-[#e08a6b]"
+                    className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-faint transition-colors hover:border-[#dc2626]/60 hover:text-[#dc2626]"
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
@@ -435,7 +435,7 @@ export function SettingsPage() {
               type="button"
               onClick={saveSignature}
               disabled={sigBusy}
-              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
             >
               {sigBusy ? 'Saving…' : 'Save signature'}
             </button>
@@ -446,7 +446,7 @@ export function SettingsPage() {
               type="checkbox"
               checked={sigEnabled}
               onChange={(e) => setSigEnabled(e.target.checked)}
-              className="h-4 w-4 accent-[#c79a4b]"
+              className="h-4 w-4 accent-[#1a4fd0]"
             />
             <span>Append my signature to outgoing emails</span>
           </label>
@@ -481,7 +481,7 @@ export function SettingsPage() {
                 checked={!!push?.enabled}
                 disabled={pushBusy || !push}
                 onChange={(e) => togglePush(e.target.checked)}
-                className="h-4 w-4 accent-[#c79a4b]"
+                className="h-4 w-4 accent-[#1a4fd0]"
               />
               <span>{push?.enabled ? 'On' : 'Off'}</span>
             </label>
@@ -539,7 +539,7 @@ export function SettingsPage() {
                 <p>Not connected to Google yet.</p>
                 <a
                   href="/api/gmail/auth"
-                  className="inline-block rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110"
+                  className="inline-block rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110"
                 >
                   Connect Google (Gmail + Calendar)
                 </a>
@@ -552,7 +552,7 @@ export function SettingsPage() {
                 </p>
                 <a
                   href="/api/gmail/auth"
-                  className="inline-block rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110"
+                  className="inline-block rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110"
                 >
                   Reconnect to grant calendar access
                 </a>
@@ -564,7 +564,7 @@ export function SettingsPage() {
                   <CalRow label={`"${cal.workName}" calendar (tasks)`} ok={cal.workCalendar} />
                 </div>
                 {(!cal.gigsCalendar || !cal.workCalendar) && (
-                  <p className="text-[11.5px] text-[#e0b060]">
+                  <p className="text-[11.5px] text-[#2563eb]">
                     Create the missing calendar in Google Calendar named exactly “{!cal.gigsCalendar ? cal.gigsName : cal.workName}”,
                     then Sync.
                   </p>
@@ -587,7 +587,7 @@ export function SettingsPage() {
                 </p>
               </>
             )}
-            {cal?.error && <p className="text-[11.5px] text-[#e08a6b]">{cal.error}</p>}
+            {cal?.error && <p className="text-[11.5px] text-[#dc2626]">{cal.error}</p>}
           </div>
         </section>
 
@@ -605,7 +605,7 @@ export function SettingsPage() {
               type="button"
               onClick={saveHighlights}
               disabled={hlBusy}
-              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#231a0c] transition-all hover:brightness-110 disabled:opacity-40"
+              className="shrink-0 rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
             >
               {hlBusy ? 'Saving…' : 'Save highlights'}
             </button>

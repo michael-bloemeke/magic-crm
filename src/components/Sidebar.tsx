@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { THEMES, type ThemeId } from '../theme'
+import { type ReactNode } from 'react'
 
 export type Page =
   | 'home'
@@ -226,15 +225,12 @@ type Props = {
   taskAlerts: number
   inboxUnread: number
   onOpenSearch: () => void
-  theme: ThemeId
-  onChangeTheme: (id: ThemeId) => void
 }
 
-export function Sidebar({ page, onNavigate, taskAlerts, inboxUnread, onOpenSearch, theme, onChangeTheme }: Props) {
+export function Sidebar({ page, onNavigate, taskAlerts, inboxUnread, onOpenSearch }: Props) {
   return (
     <aside className="board-scroll relative z-10 flex w-[236px] shrink-0 flex-col overflow-y-auto border-r border-line bg-surface/40 backdrop-blur-sm">
-      {/* Wordmark — click to switch color scheme */}
-      <Wordmark theme={theme} onChangeTheme={onChangeTheme} />
+      <Wordmark />
 
       {/* Search trigger */}
       <div className="px-3 pb-3">
@@ -285,7 +281,7 @@ export function Sidebar({ page, onNavigate, taskAlerts, inboxUnread, onOpenSearc
                   {showAlert ? (
                     <span
                       className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-canvas"
-                      style={{ backgroundColor: item.badge === 'tasks' ? '#e08a6b' : 'var(--color-brass)' }}
+                      style={{ backgroundColor: item.badge === 'tasks' ? '#dc2626' : 'var(--color-brass)' }}
                     >
                       {count}
                     </span>
@@ -312,107 +308,19 @@ export function Sidebar({ page, onNavigate, taskAlerts, inboxUnread, onOpenSearc
   )
 }
 
-function Wordmark({ theme, onChangeTheme }: { theme: ThemeId; onChangeTheme: (id: ThemeId) => void }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
+// The wordmark. It used to be a dropdown for picking one of six color schemes; there is only one
+// scheme now, so it is just a label.
+function Wordmark() {
   return (
-    <div ref={ref} className="relative px-3 pb-4 pt-4">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Change color scheme"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2/60"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface-2">
-          <span className="font-display text-[22px] italic leading-none text-brass">M</span>
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-display text-[17px] leading-tight text-parchment">Michael Bloemeke</p>
-          <p className="truncate text-[10px] uppercase tracking-[0.18em] text-faint">Award-Winning Magic</p>
-        </div>
-        <svg
-          viewBox="0 0 24 24"
-          className={['h-4 w-4 shrink-0 text-faint transition-transform', open ? 'rotate-180' : ''].join(' ')}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          className="absolute inset-x-3 top-[64px] z-30 overflow-hidden rounded-xl border border-line-strong bg-surface-2 p-1.5 shadow-[0_24px_50px_-20px_rgba(0,0,0,0.85)]"
-        >
-          <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-faint">
-            Color scheme
-          </p>
-          {THEMES.map((t) => {
-            const active = t.id === theme
-            return (
-              <button
-                key={t.id}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                onClick={() => {
-                  onChangeTheme(t.id)
-                  setOpen(false)
-                }}
-                className={[
-                  'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors',
-                  active ? 'bg-surface-3' : 'hover:bg-surface-3/70',
-                ].join(' ')}
-              >
-                {/* Swatch preview */}
-                <span
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border"
-                  style={{ background: t.swatch.bg, borderColor: 'var(--color-line-strong)' }}
-                >
-                  <span
-                    className="h-3 w-3 rounded-full"
-                    style={{ background: t.swatch.accent, boxShadow: `0 0 8px ${t.swatch.accent}` }}
-                  />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-semibold text-parchment">{t.label}</span>
-                  <span className="block truncate text-[11px] text-faint">{t.tagline}</span>
-                </span>
-                {active ? (
-                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-brass" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6L9 17l-5-5" />
-                  </svg>
-                ) : (
-                  <span className="h-4 w-4 shrink-0" />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      )}
+    <div className="flex items-center gap-3 px-5 pb-4 pt-5">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface-2">
+        <span className="font-display text-[22px] italic leading-none text-brass">M</span>
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-display text-[17px] leading-tight text-parchment">Michael Bloemeke</p>
+        <p className="truncate text-[10px] uppercase tracking-[0.18em] text-faint">Award-Winning Magic</p>
+      </div>
     </div>
   )
+
 }

@@ -61,7 +61,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
         {count > 0 && (
           <span
             className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-canvas"
-            style={{ backgroundColor: overdue.length ? '#e08a6b' : 'var(--color-brass)' }}
+            style={{ backgroundColor: overdue.length ? '#dc2626' : 'var(--color-brass)' }}
           >
             {count}
           </span>
@@ -77,7 +77,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.98 }}
               transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              className="board-scroll absolute right-0 top-12 z-50 max-h-[70vh] w-[380px] overflow-y-auto rounded-2xl border border-line-strong bg-surface p-3 shadow-[0_30px_60px_-25px_rgba(0,0,0,0.9)]"
+              className="board-scroll absolute right-0 top-12 z-50 max-h-[70vh] w-[380px] overflow-y-auto rounded-2xl border border-line-strong bg-surface p-3 shadow-[0_30px_60px_-25px_rgba(0,0,0,0.18)]"
             >
               <div className="mb-2 flex items-center justify-between px-1">
                 <h3 className="font-display text-[16px] text-parchment">Notifications</h3>
@@ -180,7 +180,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
                                   View project
                                 </button>
                               ) : (
-                                <span className="text-[#e08a6b]">Needs review (possible duplicate)</span>
+                                <span className="text-[#dc2626]">Needs review (possible duplicate)</span>
                               )}
                             </div>
                           </div>
@@ -190,7 +190,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
                   )}
                   {overdue.length > 0 && (
                     <section>
-                      <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#e08a6b' }}>
+                      <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#dc2626' }}>
                         Overdue · {overdue.length}
                       </p>
                       <div className="space-y-1.5">{overdue.map(renderTask)}</div>

@@ -114,7 +114,7 @@ export function NewProjectModal({ open, contacts, categories, onClose, onCreated
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
 
           <motion.div
-            className="relative flex max-h-[86vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)]"
+            className="relative flex max-h-[86vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_30px_70px_-30px_rgba(0,0,0,0.18)]"
             initial={{ y: 16, opacity: 0.6, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
@@ -202,7 +202,7 @@ export function NewProjectModal({ open, contacts, categories, onClose, onCreated
                 />
               </Field>
 
-              {error && <p className="text-[12.5px] text-[#e08a6b]">{error}</p>}
+              {error && <p className="text-[12.5px] text-[#dc2626]">{error}</p>}
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-line px-6 py-4">
@@ -318,7 +318,7 @@ function ContactSearchPicker({ contacts, onPick }: { contacts: ContactOpt[]; onP
         />
       </div>
       {open && results.length > 0 && (
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-3 py-1 shadow-[0_20px_44px_-20px_rgba(0,0,0,0.9)]">
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-3 py-1 shadow-[0_20px_44px_-20px_rgba(0,0,0,0.18)]">
           {results.map((c, i) => (
             <button
               key={c.key}
@@ -340,7 +340,7 @@ function ContactSearchPicker({ contacts, onPick }: { contacts: ContactOpt[]; onP
         </div>
       )}
       {open && query.trim() && results.length === 0 && (
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 rounded-lg border border-line-strong bg-surface-3 px-3 py-2 text-[11.5px] text-faint shadow-[0_20px_44px_-20px_rgba(0,0,0,0.9)]">
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 rounded-lg border border-line-strong bg-surface-3 px-3 py-2 text-[11.5px] text-faint shadow-[0_20px_44px_-20px_rgba(0,0,0,0.18)]">
           No matches.
         </div>
       )}
