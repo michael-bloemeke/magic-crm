@@ -700,11 +700,25 @@ export async function linkOrCreateContact(projectId, { contactId = '', name = ''
     id = String(data.id)
   }
 
+  // Append: a new contact goes after the ones already on the project, so adding somebody never
+  // silently reassigns who the contract is addressed to. position 0 is the primary.
+  const { data: existing, error: posErr } = await sb
+    .from('contact_links')
+    .select('position')
+    .eq('project_id', projectId)
+    .order('position', { ascending: false })
+    .limit(1)
+  if (posErr) throw posErr
+  const nextPos = existing && existing.length ? Number(existing[0].position ?? 0) + 1 : 0
+
+  // ignoreDuplicates so re-linking somebody already on the project is a no-op. Without it the
+  // upsert would rewrite their position and quietly demote the primary.
   const { error: linkErr } = await sb
     .from('contact_links')
-    .upsert({ project_id: projectId, contact_id: id }, { onConflict: 'project_id,contact_id' })
+    .upsert({ project_id: projectId, contact_id: id, position: nextPos },
+            { onConflict: 'project_id,contact_id', ignoreDuplicates: true })
   if (linkErr) throw linkErr
-  return { ok: true, contactId: id }
+  return { ok: true, contactId: id, position: nextPos }
 }
 
 // Detach a contact from a project. Deletes only the join row: the contact record itself is left
@@ -1020,10 +1034,19 @@ export async function saveEmailDraft({ projectId, kind, to, subject, body } = {}
   return { id, subject: row.subject, body: row.body, to: toArr }
 }
 
-// Contact links: { [projectId]: [contactId, ...] }. Powers "linked projects" on a contact and (later)
+// Contact links: { [projectId]: [contactId, ...] }. Powers "linked projects" on a contact and
 // contacts-on-a-project. Mirrors crm-links.
+//
+// ORDER MATTERS: position 0 is the primary contact, the person the contract and invoice are
+// addressed to. The table had no ordering column until 2026-08-06, so "the first contact" was
+// whatever order Postgres felt like returning and could change on any write. contact_id is the
+// tiebreak so the result is fully deterministic.
 export async function loadLinks() {
-  const { data, error } = await sb.from('contact_links').select('project_id,contact_id')
+  const { data, error } = await sb
+    .from('contact_links')
+    .select('project_id,contact_id,position')
+    .order('position', { ascending: true })
+    .order('contact_id', { ascending: true })
   if (error) throw error
   const links = {}
   ;(data || []).forEach((r) => {

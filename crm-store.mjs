@@ -142,8 +142,15 @@ export async function deleteContact(id) {
 
 // ---------------- contact_links ----------------
 
+// ORDER MATTERS: position 0 is the primary contact, the one the contract and invoice are addressed
+// to. The table had no ordering column until 2026-08-06, so "the first contact" was whatever order
+// Postgres returned. contact_id is the tiebreak so the result is fully deterministic.
 export async function getContactLinks() {
-  const { data, error } = await sb().from('contact_links').select('project_id, contact_id')
+  const { data, error } = await sb()
+    .from('contact_links')
+    .select('project_id, contact_id, position')
+    .order('position', { ascending: true })
+    .order('contact_id', { ascending: true })
   must(error, 'getContactLinks')
   return data || []
 }
@@ -163,17 +170,29 @@ export async function setProjectLinks(projectId, contactIds) {
   must(del.error, 'setProjectLinks.delete')
   const ids = [...new Set(contactIds || [])]
   if (ids.length) {
+    // The caller's array order IS the priority order: ids[0] becomes the primary.
     const { error } = await sb()
       .from('contact_links')
-      .insert(ids.map((contact_id) => ({ project_id: projectId, contact_id })))
+      .insert(ids.map((contact_id, position) => ({ project_id: projectId, contact_id, position })))
     must(error, 'setProjectLinks.insert')
   }
 }
 
+// Append, so adding a contact never reassigns who the paperwork is addressed to. ignoreDuplicates
+// keeps re-linking an existing contact a no-op rather than rewriting their position.
 export async function addLink(projectId, contactId) {
+  const { data: rows, error: posErr } = await sb()
+    .from('contact_links')
+    .select('position')
+    .eq('project_id', projectId)
+    .order('position', { ascending: false })
+    .limit(1)
+  must(posErr, 'addLink.position')
+  const position = rows && rows.length ? Number(rows[0].position ?? 0) + 1 : 0
   const { error } = await sb()
     .from('contact_links')
-    .upsert({ project_id: projectId, contact_id: contactId }, { onConflict: 'project_id,contact_id' })
+    .upsert({ project_id: projectId, contact_id: contactId, position },
+            { onConflict: 'project_id,contact_id', ignoreDuplicates: true })
   must(error, 'addLink')
 }
 
