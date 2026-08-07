@@ -184,7 +184,11 @@ Deno.serve(async (req) => {
 
     const { data: project, error: projErr } = await sb
       .from("projects")
-      .select("id, agreement_html, booking_viewed_at, event_date")
+      .select(
+        "id, agreement_html, booking_viewed_at, event_date, performance_style, " +
+          "event_summary, event_start_time, show_start_time, av, number_of_guests, " +
+          "event_location, venue_type, indoors_or_outdoors, age_of_guests, vips, contact_names",
+      )
       .eq("booking_token", token)
       .maybeSingle();
     if (projErr) return json({ error: "Lookup failed." }, 500);
@@ -206,19 +210,49 @@ Deno.serve(async (req) => {
       .eq("token", token)
       .maybeSingle();
     if (error) return json({ error: "Lookup failed." }, 500);
-    // The date is stated back to them on every step, so it goes out even before they have submitted.
+    // The date and the performance style are STATED back to them, never asked: they are what Michael
+    // quoted and what the agreement says, so the client seeing a different number is the whole
+    // problem. Both go out on every step, even before they have submitted.
     const eventDate = prettyDate(String(project.event_date || ""));
-    if (!row) return json({ submitted: false, signed: false, eventDate });
-    if (row.signed_at) return json({ submitted: true, signed: true, eventDate });
+    const performanceStyle = String(project.performance_style || "").trim();
+
+    // What Michael already has on file, so the client reads it back and corrects it rather than
+    // typing everything from scratch. Every one of these stays editable on the form; only the date
+    // and the performance style above are read-only.
+    const prefill: Record<string, string> = {};
+    const put = (id: string, v: unknown) => {
+      const s = String(v ?? "").trim();
+      if (s) prefill[id] = s;
+    };
+    put("event_summary", project.event_summary);
+    put("event_start_time", project.event_start_time);
+    put("show_start_time", project.show_start_time);
+    put("av", project.av);
+    put("number_of_guests", project.number_of_guests);
+    put("venue_address", project.event_location);
+    put("venue_type", project.venue_type);
+    put("indoors_or_outdoors", project.indoors_or_outdoors);
+    put("age_of_guests", project.age_of_guests);
+    put("vips", project.vips);
+    // Best guess only: the invoice often goes to somebody other than the signer, which is exactly
+    // why the question is asked. Seeding it with the contact saves typing in the common case.
+    put("invoice_to", project.contact_names);
+    // "unforgettable" and "notes" are deliberately NOT prefilled. They append to Michael's project
+    // notes, so seeding them with his own notes would show the client his internal remarks and then
+    // append them back onto themselves.
+
+    const base = { eventDate, performanceStyle, prefill };
+    if (!row) return json({ submitted: false, signed: false, ...base });
+    if (row.signed_at) return json({ submitted: true, signed: true, ...base });
 
     const answers = Array.isArray(row.answers) ? row.answers : [];
     // Their OWN answers, behind their own token, so they can go back and correct something rather
-    // than being cornered into signing a detail they spotted was wrong.
-    if (!project.agreement_html) return json({ submitted: true, signed: false, eventDate, answers });
+    // than being cornered into signing a detail they spotted was wrong. These win over the prefill.
+    if (!project.agreement_html) return json({ submitted: true, signed: false, ...base, answers });
     return json({
       submitted: true,
       signed: false,
-      eventDate,
+      ...base,
       answers,
       agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || "")),
     });
