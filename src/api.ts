@@ -756,6 +756,61 @@ export function bookingAgreementPdfUrl(projectId: string, download = false): str
   return `/api/booking/agreement-pdf?projectId=${encodeURIComponent(projectId)}${download ? '&download=1' : ''}`
 }
 
+// --- Proposal page -----------------------------------------------------------
+//
+// The step before the booking flow: the per-client page Michael sends after a sales call. It lives
+// on michaelbloemeke.com and is served from Supabase, so publishing is a database write rather than
+// a deploy and the link works whether or not this app is running.
+export type ProposalStatus = {
+  exists: boolean
+  // none = never created. draft = link issued but dead. live = the link works. retired = taken down.
+  status: 'none' | 'draft' | 'live' | 'retired'
+  url?: string
+  headline?: string
+  // What still has to be filled in before it can be published, in plain words.
+  gaps: string[]
+  // Every view is counted, not every viewer: the forwarded view is the one that decides the booking.
+  views: number
+  firstViewedAt?: string
+  lastViewedAt?: string
+  expiresAt?: string
+  emailDraftedAt?: string
+  packageCount?: number
+}
+
+export async function loadProposalStatus(projectId: string): Promise<ProposalStatus | null> {
+  const res = await fetch(`/api/proposal/status?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) return null
+  return (await res.json()) as ProposalStatus
+}
+
+// Start a draft, seeded from the project's event type. Does NOT make the link live.
+export async function createProposal(projectId: string): Promise<ProposalStatus> {
+  return postJsonStrict('/api/proposal/create', { projectId }, 'Could not start the proposal')
+}
+
+export async function saveProposal(projectId: string, patch: Record<string, unknown>): Promise<ProposalStatus> {
+  return postJsonStrict('/api/proposal/save', { projectId, ...patch }, 'Could not save the proposal')
+}
+
+// Make the link live and leave the email waiting in Gmail. Never sends it.
+export async function publishProposal(
+  projectId: string,
+  draftEmail = true,
+): Promise<ProposalStatus & { draft?: { to: string } | null; draftError?: string }> {
+  return postJsonStrict('/api/proposal/publish', { projectId, draftEmail }, 'Could not publish the proposal')
+}
+
+// Draft the email on its own, for a proposal that is already live.
+export async function draftProposalEmail(projectId: string): Promise<ProposalStatus & { draft?: { to: string } }> {
+  return postJsonStrict('/api/proposal/email', { projectId }, 'Could not draft the proposal email')
+}
+
+// Take the page down by hand. Archiving or deleting the project already does this on its own.
+export async function retireProposal(projectId: string): Promise<ProposalStatus> {
+  return postJsonStrict('/api/proposal/retire', { projectId }, 'Could not retire the proposal')
+}
+
 export async function loadEsignStatus(): Promise<EsignStatus> {
   const res = await fetch('/api/esign')
   if (!res.ok) throw new Error(`Failed to load e-sign status (${res.status})`)

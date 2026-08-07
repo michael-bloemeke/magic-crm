@@ -25,6 +25,8 @@
 import { randomBytes } from 'node:crypto'
 import { sb } from './crm-store.mjs'
 import { loadAll, appendActivityLog } from './crm-data-core.mjs'
+import { proposalEmail } from './crm-booking-emails.mjs'
+import { clientEmailFor } from './crm-booking-form.mjs'
 
 const SITE = 'https://michaelbloemeke.com'
 
@@ -306,4 +308,56 @@ export async function proposalStats(projectId) {
     lastViewedAt: row.last_viewed_at || '',
     expiresAt: row.expires_at || '',
   }
+}
+
+// Everything the project card needs in one read: whether a proposal exists, whether it is live,
+// what is still missing, the link, and whether anybody has opened it.
+export async function proposalStatus(projectId) {
+  const row = await loadProposal(projectId)
+  if (!row) return { exists: false, status: 'none', gaps: [], views: 0 }
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  return {
+    exists: true,
+    status: row.status,
+    url: proposalUrl(row.token),
+    headline: row.headline || '',
+    gaps: proposalGaps(row, project),
+    views: row.view_count ?? 0,
+    firstViewedAt: row.first_viewed_at || '',
+    lastViewedAt: row.last_viewed_at || '',
+    expiresAt: row.expires_at || '',
+    emailDraftedAt: row.email_drafted_at || '',
+    packageCount: Array.isArray(row.packages) ? row.packages.length : 0,
+  }
+}
+
+// Leave a ready-to-send draft in Gmail. NEVER sends: Michael reads every client email before it
+// goes, and this one carries a price.
+//
+// Publishing happens first, in the caller, so the link in the draft can never be dead by the time he
+// presses send.
+export async function draftProposalEmail(projectId, { createDraft }) {
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  if (!project) throw new Error(`crm-proposals: no project "${projectId}"`)
+
+  const row = await loadProposal(projectId)
+  if (!row) throw new Error('No proposal for this project yet.')
+  if (row.status !== 'live') throw new Error('Publish the proposal before drafting the email, or the link in it will be dead.')
+
+  const to = clientEmailFor(project)
+  if (!to) {
+    throw new Error('No client email on this project. Add one in the Contact section, or on the linked contact record.')
+  }
+
+  const url = proposalUrl(row.token)
+  const { subject, text, html } = proposalEmail({ project, url })
+  const draft = await createDraft({ to, subject, body: text, html })
+
+  await sb()
+    .from('proposals')
+    .update({ email_drafted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('project_id', projectId)
+  await appendActivityLog(projectId, 'Proposal email drafted in Gmail. Not sent.')
+
+  return { ok: true, to, url, threadId: draft?.threadId || '' }
 }

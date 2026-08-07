@@ -56,6 +56,50 @@ const WRAP_CLOSE = '</div>'
 const p = (html) => `<p style="margin:0 0 14px">${html}</p>`
 
 // ---------------------------------------------------------------------------
+// 0. The proposal  (sits BEFORE the booking flow, its own thread)
+// ---------------------------------------------------------------------------
+//
+// The post-call email. It used to be a wall of text plus a 10.6 MB PDF deck, which bounced off
+// corporate mail servers, named exactly one price, and forwarded badly to the person who actually
+// decides. Now it is three sentences and a link.
+//
+// Deliberately SHORT. The page does the selling, and every sentence here is one the client reads
+// instead of clicking. It also says "share it" out loud, because most of these deals are decided by
+// someone who was not on the call.
+//
+// ⚠️ PLACEHOLDER WORDING. Michael is writing the real template (2026-08-07). Swap the copy here and
+// every sender picks it up; nothing else needs to change.
+export function proposalEmail({ project, url }) {
+  const name = firstNameOf(project)
+  const subject = 'Your proposal'
+  const text = [
+    `Hi ${name},`,
+    '',
+    'Great talking with you. I put everything we went over on one page, along with a couple of options and some video so you can see what it actually looks like.',
+    '',
+    url,
+    '',
+    'Share it with anyone else who needs to see it, the link works for them too.',
+    '',
+    'Have a look and let me know which option fits. Any questions, just ask.',
+    '',
+    // No sign-off name: this is a Gmail DRAFT Michael sends himself, so his own signature supplies it.
+    'Thanks!',
+  ].join('\n')
+  const html = [
+    WRAP_OPEN,
+    p(`Hi ${esc(name)},`),
+    p('Great talking with you. I put everything we went over on one page, along with a couple of options and some video so you can see what it actually looks like.'),
+    button(url, 'Open your proposal'),
+    p('Share it with anyone else who needs to see it, the link works for them too.'),
+    p('Have a look and let me know which option fits. Any questions, just ask.'),
+    p('Thanks!'),
+    WRAP_CLOSE,
+  ].join('')
+  return { subject, text, html }
+}
+
+// ---------------------------------------------------------------------------
 // 1. Booking form  (thread A opens here)
 // ---------------------------------------------------------------------------
 

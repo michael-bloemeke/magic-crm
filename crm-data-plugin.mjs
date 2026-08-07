@@ -38,6 +38,9 @@ import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, st
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
+import {
+  proposalStatus, ensureProposal, saveProposal, publishProposal, retireProposal, draftProposalEmail,
+} from './crm-proposals.mjs'
 import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking, agreementPdfFromCloud } from './crm-booking-agreement.mjs'
 import {
   syncProject,
@@ -1176,6 +1179,85 @@ export function crmDataPlugin() {
             res.statusCode = 500
             res.end(JSON.stringify({ error: String(e?.message || e) }))
           })
+      })
+
+      // --- Proposal page -------------------------------------------------
+      //
+      // The step BEFORE the booking flow: the page Michael sends after a sales call, replacing the
+      // wall of text and the 10.6 MB PDF deck. Same shape as the booking endpoints next door.
+      //
+      // Publishing is a database write, not a deploy, so a client who is ready at 10 PM gets their
+      // link at 10 PM whether or not this app is running. These endpoints only exist so Michael can
+      // drive it from the project instead of the command line.
+
+      // Everything the card needs in one read: does a proposal exist, is it live, what is missing,
+      // the link, and whether anyone has opened it.
+      server.middlewares.use('/api/proposal/status', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        proposalStatus(url.searchParams.get('projectId') || '')
+          .then((out) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(out))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
+      // Start a draft, seeded from the project's event type. Issuing a link does NOT publish it.
+      server.middlewares.use('/api/proposal/create', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          await ensureProposal(b.projectId)
+          return await proposalStatus(b.projectId)
+        })
+      })
+      // Save content. Keys map onto the columns; anything else is ignored.
+      server.middlewares.use('/api/proposal/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          const { projectId, ...patch } = b
+          await saveProposal(projectId, patch)
+          return await proposalStatus(projectId)
+        })
+      })
+      // Make the link live AND leave the email as a Gmail draft, in that order so the link in the
+      // draft can never be dead. Never sends: Michael reads every client email before it goes, and
+      // this one carries a price.
+      server.middlewares.use('/api/proposal/publish', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          const published = await publishProposal(b.projectId)
+          let draft = null
+          let draftError = ''
+          if (b.draftEmail !== false) {
+            try {
+              draft = await draftProposalEmail(b.projectId, { createDraft: gmailCreateDraft })
+            } catch (e) {
+              // The page is live either way. A Gmail hiccup should not roll that back, and Michael
+              // can retry the draft on its own from the card.
+              draftError = String(e?.message || e)
+            }
+          }
+          return { ...(await proposalStatus(b.projectId)), url: published.url, draft, draftError }
+        })
+      })
+      // Draft the email on its own, for a proposal that is already live.
+      server.middlewares.use('/api/proposal/email', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          const draft = await draftProposalEmail(b.projectId, { createDraft: gmailCreateDraft })
+          return { ...(await proposalStatus(b.projectId)), draft }
+        })
+      })
+      // Take the page down by hand. Archiving or deleting the project does this on its own.
+      server.middlewares.use('/api/proposal/retire', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          await retireProposal(b.projectId)
+          return await proposalStatus(b.projectId)
+        })
       })
 
       server.middlewares.use('/api/contracts/send-signature', (req, res, next) => {
