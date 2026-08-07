@@ -23,8 +23,11 @@
 // v19: the project view is four tabs (Booking / Details / Tasks / Notes) with a shared header that
 // carries the name, stage, contacts and Actions; stage and contact management moved into Actions.
 // Also the whole app is relit: one light-grey scheme, matching the Mac, replacing "Indigo Nocturne".
+// v20: the primary contact is the FIRST LINKED one, not whichever name matched the project's text
+// field. That name test invented a second, undeletable contact card whenever the two differed. Every
+// contact is removable now, primary included. Also the new Bloom CRM icon.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v19'
+var CACHE = 'mcrm-v20'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

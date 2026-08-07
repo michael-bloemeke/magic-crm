@@ -726,35 +726,46 @@ function projectHeader(p) {
   return head
 }
 
-// The contacts on a project, resolved for display. The linked records are the truth; a project whose
-// contact was only ever typed in as text (older ones, or built on the Mac before links existed)
-// still has a primary worth showing, so fall back to the project's own fields.
+// The contacts on a project. The LINKS are the truth, in link order, and the first one is the
+// primary: that is who the contract and invoice get addressed to. Every card is removable, primary
+// included; removing the primary promotes whoever is next.
+//
+// ⚠️ This used to decide "primary" by comparing each linked contact's NAME to the project's
+// contact_names text, and to invent an extra, undeletable card whenever nothing matched. On Conner
+// Soules the link said "Conner Soules" and the text said "Conner Soules (groom)", so the phone drew
+// TWO contacts where the database has one, and the phantom had no remove button because it had no
+// join row to delete. Michael, 2026-08-06: "it seems like there was a mistake, and a second one got
+// added... I can't delete the primary one". There was no second contact. The name test was the bug.
+//
+// Position, not name, decides the primary now, so nothing can be a primary that does not exist.
 function projectContactCards(p) {
   var linked = contactsForProject(p)
-  var primaryName = String(p.contactNames || '').trim()
-  var hasLinkedPrimary = linked.some(function (c) { return String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase() })
-  var cards = linked.map(function (c) {
-    return {
-      id: c.id,
-      contact: c,
-      name: c.name || '(no name)',
-      emails: (c.emails || []).filter(Boolean),
-      phones: (c.phones || []).filter(Boolean),
-      primary: !!primaryName && String(c.name || '').trim().toLowerCase() === primaryName.toLowerCase(),
-    }
-  })
-  if (primaryName && !hasLinkedPrimary) {
-    cards.unshift({
-      id: '',
-      contact: null,
-      name: primaryName,
-      emails: (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean),
-      phones: (p.contactPhones || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean),
-      primary: true,
+  if (linked.length) {
+    return linked.map(function (c, i) {
+      return {
+        id: c.id,
+        contact: c,
+        name: c.name || '(no name)',
+        emails: (c.emails || []).filter(Boolean),
+        phones: (c.phones || []).filter(Boolean),
+        primary: i === 0,
+      }
     })
   }
-  cards.sort(function (a, b) { return (b.primary ? 1 : 0) - (a.primary ? 1 : 0) })
-  return cards
+  // Only when there are NO links at all: an older project whose contact was typed in as plain text
+  // and never linked. That text is genuinely the only thing we know, so it is worth showing, but it
+  // is the fallback and never competes with a real record.
+  var name = String(p.contactNames || '').trim()
+  if (!name) return []
+  return [{
+    id: '',
+    contact: null,
+    name: name,
+    emails: (p.contactEmails || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean),
+    phones: (p.contactPhones || '').split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean),
+    primary: true,
+    textOnly: true,
+  }]
 }
 
 // ---- the four tabs ----
@@ -1331,12 +1342,20 @@ function openContactsSheet(p) {
       var head = el('<div class="cc-head"></div>')
       head.appendChild(el('<div class="name" style="font-size:14.5px;flex:1;min-width:0">' + esc(row.name) +
         (row.primary && cards.length > 1 ? '<span class="cc-primary">Primary</span>' : '') + '</div>'))
-      // Only a linked contact has a join row to delete. A text-only primary is edited in Event details.
-      if (row.id) {
-        var x = el('<button class="cc-x" aria-label="Remove from project"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>')
-        x.addEventListener('click', function () { detachContactFromProject(p, row.contact, rebuild) })
-        head.appendChild(x)
-      }
+      // Every card can be removed, primary included. A linked contact loses its join row; a
+      // text-only one (a project that never had links) clears the project's contact fields, since
+      // that text IS the whole record. Nothing on this sheet is undeletable.
+      var x = el('<button class="cc-x" aria-label="Remove from project"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>')
+      x.addEventListener('click', function () {
+        if (row.id) { detachContactFromProject(p, row.contact, rebuild); return }
+        if (!confirm('Remove ' + row.name + ' from "' + p.client + '"?\n\nThis project has no linked contact record, so this just clears the name, email and phone stored on the project.')) return
+        doWrite(Promise.all([
+          updateProjectField(p.id, 'contactNames', '').then(function (r) { p.contactNames = r.value }),
+          updateProjectField(p.id, 'contactEmails', '').then(function (r) { p.contactEmails = r.value }),
+          updateProjectField(p.id, 'contactPhones', '').then(function (r) { p.contactPhones = r.value }),
+        ]), 'Contact removed', rebuild)
+      })
+      head.appendChild(x)
       card.appendChild(head)
       var sub = [row.emails.join(', '), row.phones.join(', ')].filter(Boolean)
       sub.forEach(function (line) { card.appendChild(el('<div class="meta">' + esc(line) + '</div>')) })
@@ -1679,7 +1698,8 @@ function openContactPicker(opts) {
 // contract at them.
 function attachContactToProject(p, chosen, after) {
   var redraw = after || function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }
-  var hasPrimary = !!String(p.contactNames || '').trim()
+  // "First person on the project" means the first LINK, not "the text field happens to be empty".
+  var isFirst = contactsForProject(p).length === 0
   doWrite(
     linkOrCreateContact(p.id, {
       contactId: chosen.contact ? chosen.contact.id : '',
@@ -1690,8 +1710,8 @@ function attachContactToProject(p, chosen, after) {
       if (!r || !r.ok) return r
       noteContactLocally(r.contactId, chosen)
       noteLinkLocally(p.id, r.contactId)
-      if (!hasPrimary) {
-        // First person on the project becomes the primary.
+      if (isFirst) {
+        // The first contact becomes the primary, so the paperwork is addressed to them.
         return Promise.all([
           updateProjectField(p.id, 'contactNames', chosen.name).then(function (x) { p.contactNames = x.value }),
           updateProjectField(p.id, 'contactEmails', chosen.email).then(function (x) { p.contactEmails = x.value }),
@@ -1711,18 +1731,21 @@ function attachContactToProject(p, chosen, after) {
 // Remove a contact from a project. Unlinks only: the contact record survives, because the same
 // person is usually on other projects too.
 //
-// If the one being removed IS the primary, the next remaining contact is promoted into the project's
-// contact fields. Leaving a project with contacts attached but a stale name in contact_names would
-// send the next contract to somebody who is no longer on the job.
+// ANY contact can be removed, the primary included. Removing the primary promotes the next one into
+// the project's contact fields; removing the last one clears them. Michael, 2026-08-06: "it doesn't
+// make any sense that I can't delete it. I should be able to just delete the primary contact, and
+// then the other contact will, by default, become the primary contact."
 function detachContactFromProject(p, contact, after) {
   if (!confirm('Remove ' + (contact.name || 'this contact') + ' from "' + p.client + '"?\n\nThey stay in your Contacts, they are just no longer on this project.')) return
   var redraw = after || function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }
-  var wasPrimary = String(p.contactNames || '').trim().toLowerCase() === String(contact.name || '').trim().toLowerCase()
+  // Primary is a POSITION (first link), not a name match against the text fields.
+  var before = contactsForProject(p)
+  var wasPrimary = before.length > 0 && before[0].id === contact.id
   doWrite(
     unlinkContact(p.id, contact.id).then(function () {
       forgetLinkLocally(p.id, contact.id)
       if (!wasPrimary) return
-      var next = contactsForProject(p)[0]
+      var next = contactsForProject(p)[0] // recomputed: whoever is first now
       return Promise.all([
         updateProjectField(p.id, 'contactNames', next ? next.name || '' : '').then(function (x) { p.contactNames = x.value }),
         updateProjectField(p.id, 'contactEmails', next ? (next.emails || [])[0] || '' : '').then(function (x) { p.contactEmails = x.value }),
