@@ -44,6 +44,7 @@ crm-email-attachments/
 
 # Local data backups (contain copied client records) — never commit
 migration-backups/
+backups/
 
 # Published portal bundles + shared files (generated on Publish, deployed to Vercel; regenerable)
 portal/data/*.json
