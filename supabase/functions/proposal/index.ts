@@ -151,6 +151,40 @@ function eventRows(p: Record<string, unknown>): Row[] {
   return rows.filter((r) => r.value);
 }
 
+// The same facts as prose rather than a grid of labelled boxes (Michael's call, 2026-08-07: the
+// boxes read like a form, and a client reads a sentence).
+//
+// Built by assembling only the clauses whose fields have a real value, so a half-filled project
+// produces a shorter sentence rather than one with holes in it. Nothing is inferred and nothing is
+// padded: every clause below is a field he typed.
+function eventProse(p: Record<string, unknown>): string {
+  const date = prettyDate(p.event_date);
+  const venue = clean(p.event_location);
+  const start = prettyTime(p.event_start_time);
+  const show = prettyTime(p.show_start_time);
+  const guests = clean(p.number_of_guests);
+  const ages = clean(p.age_of_guests);
+
+  const sentences: string[] = [];
+
+  // When and where.
+  if (date && venue) sentences.push(`Your ${typeLabel(p.event_type).toLowerCase() || "event"} is on ${date}, at ${venue}.`);
+  else if (date) sentences.push(`Your ${typeLabel(p.event_type).toLowerCase() || "event"} is on ${date}.`);
+  else if (venue) sentences.push(`Your ${typeLabel(p.event_type).toLowerCase() || "event"} is at ${venue}.`);
+
+  // The two times. Only claim a relationship between them when both are known.
+  if (start && show) sentences.push(`Things kick off at ${start}, and I am on at ${show}.`);
+  else if (show) sentences.push(`I am on at ${show}.`);
+  else if (start) sentences.push(`Things kick off at ${start}.`);
+
+  // Who is in the room.
+  if (guests && ages) sentences.push(`You are expecting ${guests} guests, ${ages.replace(/\.$/, "").toLowerCase()}.`);
+  else if (guests) sentences.push(`You are expecting ${guests} guests.`);
+  else if (ages) sentences.push(`Guests are ${ages.replace(/\.$/, "").toLowerCase()}.`);
+
+  return sentences.join(" ");
+}
+
 // Package shape, normalised so a half-filled row in the CRM can never render as a broken card.
 // `price` stays a string: Michael writes the number the way he wants it read, and it is always a
 // flat figure. Travel is never itemized and distance is never mentioned.
@@ -361,6 +395,9 @@ Deno.serve(async (req) => {
       // The prose write-up of the event, as Michael took it down on the call. Never the internal
       // project notes, which are a different column and are not client-facing.
       summary: clean(project.event_summary),
+      // The facts as a sentence. `rows` is kept alongside it so the grid can come back without a
+      // deploy if the prose turns out worse in practice.
+      prose: eventProse(project as Record<string, unknown>),
       rows: eventRows(project as Record<string, unknown>),
     },
     heroLine: clean(prop.hero_line),
