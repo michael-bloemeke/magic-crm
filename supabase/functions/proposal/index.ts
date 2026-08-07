@@ -199,10 +199,30 @@ function normalisePhotos(raw: unknown): Record<string, unknown> {
   const o = (raw ?? {}) as Record<string, unknown>;
   return {
     hero: safePhoto(o.hero),
-    format: safePhoto(o.format),
     portrait: safePhoto(o.portrait),
+    // Kept for proposals written before photos moved onto the individual performance styles.
+    format: safePhoto(o.format),
     gallery: (Array.isArray(o.gallery) ? o.gallery : []).map(safePhoto).filter(Boolean).slice(0, 4),
   };
+}
+
+// What the magic actually IS, as opposed to packages, which are what the client buys. One block per
+// style discussed on the call.
+//
+// This is the piece most worth turning into a saved library later: the description of mingling magic
+// is the same sentence for every client, so only which styles appear, their order, and the photo
+// change per proposal.
+function normaliseStyles(raw: unknown): unknown[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 4).map((x) => {
+    const o = (x ?? {}) as Record<string, unknown>;
+    return {
+      name: clean(o.name),
+      duration: clean(o.duration),
+      description: clean(o.description),
+      photo: safePhoto(o.photo),
+    };
+  }).filter((s) => s.name);
 }
 
 // A YouTube id, or nothing. Anything else would end up in an iframe src.
@@ -346,6 +366,7 @@ Deno.serve(async (req) => {
     heroLine: clean(prop.hero_line),
     // Blank lines separate paragraphs, so Michael can write it the way he would write an email.
     recommendation: clean(prop.recommendation).split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
+    styles: normaliseStyles(prop.styles),
     packages: normalisePackages(prop.packages),
     reviews: normaliseReviews(prop.reviews),
     photos: normalisePhotos(prop.photos),
