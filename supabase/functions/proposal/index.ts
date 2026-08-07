@@ -316,6 +316,9 @@ Deno.serve(async (req) => {
   const body = {
     ok: true,
     client: { firstName: name },
+    // Michael's own wording for the event, when the computed "Your <type> at <venue>" would get it
+    // wrong. Blank means the page builds its own.
+    headline: clean(prop.headline),
     event: {
       typeLabel: typeLabel(project.event_type),
       dateLong: prettyDate(project.event_date),
