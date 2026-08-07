@@ -283,7 +283,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "GET") return json({ error: "Method not allowed" }, 405);
 
-  const token = clean(new URL(req.url).searchParams.get("token"));
+  const params = new URL(req.url).searchParams;
+  const token = clean(params.get("token"));
+  // Michael opening his own client's page to check it. Renders identically but is not counted, so
+  // "opened 3 times" always means the CLIENT, which is the only reading that is worth anything. The
+  // CRM card links here; the link it hands him to actually send does not carry the flag.
+  const preview = params.get("preview") === "1";
   // An invalid token is answered exactly like an expired one. Nothing here should ever help someone
   // work out whether a token they guessed was close.
   if (!validToken(token)) return json(EXPIRED);
@@ -336,6 +341,8 @@ Deno.serve(async (req) => {
     photos: normalisePhotos(prop.photos),
     videoId: safeVideoId(prop.video_id),
   };
+
+  if (preview) return json({ ...body, preview: true });
 
   // Stamp the view after the response is assembled, so a bookkeeping failure can never cost the
   // client their page. The first view is the one worth interrupting Michael for.

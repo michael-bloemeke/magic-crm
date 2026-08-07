@@ -7,6 +7,7 @@ import { TaskRow } from './TaskRow'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
 import { BookingCard } from './BookingCard'
+import { ProposalCard } from './ProposalCard'
 import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { InitialInquiryModal } from './InitialInquiryModal'
@@ -289,6 +290,9 @@ export function ProjectDetailsBody({
             <PaymentsEditor projectId={project.id} onChange={onPaymentsChange} />
           </div>
           <div className="space-y-2">
+            {/* Sits ABOVE the booking card because that is the order it happens in: the proposal
+                goes out after the sales call, and the booking form only after they say yes. */}
+            <ProposalCard project={project} />
             <BookingCard project={project} onSaveField={onSaveField} />
             <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
