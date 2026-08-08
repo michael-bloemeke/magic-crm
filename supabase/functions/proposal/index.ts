@@ -173,8 +173,9 @@ function eventProse(p: Record<string, unknown>): string {
   else if (venue) sentences.push(`Your ${typeLabel(p.event_type).toLowerCase() || "event"} is at ${venue}.`);
 
   // The two times. Only claim a relationship between them when both are known.
-  if (start && show) sentences.push(`Things kick off at ${start}, and I am on at ${show}.`);
-  else if (show) sentences.push(`I am on at ${show}.`);
+  // Third person throughout, matching the rest of the page and the site's standing voice rule.
+  if (start && show) sentences.push(`Things kick off at ${start}, and Michael is on at ${show}.`);
+  else if (show) sentences.push(`Michael is on at ${show}.`);
   else if (start) sentences.push(`Things kick off at ${start}.`);
 
   // Who is in the room.
