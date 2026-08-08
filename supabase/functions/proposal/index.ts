@@ -395,8 +395,11 @@ Deno.serve(async (req) => {
       // The prose write-up of the event, as Michael took it down on the call. Never the internal
       // project notes, which are a different column and are not client-facing.
       summary: clean(project.event_summary),
-      // The facts as a sentence. `rows` is kept alongside it so the grid can come back without a
-      // deploy if the prose turns out worse in practice.
+      // Michael's own write-up, split into paragraphs. When he has written one it replaces the
+      // generated sentence entirely, because a described event beats a listed one.
+      copy: clean(prop.event_copy).split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
+      // The fallback: the facts as a sentence, for a proposal nobody has written copy for yet.
+      // `rows` is kept alongside so the grid can come back without a deploy if prose disappoints.
       prose: eventProse(project as Record<string, unknown>),
       rows: eventRows(project as Record<string, unknown>),
     },
