@@ -408,6 +408,9 @@ Deno.serve(async (req) => {
       rows: eventRows(project as Record<string, unknown>),
     },
     heroLine: clean(prop.hero_line),
+    // The closing note under the styles. On a mingling-only booking this is where the stand-up set
+    // gets offered; see the proposal playbook.
+    stylesNote: clean(prop.styles_note),
     // Blank lines separate paragraphs, so Michael can write it the way he would write an email.
     recommendation: clean(prop.recommendation).split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
     styles: normaliseStyles(prop.styles),
