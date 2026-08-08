@@ -217,6 +217,9 @@ function normaliseReviews(raw: unknown): unknown[] {
     const o = (x ?? {}) as Record<string, unknown>;
     return {
       name: clean(o.name),
+      // Where they are from, when it is KNOWN. Never inferred from an email domain: business rule 14
+      // exists because a client was once labelled with a company that was never named on the call.
+      company: clean(o.company),
       text: clean(o.text),
       highlight: Array.isArray(o.highlight) ? o.highlight.map(clean).filter(Boolean).slice(0, 4) : [],
     };
