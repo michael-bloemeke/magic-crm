@@ -226,6 +226,20 @@ function normaliseReviews(raw: unknown): unknown[] {
   }).filter((r) => r.text);
 }
 
+// The past-client roster for the Recognition section: plain organisation names, nothing else.
+//
+// Deliberately NOT logos. A grid of logos reads as a trophy wall, which is the exact "pages about
+// how great I am" feeling the section is trying to avoid; a line of names reads as fact.
+//
+// Corporate only. On a wedding the list argues nothing, so those rows leave it empty. Every name
+// must be an organisation Michael actually performed for AND has approved for public listing:
+// business rule 14 forbids inferring an employer from an email domain, and a client's name on a
+// public page is their call, not ours.
+function normaliseClients(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(clean).filter(Boolean).slice(0, 12);
+}
+
 // Site-relative image paths only. An absolute URL here would let a bad row in the CRM point the
 // page at some other host, so anything that is not a plain /assets/... path is dropped.
 function safePhoto(v: unknown): string {
@@ -416,6 +430,7 @@ Deno.serve(async (req) => {
     styles: normaliseStyles(prop.styles),
     packages: normalisePackages(prop.packages),
     reviews: normaliseReviews(prop.reviews),
+    clients: normaliseClients(prop.clients),
     photos: normalisePhotos(prop.photos),
     videoId: safeVideoId(prop.video_id),
   };
