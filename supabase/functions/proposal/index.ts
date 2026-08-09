@@ -226,18 +226,31 @@ function normaliseReviews(raw: unknown): unknown[] {
   }).filter((r) => r.text);
 }
 
-// The past-client roster for the Recognition section: plain organisation names, nothing else.
+// The past-client roster for the Recognition section.
 //
-// Deliberately NOT logos. A grid of logos reads as a trophy wall, which is the exact "pages about
-// how great I am" feeling the section is trying to avoid; a line of names reads as fact.
+// LOGOS, not a typed list. Michael's call, 2026-08-09: "logos are much better and immediately
+// recognizable... having to read them seems like a very dumb choice." He is right, and the earlier
+// text-only version was mine, not his.
 //
-// Corporate only. On a wedding the list argues nothing, so those rows leave it empty. Every name
-// must be an organisation Michael actually performed for AND has approved for public listing:
-// business rule 14 forbids inferring an employer from an email domain, and a client's name on a
-// public page is their call, not ours.
-function normaliseClients(raw: unknown): string[] {
+// Each entry is { name, logo }. `logo` is a bare slug, never a path: the page builds
+// /assets/graphics/client-logos/<slug>.webp itself, so a bad CRM row can never point the page at
+// another host or walk out of that directory. `name` is still required, because it is the alt text
+// and the fallback for a client with no logo file.
+//
+// Corporate only. On a wedding the roster argues nothing, so those rows leave it empty. Every name
+// must be an organisation Michael actually performed FOR, not the venue it happened at, and one he
+// has approved for public listing. All the logos used here are already public on the homepage.
+function normaliseClients(raw: unknown): unknown[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map(clean).filter(Boolean).slice(0, 12);
+  return raw.map((x) => {
+    if (typeof x === "string") return { name: clean(x), logo: "" };
+    const o = (x ?? {}) as Record<string, unknown>;
+    const slug = clean(o.logo);
+    return {
+      name: clean(o.name),
+      logo: /^[a-z0-9-]+$/.test(slug) ? slug : "",
+    };
+  }).filter((c) => c.name).slice(0, 14);
 }
 
 // Site-relative image paths only. An absolute URL here would let a bad row in the CRM point the
@@ -252,6 +265,8 @@ function normalisePhotos(raw: unknown): Record<string, unknown> {
   return {
     hero: safePhoto(o.hero),
     portrait: safePhoto(o.portrait),
+    // Sits beside the logo wall in Recognition. Wants Michael working a room with faces reacting.
+    clients: safePhoto(o.clients),
     // Kept for proposals written before photos moved onto the individual performance styles.
     format: safePhoto(o.format),
     gallery: (Array.isArray(o.gallery) ? o.gallery : []).map(safePhoto).filter(Boolean).slice(0, 4),
