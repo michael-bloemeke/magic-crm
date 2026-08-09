@@ -250,7 +250,7 @@ function normaliseClients(raw: unknown): unknown[] {
       name: clean(o.name),
       logo: /^[a-z0-9-]+$/.test(slug) ? slug : "",
     };
-  }).filter((c) => c.name).slice(0, 14);
+  }).filter((c) => c.name).slice(0, 24);
 }
 
 // Site-relative image paths only. An absolute URL here would let a bad row in the CRM point the
@@ -269,7 +269,8 @@ function normalisePhotos(raw: unknown): Record<string, unknown> {
     clients: safePhoto(o.clients),
     // Kept for proposals written before photos moved onto the individual performance styles.
     format: safePhoto(o.format),
-    gallery: (Array.isArray(o.gallery) ? o.gallery : []).map(safePhoto).filter(Boolean).slice(0, 4),
+    // Up to 8: the row is a full-bleed strip now, not three cards, so it can carry more.
+    gallery: (Array.isArray(o.gallery) ? o.gallery : []).map(safePhoto).filter(Boolean).slice(0, 8),
   };
 }
 
