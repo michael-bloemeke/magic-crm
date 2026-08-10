@@ -441,6 +441,11 @@ Deno.serve(async (req) => {
     // The closing note under the styles. On a mingling-only booking this is where the stand-up set
     // gets offered; see the proposal playbook.
     stylesNote: clean(prop.styles_note),
+    // The agreed follow-up call, printed as the highlighted line in step 2 of Next steps. Free text
+    // because Michael writes it the way he would say it ("Friday, August 14 at 1:00 PM"). Empty is
+    // normal: no call booked, and the step falls back to generic wording rather than an empty line.
+    // Capped so a paste accident cannot push a paragraph into a one-line slot.
+    followup: clean(prop.followup).slice(0, 90),
     // Blank lines separate paragraphs, so Michael can write it the way he would write an email.
     recommendation: clean(prop.recommendation).split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
     styles: normaliseStyles(prop.styles),
