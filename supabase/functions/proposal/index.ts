@@ -250,7 +250,10 @@ function normaliseClients(raw: unknown): unknown[] {
       name: clean(o.name),
       logo: /^[a-z0-9-]+$/.test(slug) ? slug : "",
     };
-  }).filter((c) => c.name).slice(0, 24);
+  // Raised 24 -> 33 on 2026-08-10. The cap is a sanity bound, not a design choice, and it had
+  // silently swallowed three logos added to balance the column. 33 is the number of logo files that
+  // exist, so it can never truncate a valid roster again.
+  }).filter((c) => c.name).slice(0, 33);
 }
 
 // Site-relative image paths only. An absolute URL here would let a bad row in the CRM point the
