@@ -12,7 +12,7 @@ import {
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
-  updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks,
+  updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
@@ -120,6 +120,98 @@ function toast(msg, kind) {
   clearTimeout(toastTimer)
   toastTimer = setTimeout(function () { t.className = '' }, kind === 'err' ? 3600 : 2200)
 }
+// A toast carrying one action, used for Undo. Deliberately chosen over a confirm dialog for
+// dismissing an alert: a confirm interrupts every deliberate dismissal to guard against the rare
+// accidental one, while an undo does nothing until you actually need it. Stays up longer than a
+// plain toast, because it is only useful if it is still there when you notice the mistake.
+function toastUndo(msg, label, onAction) {
+  var t = $('#toast')
+  if (!t) { t = el('<div id="toast"></div>'); document.body.appendChild(t) }
+  t.textContent = msg
+  var b = el('<button class="toast-act">' + esc(label) + '</button>')
+  var used = false
+  b.addEventListener('click', function () {
+    if (used) return
+    used = true
+    t.className = ''
+    clearTimeout(toastTimer)
+    onAction()
+  })
+  t.appendChild(b)
+  t.className = 'show'
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(function () { t.className = '' }, 6000)
+}
+
+// Swipe-to-reveal. Wraps a row so dragging it left uncovers one action button underneath.
+//
+// Chosen over an always-visible X because the alert card itself is tappable (it opens the project),
+// so a delete control sitting next to it is a fat-finger waiting to happen. A swipe cannot fire by
+// accident while scrolling, and swipe-then-tap is already two deliberate moves.
+var OPEN_SWIPE = null // only one row is ever open; opening another closes it
+function swipeRow(inner, actionLabel, onAction) {
+  var REVEAL = -104
+  var wrap = el('<div class="swipe"></div>')
+  var act = el('<div class="swipe-act"><button type="button" class="swipe-btn">' + esc(actionLabel) + '</button></div>')
+  var fg = el('<div class="swipe-fg"></div>')
+  fg.appendChild(inner)
+  wrap.appendChild(act)
+  wrap.appendChild(fg)
+
+  var startX = 0, startY = 0, dx = 0, open = false, axis = null
+  function place(v, animate) {
+    fg.style.transition = animate ? 'transform .18s ease' : ''
+    fg.style.transform = 'translateX(' + v + 'px)'
+  }
+  function close(animate) { open = false; place(0, animate !== false); if (OPEN_SWIPE === api) OPEN_SWIPE = null }
+  var api = { close: close }
+
+  fg.addEventListener('touchstart', function (e) {
+    var t = e.touches[0]
+    startX = t.clientX; startY = t.clientY; dx = open ? REVEAL : 0; axis = null
+    fg.style.transition = ''
+  }, { passive: true })
+
+  fg.addEventListener('touchmove', function (e) {
+    var t = e.touches[0]
+    var mx = t.clientX - startX, my = t.clientY - startY
+    // Decide once whether this is a horizontal or a vertical gesture, then stick with it. Without
+    // the lock, a slightly-diagonal scroll drags the row sideways and the page fights the finger.
+    if (axis === null) {
+      if (Math.abs(mx) < 6 && Math.abs(my) < 6) return
+      axis = Math.abs(mx) > Math.abs(my) ? 'x' : 'y'
+    }
+    if (axis !== 'x') return
+    e.preventDefault() // stop the page scrolling while a row is being dragged
+    dx = Math.max(REVEAL - 28, Math.min(0, (open ? REVEAL : 0) + mx)) // clamp, with a little rubber band
+    place(dx, false)
+  }, { passive: false })
+
+  fg.addEventListener('touchend', function () {
+    if (axis !== 'x') return
+    if (dx < REVEAL / 2) {
+      if (OPEN_SWIPE && OPEN_SWIPE !== api) OPEN_SWIPE.close()
+      open = true; OPEN_SWIPE = api; place(REVEAL, true)
+    } else close()
+  })
+
+  // While a row is open, a tap on it closes it instead of triggering whatever the row normally does.
+  // Capture phase, so it lands before the card's own click handler opens the project.
+  fg.addEventListener('click', function (e) {
+    if (!open) return
+    e.preventDefault()
+    e.stopPropagation()
+    close()
+  }, true)
+
+  act.querySelector('.swipe-btn').addEventListener('click', function (e) {
+    e.stopPropagation()
+    close(false)
+    onAction()
+  })
+  return wrap
+}
+
 // Run a write, showing a failure toast if it throws. `after` runs only on success.
 function doWrite(promise, okMsg, after) {
   return promise.then(function (r) {
@@ -1939,15 +2031,38 @@ function alertCard(n) {
   )
   if (n.projectId) c.addEventListener('click', function () { renderDetail(n.projectId) })
   else c.style.pointerEvents = 'none'
-  return c
+  // Swipe left to uncover Dismiss. Opening the project deliberately does NOT clear the alert:
+  // Michael, 2026-08-07, "i dont want them dismissed just by clicking on it and looking at the
+  // project". Looking at something is not the same as dealing with it.
+  return swipeRow(c, 'Dismiss', function () { dismissAlert(n) })
 }
+
+// Mark an alert seen. Nothing is deleted, so Undo is just flipping the flag back.
+function dismissAlert(n) {
+  var idx = (SNAP.notifications || []).findIndex(function (x) { return x.id === n.id })
+  doWrite(setNotificationSeen(n.id, true), null, function () {
+    if (idx >= 0) SNAP.notifications.splice(idx, 1)
+    renderAlerts()
+    updateCounts()
+    toastUndo('Alert dismissed', 'Undo', function () {
+      doWrite(setNotificationSeen(n.id, false), 'Alert restored', function () {
+        // Back in its old position, so an undone dismissal leaves the list exactly as it was.
+        SNAP.notifications.splice(idx >= 0 ? idx : 0, 0, n)
+        renderAlerts()
+        updateCounts()
+      })
+    })
+  })
+}
+
 function renderAlerts() {
   var v = $('#view'); v.innerHTML = ''
+  OPEN_SWIPE = null
   var ns = (SNAP.notifications || []).slice().sort(function (a, b) { return String(b.createdAt || '').localeCompare(String(a.createdAt || '')) })
   if (!ns.length) { v.appendChild(el('<div class="empty">No new alerts. You\'re all caught up.</div>')); return }
   v.appendChild(sectionLabel('New alerts · ' + ns.length))
   ns.forEach(function (n) { v.appendChild(alertCard(n)) })
-  v.appendChild(el('<p class="empty" style="padding:14px 10px 0">Alerts clear when you address them in the desktop app.</p>'))
+  v.appendChild(el('<p class="empty" style="padding:14px 10px 0">Swipe an alert left to dismiss it. Opening one leaves it here.</p>'))
 }
 
 function dueCount() {

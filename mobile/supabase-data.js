@@ -256,6 +256,16 @@ export async function loadNotifications(projectsById, tasksById) {
   })
 }
 
+// Dismiss (or un-dismiss) an alert. Alerts are rows in `notifications` with a seen flag; the phone
+// only ever loads the unseen ones, so flipping the flag is the whole operation. Nothing is deleted,
+// which is what makes Undo possible.
+export async function setNotificationSeen(id, seen = true) {
+  if (!id) throw new Error('Notification id is required.')
+  const { error } = await sb.from('notifications').update({ seen: !!seen }).eq('id', id)
+  if (error) throw error
+  return { ok: true, id, seen: !!seen }
+}
+
 // The editable config row (crm_config.data jsonb). Holds the monthly goal + income goal tiers +
 // event-field label overrides / hidden / deleted lists that the finance + detail views use.
 const DEFAULT_GOALS = [80000, 100000, 150000]

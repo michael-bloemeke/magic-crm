@@ -200,6 +200,22 @@
       .bar { height: 8px; border-radius: 99px; background: var(--surface2); overflow: hidden; margin-top: 10px; }
       .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--brass-bright)); }
 
+      /* Swipe-to-reveal row. The action sits underneath and is uncovered by dragging the card left.
+         touch-action: pan-y lets the browser keep vertical scrolling while we claim the horizontal
+         axis, which is what stops the page fighting the finger on a diagonal drag. */
+      .swipe { position: relative; overflow: hidden; border-radius: 14px; margin-bottom: 9px; }
+      .swipe-act { position: absolute; inset: 0 0 0 auto; width: 104px; display: flex; }
+      .swipe-btn { width: 100%; border-radius: 14px; background: var(--red); color: #fff;
+                   font-size: 14px; font-weight: 600; }
+      .swipe-btn:active { filter: brightness(0.92); }
+      .swipe-fg { position: relative; touch-action: pan-y; will-change: transform; }
+      /* The card inside a swipe row owns the spacing already handled by .swipe. */
+      .swipe-fg > .card { margin-bottom: 0; }
+
+      /* The action button inside a toast (Undo). */
+      .toast-act { margin-left: 12px; padding: 2px 4px; color: var(--brass-bright); font-weight: 700;
+                   font-size: 13.5px; text-decoration: underline; }
+
       /* An explanatory line at the top of a page (currently just Deleted's 30-day note). */
       .pagenote { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 
