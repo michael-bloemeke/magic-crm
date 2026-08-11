@@ -55,7 +55,14 @@
         --safe-bot: env(safe-area-inset-bottom, 0px);
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      /* color-scheme tells the browser to draw NATIVE controls light. Without it they follow the
+         phone's own setting, so on an iPhone in Dark Mode the date field's calendar button is drawn
+         WHITE on our white input and is effectively invisible. Same for the select arrow. */
+      html { color-scheme: light; }
       html, body { margin: 0; padding: 0; background: var(--bg); color: var(--parchment); }
+      /* The calendar button is faint by default; give it enough presence to look like a control. */
+      input[type="date"]::-webkit-calendar-picker-indicator { opacity: .55; }
+      input[type="date"]:focus::-webkit-calendar-picker-indicator { opacity: 1; }
       /* Flat. The two radial glows that used to sit here were built for a near-black screen and read
          as smudges on a light one. */
       body {

@@ -619,7 +619,7 @@ function Payments({ projects, onOpenProject }: { projects: Project[]; onOpenProj
 
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-line bg-surface-2/50 p-3">
         <Field label="Date">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input [color-scheme:light]" />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
         </Field>
         <Field label="Amount">
           <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$" className="input w-28" />
@@ -779,10 +779,10 @@ function Tips({ projects, onOpenProject }: { projects: Project[]; onOpenProject?
 
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-line bg-surface-2/50 p-3">
         <Field label="From">
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input [color-scheme:light]" />
+          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input" />
         </Field>
         <Field label="To">
-          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input [color-scheme:light]" />
+          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input" />
         </Field>
         <div className="ml-auto text-right">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Tips in range</p>
@@ -1069,7 +1069,7 @@ function Mileage({ projects }: { projects: Project[] }) {
 
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-line bg-surface-2/50 p-3">
         <Field label="Date">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input [color-scheme:light]" />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
         </Field>
         <Field label="Miles">
           <input value={miles} onChange={(e) => setMiles(e.target.value)} onBlur={() => setMiles(evalNumberFormula(miles))} placeholder="0" className="input w-20" />

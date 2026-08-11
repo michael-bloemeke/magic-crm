@@ -116,9 +116,7 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
               }
             }}
             placeholder={placeholder}
-            // color-scheme was pinned to dark here for the old near-black theme, which left the
-            // native date picker rendering dark on the light one.
-            className={`${base} ${type === 'date' ? '[color-scheme:light]' : ''}`}
+            className={base}
           />
         )}
       </div>

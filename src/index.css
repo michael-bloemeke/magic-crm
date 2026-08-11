@@ -61,6 +61,23 @@
     height: 100%;
   }
 
+  /* Tell the browser this UI is light so NATIVE controls are drawn light too. Without it the
+     controls follow the OS setting, and on a Mac in Dark Mode the date field's calendar button is
+     drawn WHITE on our white input, i.e. invisible. Same for select arrows and scrollbars. */
+  html {
+    color-scheme: light;
+  }
+
+  /* The calendar button is faint by default; give it enough presence to look like a control. */
+  input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.55;
+    cursor: pointer;
+  }
+  input[type='date']:hover::-webkit-calendar-picker-indicator,
+  input[type='date']:focus::-webkit-calendar-picker-indicator {
+    opacity: 1;
+  }
+
   /* Flat and plain on purpose. The old canvas carried two radial "stage
      spotlight" gradients and an SVG film-grain overlay; both were built for a
      near-black room and turn to visible dirt on a light one. */
