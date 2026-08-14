@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 
 export type Page =
   | 'home'
+  | 'leads'
   | 'pipeline'
   | 'inbox'
   | 'tasks'
@@ -52,6 +53,17 @@ const GROUPS: NavGroup[] = [
           <>
             <path d="M4 11l8-7 8 7" />
             <path d="M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9" />
+          </>,
+        ),
+      },
+      {
+        id: 'leads',
+        label: 'Leads',
+        enabled: true,
+        icon: icon(
+          <>
+            <path d="M3.5 7.5a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-11a3 3 0 0 1-3-3z" />
+            <path d="M4 8.5l8 5 8-5" />
           </>,
         ),
       },

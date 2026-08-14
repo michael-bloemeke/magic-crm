@@ -1183,6 +1183,10 @@ export async function createProject(input = {}) {
     contact_names: String(input.contactNames ?? ''),
     contact_emails: String(input.contactEmails ?? ''),
     contact_phones: formatPhoneField(String(input.contactPhones ?? '')),
+    // Where the job came from. Set when a project is promoted from a lead (GigSalad / The Bash /
+    // Bark), so "which marketplace actually pays" is answerable from the pipeline instead of being
+    // stranded on a lead card that no longer exists.
+    booking_source: String(input.bookingSource ?? ''),
     project_notes: String(input.projectNotes ?? ''),
     status: 'open',
     flags: [],
@@ -1225,7 +1229,7 @@ export async function createProject(input = {}) {
       contact_names: rec.contact_names,
       contact_emails: rec.contact_emails,
       contact_phones: rec.contact_phones,
-      booking_source: null,
+      booking_source: rec.booking_source || null,
       event_summary: null,
       event_description: null,
       project_notes: rec.project_notes,

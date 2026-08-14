@@ -20,6 +20,7 @@ import { ContactsPage } from './components/ContactsPage'
 import { FilesPage } from './components/FilesPage'
 import { RecordsPage } from './components/RecordsPage'
 import { DeletedPage } from './components/DeletedPage'
+import { LeadsPage } from './components/LeadsPage'
 import { ArchiveReasonModal } from './components/ArchiveReasonModal'
 import { CompleteProjectModal, type CompletePayload } from './components/CompleteProjectModal'
 import { NewProjectModal } from './components/NewProjectModal'
@@ -100,6 +101,7 @@ type View = 'flow' | 'board' | 'cards'
 
 const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   home: { kicker: 'Home', title: 'Home' },
+  leads: { kicker: 'Leads', title: 'Leads' },
   pipeline: { kicker: 'Pipeline', title: 'The Pipeline' },
   inbox: { kicker: 'Inbox', title: 'Inbox' },
   tasks: { kicker: 'Tasks', title: 'Tasks' },
@@ -1148,6 +1150,9 @@ function App() {
                 <div className="flex flex-1 items-center justify-center">
                   <p className="animate-pulse text-[13px] tracking-wide text-faint">Loading…</p>
                 </div>
+              ) : page === 'leads' ? (
+                // Its own page title, so the shared header does not repeat the heading the page draws.
+                <LeadsPage onConverted={reloadProjects} />
               ) : page === 'home' ? (
                 <HomePage
                   projects={liveProjects}
