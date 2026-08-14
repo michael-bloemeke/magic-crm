@@ -1486,3 +1486,81 @@ export async function loadAnalytics(): Promise<Analytics> {
   if (!res.ok) throw new Error(`Failed to load analytics (${res.status})`)
   return (await res.json()) as Analytics
 }
+
+// --- Leads -----------------------------------------------------------------
+// Enquiries that have not entered the pipeline yet (GigSalad / The Bash / Bark / other). Leaving
+// this page never destroys the row: converting stamps it, clearing it archives it, so the contact
+// details stay available for the mailing list either way.
+
+export const LEAD_SOURCES = ['gigsalad', 'the-bash', 'bark', 'other'] as const
+export type LeadSource = (typeof LEAD_SOURCES)[number]
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  gigsalad: 'GigSalad',
+  'the-bash': 'The Bash',
+  bark: 'Bark',
+  other: 'Other',
+}
+
+export type Lead = {
+  id: string
+  title: string
+  source: LeadSource
+  leadDate: string
+  followUpDate: string
+  name: string
+  email: string
+  phone: string
+  notes: string
+  createdAt: string
+}
+
+export async function loadLeads(): Promise<Lead[]> {
+  const res = await fetch('/api/leads')
+  if (!res.ok) throw new Error(`Failed to load leads (${res.status})`)
+  const data = await res.json()
+  return (data.leads ?? []) as Lead[]
+}
+
+async function leadPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`)
+  return data as T
+}
+
+export async function addLead(input: Partial<Lead>): Promise<Lead> {
+  return (await leadPost<{ lead: Lead }>('/api/leads/add', input)).lead
+}
+
+export async function updateLead(id: string, patch: Partial<Lead>): Promise<Lead> {
+  return (await leadPost<{ lead: Lead }>('/api/leads/update', { id, patch })).lead
+}
+
+// keepContact saves the person to Contacts first, so a dead lead still feeds outreach.
+export async function archiveLead(
+  id: string,
+  keepContact: boolean,
+): Promise<{ contact: Contact | null; reused: boolean }> {
+  return await leadPost('/api/leads/archive', { id, keepContact })
+}
+
+export async function convertLead(
+  id: string,
+  details: {
+    clientName: string
+    eventType?: string
+    eventDate?: string
+    eventLocation?: string
+    totalFee?: string
+    name?: string
+    email?: string
+    phone?: string
+    notes?: string
+  },
+): Promise<{ project: Project; contact: Contact | null }> {
+  return await leadPost('/api/leads/convert', { id, details })
+}

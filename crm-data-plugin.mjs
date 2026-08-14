@@ -52,6 +52,7 @@ import {
   sendCalendarInvite,
   listGigsEvents,
 } from './crm-calendar.mjs'
+import { loadLeads, addLead, updateLead, archiveLead, convertLead } from './crm-leads.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus, inquiryFormForProject } from './crm-inquiries.mjs'
@@ -515,6 +516,37 @@ export function crmDataPlugin() {
           for (const tid of taskIds) void removeTaskEvent(tid)
           return result
         })
+      })
+
+      // --- Leads (marketplace enquiries that have not entered the pipeline yet) ---
+      server.middlewares.use('/api/leads/add', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ lead: await addLead(b) }))
+      })
+      server.middlewares.use('/api/leads/update', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ lead: await updateLead(b.id, b.patch || {}) }))
+      })
+      // Archive, not delete: the row survives so the contact details stay available for outreach.
+      server.middlewares.use('/api/leads/archive', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await archiveLead(b.id, { keepContact: !!b.keepContact }))
+      })
+      server.middlewares.use('/api/leads/convert', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await convertLead(b.id, b.details || {}))
+      })
+      server.middlewares.use('/api/leads', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        Promise.resolve(loadLeads())
+          .then((leads) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ leads }))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: e?.message || 'Failed to load leads.' }))
+          })
       })
 
       // --- Contacts (specific paths before the generic GET) ---
