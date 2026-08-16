@@ -62,7 +62,6 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
           value={draftDue}
           onChange={(e) => setDraftDue(e.target.value)}
           className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-          style={{ colorScheme: 'dark' }}
         />
         <input
           type="time"
@@ -70,7 +69,6 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
           onChange={(e) => setDraftTime(e.target.value)}
           title="Optional time (leave blank for an all-day task)"
           className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-          style={{ colorScheme: 'dark' }}
         />
         <button type="button" onClick={saveEdit} aria-label="Save task" className="shrink-0 rounded-md p-1 text-brass-bright transition-colors hover:text-brass">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 6" /></svg>

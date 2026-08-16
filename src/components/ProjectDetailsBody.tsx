@@ -528,7 +528,6 @@ function ProjectTasks({
           value={due}
           onChange={(e) => setDue(e.target.value)}
           className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[12px] text-muted focus:border-brass-dim focus:outline-none"
-          style={{ colorScheme: 'dark' }}
         />
         <input
           type="time"
@@ -536,7 +535,6 @@ function ProjectTasks({
           onChange={(e) => setTime(e.target.value)}
           title="Optional time (leave blank for an all-day task)"
           className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[12px] text-muted focus:border-brass-dim focus:outline-none"
-          style={{ colorScheme: 'dark' }}
         />
         <button
           type="submit"

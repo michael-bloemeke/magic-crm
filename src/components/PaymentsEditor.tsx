@@ -145,7 +145,6 @@ export function PaymentsEditor({ projectId, onChange }: Props) {
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-            style={{ colorScheme: 'dark' }}
           />
         </label>
         <label className="flex flex-col gap-1">

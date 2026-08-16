@@ -68,13 +68,21 @@
     color-scheme: light;
   }
 
-  /* The calendar button is faint by default; give it enough presence to look like a control. */
-  input[type='date']::-webkit-calendar-picker-indicator {
-    opacity: 0.55;
+  /* The calendar / clock button Chromium draws inside a date or time input.
+     brightness(0) forces it BLACK whatever colour Chromium picked, so it cannot go back to being
+     white-on-white if a stray dark color-scheme ever reappears on an input. Relying on the inherited
+     color-scheme alone was not enough: seven inputs carried style={{ colorScheme: 'dark' }} inline,
+     which beats any rule set on <html>, and those were exactly the task and payment date fields. */
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator {
+    filter: brightness(0);
+    opacity: 0.6;
     cursor: pointer;
   }
   input[type='date']:hover::-webkit-calendar-picker-indicator,
-  input[type='date']:focus::-webkit-calendar-picker-indicator {
+  input[type='date']:focus::-webkit-calendar-picker-indicator,
+  input[type='time']:hover::-webkit-calendar-picker-indicator,
+  input[type='time']:focus::-webkit-calendar-picker-indicator {
     opacity: 1;
   }
 

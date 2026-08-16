@@ -75,10 +75,24 @@ function slugify(name: string): string {
 }
 
 // Mirror of crm-data-core.logDate — "Month Day, Year".
+// Today in MICHAEL'S timezone, as YYYY-MM-DD. An edge function runs in UTC, so a naive
+// toISOString() stamps tomorrow's date on anything that arrives after about 8pm Eastern. en-CA is
+// used because it formats as YYYY-MM-DD.
+const EASTERN = "America/New_York";
+function todayEastern(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: EASTERN,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 function logDate(): string {
   const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const d = new Date();
-  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+  // Same UTC-vs-Eastern trap as above: an evening enquiry was being logged under tomorrow's date.
+  const [y, m, d] = todayEastern().split("-").map(Number);
+  return `${months[m - 1]} ${d}, ${y}`;
 }
 
 // 12-hour time ("16:00" -> "4:00 PM"). Non-HH:MM values pass through unchanged.
@@ -395,6 +409,9 @@ Deno.serve(async (req) => {
       stage_id: "inquiry",
       event_type: "",
       event_date: inq.eventDate,
+      // The day the enquiry landed. We know it exactly (it is happening right now), so there is no
+      // reason to make Michael type it in later from memory.
+      lead_date: todayEastern(),
       event_location: inq.venue,
       event_start_time: to12h(inq.eventTime),
       number_of_guests: inq.guests,

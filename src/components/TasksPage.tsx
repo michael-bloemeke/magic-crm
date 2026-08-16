@@ -159,7 +159,6 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             value={newDue}
             onChange={(e) => setNewDue(e.target.value)}
             className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
-            style={{ colorScheme: 'dark' }}
           />
           <input
             type="time"
@@ -167,7 +166,6 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             onChange={(e) => setNewTime(e.target.value)}
             title="Optional time (leave blank for an all-day task)"
             className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
-            style={{ colorScheme: 'dark' }}
           />
           <button
             type="button"
