@@ -124,7 +124,7 @@ export function proposalEmail({ project, url }) {
   const text = [
     `Hi ${name},`,
     '',
-    'Great talking with you. I put everything we went over on one page, along with a couple of options and some video so you can see what it actually looks like.',
+    'Great talking with you. I put everything we went over on one page, along with a couple of options and some video so you can see what it looks like.',
     '',
     url,
     '',
@@ -137,7 +137,7 @@ export function proposalEmail({ project, url }) {
   const html = [
     WRAP_OPEN,
     p(`Hi ${esc(name)},`),
-    p('Great talking with you. I put everything we went over on one page, along with a couple of options and some video so you can see what it actually looks like.'),
+    p('Great talking with you. I put everything we went over on one page, along with a couple of options and some video so you can see what it looks like.'),
     button(url, 'Open your proposal'),
     p('Share it with anyone else who needs to see it, the link works for them too.'),
     p('Have a look and let me know which option fits. Any questions, just ask.'),
