@@ -343,6 +343,12 @@ export async function resetProposalViews(projectId) {
   // logging it would add a line per proposal that says nothing about the client.
 }
 
+// ⚠️ IF YOU ARE CHECKING A PROPOSAL FROM A SCRIPT OR A TERMINAL, PASS preview=1. The edge function
+// counts every GET that is not flagged as a preview, so a plain
+// `curl .../functions/v1/proposal?token=X` to verify a change silently inflates the number Michael
+// relies on. Use `?token=X&preview=1`. This is how Farrell's page reached "opened 2x" before it had
+// been sent to anyone.
+//
 // Did they read it? A view is counted every time, not once per person: the forwarded view, from the
 // spouse or the boss who was not on the call, is the one that decides the booking.
 export async function proposalStats(projectId) {
