@@ -6,6 +6,7 @@ import {
   publishProposal,
   draftProposalEmail,
   retireProposal,
+  resetProposalViews,
   type ProposalStatus,
 } from '../api'
 
@@ -157,6 +158,31 @@ export function ProposalCard({ project }: { project: Project }) {
                     ? 'Live, and the email is waiting in Gmail. Nobody has opened the page yet.'
                     : 'Live. Nothing has opened it yet.'}
       </p>
+
+      {/* THE RESET. Michael and Claude open a proposal over and over while writing it, and every one
+          of those opens counts, so the number is meaningless until it is zeroed. The habit this is
+          built for: proofread it as much as you like, send it, hit reset, and from then on every
+          view is somebody else. Sits directly under the count it clears.
+          Only offered when there is actually something to clear. */}
+      {p?.exists && !retired && (p?.views ?? 0) > 0 && (
+        <button
+          type="button"
+          className="mt-1 text-[11px] text-faint underline-offset-2 transition-colors hover:text-brass-bright hover:underline disabled:opacity-40"
+          disabled={busy}
+          title="Sets the count back to 0 and re-arms the alert, so the next open is known to be theirs."
+          onClick={() => {
+            if (
+              !window.confirm(
+                'Set the view count back to 0?\n\nUse this right after you send it, so every view from then on is the client. Whatever has been counted so far is gone for good.',
+              )
+            )
+              return
+            run(() => resetProposalViews(project.id), () => 'Back to zero. The next open is theirs.')
+          }}
+        >
+          Reset the count
+        </button>
+      )}
 
       {note && <p className="mt-1.5 text-[11.5px] leading-relaxed text-brass-bright">{note}</p>}
 

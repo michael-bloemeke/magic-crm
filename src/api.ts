@@ -811,6 +811,12 @@ export async function retireProposal(projectId: string): Promise<ProposalStatus>
   return postJsonStrict('/api/proposal/retire', { projectId }, 'Could not retire the proposal')
 }
 
+// Back to zero, so the next view is known to be the client's rather than Michael's proofreading.
+// Also re-arms the first-view alert; see resetProposalViews in crm-proposals.mjs.
+export async function resetProposalViews(projectId: string): Promise<ProposalStatus> {
+  return postJsonStrict('/api/proposal/reset-views', { projectId }, 'Could not reset the view count')
+}
+
 export async function loadEsignStatus(): Promise<EsignStatus> {
   const res = await fetch('/api/esign')
   if (!res.ok) throw new Error(`Failed to load e-sign status (${res.status})`)

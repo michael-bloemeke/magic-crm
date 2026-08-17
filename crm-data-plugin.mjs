@@ -40,6 +40,7 @@ import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
 import {
   proposalStatus, ensureProposal, saveProposal, publishProposal, retireProposal, draftProposalEmail,
+  resetProposalViews,
 } from './crm-proposals.mjs'
 import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking, agreementPdfFromCloud } from './crm-booking-agreement.mjs'
 import {
@@ -1281,6 +1282,15 @@ export function crmDataPlugin() {
         withbody(req, res, async (b) => {
           const draft = await draftProposalEmail(b.projectId, { createDraft: gmailCreateDraft })
           return { ...(await proposalStatus(b.projectId)), draft }
+        })
+      })
+      // Zero the view counter, so the next open is known to be the client's and not Michael's own
+      // proofreading. See resetProposalViews for why this beats not counting CRM previews.
+      server.middlewares.use('/api/proposal/reset-views', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          await resetProposalViews(b.projectId)
+          return await proposalStatus(b.projectId)
         })
       })
       // Take the page down by hand. Archiving or deleting the project does this on its own.

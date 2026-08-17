@@ -295,6 +295,54 @@ export async function retireProposal(projectId) {
   await appendActivityLog(projectId, 'Proposal page retired.')
 }
 
+// Put the counter back to zero so the next view is known to be the client's.
+//
+// WHY THIS EXISTS (Michael, 2026-08-17). Michael and Claude open a proposal repeatedly while
+// writing and proofreading it, and every one of those opens counts. Farrell's page read "opened 2x"
+// before it had been sent to anyone. A number that mixes his own proofreading with the client's
+// reading is worse than no number, because he cannot tell which is which.
+//
+// The rejected alternative was to stop counting CRM previews and count only real browser opens.
+// Michael's call, and he is right: he still opens the live link in his own browser to check it, so
+// that would not have produced a clean number either. An explicit reset he presses the moment he
+// sends is the only version he can trust. The intended habit is: proofread it as many times as you
+// like, send it, hit reset, and from then on every view is somebody else.
+//
+// ⚠️ first_viewed_at MUST be nulled, not just the count. The edge function decides whether to fire
+// the first-view bell and phone push with `!prop.first_viewed_at`. Leave it set and the reset gives
+// a zero counter that can never alert him again, which is the exact failure the reset is meant to
+// prevent.
+//
+// Any unseen proposal-viewed notification is cleared too, since it refers to a view that has just
+// been declared not to count.
+export async function resetProposalViews(projectId) {
+  const { error } = await sb()
+    .from('proposals')
+    .update({
+      view_count: 0,
+      first_viewed_at: null,
+      last_viewed_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('project_id', projectId)
+  if (error) throw new Error(`crm-proposals.resetProposalViews: ${error.message}`)
+
+  // Best-effort. A stale bell is not worth failing the reset over.
+  try {
+    await sb()
+      .from('notifications')
+      .delete()
+      .eq('kind', 'proposal-viewed')
+      .eq('project_id', projectId)
+      .eq('seen', false)
+  } catch (e) {
+    console.warn('[proposals] could not clear the proposal-viewed notification:', e?.message || e)
+  }
+
+  // Deliberately NOT written to the activity log. Michael resets this every time he sends, so
+  // logging it would add a line per proposal that says nothing about the client.
+}
+
 // Did they read it? A view is counted every time, not once per person: the forwarded view, from the
 // spouse or the boss who was not on the call, is the one that decides the booking.
 export async function proposalStats(projectId) {
