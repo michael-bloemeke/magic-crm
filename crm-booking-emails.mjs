@@ -56,6 +56,55 @@ const WRAP_CLOSE = '</div>'
 const p = (html) => `<p style="margin:0 0 14px">${html}</p>`
 
 // ---------------------------------------------------------------------------
+// THE SIGN-OFF. One block, every email, drafts included.
+// ---------------------------------------------------------------------------
+//
+// ⚠️ THIS FIXES A REAL BUG, and the false belief behind it is worth stating plainly so nobody
+// reintroduces it. Several of these templates used to end at "Thanks!" with a comment saying the
+// name was omitted because a Gmail DRAFT picks up Michael's own signature. IT DOES NOT. Gmail
+// inserts a signature when a human opens a NEW COMPOSE WINDOW in the interface. A draft created
+// through the Gmail API arrives exactly as it was written, with nothing appended, whether it is
+// sent by the cloud or opened and sent by hand. So every one of those drafts was reaching Michael
+// unsigned and he was typing the block back in himself. Confirmed 2026-08-17 on the proposal email.
+//
+// Michael's format, and the line breaks are the point: a blank line after the body, then four lines
+// hard against each other with no gaps between them.
+//
+//   Thanks!
+//   Michael Bloemeke
+//   michaelbloemeke.com
+//   919-239-9898
+//
+// ⚠️ THE HTML VERSION MUST USE A REAL ANCHOR for the website. Left as a bare domain, Gmail
+// auto-linkifies it and, having no anchor text to show, renders its own
+// `google.com/url?q=...&source=gmail&ust=...` redirect as the VISIBLE text. That landed in a real
+// draft on 2026-08-17. `<br>` between lines rather than separate <p> tags, because <p> margins
+// would put the gaps back in.
+//
+// Michael expects this to be replaced by a designed signature card once he has a logo. Change it
+// here and every sender picks it up.
+// The closer defaults to "Thanks!", which is Michael's standard. A few of these templates already
+// end on a warmer line lifted verbatim from his Notion page ("Thanks again, I'm looking forward to
+// it!"). Those pass their own closer rather than stacking a second "Thanks!" underneath, which
+// keeps his wording and still lands the contact block.
+export const SIGNATURE_LINES = ['Michael Bloemeke', 'michaelbloemeke.com', '919-239-9898']
+
+// For the plain-text part. The LAST element of a lines array, preceded by the usual '' separator
+// that every other paragraph gets. It does NOT bring its own leading newline: doing that on top of
+// the '' produced two blank lines before the sign-off instead of one.
+export const signOffText = (closer = 'Thanks!') => [closer, ...SIGNATURE_LINES].join('\n')
+
+// For the HTML part. One <p> so the four lines sit hard against each other; separate <p> tags would
+// put the gaps back in.
+export const signOffHtml = (closer = 'Thanks!') =>
+  p([
+    esc(closer),
+    'Michael Bloemeke',
+    '<a href="https://michaelbloemeke.com" style="color:#1b2339">michaelbloemeke.com</a>',
+    '919-239-9898',
+  ].join('<br>'))
+
+// ---------------------------------------------------------------------------
 // 0. The proposal  (sits BEFORE the booking flow, its own thread)
 // ---------------------------------------------------------------------------
 //
@@ -83,8 +132,7 @@ export function proposalEmail({ project, url }) {
     '',
     'Have a look and let me know which option fits. Any questions, just ask.',
     '',
-    // No sign-off name: this is a Gmail DRAFT Michael sends himself, so his own signature supplies it.
-    'Thanks!',
+    signOffText(),
   ].join('\n')
   const html = [
     WRAP_OPEN,
@@ -93,7 +141,7 @@ export function proposalEmail({ project, url }) {
     button(url, 'Open your proposal'),
     p('Share it with anyone else who needs to see it, the link works for them too.'),
     p('Have a look and let me know which option fits. Any questions, just ask.'),
-    p('Thanks!'),
+    signOffHtml(),
     WRAP_CLOSE,
   ].join('')
   return { subject, text, html }
@@ -118,10 +166,7 @@ export function bookingFormEmail({ project, url }) {
     '',
     "Let me know if you have any questions, I'm always happy to answer!",
     '',
-    // No name. This template is the one Michael sends himself from Gmail as a DRAFT, so his Gmail
-    // signature supplies it (2026-08-04). Everything the CLOUD sends still signs off explicitly,
-    // because the Gmail API transmits the raw message and never appends a signature.
-    'Thanks!',
+    signOffText(),
   ].join('\n')
   const html = [
     WRAP_OPEN,
@@ -130,7 +175,7 @@ export function bookingFormEmail({ project, url }) {
     button(url, 'Fill in your event details'),
     p("It takes about two minutes. Once the form/agreement is submitted, you'll receive a copy for your records and an invoice.<br>As soon as the invoice is paid, you'll be finalized in my calendar and we'll be good to go!"),
     p("Let me know if you have any questions, I'm always happy to answer!"),
-    p('Thanks!'),
+    signOffHtml(),
     p(`<span style="font-size:12px;color:#888">If the button doesn't work, paste this into your browser:<br>${esc(url)}</span>`),
     WRAP_CLOSE,
   ].join('')
@@ -153,8 +198,7 @@ export function contractEmail({ project }) {
     '',
     "The invoice should be arriving in a separate email shortly. Let me know if it doesn't come through. Once that invoice goes through, you'll be finalized in my calendar!",
     '',
-    'Thanks again!',
-    'Michael',
+    signOffText('Thanks again!'),
   ].join('\n')
   const html = [
     WRAP_OPEN,
@@ -162,7 +206,7 @@ export function contractEmail({ project }) {
     p('I just received the booking form and signature.'),
     p('Attached is a copy of the agreement you just signed, for your records. The first page is a copy of the event details you gave me, so hang on to it and let me know if anything changes between now and the day.'),
     p("The invoice should be arriving in a separate email shortly. Let me know if it doesn't come through. <u>Once that invoice goes through, you'll be finalized in my calendar!</u>"),
-    p('Thanks again!<br>Michael'),
+    signOffHtml('Thanks again!'),
     WRAP_CLOSE,
   ].join('')
   return { subject, text, html }
@@ -202,8 +246,7 @@ export function invoiceEmail({ project, payUrl }) {
     ...(payUrl ? ['You can pay online here:', payUrl, ''] : []),
     "NOTE: Quickbooks does have a processing fee for online payment, so if you'd prefer to avoid that, I'm happy to do cash, check, PayPal, Venmo, CashApp, or Zelle. Just let me know.",
     '',
-    'Thanks!',
-    'Michael',
+    signOffText(),
   ].join('\n')
   const html = [
     WRAP_OPEN,
@@ -211,7 +254,7 @@ export function invoiceEmail({ project, payUrl }) {
     p('The Invoice is attached, please remit payment at your earliest convenience.<br>Thank you for your business, I appreciate it very much!!'),
     payUrl ? button(payUrl, 'Pay the invoice online') : '',
     p("NOTE: Quickbooks does have a processing fee for online payment, so if you'd prefer to avoid that, I'm happy to do cash, check, PayPal, Venmo, CashApp, or Zelle. Just let me know."),
-    p('Thanks!<br>Michael'),
+    signOffHtml(),
     WRAP_CLOSE,
   ].join('')
   return { subject, text, html }
@@ -231,15 +274,14 @@ export function bookingConfirmedEmail({ project }) {
     '',
     "I'll keep in touch as the date gets closer, but please don't hesitate to reach out if you have any questions.",
     '',
-    "Thanks again, I'm looking forward to it!",
-    'Michael',
+    signOffText("Thanks again, I'm looking forward to it!"),
   ].join('\n')
   const html = [
     WRAP_OPEN,
     p(`Hi ${esc(name)},`),
     p("I'm just letting you know that the signature and deposit went through which means that you are booked in my calendar and everything is good to go!"),
     p("I'll keep in touch as the date gets closer, but please don't hesitate to reach out if you have any questions."),
-    p("Thanks again, I'm looking forward to it!<br>Michael"),
+    signOffHtml("Thanks again, I'm looking forward to it!"),
     WRAP_CLOSE,
   ].join('')
   return { subject, text, html }

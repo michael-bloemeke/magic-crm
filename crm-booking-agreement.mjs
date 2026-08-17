@@ -43,6 +43,7 @@ import {
 } from './crm-quickbooks.mjs'
 import { readFileSync } from 'node:fs'
 import { CRM_STORE, sb } from './crm-store.mjs'
+import { signOffText, signOffHtml } from './crm-booking-emails.mjs'
 
 function findProject(projectId) {
   const project = loadAll().projects.find((p) => p.id === projectId)
@@ -184,15 +185,14 @@ function emailBody(firstName) {
     '',
     "I'll send the invoice separately.",
     '',
-    'Looking forward to it!',
-    'Michael',
+    signOffText('Looking forward to it!'),
   ].join('\n')
   const html = [
     `<p>Hi ${escapeHtml(firstName)},</p>`,
     "<p>You're on the books. Thanks for getting all that over to me.</p>",
     '<p>Attached is a copy of the agreement you just signed, for your records. The first page is the event details you gave me, so hang on to it and let me know if anything changes between now and the day.</p>',
     "<p>I'll send the invoice separately.</p>",
-    '<p>Looking forward to it!<br>Michael</p>',
+    signOffHtml('Looking forward to it!'),
   ].join('')
   return { text, html }
 }
