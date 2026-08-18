@@ -742,28 +742,20 @@ export function crmDataPlugin() {
         'invoice-paid': 'Invoice paid',
         'contract-viewed': 'Contract viewed',
         'contract-signed': 'Contract signed',
-        'task-due': 'Task due',
         'new-inquiry': 'New inquiry',
         'proposal-viewed': 'Proposal viewed',
       }
       const withNotifNames = (events) => {
         const byId = new Map(loadAll().projects.map((p) => [p.id, p.client]))
-        // For task-due, resolve the source_id to the actual task so the bell shows the task's title
-        // instead of the generic "Task due". Falls back to the generic label if the task is gone.
-        let tasksById = new Map()
-        try {
-          tasksById = new Map(loadTasks().map((t) => [String(t.id), t]))
-        } catch {
-          tasksById = new Map()
-        }
-        return events.map((e) => {
-          let label = NOTIF_LABELS[e.kind] || e.kind
-          if (e.kind === 'task-due') {
-            const t = tasksById.get(String(e.sourceId))
-            if (t && t.title) label = String(t.title)
-          }
-          return { ...e, projectName: byId.get(e.projectId) || e.projectId, label }
-        })
+        // task-due rows are DROPPED, not labelled. Nothing writes them any more, but historical ones
+        // exist and must never reappear in the bell: a task is counted once, on the Tasks badge.
+        return events
+          .filter((e) => e.kind !== 'task-due')
+          .map((e) => ({
+            ...e,
+            projectName: byId.get(e.projectId) || e.projectId,
+            label: NOTIF_LABELS[e.kind] || e.kind,
+          }))
       }
       // Poll SignWell + QuickBooks for status transitions and record any NEWLY detected ones (only a
       // transition that happens during this sweep fires, so pre-existing signed/paid states do not
@@ -809,18 +801,14 @@ export function crmDataPlugin() {
             /* QuickBooks unreachable / not connected; skip */
           }
         }
-        // Tasks that have come due (or are overdue) and aren't done: fire once each (deduped by id).
-        // Time-based, so this catches a task the moment a sweep runs on/after its due date.
-        try {
-          const now = new Date()
-          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-          for (const t of loadTasks()) {
-            if (t.done || !t.dueDate) continue
-            if (t.dueDate <= today && active.has(t.projectId)) await addNotification(t.projectId, 'task-due', t.id)
-          }
-        } catch {
-          /* tasks unreadable; skip */
-        }
+        // NO task-due notifications are created here any more (2026-08-16).
+        //
+        // A due task was counted twice: once by the Tasks badge and again by the bell, so one
+        // overdue task looked like two things needing attention. The row also outlived the task,
+        // because nothing cleared it when the task was completed or deleted. That is why three
+        // "task due" alerts for a finished task sat in the bell refusing to go away.
+        //
+        // Tasks belong to the Tasks badge and the Tasks page. The bell is for everything else.
         return withNotifNames(loadUnseenNotifications())
       }
 

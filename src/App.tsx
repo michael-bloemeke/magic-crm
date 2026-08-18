@@ -381,15 +381,22 @@ function App() {
   const dueTodayCount = liveTasks.filter((t) => !t.done && t.dueDate === today).length
   const upcomingCount = liveTasks.filter((t) => !t.done && (!t.dueDate || t.dueDate > today)).length
 
-  // The dock badge is the in-app bell total PLUS unread client mail: status updates + questionnaire
-  // new inquiries + overdue + due-today + unread emails. It is deliberately a superset
-  // of the bell (the bell does not list mail, since the Inbox is its own surface). Updates the moment
-  // any of those change. No-op in a plain browser.
+  // THE THREE COUNTERS, defined once so they cannot drift or double-count (Michael, 2026-08-16):
+  //
+  //   Tasks badge (sidebar) = tasks due today or overdue.       -> taskAlerts
+  //   Bell badge            = everything else needing a look.   -> bellCount
+  //   App icon (dock/phone) = the two added together.
+  //
+  // A due task used to be counted by BOTH the Tasks badge and the bell, so one task read as two
+  // things to deal with. It now belongs to the Tasks badge alone.
+  //
+  // Unread mail is part of the bell and is derived from the live Gmail sync rather than stored, so
+  // reading a message in Gmail drops it from the bell on the next sync with nothing to dismiss.
+  const bellCount = liveStatusNotifs.length + inquiries.length + inboxUnread
+
   useEffect(() => {
-    window.crm?.setBadge?.(
-      liveStatusNotifs.length + inquiries.length + overdueCount + dueTodayCount + inboxUnread,
-    )
-  }, [liveStatusNotifs.length, inquiries.length, overdueCount, dueTodayCount, inboxUnread])
+    window.crm?.setBadge?.(taskAlerts + bellCount)
+  }, [taskAlerts, bellCount])
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -914,14 +921,12 @@ function App() {
 
   const notifications = (
     <Notifications
-      tasks={liveTasks}
       projects={liveProjects}
       inquiries={inquiries}
       onDismissInquiry={dismissInquiryNotif}
       statusNotifications={liveStatusNotifs}
       onDismissStatus={dismissStatusNotif}
-      onToggle={toggleTask}
-      onDelete={deleteTask}
+      unread={unread}
       onOpenProject={openFull}
     />
   )

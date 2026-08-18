@@ -49,12 +49,6 @@ interface PushPayload {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-// notifications.id is a text column with no default, so we mint an id in the same shape the Mac uses
-// (crm-notifications.mjs newId): 'n' + base36 time + 4 random base36 chars.
-function newNotificationId(): string {
-  return "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-}
-
 // A task's display name for the push: prefer the editable project_name, fall back to client_name.
 function projectDisplayName(p: { project_name?: string | null; client_name?: string | null }): string {
   const pn = (p?.project_name ?? "").toString().trim();
@@ -264,12 +258,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // Current unseen count is part of the phone's app-icon badge; compute once and reuse. (task-due +
   // new-inquiry live in the same notifications table the bell reads.)
-  async function unseenCount(): Promise<number> {
-    const { count } = await sb
+  // The number on the app icon = TASKS DUE + BELL NOTIFICATIONS, matching what both apps show.
+  //
+  // The bell deliberately excludes task-due: a due task is counted once, on the Tasks badge. It used
+  // to be counted in both places, so a single overdue task read as two things needing attention.
+  async function badgeCount(): Promise<number> {
+    const { count: notifs } = await sb
       .from("notifications")
       .select("id", { count: "exact", head: true })
-      .eq("seen", false);
-    return count ?? 0;
+      .eq("seen", false)
+      .neq("kind", "task-due");
+
+    // Tasks due today or earlier, still open. Date-only compare, in Michael's timezone.
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const { count: dueTasks } = await sb
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("done", false)
+      .neq("due_date", "")
+      .lte("due_date", today);
+
+    return (notifs ?? 0) + (dueTasks ?? 0);
   }
 
   let tasksFired = 0;
@@ -318,27 +332,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
         const title = String(t.title ?? "").trim() || "Task";
         const who = proj ? projectDisplayName(proj) : "";
 
-        // Insert the task-due notification unless one already exists for (kind, source_id=task.id).
-        const { data: existing } = await sb
-          .from("notifications")
-          .select("id")
-          .eq("kind", "task-due")
-          .eq("source_id", taskId)
-          .limit(1);
-        if (!existing || existing.length === 0) {
-          await sb.from("notifications").insert({
-            id: newNotificationId(),
-            project_id: pid,
-            kind: "task-due",
-            source_id: taskId,
-            seen: false,
-            created_at: new Date().toISOString(),
-          });
-        }
+        // NO notification row is written for a due task any more.
+        //
+        // A task-due row put the same task in two places at once: the Tasks badge counted it, and
+        // the bell counted it again, so one overdue task read as two. Worse, the row outlived the
+        // task. Completing or deleting the task never cleared it, which is why Michael was looking
+        // at three undismissable "Jessica - task due" alerts for a task he had finished days
+        // earlier. The task list is the task's only home now.
+        //
+        // The lock-screen push below still fires: being told a task is due is the point. It just
+        // does not leave a permanent artefact behind in the bell.
 
         // Push (best-effort). Body matches crm-push.mjs task-due: "<task title> — <who>", but using a
         // hyphen (no em-dash, per Michael's rule) as "<title> - <who>".
-        const count = (await unseenCount());
+        const count = (await badgeCount());
         const r = await pushAll(
           appServer,
           subs,

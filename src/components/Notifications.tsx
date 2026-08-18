@@ -1,31 +1,38 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { todayISO, type Project } from '../pipeline'
-import type { Task, InquiryNotification, StatusNotification } from '../api'
-import { TaskRow } from './TaskRow'
+import { type Project } from '../pipeline'
+import type { InquiryNotification, StatusNotification } from '../api'
 
+// The bell is NOTIFICATIONS ONLY. Tasks live on the Tasks badge and nowhere else, so one overdue
+// task is one thing needing attention rather than two. Michael, 2026-08-16: "The bell is
+// notification. Tasks are tasks."
 type Props = {
-  tasks: Task[]
   projects: Project[]
   inquiries: InquiryNotification[]
   onDismissInquiry: (blockId: string) => void
   statusNotifications: StatusNotification[]
   onDismissStatus: (id: string) => void
-  onToggle: (id: string, done: boolean) => void
-  onDelete: (id: string) => void
+  // Unread client mail, per project. Derived from the live Gmail sync, NOT stored, so reading a
+  // message in Gmail makes it disappear from here on the next sync with nothing to dismiss by hand.
+  unread: Record<string, number>
   onOpenProject: (project: Project) => void
 }
 
-export function Notifications({ tasks, projects, inquiries, onDismissInquiry, statusNotifications, onDismissStatus, onToggle, onDelete, onOpenProject }: Props) {
+export function Notifications({ projects, inquiries, onDismissInquiry, statusNotifications, onDismissStatus, unread, onOpenProject }: Props) {
   const [open, setOpen] = useState(false)
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
-  const today = todayISO()
-  const overdue = tasks
-    .filter((t) => !t.done && t.dueDate && t.dueDate < today)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-  const dueToday = tasks.filter((t) => !t.done && t.dueDate === today)
-  const count = statusNotifications.length + inquiries.length + overdue.length + dueToday.length
+  // Unread mail, resolved to the projects it belongs to and ignoring anything with a zero count.
+  const unreadProjects = useMemo(
+    () =>
+      Object.entries(unread)
+        .filter(([, n]) => n > 0)
+        .map(([id, n]) => ({ project: byId.get(id), n }))
+        .filter((x): x is { project: Project; n: number } => !!x.project),
+    [unread, byId],
+  )
+  const unreadTotal = unreadProjects.reduce((a, x) => a + x.n, 0)
+  const count = statusNotifications.length + inquiries.length + unreadTotal
 
   const openProject = (projectId: string) => {
     const p = byId.get(projectId)
@@ -34,17 +41,6 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
       setOpen(false)
     }
   }
-
-  const renderTask = (t: Task) => (
-    <TaskRow
-      key={t.id}
-      task={t}
-      projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
-      onToggle={(done) => onToggle(t.id, done)}
-      onDelete={() => onDelete(t.id)}
-      onOpenProject={t.projectId ? () => openProject(t.projectId) : undefined}
-    />
-  )
 
   return (
     <div className="relative">
@@ -61,7 +57,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
         {count > 0 && (
           <span
             className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-canvas"
-            style={{ backgroundColor: overdue.length ? '#dc2626' : 'var(--color-brass)' }}
+            style={{ backgroundColor: 'var(--color-brass)' }}
           >
             {count}
           </span>
@@ -86,7 +82,7 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
 
               {count === 0 ? (
                 <p className="px-1 py-6 text-center text-[12px] text-faint">
-                  You’re all caught up. Nothing due today or overdue.
+                  You’re all caught up. Nothing needs a look.
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -188,20 +184,32 @@ export function Notifications({ tasks, projects, inquiries, onDismissInquiry, st
                       </div>
                     </section>
                   )}
-                  {overdue.length > 0 && (
-                    <section>
-                      <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: '#dc2626' }}>
-                        Overdue · {overdue.length}
-                      </p>
-                      <div className="space-y-1.5">{overdue.map(renderTask)}</div>
-                    </section>
-                  )}
-                  {dueToday.length > 0 && (
+                  {unreadProjects.length > 0 && (
                     <section>
                       <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brass">
-                        Due today · {dueToday.length}
+                        Unread mail · {unreadTotal}
                       </p>
-                      <div className="space-y-1.5">{dueToday.map(renderTask)}</div>
+                      <div className="space-y-1.5">
+                        {unreadProjects.map(({ project, n }) => (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => openProject(project.id)}
+                            className="flex w-full items-center gap-2.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-left transition-colors hover:bg-surface-3"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-medium text-parchment">
+                                {project.client}
+                              </span>
+                              <span className="block text-[11px] text-faint">
+                                {n} unread message{n === 1 ? '' : 's'}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      {/* No dismiss button on purpose: these clear themselves when the mail is read,
+                          in the CRM or in Gmail. */}
                     </section>
                   )}
                 </div>

@@ -2073,6 +2073,14 @@ function setTabCount(id, n) {
   var e = $('#' + id); if (!e) return
   if (n > 0) { e.textContent = n > 99 ? '99+' : String(n); e.classList.remove('hidden') } else e.classList.add('hidden')
 }
+// THE THREE COUNTERS, defined once so they cannot drift or double-count (Michael, 2026-08-16):
+//
+//   Tasks badge  = tasks due today or overdue.
+//   Alerts badge = everything else needing a look (the bell). Never tasks.
+//   App icon     = the two added together.
+//
+// A due task used to be counted by BOTH badges, so one task read as two things to deal with. It
+// belongs to Tasks alone now; loadNotifications drops task-due rows on the way in.
 function updateCounts() {
   if (!SNAP) return
   var alerts = (SNAP.notifications || []).length
@@ -2086,7 +2094,7 @@ function updateCounts() {
     var n = bucketCount(b)
     elc.textContent = n ? String(n) : ''
   })
-  // Number on the home-screen app icon = new alerts + tasks needing attention.
+  // Number on the home-screen app icon = alerts + tasks, i.e. exactly what the two badges show.
   try {
     if (navigator.setAppBadge) {
       var total = alerts + due

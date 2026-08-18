@@ -228,10 +228,15 @@ export async function loadTasks() {
 // the source_id is resolved to the task's REAL title (via tasksById) so the alert shows the task name
 // instead of the generic "Task due"; the raw kind is kept so the view can style new-inquiry specially.
 export async function loadNotifications(projectsById, tasksById) {
+  // task-due is EXCLUDED. A due task is counted once, on the Tasks badge; it used to also land here,
+  // so one overdue task showed as two things needing attention. Worse, the row outlived the task:
+  // completing or deleting the task never cleared it. The cloud cron no longer writes these, and the
+  // filter stays as a guard so any historical row cannot come back.
   const { data, error } = await sb
     .from('notifications')
     .select('id,project_id,kind,source_id,seen,created_at')
     .eq('seen', false)
+    .neq('kind', 'task-due')
   if (error) throw error
   const byId = projectsById || new Map()
   const tById = tasksById || new Map()
