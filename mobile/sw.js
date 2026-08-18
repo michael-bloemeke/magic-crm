@@ -31,8 +31,10 @@
 // v22: Indoors / Outdoors is a dropdown (Indoors / Outdoors / Both), matching the booking form.
 // v23: alerts can be dismissed from the phone (swipe left -> Dismiss, with Undo in the toast).
 // Opening an alert no longer counts as dealing with it.
+// v24: the Alerts badge no longer counts tasks. A due task is counted once, on Tasks; the app icon
+// is Tasks + Alerts.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v23'
+var CACHE = 'mcrm-v24'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',
