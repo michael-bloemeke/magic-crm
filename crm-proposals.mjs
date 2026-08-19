@@ -53,7 +53,9 @@ function defaultExpiry(eventDate) {
 //
 // Two standing rules, both brand-critical: nothing here is ever written for the occasion, and
 // reviews that lean into wizard or occult framing are left out even when they are jokes and even
-// when they are glowing. Michael is a devout Catholic with a large Catholic and Christian client
+// when they are glowing. ⚠️ LEAN INTO, not merely mention: a strong review with one such clause in
+// it is used with the clause ellipsed out. Michael corrected this reading on 2026-08-19 after I
+// wrongly binned Sarah and Jake Appelbaum's wedding review over a single line. See the playbook. Michael is a devout Catholic with a large Catholic and Christian client
 // base. (This is why Gustavo Bora's "dark wizard" review is excluded from the website too.)
 //
 // TO REPLACE: Michael has a curated bank in Google Drive sorted the same way. When it lands, swap
