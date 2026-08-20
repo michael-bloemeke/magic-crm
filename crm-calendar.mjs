@@ -28,7 +28,6 @@ const MAP_FILE = path.join(RECORDS_DIR, 'crm-calendar-map.json')
 const TIMEZONE = 'America/New_York' // Michael is in Durham, NC
 const GIGS_CALENDAR = 'Gigs'
 const WORK_CALENDAR = 'Work'
-const GIG_DEFAULT_DURATION_MIN = 120 // a gig with a start time blocks 2h by default
 const TASK_DURATION_MIN = 30 // a timed task blocks 30 min
 
 // ---- Connection -------------------------------------------------------------
@@ -141,6 +140,13 @@ function parseTime(raw) {
   return null
 }
 
+// "{h, m}" back to the 12-hour form Michael reads everywhere else in the CRM: 19:00 -> "7:00 PM".
+function timeLabel(t) {
+  if (!t) return ''
+  const h12 = t.h % 12 === 0 ? 12 : t.h % 12
+  return `${h12}:${String(t.m).padStart(2, '0')} ${t.h < 12 ? 'AM' : 'PM'}`
+}
+
 // A real calendar date: strictly YYYY-MM-DD AND an actual day (so "TBD", "2026", or "2026-13-40"
 // never get sent to Google, which would 400). Guards both gig eventDates and task dueDates.
 function isValidDate(s) {
@@ -184,7 +190,10 @@ function line(label, value) {
 
 function projectEventBody(project) {
   const booked = isProjectBooked(project)
-  const summary = `${booked ? '' : 'Inquiry: '}${project.client}`
+  // The show time rides in the TITLE because the event itself is all-day (see below), so the time is
+  // still readable at a glance in month view instead of being buried in the description.
+  const t = parseTime(project.arrivalTime) || parseTime(project.eventStartTime) || parseTime(project.showStartTime)
+  const summary = `${booked ? '' : 'Inquiry: '}${project.client}${t ? ` · ${timeLabel(t)}` : ''}`
 
   let description = ''
   // The project's Description blurb leads the event details, when there is one.
@@ -205,15 +214,18 @@ function projectEventBody(project) {
     reminders: { useDefault: true },
   }
 
-  // Timed block from the first available time (arrival -> event start -> show start); else all-day.
-  const t = parseTime(project.arrivalTime) || parseTime(project.eventStartTime) || parseTime(project.showStartTime)
-  if (t) {
-    body.start = { dateTime: dateTimeAt(project.eventDate, t), timeZone: TIMEZONE }
-    body.end = { dateTime: dateTimeAt(project.eventDate, t, GIG_DEFAULT_DURATION_MIN), timeZone: TIMEZONE }
-  } else {
-    body.start = { date: project.eventDate }
-    body.end = { date: shiftDate(project.eventDate, 1) }
-  }
+  // ALL-DAY on purpose, even when a time is known.
+  //
+  // Google Calendar's month view decides how an event LOOKS from its type, and nothing in the API
+  // overrides that: an all-day event draws as a filled coloured chip, a timed event draws as a small
+  // dot with text. Michael wanted gigs to stand out the way his tasks and his old HoneyBook events
+  // do (2026-08-20), and those are filled chips because they are all-day. A timed gig could never
+  // look like that while it stayed timed.
+  //
+  // The cost is that a gig no longer occupies a block in week/day view. The time is preserved in the
+  // title and in the description, so nothing is lost, but the day no longer LOOKS busy from 7pm.
+  body.start = { date: project.eventDate }
+  body.end = { date: shiftDate(project.eventDate, 1) }
   return body
 }
 
@@ -375,22 +387,53 @@ export async function removeTaskEvent(taskId) {
 // stored map), so re-running just updates. Returns counts + any distinct errors.
 export async function syncAll() {
   if (!isCalendarConnected()) return { ok: false, error: 'Not connected to Google Calendar.' }
-  const projects = loadAll().projects.filter((p) => p.bucket === 'active' && isValidDate(p.eventDate))
-  const tasks = loadTasks().filter((t) => !t.done && isValidDate(t.dueDate))
+
+  // A RECONCILE, not just a push.
+  //
+  // This used to walk only ACTIVE projects, which meant it could add and update events but could
+  // never remove one. Anything that left the pipeline without the Mac noticing stayed on the
+  // calendar forever, and a "Sync all" could not clear it either.
+  //
+  // Plenty of things change a bucket without the Mac noticing: the phone writes straight to
+  // Supabase, the cloud cron completes bookings, and a hand-run SQL delete bypasses everything. On
+  // 2026-08-20 that had left seven events for projects that no longer existed at all (jack-kelly,
+  // some test rows) plus an archived gig still showing.
+  //
+  // So the sweep now covers the UNION of what should be there and what the event map says IS there.
+  // syncProject/syncTask each decide add-vs-remove for one id, so simply visiting every id in that
+  // union converges the calendar on the truth, including ids whose project or task is gone.
+  const map = readMap()
+  const projects = loadAll().projects
+  const tasks = loadTasks()
+
+  const projectIds = new Set([
+    ...projects.filter((p) => (p.bucket === 'active' || p.bucket === 'completed') && isValidDate(p.eventDate)).map((p) => p.id),
+    ...Object.keys(map.projects || {}),
+  ])
+  const taskIds = new Set([
+    ...tasks.filter((t) => !t.done && isValidDate(t.dueDate)).map((t) => t.id),
+    ...Object.keys(map.tasks || {}),
+  ])
+
   let projectCount = 0
   let taskCount = 0
+  let removed = 0
   const errors = new Set()
-  for (const p of projects) {
-    const r = await syncProject(p.id)
-    if (r.ok) projectCount += 1
-    else if (r.error) errors.add(r.error)
+  for (const id of projectIds) {
+    const r = await syncProject(id)
+    if (r.ok) {
+      projectCount += 1
+      if (r.removed) removed += 1
+    } else if (r.error) errors.add(r.error)
   }
-  for (const t of tasks) {
-    const r = await syncTask(t.id)
-    if (r.ok) taskCount += 1
-    else if (r.error) errors.add(r.error)
+  for (const id of taskIds) {
+    const r = await syncTask(id)
+    if (r.ok) {
+      taskCount += 1
+      if (r.removed) removed += 1
+    } else if (r.error) errors.add(r.error)
   }
-  return { ok: true, projects: projectCount, tasks: taskCount, errors: [...errors] }
+  return { ok: true, projects: projectCount, tasks: taskCount, removed, errors: [...errors] }
 }
 
 // ---- One-off calendar invite (project Booking section) ----------------------
