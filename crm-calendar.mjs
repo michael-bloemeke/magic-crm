@@ -385,6 +385,71 @@ export async function removeTaskEvent(taskId) {
 
 // Full sync: push every eligible active-dated project and open-dated task. Idempotent (upserts by the
 // stored map), so re-running just updates. Returns counts + any distinct errors.
+// Every event this CRM writes carries this line in its description. It is the ONLY safe way to tell
+// a CRM-authored event from one Michael (or HoneyBook, or a shared calendar) created by hand.
+const CRM_MARKER = 'Synced from Magic CRM'
+
+// Delete CRM-authored events the CRM no longer tracks.
+//
+// The reconcile in syncAll can only remove events it has an id for, in the event map. An event whose
+// map entry was lost is invisible to it and sits on the calendar forever. That is what "Inquiry:
+// Test Project" was on 2026-08-20: a real gig event for a project that no longer exists, with no map
+// entry to find it by.
+//
+// Matching on the marker is deliberate and narrow: an event without it was not written by this CRM,
+// so it is never touched no matter how orphaned it looks.
+async function sweepUntrackedEvents({ dryRun = false } = {}) {
+  const cal = api()
+  const map = readMap()
+  const found = []
+
+  for (const [calName, bucket] of [[GIGS_CALENDAR, 'projects'], [WORK_CALENDAR, 'tasks']]) {
+    const calId = await resolveCalendarId(cal, calName)
+    if (!calId) continue
+    const tracked = new Set(Object.values(map[bucket] || {}))
+    const now = new Date()
+    const from = new Date(now.getFullYear() - 2, 0, 1).toISOString()
+    const to = new Date(now.getFullYear() + 5, 0, 1).toISOString()
+
+    let pageToken
+    do {
+      const res = await cal.events.list({
+        calendarId: calId,
+        timeMin: from,
+        timeMax: to,
+        singleEvents: true,
+        maxResults: 2500,
+        pageToken,
+      })
+      for (const e of res.data.items || []) {
+        if (e.status === 'cancelled') continue
+        if (tracked.has(e.id)) continue // still ours and still accounted for
+        if (!String(e.description || '').includes(CRM_MARKER)) continue // not ours; leave it alone
+        found.push({ calendar: calName, id: e.id, title: e.summary || '(untitled)', date: (e.start && (e.start.date || e.start.dateTime)) || '' })
+        if (!dryRun) {
+          try {
+            await cal.events.delete({ calendarId: calId, eventId: e.id })
+          } catch {
+            // already gone -> fine
+          }
+        }
+      }
+      pageToken = res.data.nextPageToken
+    } while (pageToken)
+  }
+  return found
+}
+
+// Exposed so the orphan sweep can be inspected before it deletes anything.
+export async function findUntrackedCrmEvents() {
+  if (!isCalendarConnected()) return { ok: false, error: 'Not connected to Google Calendar.' }
+  try {
+    return { ok: true, events: await sweepUntrackedEvents({ dryRun: true }) }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) }
+  }
+}
+
 export async function syncAll() {
   if (!isCalendarConnected()) return { ok: false, error: 'Not connected to Google Calendar.' }
 
@@ -433,7 +498,16 @@ export async function syncAll() {
       if (r.removed) removed += 1
     } else if (r.error) errors.add(r.error)
   }
-  return { ok: true, projects: projectCount, tasks: taskCount, removed, errors: [...errors] }
+  // Finally, delete CRM-authored events that have no map entry at all. The loop above cannot see
+  // those, because it only visits ids the CRM already knows about.
+  let orphans = []
+  try {
+    orphans = await sweepUntrackedEvents()
+  } catch (e) {
+    errors.add(String(e?.message || e))
+  }
+
+  return { ok: true, projects: projectCount, tasks: taskCount, removed, orphans: orphans.length, orphanList: orphans, errors: [...errors] }
 }
 
 // ---- One-off calendar invite (project Booking section) ----------------------

@@ -49,6 +49,7 @@ import {
   removeProjectEvent,
   removeTaskEvent,
   syncAll as syncCalendarAll,
+  findUntrackedCrmEvents,
   calendarStatus,
   sendCalendarInvite,
   listGigsEvents,
@@ -1559,6 +1560,19 @@ export function crmDataPlugin() {
       })
 
       // --- Google Calendar (shares the Google connection above) ---
+      // Report-only: which CRM-authored events have no map entry (i.e. what the sweep would delete).
+      server.middlewares.use('/api/calendar/orphans', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        Promise.resolve(findUntrackedCrmEvents())
+          .then((r) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(r))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: e?.message || 'failed' }))
+          })
+      })
       server.middlewares.use('/api/calendar/sync', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, () => syncCalendarAll())
