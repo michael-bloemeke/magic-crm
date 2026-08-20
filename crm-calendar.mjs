@@ -403,6 +403,20 @@ async function sweepUntrackedEvents({ dryRun = false } = {}) {
   const map = readMap()
   const found = []
 
+  // ⚠️ COLD-CACHE GUARD. Under supabase readMap() serves the calendar_map from an in-memory cache,
+  // and that cache is EMPTY for a moment after the server boots. A sweep that ran in that window
+  // would see zero tracked ids, conclude that every CRM-authored event on the calendar is an orphan,
+  // and delete all of them. That is not hypothetical: the first dry run of this sweep, fired
+  // immediately after a restart, reported 7 orphans that were all real gigs written minutes earlier.
+  //
+  // An empty map can never justify a deletion. If the CRM tracks nothing, either it genuinely has
+  // written nothing (so there is nothing to sweep) or the map has not loaded (so we must not act).
+  const trackedTotal =
+    Object.keys(map.projects || {}).length + Object.keys(map.tasks || {}).length
+  if (trackedTotal === 0) {
+    return found // nothing tracked -> nothing this CRM can claim ownership of, so delete nothing
+  }
+
   for (const [calName, bucket] of [[GIGS_CALENDAR, 'projects'], [WORK_CALENDAR, 'tasks']]) {
     const calId = await resolveCalendarId(cal, calName)
     if (!calId) continue
