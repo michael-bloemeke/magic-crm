@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactElement } from 'react'
 import { motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
 import type { Task } from '../api'
@@ -15,6 +15,46 @@ type Props = {
 }
 
 const byDueAsc = (a: Task, b: Task) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')
+
+// These two RETURN elements; they are not components, and they live at module scope.
+//
+// They used to be components declared inside TasksPage and rendered as <Section />. React identifies
+// a component by its function reference, so a fresh one on every render is a DIFFERENT type: the
+// whole subtree gets unmounted and rebuilt rather than updated. Every TaskRow inside went with it,
+// taking its local `editing` state along.
+//
+// That is what cancelled Michael's edit mid-typing: the 20-second background refresh re-rendered
+// TasksPage, the task list remounted, and the open editor vanished with whatever he had typed.
+// Calling a plain function sidesteps component identity entirely, so the rows below just update.
+function section(title: string, color: string, items: Task[], row: (t: Task) => ReactElement) {
+  if (items.length === 0) return null
+  return (
+    <section className="mb-6" key={title}>
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+        <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em]" style={{ color }}>
+          {title}
+        </h3>
+        <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
+      </div>
+      <div className="space-y-2">{items.map(row)}</div>
+    </section>
+  )
+}
+
+function completedSection(items: Task[], row: (t: Task) => ReactElement) {
+  if (items.length === 0) return null
+  return (
+    <section className="mt-2 opacity-70" key="completed">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-faint" />
+        <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-faint">Completed</h3>
+        <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
+      </div>
+      <div className="space-y-2">{items.map(row)}</div>
+    </section>
+  )
+}
 
 export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, onOpenProject }: Props) {
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
@@ -81,36 +121,6 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
     />
   )
 
-  const Section = ({ title, color, items }: { title: string; color: string; items: Task[] }) => {
-    if (items.length === 0) return null
-    return (
-      <section className="mb-6">
-        <div className="mb-2.5 flex items-center gap-2.5">
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em]" style={{ color }}>
-            {title}
-          </h3>
-          <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
-        </div>
-        <div className="space-y-2">{items.map(taskRow)}</div>
-      </section>
-    )
-  }
-
-  const CompletedSection = ({ items }: { items: Task[] }) => {
-    if (items.length === 0) return null
-    return (
-      <section className="mt-2 opacity-70">
-        <div className="mb-2.5 flex items-center gap-2.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-faint" />
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-faint">Completed</h3>
-          <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
-        </div>
-        <div className="space-y-2">{items.map(taskRow)}</div>
-      </section>
-    )
-  }
-
   // One column = a labeled header + the same four sections, filtered to that group.
   const column = (label: string, sub: string, data: ReturnType<typeof bucket>) => (
     <div>
@@ -125,10 +135,10 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
         <p className="py-10 text-center text-[12.5px] text-faint">Nothing here.</p>
       ) : (
         <>
-          <Section title="Overdue" color="#dc2626" items={data.overdue} />
-          <Section title="Due today" color="var(--color-brass)" items={data.dueToday} />
-          <Section title="Upcoming" color="var(--color-umb-postcall)" items={data.upcoming} />
-          <CompletedSection items={data.completed} />
+          {section('Overdue', '#dc2626', data.overdue, taskRow)}
+          {section('Due today', 'var(--color-brass)', data.dueToday, taskRow)}
+          {section('Upcoming', 'var(--color-umb-postcall)', data.upcoming, taskRow)}
+          {completedSection(data.completed, taskRow)}
         </>
       )}
     </div>
