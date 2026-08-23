@@ -178,6 +178,49 @@ export const PHOTO_SETS = {
 export const photosFor = (eventType) => PHOTO_SETS[normaliseType(eventType)] || PHOTO_SETS.private
 
 // The promo reel already embedded on the homepage. Swap this once the rebuilt one is filmed.
+// THE LOGO WALL IS FIXED FURNITURE. Michael, 2026-08-19 and again 2026-08-22: it is the same 32
+// logos on EVERY proposal, private events and weddings included, and it is never trimmed to balance
+// the page against the quote column. It is not an argument that he does corporate work, it is an
+// argument that serious organisations vetted and hired him, and that lands on a private host too.
+// Seeded here rather than left to whoever writes the page, because twice now a proposal shipped
+// with an empty wall because nobody remembered to set it. Fidelity Investments is permanently
+// excluded under standing rule 14 (the employer was inferred from a reviewer's email domain), which
+// is why this is 32 and not the 33 logo files on disk.
+export const CLIENT_LOGOS = [
+  { logo: 'raleigh-country-club', name: "Raleigh Country Club" },
+  { logo: 'renaissance-hotels', name: "Renaissance Hotels" },
+  { logo: 'duke-university', name: "Duke University" },
+  { logo: 'nc-state', name: "NC State University" },
+  { logo: 'sas', name: "SAS" },
+  { logo: 'bull-city-ciderworks', name: "Bull City Ciderworks" },
+  { logo: 'primland-resort', name: "Primland Resort" },
+  { logo: 'park-hotels-resorts', name: "Park Hotels & Resorts" },
+  { logo: 'the-cw', name: "The CW" },
+  { logo: 'wcnc-charlotte', name: "WCNC Charlotte" },
+  { logo: 'merrill-lynch', name: "Merrill Lynch" },
+  { logo: 'clayton-homes', name: "Clayton Homes" },
+  { logo: 'bon-secours', name: "Bon Secours" },
+  { logo: 'cdata', name: "CData Software" },
+  { logo: 'glen-raven', name: "Glen Raven" },
+  { logo: 'iqor', name: "iQor" },
+  { logo: 'hawx-pest-control', name: "Hawx Pest Control" },
+  { logo: 'radeas', name: "Radeas" },
+  { logo: 'carolina-commercial-systems', name: "Carolina Commercial Systems" },
+  { logo: 'legacy-wealth-strategies', name: "Legacy Wealth Strategies" },
+  { logo: 'wells-global', name: "Wells Global" },
+  { logo: 'protego', name: "Protego" },
+  { logo: 'terrahawk', name: "Terrahawk" },
+  { logo: 'golden-ticket-cinemas', name: "Golden Ticket Cinemas" },
+  { logo: 'catholic-diocese-of-raleigh', name: "Catholic Diocese of Raleigh" },
+  { logo: 'cardinal-gibbons', name: "Cardinal Gibbons" },
+  { logo: 'our-lady-of-lourdes', name: "Our Lady of Lourdes" },
+  { logo: 'ryans-place', name: "Ryan's Place" },
+  { logo: 'chapel-hill-high', name: "Chapel Hill High School" },
+  { logo: 'watermelon-festival', name: "Watermelon Festival" },
+  { logo: 'magicians-table', name: "The Magician's Table" },
+  { logo: 'we-plant-it-forward', name: "We Plant It Forward" },
+]
+
 export const DEFAULT_VIDEO_ID = 'uTaXL4lPcHQ'
 
 // ---------------------------------------------------------------------------
@@ -212,6 +255,7 @@ export async function ensureProposal(projectId) {
     recommendation: '',
     packages: [],
     reviews: reviewsFor(type),
+    clients: CLIENT_LOGOS,
     photos: photosFor(type),
     video_id: DEFAULT_VIDEO_ID,
     expires_at: defaultExpiry(project.eventDate),
@@ -255,6 +299,7 @@ export function proposalGaps(row, project) {
   if (!Array.isArray(row.packages) || !row.packages.length) gaps.push('at least one package')
   if (Array.isArray(row.packages) && row.packages.some((p) => !p.name || !p.price)) gaps.push('a name and price on every package')
   if (!Array.isArray(row.reviews) || !row.reviews.length) gaps.push('at least one review')
+  if (!Array.isArray(row.clients) || !row.clients.length) gaps.push('the client logo wall (it goes on every proposal, see CLIENT_LOGOS)')
   if (project) {
     if (ambiguousTime(project.eventStartTime)) gaps.push(`AM or PM on the event start time ("${project.eventStartTime}")`)
     if (ambiguousTime(project.showStartTime)) gaps.push(`AM or PM on the show start time ("${project.showStartTime}")`)

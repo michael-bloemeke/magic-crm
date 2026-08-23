@@ -1,5 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
+// Dates are STORED as ISO (YYYY-MM-DD) because most of the CRM parses them: recordYear() reads the
+// leading four digits, the booking gate rejects anything that is not ISO, the calendar keys off it,
+// and the proposal and contract pages run their own prettifier over it. So the long form Michael
+// wants is a DISPLAY concern only. Anything that is not ISO is shown untouched rather than mangled.
+const LONG_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December']
+function longDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
+  if (!m) return iso
+  const month = LONG_MONTHS[Number(m[2]) - 1]
+  if (!month) return iso
+  return `${month} ${Number(m[3])}, ${m[1]}`
+}
+
 type Props = {
   label?: string
   value: string
@@ -23,6 +37,9 @@ type Props = {
 // hover/focus, and saves on blur (or Enter, for single-line). No edit button.
 export function EditableField({ label, value, onSave, multiline, type = 'text', prefix, placeholder = 'Add…', format, missing, options }: Props) {
   const [val, setVal] = useState(value)
+  // Date fields read as long text until clicked, then become the native picker. Without this the
+  // browser renders its own locale format (10/04/2026), which is the thing being replaced.
+  const [editingDate, setEditingDate] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => setVal(value), [value])
@@ -103,12 +120,20 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
             placeholder={placeholder}
             className={`${base} resize-none overflow-hidden`}
           />
+        ) : type === 'date' && !editingDate ? (
+          <button type="button" onClick={() => setEditingDate(true)} className={`${base} text-left`}>
+            {val.trim() ? longDate(val) : <span className="text-faint/60">{placeholder}</span>}
+          </button>
         ) : (
           <input
             type={type}
             value={val}
+            autoFocus={type === 'date' && editingDate}
             onChange={(e) => setVal(e.target.value)}
-            onBlur={commit}
+            onBlur={() => {
+              commit()
+              setEditingDate(false)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault()
