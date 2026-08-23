@@ -120,7 +120,11 @@ export const signOffHtml = (closer = 'Thanks!') =>
 // every sender picks it up; nothing else needs to change.
 export function proposalEmail({ project, url }) {
   const name = firstNameOf(project)
-  const subject = 'Your proposal'
+  // ⚠️ THE WORD "MAGICIAN" STAYS IN THIS SUBJECT LINE. Michael, 2026-08-22. It arrives days after a
+  // phone call, often in a busy inbox, and often gets forwarded to somebody who was never on that
+  // call. "Your proposal" tells neither of them what it is. Matches the rest of his subject lines,
+  // which lead with "Magician Information".
+  const subject = 'Magician Proposal'
   const text = [
     `Hi ${name},`,
     '',
