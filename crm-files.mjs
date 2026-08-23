@@ -48,6 +48,10 @@ const CONTENT_TYPES = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  // Served as real HTML so a page like the sales call guide RENDERS when opened instead of
+  // downloading as a blob. Only files Michael puts here himself are ever served, so there is no
+  // untrusted-upload story to worry about.
+  '.html': 'text/html; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
   '.csv': 'text/csv; charset=utf-8',
