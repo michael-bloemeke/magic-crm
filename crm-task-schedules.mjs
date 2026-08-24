@@ -11,7 +11,6 @@
 // Eastern is a different UTC hour in summer and winter.
 
 import { sb } from './crm-store.mjs'
-import { addTask } from './crm-data-core.mjs'
 
 export const FREQUENCIES = ['daily', 'weekly', 'monthly']
 export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] // index 0 = ISO day 1
@@ -114,32 +113,4 @@ export async function deleteTaskSchedule(id) {
   const { error } = await sb().from('task_schedules').delete().eq('id', id)
   if (error) throw error
   return { ok: true, id }
-}
-
-// Create this schedule's task right now, ignoring the clock. For "I want that one today" without
-// waiting a week, and it doubles as a way to check a schedule does what he expects.
-export async function runTaskScheduleNow(id) {
-  if (!id) throw new Error('Schedule id is required.')
-  const { data: row, error: readErr } = await sb().from('task_schedules').select('*').eq('id', id).maybeSingle()
-  if (readErr) throw readErr
-  if (!row) throw new Error('Schedule not found.')
-  const s = fromRow(row)
-
-  const today = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date())
-
-  const { data: existing } = await sb()
-    .from('tasks').select('id').eq('title', s.title).eq('due_date', today).limit(1)
-  if (existing && existing.length) return { ok: true, skipped: 'already exists today' }
-
-  // Go through the app's own addTask, NOT a raw insert. The Mac keeps tasks in an in-memory cache
-  // and writing straight to Supabase leaves that cache stale, so the new task does not appear until
-  // something else happens to refresh it. Caught in testing: the row was in the database and the
-  // task list still did not show it.
-  await addTask({ projectId: s.projectId || '', title: s.title, dueDate: today, dueTime: s.dueTime || '' })
-
-  // Stamp it so the scheduled run does not add a second copy later the same day.
-  await sb().from('task_schedules').update({ last_created_on: today }).eq('id', id)
-  return { ok: true, created: true, dueDate: today }
 }

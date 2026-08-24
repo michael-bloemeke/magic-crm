@@ -7,7 +7,6 @@ import {
   deleteTaskSchedule,
   describeSchedule,
   loadTaskSchedules,
-  runTaskScheduleNow,
   updateTaskSchedule,
   type ScheduleFrequency,
   type TaskSchedule,
@@ -48,12 +47,11 @@ const emptyDraft = (): Draft => ({
   active: true,
 })
 
-export function TaskSchedules({ projects, onTasksChanged }: { projects: Project[]; onTasksChanged: () => void }) {
+export function TaskSchedules({ projects }: { projects: Project[] }) {
   const [schedules, setSchedules] = useState<TaskSchedule[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<TaskSchedule | 'new' | null>(null)
   const [err, setErr] = useState('')
-  const [note, setNote] = useState('')
 
   const refresh = () =>
     loadTaskSchedules()
@@ -68,18 +66,6 @@ export function TaskSchedules({ projects, onTasksChanged }: { projects: Project[
   const toggleActive = async (s: TaskSchedule) => {
     const saved = await updateTaskSchedule(s.id, { active: !s.active })
     setSchedules((prev) => prev.map((x) => (x.id === saved.id ? saved : x)))
-  }
-
-  const runNow = async (s: TaskSchedule) => {
-    setNote('')
-    try {
-      const r = await runTaskScheduleNow(s.id)
-      setNote(r.created ? `Added "${s.title}" to today's tasks.` : `"${s.title}" is already on today's list.`)
-      onTasksChanged()
-      void refresh()
-    } catch (e) {
-      setErr((e as Error)?.message || 'Could not run that schedule.')
-    }
   }
 
   const remove = async (s: TaskSchedule) => {
@@ -106,7 +92,6 @@ export function TaskSchedules({ projects, onTasksChanged }: { projects: Project[
           type="button"
           onClick={() => {
             setErr('')
-            setNote('')
             setEditing('new')
           }}
           className="rounded-lg bg-brass px-3.5 py-2 text-[12.5px] font-semibold text-white transition-all hover:brightness-110"
@@ -116,7 +101,6 @@ export function TaskSchedules({ projects, onTasksChanged }: { projects: Project[
       </div>
 
       {err && <p className="mb-3 text-[12.5px] text-[#dc2626]">{err}</p>}
-      {note && <p className="mb-3 text-[12.5px] text-[#15803d]">{note}</p>}
 
       {loading ? (
         <p className="py-6 text-center text-[12.5px] text-faint">Loading…</p>
@@ -150,13 +134,10 @@ export function TaskSchedules({ projects, onTasksChanged }: { projects: Project[
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <button type="button" onClick={() => void runNow(s)} className="rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-muted transition-colors hover:text-parchment">
-                  Run now
-                </button>
                 <button type="button" onClick={() => void toggleActive(s)} className="rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-muted transition-colors hover:text-parchment">
                   {s.active ? 'Pause' : 'Resume'}
                 </button>
-                <button type="button" onClick={() => { setErr(''); setNote(''); setEditing(s) }} className="rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-muted transition-colors hover:text-parchment">
+                <button type="button" onClick={() => { setErr(''); setEditing(s) }} className="rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-muted transition-colors hover:text-parchment">
                   Edit
                 </button>
                 <button type="button" onClick={() => void remove(s)} className="rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-muted transition-colors hover:border-[#dc2626]/50 hover:text-[#dc2626]">

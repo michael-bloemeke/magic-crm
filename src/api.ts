@@ -1620,10 +1620,6 @@ export async function updateTaskSchedule(id: string, patch: Partial<TaskSchedule
 export async function deleteTaskSchedule(id: string): Promise<void> {
   await schedulePost('/api/task-schedules/delete', { id })
 }
-// Create this schedule's task today, without waiting for its next run.
-export async function runTaskScheduleNow(id: string): Promise<{ created?: boolean; skipped?: string }> {
-  return await schedulePost('/api/task-schedules/run', { id })
-}
 
 // "Every Monday at 7:00 AM" from a schedule, for the list.
 export function describeSchedule(s: TaskSchedule): string {

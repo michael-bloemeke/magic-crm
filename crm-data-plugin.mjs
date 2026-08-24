@@ -56,7 +56,7 @@ import {
 } from './crm-calendar.mjs'
 import { loadLeads, addLead, updateLead, archiveLead, convertLead } from './crm-leads.mjs'
 import {
-  loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule, runTaskScheduleNow,
+  loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
@@ -535,10 +535,6 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/task-schedules/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => await deleteTaskSchedule(b.id))
-      })
-      server.middlewares.use('/api/task-schedules/run', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await runTaskScheduleNow(b.id))
       })
       server.middlewares.use('/api/task-schedules', (req, res, next) => {
         if (req.method !== 'GET') return next()
