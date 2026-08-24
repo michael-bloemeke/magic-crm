@@ -55,6 +55,9 @@ import {
   listGigsEvents,
 } from './crm-calendar.mjs'
 import { loadLeads, addLead, updateLead, archiveLead, convertLead } from './crm-leads.mjs'
+import {
+  loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule, runTaskScheduleNow,
+} from './crm-task-schedules.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus, inquiryFormForProject } from './crm-inquiries.mjs'
@@ -518,6 +521,36 @@ export function crmDataPlugin() {
           for (const tid of taskIds) void removeTaskEvent(tid)
           return result
         })
+      })
+
+      // --- Recurring task schedules (materialised by a Postgres job, editable here) ---
+      server.middlewares.use('/api/task-schedules/add', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ schedule: await addTaskSchedule(b) }))
+      })
+      server.middlewares.use('/api/task-schedules/update', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ schedule: await updateTaskSchedule(b.id, b.patch || {}) }))
+      })
+      server.middlewares.use('/api/task-schedules/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await deleteTaskSchedule(b.id))
+      })
+      server.middlewares.use('/api/task-schedules/run', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await runTaskScheduleNow(b.id))
+      })
+      server.middlewares.use('/api/task-schedules', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        Promise.resolve(loadTaskSchedules())
+          .then((schedules) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ schedules }))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: e?.message || 'Failed to load task schedules.' }))
+          })
       })
 
       // --- Leads (marketplace enquiries that have not entered the pipeline yet) ---

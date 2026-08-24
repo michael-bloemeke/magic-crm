@@ -1570,3 +1570,72 @@ export async function convertLead(
 ): Promise<{ project: Project; contact: Contact | null }> {
   return await leadPost('/api/leads/convert', { id, details })
 }
+
+// --- Recurring task schedules ----------------------------------------------
+// A schedule is DATA, not a cron job: one Postgres job materialises every row, so adding a
+// recurrence here never means editing a schedule by hand somewhere invisible.
+
+export const SCHEDULE_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const
+export type ScheduleFrequency = (typeof SCHEDULE_FREQUENCIES)[number]
+// index 0 = ISO day 1 (Monday), matching what Postgres's isodow returns.
+export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+export type TaskSchedule = {
+  id: string
+  title: string
+  projectId: string
+  frequency: ScheduleFrequency
+  daysOfWeek: number[]
+  dayOfMonth: number | null
+  runTime: string
+  dueTime: string
+  active: boolean
+  lastCreatedOn: string
+  createdAt: string
+}
+
+export async function loadTaskSchedules(): Promise<TaskSchedule[]> {
+  const res = await fetch('/api/task-schedules')
+  if (!res.ok) throw new Error(`Failed to load schedules (${res.status})`)
+  return ((await res.json()).schedules ?? []) as TaskSchedule[]
+}
+
+async function schedulePost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`)
+  return data as T
+}
+
+export async function addTaskSchedule(input: Partial<TaskSchedule>): Promise<TaskSchedule> {
+  return (await schedulePost<{ schedule: TaskSchedule }>('/api/task-schedules/add', input)).schedule
+}
+export async function updateTaskSchedule(id: string, patch: Partial<TaskSchedule>): Promise<TaskSchedule> {
+  return (await schedulePost<{ schedule: TaskSchedule }>('/api/task-schedules/update', { id, patch })).schedule
+}
+export async function deleteTaskSchedule(id: string): Promise<void> {
+  await schedulePost('/api/task-schedules/delete', { id })
+}
+// Create this schedule's task today, without waiting for its next run.
+export async function runTaskScheduleNow(id: string): Promise<{ created?: boolean; skipped?: string }> {
+  return await schedulePost('/api/task-schedules/run', { id })
+}
+
+// "Every Monday at 7:00 AM" from a schedule, for the list.
+export function describeSchedule(s: TaskSchedule): string {
+  const [h, m] = s.runTime.split(':').map(Number)
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  const time = `${h12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+  if (s.frequency === 'daily') return `Every day at ${time}`
+  if (s.frequency === 'monthly') {
+    const d = s.dayOfMonth ?? 1
+    const suffix = d % 10 === 1 && d !== 11 ? 'st' : d % 10 === 2 && d !== 12 ? 'nd' : d % 10 === 3 && d !== 13 ? 'rd' : 'th'
+    return `Monthly on the ${d}${suffix} at ${time}`
+  }
+  const days = [...s.daysOfWeek].sort().map((n) => DAY_LABELS[n - 1]).join(', ')
+  return `Every ${days || '(no day set)'} at ${time}`
+}
