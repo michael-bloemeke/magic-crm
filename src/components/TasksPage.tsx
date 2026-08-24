@@ -3,6 +3,7 @@ import { motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
 import type { Task } from '../api'
 import { TaskRow } from './TaskRow'
+import { TaskSchedules } from './TaskSchedules'
 
 type Props = {
   tasks: Task[]
@@ -12,6 +13,8 @@ type Props = {
   onDelete: (id: string) => void
   onEdit: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
   onOpenProject: (project: Project) => void
+  // Running a schedule creates a real task, so the page above has to reload.
+  onTasksChanged: () => void
 }
 
 const byDueAsc = (a: Task, b: Task) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')
@@ -56,7 +59,7 @@ function completedSection(items: Task[], row: (t: Task) => ReactElement) {
   )
 }
 
-export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, onOpenProject }: Props) {
+export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, onOpenProject, onTasksChanged }: Props) {
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const today = todayISO()
   const [newTitle, setNewTitle] = useState('')
@@ -200,6 +203,9 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             {column('Standalone tasks', 'Not tied to a project', soloData)}
           </div>
         )}
+        {/* Recurring tasks live at the bottom of this page: they ARE tasks, just ones that create
+            themselves, so this is where he would look for them. */}
+        <TaskSchedules projects={projects} onTasksChanged={onTasksChanged} />
       </motion.div>
     </div>
   )

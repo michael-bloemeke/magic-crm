@@ -1185,6 +1185,7 @@ function App() {
                   onDelete={deleteTask}
                   onEdit={editTask}
                   onOpenProject={openFull}
+                  onTasksChanged={() => loadTasks().then(setTasks).catch(() => {})}
                 />
               ) : page === 'inbox' ? (
                 <InboxPage onOpenProject={openProjectById} onThreadRead={clearProjectUnread} />

@@ -10,8 +10,8 @@
 // like the booking sweep. Everything is evaluated in America/New_York, never UTC, because 7am
 // Eastern is a different UTC hour in summer and winter.
 
-import crypto from 'node:crypto'
 import { sb } from './crm-store.mjs'
+import { addTask } from './crm-data-core.mjs'
 
 export const FREQUENCIES = ['daily', 'weekly', 'monthly']
 export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] // index 0 = ISO day 1
@@ -21,10 +21,16 @@ const clean = (v) => str(v).trim()
 // 'HH:MM' 24h, or a safe default. A malformed time would simply never match and the schedule would
 // silently never fire, which is worse than being corrected.
 const hhmm = (v, fallback = '07:00') => {
-  const m = clean(v).match(/^(\d{1,2}):([0-5]\d)$/)
+  // Accepts 9:5, 9:05, 09:05 and normalises to 09:05. The UI sends a real <input type="time"> value,
+  // but a sloppy single-digit minute over the API used to fall through to the fallback, silently
+  // turning "9:05" into "07:00". A schedule quietly firing at the wrong time is worse than one that
+  // refuses to save.
+  const m = clean(v).match(/^(\d{1,2}):(\d{1,2})$/)
   if (!m) return fallback
   const h = Number(m[1])
-  return h > 23 ? fallback : `${String(h).padStart(2, '0')}:${m[2]}`
+  const min = Number(m[2])
+  if (h > 23 || min > 59) return fallback
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 const freq = (v) => (FREQUENCIES.includes(clean(v).toLowerCase()) ? clean(v).toLowerCase() : 'weekly')
 const dows = (v) => {
@@ -127,18 +133,12 @@ export async function runTaskScheduleNow(id) {
     .from('tasks').select('id').eq('title', s.title).eq('due_date', today).limit(1)
   if (existing && existing.length) return { ok: true, skipped: 'already exists today' }
 
-  const { error } = await sb().from('tasks').insert({
-    // tasks.id has no DB default, so it must be supplied. The SQL job calls gen_random_uuid() for
-    // the same reason.
-    id: crypto.randomUUID(),
-    project_id: s.projectId || '',
-    title: s.title,
-    due_date: today,
-    due_time: s.dueTime || '',
-    done: false,
-    created_at: new Date().toISOString(),
-  })
-  if (error) throw error
+  // Go through the app's own addTask, NOT a raw insert. The Mac keeps tasks in an in-memory cache
+  // and writing straight to Supabase leaves that cache stale, so the new task does not appear until
+  // something else happens to refresh it. Caught in testing: the row was in the database and the
+  // task list still did not show it.
+  await addTask({ projectId: s.projectId || '', title: s.title, dueDate: today, dueTime: s.dueTime || '' })
+
   // Stamp it so the scheduled run does not add a second copy later the same day.
   await sb().from('task_schedules').update({ last_created_on: today }).eq('id', id)
   return { ok: true, created: true, dueDate: today }
