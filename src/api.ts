@@ -1057,7 +1057,9 @@ export async function loadFinance(): Promise<FinanceSummary> {
 // "QuickBooks invoice" leads because it is how everything gets paid from now on. "HoneyBook" is the
 // historical one and was labelled "Online (HB)" until 2026-08-04; the 102 existing payments carrying
 // the old label were renamed in the same change, so no record has to be read twice.
-export const PAYMENT_METHODS = ['QuickBooks invoice', 'HoneyBook', 'Cash', 'Check', 'PayPal', 'Venmo', 'CashApp', 'Zelle'] as const
+// 'Bank transfer (ACH)' added 2026-08-24: how The Magician's Table pays Michael for a run of shows.
+// Not a client invoice, a direct deposit into his account, so none of the other options describe it.
+export const PAYMENT_METHODS = ['QuickBooks invoice', 'HoneyBook', 'Cash', 'Check', 'PayPal', 'Venmo', 'CashApp', 'Zelle', 'Bank transfer (ACH)'] as const
 // How a tip came in. Defaults to Cash (most tips are cash handed over at the gig).
 export const TIP_METHODS = ['Cash', 'Venmo', 'CashApp', 'Zelle'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number] | ''
