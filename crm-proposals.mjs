@@ -369,6 +369,10 @@ export async function resetProposalViews(projectId) {
       view_count: 0,
       first_viewed_at: null,
       last_viewed_at: null,
+      // The not-opened nudge fires once per proposal and is stamped so it cannot nag daily. A reset
+      // declares every view so far to be his own, so the clock starts again and the nudge must be
+      // allowed to fire again too.
+      nudge_task_created_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq('project_id', projectId)
