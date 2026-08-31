@@ -75,7 +75,29 @@ const part = raw.split(/Content-ID: <gif0@magic-crm>/)[1] || ''
 const b64 = (part.split(/\r\n\r\n/)[1] || '').split(/\r\n--/)[0].replace(/\s/g, '')
 check('gif survives the MIME round-trip', Buffer.from(b64, 'base64').equals(onDisk), `${Buffer.from(b64, 'base64').length} vs ${onDisk.length}`)
 
-console.log('\n6. Ordinary emails are untouched, and a bad slug cannot read outside email-gifs/')
+console.log('\n6. A thread REPLY carries an inline GIF and a real attachment at the same time')
+// The reply box sends through the same composeOutgoing, so the risk is not the GIF but the MIME
+// nesting: an inline image needs multipart/related and an attachment needs multipart/mixed, and
+// getting the order wrong makes Gmail show the GIF as a second paperclip instead of in the body.
+const withAtt = Buffer.from(
+  makeRaw({
+    from: 'me@x.com', to: 'c@x.com', subject: 'Re: Your event', body: 'text', html: out.sendHtml,
+    inlineImages: out.inlineImages,
+    attachments: [{ filename: 'Rider.pdf', contentType: 'application/pdf', contentBase64: Buffer.from('%PDF-1.4').toString('base64') }],
+    threadId: 't1',
+  }),
+  'base64url',
+).toString('utf8')
+const iMixed = withAtt.indexOf('multipart/mixed')
+const iRelated = withAtt.indexOf('multipart/related')
+const iAlt = withAtt.indexOf('multipart/alternative')
+check('mixed wraps related wraps alternative', iMixed > -1 && iMixed < iRelated && iRelated < iAlt,
+  `mixed@${iMixed} related@${iRelated} alt@${iAlt}`)
+check('the GIF stays INLINE', /Content-Disposition: inline; filename="[^"]+\.gif"/.test(withAtt))
+check('the file is a real attachment', /Content-Disposition: attachment; filename="Rider\.pdf"/.test(withAtt))
+check('both parts present', withAtt.includes('image/gif') && withAtt.includes('application/pdf'))
+
+console.log('\n7. Ordinary emails are untouched, and a bad slug cannot read outside email-gifs/')
 const plain = composeOutgoing('<p>Just a normal note.</p>')
 check('no inline images added', plain.inlineImages.length === 0)
 check('body unchanged', plain.sendHtml.includes('Just a normal note.'))
@@ -85,7 +107,7 @@ for (const bad of ['../crm-gmail', '../../etc/passwd', 'a/../../b', '', 'UPPER',
   check(`traversal refused: ${JSON.stringify(bad)}`, emailGifPath(bad) === null)
 }
 
-console.log('\n7. The library is exactly the NUMBERED Notion templates, with well-formed chips')
+console.log('\n8. The library is exactly the NUMBERED Notion templates, with well-formed chips')
 // Parsed out of the source rather than imported, because the module is TypeScript. Guards the two
 // rules that are easy to break by hand: only numbered templates belong here, and every placeholder
 // is a real merge-field chip (a bare "[Name]" would ship to a client as literal text).

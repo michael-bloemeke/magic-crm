@@ -222,6 +222,13 @@ export function ThreadReader({
     }
   }, [project.id])
 
+  // Attaching or removing a file counts as an edit: the autosave effect is gated on `dirty`, so
+  // without this a reply consisting only of an attachment would never be saved as a draft.
+  const changeAttachments = (next: EmailAttachment[]) => {
+    dirty.current = true
+    setAttachments(next)
+  }
+
   // Add / remove the signature at the end of the reply. Nothing else in the body is touched.
   const toggleSignature = (on: boolean) => {
     dirty.current = true
@@ -551,7 +558,7 @@ export function ThreadReader({
             <div className="mt-2">
               <EmailAttachments
                 attachments={attachments}
-                onChange={setAttachments}
+                onChange={changeAttachments}
                 onStatus={setStatus}
                 sessionUploads={sessionUploads}
                 tone="light"
