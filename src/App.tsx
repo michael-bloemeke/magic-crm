@@ -754,7 +754,16 @@ function App() {
     setSelected((prev) => (prev && prev.id === id ? null : prev))
     setFullProject((prev) => (prev && prev.id === id ? null : prev))
     dropUnread(id)
-    apiDelete(id).then(reloadProjects).catch(reloadProjects)
+    // Do NOT swallow a server failure here. This used to be `.catch(reloadProjects)`, which showed
+    // the optimistic patch, silently discarded the error, then reloaded the unchanged row so the
+    // project reappeared exactly as it was. That is indistinguishable from "delete does nothing".
+    // Trigger: 2026-08-31, two projects that could not be deleted with no error shown anywhere.
+    apiDelete(id)
+      .then(reloadProjects)
+      .catch((e) => {
+        reloadProjects()
+        setError(`Could not delete that project: ${String((e as Error)?.message || e)}`)
+      })
   }
   // Permanent delete (full cascade, no undo): drop the project + its tasks from the
   // local lists, close any open view, and tell the server to purge everything.

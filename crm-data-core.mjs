@@ -35,6 +35,7 @@ import {
   // synchronous cache mutators
   cacheUpsertProject,
   cachePatchProject,
+  fetchProjectById,
   cacheRemoveProject,
   cacheSetProjectStage,
   cacheReassignStage,
@@ -1467,19 +1468,43 @@ export async function deleteProject({ id } = {}) {
   if (!id) throw new Error('project id is required')
 
   if (CRM_STORE === 'supabase') {
-    const row = getCachedProjects().find((p) => p.id === id)
+    // The cache refreshes on its own schedule, so a project written out of band (raw SQL, another
+    // process, a second window) can be missing or stale here. Falling back to a direct read means a
+    // stale cache can no longer make a real project undeletable. Trigger: on 2026-08-31 two projects
+    // edited by hand in SQL could not be deleted from the UI, because this lookup missed and the
+    // thrown error was swallowed by the caller.
+    let row = getCachedProjects().find((p) => p.id === id)
+    if (!row) {
+      row = await fetchProjectById(id)
+      if (row) cacheUpsertProject(row)
+    }
     if (!row) throw new Error(`project not found: ${id}`)
     const name = str(row.client_name)
     const fromBucket = str(row.bucket) || 'active'
-    if (fromBucket === 'deleted') return { ok: true, id, from: fromBucket, to: 'deleted', name } // already trashed
-    const activity_log = [
-      `${logDate()}: Project moved to Deleted.`,
-      ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
-    ]
-    const patch = { bucket: 'deleted', stage_id: null, deleted_at: new Date().toISOString(), activity_log }
+    const alreadyStamped = !!str(row.deleted_at)
+
+    // Fully trashed already: nothing to do.
+    if (fromBucket === 'deleted') return { ok: true, id, from: fromBucket, to: 'deleted', name }
+
+    // HALF-DELETED: deleted_at is stamped but the bucket was never moved. Such a row is invisible on
+    // the Deleted page (which lists bucket='deleted') while still showing up in search and detail as
+    // whatever bucket it kept, so it looks undeletable. Finish the job rather than logging a second
+    // deletion, and do not append another "moved to Deleted" line.
+    const activity_log = alreadyStamped
+      ? (Array.isArray(row.activity_log) ? row.activity_log.map(String) : [])
+      : [
+          `${logDate()}: Project moved to Deleted.`,
+          ...(Array.isArray(row.activity_log) ? row.activity_log.map(String) : []),
+        ]
+    const patch = {
+      bucket: 'deleted',
+      stage_id: null,
+      deleted_at: alreadyStamped ? str(row.deleted_at) : new Date().toISOString(),
+      activity_log,
+    }
     cachePatchProject(id, patch)
     await sbUpdateProject(id, patch)
-    return { ok: true, id, from: fromBucket, to: 'deleted', name }
+    return { ok: true, id, from: fromBucket, to: 'deleted', name, repaired: alreadyStamped }
   }
 
   // FILES path: move the record out of whatever bucket holds it into deleted-<year>.json.

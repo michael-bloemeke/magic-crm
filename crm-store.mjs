@@ -59,6 +59,16 @@ export async function getAllProjects() {
   return data || []
 }
 
+// Read ONE project straight from the database, bypassing the in-process cache. The cache is only
+// refreshed on its own schedule, so anything written out of band (a raw SQL fix, another process,
+// a second CRM window) is invisible to it. Callers that must not fail on a stale cache use this as
+// a fallback before deciding a project does not exist.
+export async function fetchProjectById(id) {
+  const { data, error } = await sb().from('projects').select('*').eq('id', id).maybeSingle()
+  must(error, 'fetchProjectById')
+  return data || null
+}
+
 export async function insertProject(row) {
   const { error } = await sb().from('projects').insert(row)
   must(error, 'insertProject')
