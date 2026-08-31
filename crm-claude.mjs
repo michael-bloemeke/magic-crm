@@ -349,7 +349,7 @@ export function salesCallGuideFor(projectId) {
 // Michael does not want to press a button for this. The sweep looks for early-stage active
 // projects that have no guide yet and fills them in, one at a time so several fresh inquiries
 // cannot fan out into parallel CLI runs. It is called on a timer by the dev-server plugin.
-const GUIDE_STAGES = new Set(['inquiry', 'answered-inquiry', 'in-communication'])
+const GUIDE_STAGES = new Set(['inquiry', 'inquiry-followup-1', 'answered-inquiry', 'in-communication'])
 let sweeping = false
 const sweepFailures = new Map() // projectId -> attempts, so a broken project cannot loop forever
 
