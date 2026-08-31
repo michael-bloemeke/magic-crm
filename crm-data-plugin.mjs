@@ -35,7 +35,7 @@ import {
   appendActivityLog,
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
-import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
+import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail, resolveAttachments } from './crm-emails.mjs'
 import { emailGifPath } from './crm-email-render.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
@@ -399,7 +399,10 @@ export function crmDataPlugin() {
       })
       server.middlewares.use('/api/comms/send', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, (b) => sendEmail(b))
+        // The thread reply box can carry attachments. It sends REFERENCES ({source,name,id}), the
+        // same shape the composer stores, so resolve them to bytes here exactly as sendProjectEmail
+        // does rather than letting the browser upload file contents through this route.
+        withbody(req, res, (b) => sendEmail({ ...b, attachments: resolveAttachments(b.attachments) }))
       })
       server.middlewares.use('/api/comms/read', (req, res, next) => {
         if (req.method !== 'POST') return next()

@@ -1357,6 +1357,8 @@ export async function sendEmail(input: {
   body: string
   format?: 'html' | 'text'
   mode: 'send' | 'draft'
+  // Attachment REFERENCES; the server reads the actual bytes from the Files page / upload store.
+  attachments?: EmailAttachment[]
 }): Promise<{ ok: boolean; demo: boolean; mode: string }> {
   const res = await fetch('/api/comms/send', {
     method: 'POST',

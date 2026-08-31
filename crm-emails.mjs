@@ -109,7 +109,10 @@ function normalizeAttachments(list) {
 
 // Turn stored attachment refs into the bytes the Gmail layer needs. A ref whose file is gone
 // (deleted upload, removed Files-page doc) is skipped rather than failing the whole send.
-function resolveAttachments(list) {
+// Turn stored attachment REFERENCES ({source,name,id}) into the bytes the mailer needs. Exported
+// so the thread-reply route can resolve the same way: the browser only ever sends references, never
+// file contents, so both reply and composer go through this one reader.
+export function resolveAttachments(list) {
   const out = []
   for (const a of normalizeAttachments(list)) {
     const f = a.source === 'upload' ? readAttachment(a.id) : readBusinessFile(a.name)

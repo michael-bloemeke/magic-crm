@@ -4,21 +4,20 @@ import { type Project } from '../pipeline'
 import {
   saveProjectEmail,
   sendProjectEmail,
-  loadFiles,
   loadThreads,
-  uploadEmailAttachment,
   deleteEmailAttachment,
   loadConfig,
   loadCustomValues,
   type ProjectEmail,
   type EmailAttachment,
   type EmailThread,
-  type FileItem,
 } from '../api'
 import { RichTextEditor } from './RichTextEditor'
 import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
 import { EMAIL_TEMPLATES, findTemplate } from '../emailTemplates'
 import { hasSignature, withSignature, withoutSignature } from '../emailSignature'
+import { EmailAttachments } from './EmailAttachments'
+import { attachKey, fmtSize } from '../attachments'
 
 const MICHAEL = 'michael@michaelbloemeke.com'
 // Normalize a thread subject to a reply subject so Gmail keeps the message in that conversation.
@@ -30,12 +29,6 @@ function reSubject(s: string): string {
 // True if the HTML body has any actual text/content (ignoring empty tags), for send checks.
 function htmlHasContent(html: string): boolean {
   return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() !== ''
-}
-function fmtSize(bytes: number): string {
-  if (!bytes) return ''
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 // The email composer: the top-of-page "New email", thread replies, and the questionnaire invite.
@@ -84,8 +77,6 @@ export function EmailBuilderModal({
   const [subject, setSubject] = useState(defaultSubject)
   const [body, setBody] = useState('')
   const [attachments, setAttachments] = useState<EmailAttachment[]>([])
-  const [files, setFiles] = useState<FileItem[] | null>(null)
-  const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   // Reply-into-an-existing-thread: when on, this email is added to the chosen Gmail conversation
@@ -114,7 +105,6 @@ export function EmailBuilderModal({
   const [customFields, setCustomFields] = useState<{ id: string; label: string }[]>([])
   const [customVals, setCustomVals] = useState<Record<string, string>>({})
   const smartFieldList = [...SMART_FIELDS, ...customFields.map((f) => ({ key: f.id, label: f.label }))]
-  const fileInputRef = useRef<HTMLInputElement>(null)
   // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
   // without saving or sending), they were never persisted to an email record, so we delete
   // them from the server to avoid orphaned files. Saving/sending references them instead.
@@ -159,7 +149,6 @@ export function EmailBuilderModal({
     savedIdRef.current = existing?.id
     savingRef.current = null
     setDraftId(existing?.id)
-    setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
     setTemplateId('')
     loadConfig()
@@ -183,7 +172,6 @@ export function EmailBuilderModal({
   }, [open])
 
   const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
-  const attachKey = (a: EmailAttachment) => `${a.source}:${a.id || a.name}`
 
   // Load the project's threads the first time reply mode is on (so the conversation picker can fill).
   // A ref guards against a double fetch without a synchronous setState in the effect body. On failure
@@ -427,48 +415,7 @@ export function EmailBuilderModal({
     setStatus(null)
   }
 
-  // --- Attachments -----------------------------------------------------------
-  const openFilePicker = async () => {
-    setAttachMenuOpen(true)
-    if (files == null) {
-      try {
-        setFiles(await loadFiles())
-      } catch {
-        setFiles([])
-      }
-    }
-  }
-  const addFromFiles = (f: FileItem) => {
-    setAttachMenuOpen(false)
-    setAttachments((prev) =>
-      prev.some((a) => a.source === 'files' && a.name === f.name)
-        ? prev
-        : [...prev, { source: 'files', name: f.name, size: f.size }],
-    )
-  }
-  const onUploadChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = Array.from(e.target.files || [])
-    e.target.value = '' // allow re-selecting the same file later
-    setAttachMenuOpen(false)
-    for (const file of list) {
-      setStatus(`Uploading ${file.name}…`)
-      try {
-        const att = await uploadEmailAttachment(file)
-        if (att.id) sessionUploads.current.add(att.id)
-        setAttachments((prev) => [...prev, att])
-        setStatus(null)
-      } catch (err) {
-        setStatus(String(err instanceof Error ? err.message : err))
-      }
-    }
-  }
-  const removeAttachment = (a: EmailAttachment) => {
-    setAttachments((prev) => prev.filter((x) => attachKey(x) !== attachKey(a)))
-    if (a.source === 'upload' && a.id) {
-      sessionUploads.current.delete(a.id)
-      deleteEmailAttachment(a.id).catch(() => {})
-    }
-  }
+  // Attachments live in <EmailAttachments/>, shared with the thread reply box.
 
   const canSend = toList().length > 0 && subject.trim().length > 0 && (htmlHasContent(body) || attachments.length > 0) && !busy
 
@@ -772,83 +719,12 @@ export function EmailBuilderModal({
               </div>
 
               {/* Attachments: pick from the Files page, or upload a one-off. */}
-              <div className="block">
-                <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Attachments</span>
-                {attachments.length > 0 && (
-                  <ul className="mb-2 flex flex-wrap gap-1.5">
-                    {attachments.map((a) => (
-                      <li
-                        key={attachKey(a)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 py-1 pl-2.5 pr-1.5 text-[11.5px] text-parchment"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                        </svg>
-                        <span className="max-w-[14rem] truncate">{a.name}</span>
-                        {a.size ? <span className="text-faint">{fmtSize(a.size)}</span> : null}
-                        {a.source === 'upload' && <span className="text-[9px] uppercase tracking-wide text-faint">uploaded</span>}
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(a)}
-                          aria-label={`Remove ${a.name}`}
-                          className="rounded p-0.5 text-faint transition-colors hover:text-[#dc2626]"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                            <path d="M6 6l12 12M18 6L6 18" />
-                          </svg>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="relative inline-block">
-                  <button
-                    type="button"
-                    onClick={() => (attachMenuOpen ? setAttachMenuOpen(false) : openFilePicker())}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-parchment"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                    </svg>
-                    Attach
-                  </button>
-                  {attachMenuOpen && (
-                    <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-72 overflow-hidden rounded-lg border border-line-strong bg-surface-2 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.18)]">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="flex w-full items-center gap-2 border-b border-line px-3 py-2 text-left text-[12px] text-parchment hover:bg-surface-3"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4 text-faint" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 16V4M7 9l5-5 5 5M5 20h14" />
-                        </svg>
-                        Upload from this computer…
-                      </button>
-                      <div className="px-3 pb-1 pt-2 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-faint">From your Files</div>
-                      <div className="board-scroll max-h-56 overflow-y-auto pb-1">
-                        {files == null ? (
-                          <p className="px-3 py-2 text-[11.5px] text-faint">Loading…</p>
-                        ) : files.length === 0 ? (
-                          <p className="px-3 py-2 text-[11.5px] text-faint">No files yet. Add some on the Files page.</p>
-                        ) : (
-                          files.map((f) => (
-                            <button
-                              key={f.name}
-                              type="button"
-                              onClick={() => addFromFiles(f)}
-                              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] text-parchment hover:bg-surface-3"
-                            >
-                              <span className="min-w-0 truncate">{f.name}</span>
-                              <span className="shrink-0 text-[10.5px] text-faint">{fmtSize(f.size)}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onUploadChosen} />
-                </div>
-              </div>
+              <EmailAttachments
+                attachments={attachments}
+                onChange={setAttachments}
+                onStatus={setStatus}
+                sessionUploads={sessionUploads}
+              />
             </div>
 
             <div className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">

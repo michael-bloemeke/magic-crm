@@ -5,12 +5,18 @@ import {
   sendEmail,
   saveProjectEmail,
   deleteProjectEmail,
+  loadConfig,
+  loadCustomValues,
+  type EmailAttachment,
   type EmailThread,
   type ProjectEmail,
 } from '../api'
 import type { EmailMessage } from '../api'
 import { RichTextEditor } from './RichTextEditor'
-import { textToHtml } from '../smartFields'
+import { EmailAttachments } from './EmailAttachments'
+import { textToHtml, resolveMergeFields } from '../smartFields'
+import { EMAIL_TEMPLATES, findTemplate } from '../emailTemplates'
+import { hasSignature, withSignature, withoutSignature } from '../emailSignature'
 import type { Project } from '../pipeline'
 
 const ME = 'michael@michaelbloemeke.com'
@@ -59,8 +65,11 @@ function replyKind(threadId: string): string {
 // box below them. Opens scrolled to the bottom (the reply box) and marks the thread read like Gmail
 // does. The reply box carries the same formatting toolbar as the other email boxes, and anything
 // typed auto-saves to drafts (no Save button). Back returns to the project Details. The thread
-// dialog itself (header + message bubbles) is unchanged. (The template picker that used to sit here
-// went away with the template library on 2026-07-31.)
+// dialog itself (header + message bubbles) is unchanged.
+//
+// The reply box carries the same three things as the full composer, because a follow-up is a follow-
+// up whether it starts a thread or continues one: the Ghostbuster TEMPLATE picker (body only — the
+// subject is fixed by the thread), the SIGNATURE checkbox, and ATTACHMENTS.
 export function ThreadReader({
   thread,
   project,
@@ -92,6 +101,13 @@ export function ThreadReader({
   onReplyUndone?: (threadId: string, messageId: string) => void
 }) {
   const [reply, setReply] = useState(existingDraft?.body || '')
+  const [attachments, setAttachments] = useState<EmailAttachment[]>(existingDraft?.attachments ?? [])
+  // Selected template ('' = none). Fills the BODY only; a reply's subject belongs to the thread.
+  const [templateId, setTemplateId] = useState('')
+  // Signature content from Settings; whether this reply carries it is derived from the body.
+  const [sig, setSig] = useState<{ enabled: boolean; html: string }>({ enabled: false, html: '' })
+  const [customVals, setCustomVals] = useState<Record<string, string>>({})
+  const signatureOn = hasSignature(reply)
   const [drafting, setDrafting] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   // The reply box starts as a single line so the latest message is fully visible when the thread
@@ -109,14 +125,17 @@ export function ThreadReader({
   // resurrect the draft we're deleting. savingRef holds the in-flight autosave so Send can await it.
   const sending = useRef(false)
   const savingRef = useRef<Promise<void> | null>(null)
+  const sessionUploads = useRef<Set<string>>(new Set())
   // Undo-send: when true, the reply has been queued (shown in the thread) but not actually sent yet —
   // the undo bar is up. The timer/html/temp-id refs survive re-renders so the unmount flush can fire.
   const [pending, setPending] = useState(false)
   const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingHtml = useRef<string | null>(null)
+  // Attachments ride with the queued reply so Undo puts them back with the text.
+  const pendingAtts = useRef<EmailAttachment[]>([])
   const pendingTempId = useRef<string | null>(null)
   // Points at the latest fireSend so the unmount flush runs the exact same send/cleanup logic.
-  const fireSendRef = useRef<((html: string, tempId: string | null) => void) | null>(null)
+  const fireSendRef = useRef<((html: string, tempId: string | null, atts: EmailAttachment[]) => void) | null>(null)
   const expanded = composing || htmlHasContent(reply)
 
   const startComposing = () => {
@@ -149,7 +168,7 @@ export function ThreadReader({
       if (sending.current) return // a send is in progress; don't write a draft we're about to drop
       const run = async () => {
         try {
-          if (htmlHasContent(reply)) {
+          if (htmlHasContent(reply) || attachments.length > 0) {
             const saved = await saveProjectEmail({
               id: draftId.current,
               projectId: project.id,
@@ -158,6 +177,7 @@ export function ThreadReader({
               subject,
               body: reply,
               format: 'html',
+              attachments,
             })
             draftId.current = saved.id
             onDraftChange?.(saved)
@@ -179,12 +199,48 @@ export function ThreadReader({
     }, 800)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reply])
+  }, [reply, attachments])
 
   const changeReply = (html: string) => {
     dirty.current = true
     setReply(html)
     if (status) setStatus(null)
+  }
+
+  // Signature content + this project's custom field values, so the checkbox and the template chips
+  // behave exactly as they do in the full composer.
+  useEffect(() => {
+    let alive = true
+    loadConfig()
+      .then((c) => alive && setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' }))
+      .catch(() => {})
+    loadCustomValues(project.id)
+      .then((cv) => alive && setCustomVals(cv))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [project.id])
+
+  // Add / remove the signature at the end of the reply. Nothing else in the body is touched.
+  const toggleSignature = (on: boolean) => {
+    dirty.current = true
+    setReply((b) => (on ? withSignature(b, sig.html) : withoutSignature(b)))
+    setComposing(true)
+  }
+
+  // Templates fill the BODY only: a reply's subject is the thread's, and changing it would break
+  // Gmail threading. A signature already switched on stays on, below the new text.
+  const applyTemplate = (id: string) => {
+    const t = id ? findTemplate(id) : null
+    if (id && !t) return
+    if (htmlHasContent(reply) && !window.confirm(t ? `Replace this reply with "${t.name}"?` : 'Clear this reply?')) return
+    dirty.current = true
+    setTemplateId(id)
+    const next = t ? resolveMergeFields(t.body, project, customVals) : ''
+    setReply(signatureOn ? withSignature(next, sig.html) : next)
+    setComposing(true)
+    setStatus(null)
   }
 
   const doDraft = async () => {
@@ -207,7 +263,7 @@ export function ThreadReader({
 
   // Actually send (after the undo window elapses, or on flush). Drops the draft on success; on a demo
   // or failure it pulls the optimistic message and puts the text back so nothing is silently lost.
-  const fireSend = async (html: string, tempId: string | null) => {
+  const fireSend = async (html: string, tempId: string | null, atts: EmailAttachment[] = []) => {
     if (pendingTimer.current) {
       clearTimeout(pendingTimer.current)
       pendingTimer.current = null
@@ -215,11 +271,12 @@ export function ThreadReader({
     pendingHtml.current = null
     setPending(false)
     try {
-      const r = await sendEmail({ projectId: project.id, threadId: thread.id, to, subject, body: html, format: 'html', mode: 'send' })
+      const r = await sendEmail({ projectId: project.id, threadId: thread.id, to, subject, body: html, format: 'html', mode: 'send', attachments: atts })
       if (r.demo) {
         if (tempId) onReplyUndone?.(thread.id, tempId)
         pendingTempId.current = null
         setReply(html)
+        setAttachments(atts)
         setComposing(true)
         dirty.current = true
         setStatus(`Demo: this would send to ${to}. Nothing was actually sent.`)
@@ -248,6 +305,7 @@ export function ThreadReader({
       if (tempId) onReplyUndone?.(thread.id, tempId)
       pendingTempId.current = null
       setReply(html)
+      setAttachments(atts)
       setComposing(true)
       dirty.current = true
       setStatus('Could not send. Your message was put back.')
@@ -260,8 +318,10 @@ export function ThreadReader({
   const queueSend = () => {
     if (!htmlHasContent(reply)) return
     const html = reply
+    const atts = attachments
     sending.current = true // block autosave from touching the draft while the send is queued
     pendingHtml.current = html
+    pendingAtts.current = atts
     const tempId = `pending-${Date.now()}`
     pendingTempId.current = tempId
     onReplySent?.(thread.id, {
@@ -273,10 +333,11 @@ export function ThreadReader({
       body: htmlToPlainText(html),
     })
     setReply('')
+    setAttachments([])
     setComposing(false)
     setStatus(null)
     setPending(true)
-    pendingTimer.current = setTimeout(() => void fireSend(html, tempId), UNDO_WINDOW_MS)
+    pendingTimer.current = setTimeout(() => void fireSend(html, tempId, atts), UNDO_WINDOW_MS)
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }))
   }
 
@@ -287,7 +348,9 @@ export function ThreadReader({
     clearTimeout(pendingTimer.current)
     pendingTimer.current = null
     const html = pendingHtml.current || ''
+    const atts = pendingAtts.current
     pendingHtml.current = null
+    pendingAtts.current = []
     setPending(false)
     sending.current = false
     if (pendingTempId.current) {
@@ -295,6 +358,7 @@ export function ThreadReader({
       pendingTempId.current = null
     }
     setReply(html)
+    setAttachments(atts)
     setComposing(true)
     dirty.current = true
     setStatus(null)
@@ -315,7 +379,7 @@ export function ThreadReader({
       if (!pendingTimer.current) return
       const html = pendingHtml.current
       const tempId = pendingTempId.current
-      if (html) fireSendRef.current?.(html, tempId)
+      if (html) fireSendRef.current?.(html, tempId, pendingAtts.current)
     }
   }, [])
 
@@ -442,6 +506,25 @@ export function ThreadReader({
                 Reply {to && <span className="font-normal normal-case tracking-normal text-[#545b64]">to {to}</span>}
               </p>
               <div className="flex items-center gap-2">
+                {/* Fills the reply body. No subject: a reply keeps the thread's, or Gmail breaks
+                    the conversation apart. */}
+                <div className="relative">
+                  <select
+                    value={templateId}
+                    onChange={(e) => applyTemplate(e.target.value)}
+                    className="cursor-pointer appearance-none rounded-lg border border-[#d8dde3] bg-white py-1 pl-2.5 pr-7 text-[11.5px] text-[#14171b] focus:border-[#2563eb] focus:outline-none"
+                  >
+                    <option value="">No template</option>
+                    {EMAIL_TEMPLATES.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#858d97]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
                 <button
                   type="button"
                   onClick={doDraft}
@@ -464,6 +547,31 @@ export function ThreadReader({
               minHeight={120}
               placeholder="Write a reply, or let Claude draft one in your voice…"
             />
+
+            <div className="mt-2">
+              <EmailAttachments
+                attachments={attachments}
+                onChange={setAttachments}
+                onStatus={setStatus}
+                sessionUploads={sessionUploads}
+                tone="light"
+                label={false}
+              />
+            </div>
+
+            {/* Ticking this puts the signature block into the reply above, so the box shows exactly
+                what the client receives. */}
+            <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-[12px] text-[#14171b]">
+              <input
+                type="checkbox"
+                checked={signatureOn}
+                onChange={(e) => toggleSignature(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-[#d8dde3]"
+                style={{ accentColor: 'var(--color-brass)' }}
+              />
+              Signature
+              <span className="text-[11px] text-[#858d97]">adds your name, website and number at the bottom</span>
+            </label>
 
             <div className="mt-2 flex items-center justify-between gap-3">
               <span className="text-[11.5px] text-[#545b64]">{status}</span>
