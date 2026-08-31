@@ -386,7 +386,7 @@ function encodeText(s) {
 // are present everything is wrapped in a multipart/mixed.
 //   attachments:  [{ filename, contentType, contentBase64 }]
 //   inlineImages: [{ cid, contentType, contentBase64, filename? }]  (cid referenced as src="cid:..")
-function makeRaw({ from, to, subject, body, html, attachments, inlineImages, replyTo, date }) {
+export function makeRaw({ from, to, subject, body, html, attachments, inlineImages, replyTo, date }) {
   const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && a.contentBase64)
   const inlines = (Array.isArray(inlineImages) ? inlineImages : []).filter((a) => a && a.contentBase64 && a.cid)
   const hasHtml = !!(html && String(html).trim())

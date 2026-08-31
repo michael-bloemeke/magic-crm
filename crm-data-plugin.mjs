@@ -36,6 +36,7 @@ import {
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail } from './crm-emails.mjs'
+import { emailGifPath } from './crm-email-render.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
 import {
@@ -906,6 +907,30 @@ export function crmDataPlugin() {
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
+        }
+      })
+
+      // --- Ghostbuster template GIFs -------------------------------------------------------
+      // Serves magic-crm/email-gifs/<slug>.gif so the composer can animate the GIF a template just
+      // inserted. Only the composer uses this URL: at send time crm-email-render swaps it for a
+      // cid: reference and ships the bytes inline, so the recipient never sees a URL at all.
+      server.middlewares.use('/api/email-gif', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        try {
+          const u = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+          const slug = decodeURIComponent(u.pathname.replace(/^\/api\/email-gif\/?/, '')).replace(/\.gif$/i, '')
+          const file = emailGifPath(slug)
+          if (!file) {
+            res.statusCode = 404
+            res.end('Not found')
+            return
+          }
+          res.setHeader('Content-Type', 'image/gif')
+          res.setHeader('Cache-Control', 'public, max-age=86400')
+          res.end(fs.readFileSync(file))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(String(e?.message || e))
         }
       })
 

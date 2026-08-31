@@ -8,9 +8,6 @@ import {
   loadThreads,
   uploadEmailAttachment,
   deleteEmailAttachment,
-  claudeStatus,
-  claudeDraftEmail,
-  claudeCompleteDraft,
   loadConfig,
   loadCustomValues,
   type ProjectEmail,
@@ -20,6 +17,7 @@ import {
 } from '../api'
 import { RichTextEditor } from './RichTextEditor'
 import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
+import { EMAIL_TEMPLATES, findTemplate } from '../emailTemplates'
 
 const MICHAEL = 'michael@michaelbloemeke.com'
 // Normalize a thread subject to a reply subject so Gmail keeps the message in that conversation.
@@ -40,11 +38,16 @@ function fmtSize(bytes: number): string {
 }
 
 // The email composer: the top-of-page "New email", thread replies, and the questionnaire invite.
-// Michael writes the note (by hand or with Claude), then either Sends it to the client(s) or saves
-// it as a CRM draft (closing with content also saves).
+// Michael writes the note, then either Sends it to the client(s) or saves it as a CRM draft
+// (closing with content also saves).
 //
-// The saved-template library was removed 2026-07-31 (Michael is rewriting his templates outside the
-// CRM), so there is no template picker and no "Generate" here any more.
+// A template picker sits between To and Subject. Picking one fills the subject and the message with
+// a Ghostbuster follow-up (see src/emailTemplates.ts); "No template" clears both back to empty so
+// the box behaves exactly as it did before. Everything a template inserts is ordinary editor
+// content, so it can be rewritten freely before sending.
+//
+// The Claude drafting panel was removed 2026-08-31: these follow-ups are templated, and Michael
+// writes the rest by hand.
 export function EmailBuilderModal({
   open,
   project,
@@ -97,9 +100,9 @@ export function EmailBuilderModal({
   // Set once the user has been warned that the email still has unfilled placeholders, so a
   // second Send click goes through.
   const [confirmUnfilled, setConfirmUnfilled] = useState(false)
-  const [claudeAvail, setClaudeAvail] = useState(false)
-  const [claudeBusy, setClaudeBusy] = useState(false)
-  const [claudeInstruction, setClaudeInstruction] = useState('')
+  // Which template is currently selected ('' = No template). Purely a picker: once applied, the
+  // subject and body are just editable content, so editing them does not clear this back to ''.
+  const [templateId, setTemplateId] = useState('')
   // The signature appended to outgoing mail (configured in Settings). Shown as a read-only preview
   // under the editor so the compose view matches what actually gets sent.
   const [sig, setSig] = useState<{ enabled: boolean; html: string }>({ enabled: false, html: '' })
@@ -155,10 +158,7 @@ export function EmailBuilderModal({
     setDraftId(existing?.id)
     setAttachMenuOpen(false)
     setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
-    setClaudeInstruction('')
-    claudeStatus()
-      .then((s) => setClaudeAvail(s.configured))
-      .catch(() => setClaudeAvail(false))
+    setTemplateId('')
     loadConfig()
       .then((c) => {
         setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' })
@@ -391,36 +391,22 @@ export function EmailBuilderModal({
     }
   }
 
-  // --- Claude drafting (headless Claude Code) --------------------------------
-  const doClaudeDraft = async () => {
-    setClaudeBusy(true)
-    setStatus('Drafting with Claude. This can take up to a minute.')
-    try {
-      const html = await claudeDraftEmail({ projectId: project.id, label: title, instruction: claudeInstruction })
-      setBody(html)
-      setConfirmUnfilled(false)
-      setStatus('Drafted with Claude. Review it before sending.')
-    } catch (e) {
-      setStatus(String(e instanceof Error ? e.message : e))
-    } finally {
-      setClaudeBusy(false)
-    }
-  }
-  // Finish whatever is already in the box for this specific client (fills the placeholders and
-  // tightens the prose). Works on any rough draft; it never needed a saved template.
-  const doClaudeComplete = async () => {
-    setClaudeBusy(true)
-    setStatus('Completing the draft with Claude. This can take up to a minute.')
-    try {
-      const html = await claudeCompleteDraft({ projectId: project.id, body })
-      setBody(html)
-      setConfirmUnfilled(false)
-      setStatus('Completed by Claude. Review it before sending.')
-    } catch (e) {
-      setStatus(String(e instanceof Error ? e.message : e))
-    } finally {
-      setClaudeBusy(false)
-    }
+  // --- Templates -------------------------------------------------------------
+  // Applying a template REPLACES the subject and the message. Anything already typed would be lost,
+  // so that only happens after a confirm; an empty box swaps silently. Merge-field chips resolve
+  // immediately against this project (and its custom values), so [Client first name] is already the
+  // client's name by the time the box appears.
+  const applyTemplate = (id: string) => {
+    const t = id ? findTemplate(id) : null
+    if (id && !t) return
+    const dirty = htmlHasContent(body) || subject.trim() !== ''
+    const label = t ? `Replace what's here with "${t.name}"?` : 'Clear the subject and message?'
+    if (dirty && !window.confirm(label)) return
+    setTemplateId(id)
+    setSubject(t ? t.subject : '')
+    setBody(t ? resolveMergeFields(t.body, project, customVals) : '')
+    setConfirmUnfilled(false)
+    setStatus(null)
   }
 
   // --- Attachments -----------------------------------------------------------
@@ -641,6 +627,31 @@ export function EmailBuilderModal({
                 <span className="mt-1 block text-[10.5px] text-faint">Separate multiple addresses with commas.</span>
               </label>
 
+              {/* Template picker: fills the subject + message below. "No template" clears both. */}
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Template</span>
+                <div className="relative">
+                  <select
+                    value={templateId}
+                    onChange={(e) => applyTemplate(e.target.value)}
+                    className="w-full cursor-pointer appearance-none rounded-lg border border-line bg-surface-2 py-2 pl-3 pr-8 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+                  >
+                    <option value="">No template</option>
+                    {EMAIL_TEMPLATES.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                  <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
+                <span className="mt-1 block text-[10.5px] text-faint">
+                  Fills the subject and message below. Edit them freely before sending.
+                </span>
+              </label>
+
               {/* Reply into an existing conversation instead of starting a new thread. */}
               {!autosave && (
                 <div className="rounded-lg border border-line bg-surface-2/40 px-3 py-2.5">
@@ -714,46 +725,6 @@ export function EmailBuilderModal({
                   />
                 </label>
               </div>
-
-              {claudeAvail && (
-                <div className="rounded-lg border border-brass-dim/40 bg-surface-3/40 p-2.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      value={claudeInstruction}
-                      onChange={(e) => setClaudeInstruction(e.target.value)}
-                      placeholder="Tell Claude what this email should say (optional)…"
-                      className="min-w-[12rem] flex-1 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={doClaudeDraft}
-                      disabled={claudeBusy}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:opacity-40"
-                    >
-                      {claudeBusy ? 'Working…' : 'Draft with Claude'}
-                    </button>
-                    {htmlHasContent(body) && (
-                      <button
-                        type="button"
-                        onClick={doClaudeComplete}
-                        disabled={claudeBusy}
-                        className="rounded-lg border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted transition-colors hover:border-brass-dim hover:text-parchment disabled:opacity-40"
-                      >
-                        Complete with Claude
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-1.5 text-[10.5px] leading-relaxed text-faint">
-                    Claude reads this project, your voice and rules, and this client's recordings. Review before sending.
-                  </p>
-                </div>
-              )}
-              {!claudeAvail && (
-                <p className="rounded-lg border border-line bg-surface-3/30 px-2.5 py-2 text-[11px] leading-relaxed text-faint">
-                  Claude is not set up yet. In Terminal run <span className="text-muted">claude setup-token</span>, paste the token
-                  into magic-crm/claude-credentials.json, then restart the CRM.
-                </p>
-              )}
 
               <div className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
