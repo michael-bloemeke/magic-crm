@@ -26,6 +26,7 @@ import { ProjectActions } from './ProjectActions'
 import { DateConflictFlag } from './DateConflictFlag'
 import { EditableTitle } from './EditableTitle'
 import { ProjectChat } from './ProjectChat'
+import { SalesCallGuideModal } from './SalesCallGuideModal'
 import { contactsForProject } from '../contacts'
 
 // A prominent, readable event date for the header (e.g. "Friday, June 20, 2026").
@@ -106,6 +107,7 @@ export function ProjectView({
   // The custom (new-thread) draft being edited in the composer, or null when writing a fresh email.
   const [editingDraft, setEditingDraft] = useState<ProjectEmail | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   // The project's saved drafts (top email section): new-thread drafts (kind 'custom') and per-thread
   // reply drafts (kind 'reply-<threadId>'). Auto-saved by the composers; surfaced in the list below.
   const [drafts, setDrafts] = useState<ProjectEmail[]>([])
@@ -316,6 +318,17 @@ export function ProjectView({
             {headerRight}
             <button
               type="button"
+              onClick={() => setGuideOpen(true)}
+              title="Sales call guide for this inquiry"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15.5 16.5v2.4a1.6 1.6 0 01-1.8 1.6 15.6 15.6 0 01-6.8-2.4 15.4 15.4 0 01-4.7-4.7A15.6 15.6 0 013.8 6.5 1.6 1.6 0 015.4 4.7h2.4a1.6 1.6 0 011.6 1.4c.1.8.3 1.5.5 2.2a1.6 1.6 0 01-.4 1.7l-1 1a12.8 12.8 0 004.7 4.7l1-1a1.6 1.6 0 011.7-.4c.7.3 1.4.4 2.2.5a1.6 1.6 0 011.4 1.6z" />
+              </svg>
+              Sales call guide
+            </button>
+            <button
+              type="button"
               onClick={() => setChatOpen(true)}
               title="Ask Claude about this project"
               className="inline-flex items-center gap-1.5 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
@@ -416,6 +429,7 @@ export function ProjectView({
 
       <NotesDrawer project={project} open={notesOpen} onClose={() => setNotesOpen(false)} onSaveField={onSaveField} />
 
+      <SalesCallGuideModal open={guideOpen} project={project} onClose={() => setGuideOpen(false)} />
       <ProjectChat open={chatOpen} project={project} onClose={() => setChatOpen(false)} onProjectChanged={onProjectChanged} />
 
       <EmailBuilderModal

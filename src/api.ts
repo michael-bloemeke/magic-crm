@@ -473,6 +473,31 @@ export async function claudeDraftReply(input: { projectId: string; threadText: s
 }
 // A per-project chat message (read + write; can do real work like editing the activity log).
 export type ClaudeChatMessage = { role: 'user' | 'assistant'; text: string }
+export type SalesCallGuide = { guide: string; generatedAt: string; type: string }
+
+// Read the stored sales call guide for a project. Written automatically in the background when the
+// inquiry lands, so this usually just reads what is already there.
+export async function claudeSalesCallGuide(projectId: string): Promise<SalesCallGuide> {
+  const res = await fetch(`/api/claude/sales-guide?projectId=${encodeURIComponent(projectId)}`)
+  if (!res.ok) throw new Error(await res.text())
+  const j = await res.json()
+  if (j.error) throw new Error(j.error)
+  return j as SalesCallGuide
+}
+
+// Force a rebuild. Slow (a full headless Claude run), so the caller shows a spinner.
+export async function claudeRegenerateSalesCallGuide(projectId: string): Promise<SalesCallGuide> {
+  const res = await fetch('/api/claude/sales-guide/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  const j = await res.json()
+  if (j.error) throw new Error(j.error)
+  return j as SalesCallGuide
+}
+
 export async function claudeChat(input: { projectId: string; message: string; history: ClaudeChatMessage[] }): Promise<string> {
   const res = await fetch('/api/claude/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   const data = await res.json().catch(() => ({}))

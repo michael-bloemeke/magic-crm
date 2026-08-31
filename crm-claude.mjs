@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { RECORDS_DIR, loadAll } from './crm-data-core.mjs'
+import { RECORDS_DIR, loadAll, updateProjectField } from './crm-data-core.mjs'
 
 const CLAUDE_BIN = path.join(os.homedir(), '.local', 'bin', 'claude')
 // RECORDS_DIR is ".../The Award-Winning Magic of Michael Bloemeke/Project Records"; its parent is
@@ -228,4 +228,161 @@ export async function chat({ projectId, message, history }) {
     'Do what I asked. If it changes data (like the activity log), follow the conventions in CLAUDE.md / magic-crm.md and edit the right file. Then reply with a short plain-text message about what you did or found.',
   ].join('\n')
   return runClaude(prompt, { systemPrompt: CHAT_SYSTEM_PROMPT, allowWrite: true })
+}
+
+
+// ---------------------------------------------------------------------------
+// Sales call guide
+// ---------------------------------------------------------------------------
+// Michael's ask, from the 08-31 Kelvin's Corner recording: "as soon as I get an inquiry ... I want
+// Claude to automatically -- I don't want to initiate this, I want this to happen automatically --
+// a sales call guide is generated ... and put that in the project page in my CRM. So on the project
+// page, there'll be a button that I can click near the top."
+//
+// The guide is written by the headless Claude CLI so it can read the real sources: the template
+// spine in templates/sales-call-guide/, CLAUDE.md, the playbook, and any Plaud recording or email
+// history for a repeat client. It is stored as markdown on projects.sales_call_guide and rendered
+// by SalesCallGuideModal.
+
+const GUIDE_SYSTEM_PROMPT = [
+  "You are writing a SALES CALL GUIDE for Michael Bloemeke, a professional magician, to have open in front of him during a live phone call with a prospective client.",
+  "He is on the phone. He is scanning, not reading. Every line has to be usable at a glance.",
+  "Output ONLY GitHub-flavored markdown. No preamble, no sign-off, no code fences, no HTML.",
+  "Use '## ' for the phase headings and '### ' for sub-sections. Use '- ' bullets. Use **bold** for the words he should not miss. Use '> ' blockquote for a line he can read out loud almost verbatim.",
+  "NEVER use em-dashes or en-dashes. Regular hyphens only.",
+  "Never write 'World Champion'. Award-winning or FISM medalist instead.",
+  "Be specific to THIS event. A line that could appear on any guide is wasted space. If you do not know something, make it a question for him to ask rather than an assumption.",
+  "Keep it under about 900 words. A guide he will not finish reading is worse than a short one.",
+].join(' ')
+
+// Which per-type template file backs this project. Falls back to private, which is the broadest.
+function guideTypeFor(eventType) {
+  const t = String(eventType || '').toLowerCase()
+  if (/wedding|bride|groom|engagement|rehearsal/.test(t)) return 'wedding'
+  if (/corporate|company|business|conference|gala|holiday party|banquet|association|chamber|team/.test(t)) return 'corporate'
+  return 'private'
+}
+
+// Everything on file about the project, wider than projectContext() because the guide is written
+// before the sales call and the inquiry form is often the only thing there is.
+function guideContext(projectId) {
+  const p = loadAll().projects.find((x) => x.id === projectId)
+  if (!p) throw new Error('Project not found.')
+  const lines = [
+    `Project id: ${p.id}`,
+    `Client: ${p.client || ''}`,
+    p.eventType ? `Event type: ${p.eventType}` : '',
+    p.eventDate ? `Event date: ${p.eventDate}` : '',
+    p.eventLocation ? `Location / venue: ${p.eventLocation}` : '',
+    p.venueType ? `Venue type: ${p.venueType}` : '',
+    p.eventStartTime ? `Event start: ${p.eventStartTime}` : '',
+    p.numberOfGuests ? `Guests: ${p.numberOfGuests}` : '',
+    p.ageOfGuests ? `Guest ages: ${p.ageOfGuests}` : '',
+    p.performanceStyle ? `Performance style asked for: ${p.performanceStyle}` : '',
+    p.totalFee != null && p.totalFee !== '' ? `Fee already on file: $${p.totalFee}` : '',
+    p.bookingSource ? `Found Michael via: ${p.bookingSource}` : '',
+    p.contactNames ? `Contact: ${p.contactNames}` : '',
+    p.contactEmails ? `Email: ${p.contactEmails}` : '',
+    p.contactPhones ? `Phone: ${p.contactPhones}` : '',
+    p.eventSummary ? `Summary: ${p.eventSummary}` : '',
+    p.eventDescription ? `Description: ${p.eventDescription}` : '',
+    p.initialInquiry ? `\nINITIAL INQUIRY / FORM FILL:\n${p.initialInquiry}` : '',
+    p.projectNotes ? `\nPROJECT NOTES:\n${p.projectNotes}` : '',
+  ].filter(Boolean)
+  return { project: p, text: lines.join('\n'), client: String(p.client || '') }
+}
+
+export async function generateSalesCallGuide({ projectId }) {
+  const { project, text, client } = guideContext(projectId)
+  const type = guideTypeFor(project.eventType)
+  const prompt = [
+    `Write the sales call guide for this inquiry. Event type bucket: ${type.toUpperCase()}.`,
+    '',
+    'READ THESE FIRST, in this order:',
+    '1. templates/sales-call-guide/_shared.md  (the call structure, the tone rule, the close, the standing questions)',
+    `2. templates/sales-call-guide/${type}.md  (what is different about this kind of call)`,
+    '3. CLAUDE.md  (voice, the banned-phrases list, the standing rules)',
+    '4. pricing.md  (so any price you mention is one Michael actually charges)',
+    `5. The "Plaud recordings" folder, ONLY if a recording filename matches the client "${client}". A repeat or returning client may have history worth surfacing. If nothing matches, skip it and do not guess.`,
+    '',
+    'THE EVENT:',
+    text,
+    '',
+    'STRUCTURE THE GUIDE EXACTLY LIKE THIS:',
+    '',
+    '## The event, in one look',
+    'Three to five bullets of what is already known from the inquiry, so he does not have to ask for anything he was already told. Then, as its own bolded line, the single biggest unknown going into the call.',
+    '',
+    '## 1. Information gathering (stay NEUTRAL)',
+    'One short line reminding him this stage is flat and curious, a six out of ten. Then the specific questions for THIS event, as bullets, ordered the way he should ask them. Include the standing questions from the shared file only where they actually apply here. Mark the must-asks in bold.',
+    '',
+    '## 2. What Michael does (now go UP)',
+    'One short line reminding him the neutral tone stops here. Then what to pitch for this specific event and in what order, written as benefit-then-description the way Jonah does it, feeding back what the client said they wanted in their own words. Name the format he should lead with and say why in one clause.',
+    '',
+    '## 3. Pricing',
+    'What to quote and how to say it, based on pricing.md and anything already on file. If the right number depends on an answer he has not got yet, say which answer decides it.',
+    '',
+    '## 4. Close',
+    'The decision-maker question, the scale of one to five, when will you know by, and booking the BAMFAM off that answer. Include the name-of-the-boss ask if this event type has one.',
+    '',
+    '## Do not forget',
+    'Three to six bullets, maximum. Only things that are genuinely easy to forget on THIS call. The venue name if it is missing, a date conflict, a detail from the form he should reference so they know he read it, and the reminder to take a photo at the event if it gets booked.',
+  ].join('\n')
+  const guide = await runClaude(prompt, { systemPrompt: GUIDE_SYSTEM_PROMPT })
+  await updateProjectField({ id: projectId, field: 'salesCallGuide', value: guide })
+  await updateProjectField({ id: projectId, field: 'salesCallGuideAt', value: new Date().toISOString() })
+  return { guide, generatedAt: new Date().toISOString(), type }
+}
+
+// Read what is already stored, without generating.
+export function salesCallGuideFor(projectId) {
+  const p = loadAll().projects.find((x) => x.id === projectId)
+  if (!p) throw new Error('Project not found.')
+  return {
+    guide: String(p.salesCallGuide || ''),
+    generatedAt: String(p.salesCallGuideAt || ''),
+    type: guideTypeFor(p.eventType),
+  }
+}
+
+// --- The automatic part -----------------------------------------------------
+// Michael does not want to press a button for this. The sweep looks for early-stage active
+// projects that have no guide yet and fills them in, one at a time so several fresh inquiries
+// cannot fan out into parallel CLI runs. It is called on a timer by the dev-server plugin.
+const GUIDE_STAGES = new Set(['inquiry', 'answered-inquiry', 'in-communication'])
+let sweeping = false
+const sweepFailures = new Map() // projectId -> attempts, so a broken project cannot loop forever
+
+export async function sweepSalesCallGuides() {
+  if (sweeping) return { ok: true, generated: [], skipped: 'already running' }
+  if (!isClaudeConfigured()) return { ok: false, generated: [], skipped: 'claude not configured' }
+  sweeping = true
+  const generated = []
+  try {
+    const due = loadAll()
+      .projects.filter(
+        (p) =>
+          p.bucket === 'active' &&
+          !p.deletedAt &&
+          GUIDE_STAGES.has(String(p.stageId || '')) &&
+          !String(p.salesCallGuide || '').trim() &&
+          (sweepFailures.get(p.id) || 0) < 3,
+      )
+      // Newest lead first: a guide is only useful before the call happens.
+      .sort((a, b) => String(b.leadDate || '').localeCompare(String(a.leadDate || '')))
+      .slice(0, 3)
+    for (const p of due) {
+      try {
+        await generateSalesCallGuide({ projectId: p.id })
+        generated.push(p.id)
+        sweepFailures.delete(p.id)
+      } catch (e) {
+        sweepFailures.set(p.id, (sweepFailures.get(p.id) || 0) + 1)
+        console.warn('[crm-claude] sales call guide failed for', p.id, e?.message || e)
+      }
+    }
+  } finally {
+    sweeping = false
+  }
+  return { ok: true, generated }
 }
