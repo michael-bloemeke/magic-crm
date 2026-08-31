@@ -1,4 +1,4 @@
-import { type SmartField } from './smartFields'
+import type { SmartField } from './smartFields'
 
 // The Ghostbuster follow-up library, ported from the Notion "Ghostbusters" page (Email Templates ->
 // Ghostbusters). Only the NUMBERED templates on that page are here; the unfinished ones at the

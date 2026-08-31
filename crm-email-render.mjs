@@ -54,7 +54,13 @@ export function tightenEmailHtml(html) {
   let s = String(html || '')
   if (!s) return s
   s = s.replace(/>\s+</g, '><') // drop insignificant whitespace the editor/Claude leaves between blocks
-  s = s.replace(/<(p|div)\b[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi, BLANK_SPACER) // blank line -> short spacer
+  // Blank line -> short spacer. An element that DRAWS something (a border or a background) is not a
+  // blank line even though it has no text: the signature's separator rule is exactly that, an empty
+  // div whose whole job is its border-top. Collapsing it silently deleted the rule from every
+  // signed email, with nothing to notice but a missing line.
+  s = s.replace(/<(p|div)\b([^>]*)>(?:\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi, (m, _tag, attrs) =>
+    /border|background/i.test(attrs) ? m : BLANK_SPACER,
+  )
   s = s.replace(/<p(?![^>]*\bstyle=)([^>]*)>/gi, `<p$1 style="${PARA_STYLE}">`) // controlled margin on real paragraphs
   s = s.replace(/<a(?![^>]*\bstyle=)([^>]*)>/gi, `<a$1 style="${LINK_STYLE}">`) // Gmail-blue links, matching the editor
   return s
@@ -107,9 +113,15 @@ export function extractInlineImages(html) {
   return { html: out, images }
 }
 
-// Build the signature block (tightened, same styling as the body), or '' if disabled/empty.
-function signatureInner() {
-  const cfg = loadConfig()
+// What signature, if any, this email should have appended, given the body and the CRM config.
+// Two ways an email can get one, and they must never both fire:
+//   - the composer's "Signature" checkbox, which puts the block IN the body (data-crm-signature).
+//     If it did, that IS the signature and this returns '' so no second copy is appended.
+//   - the Settings toggle, which appends one to every outgoing email that doesn't already carry it.
+// Pure and exported so the "never two signatures" rule can be tested against a config object,
+// rather than depending on whatever the live Settings happen to say.
+export function signatureFor(tightenedHtml, cfg) {
+  if (String(tightenedHtml || '').includes('data-crm-signature')) return ''
   if (!cfg || !cfg.signatureEnabled) return ''
   const sig = tightenEmailHtml(String(cfg.signatureHtml || ''))
   return sig ? `<div style="margin-top:16px">${sig}</div>` : ''
@@ -120,11 +132,8 @@ function signatureInner() {
 // signature. They differ only in images: the receipt keeps data: URIs (so the in-app sent view
 // renders the logo), while the send version uses cid: + inlineImages (so the recipient's Gmail does).
 export function composeOutgoing(bodyHtml) {
-  // If the composer already put a signature block IN the body (the "Signature" checkbox), that is
-  // the signature for this email and the Settings-driven one stands down. Without this guard,
-  // turning the Settings toggle on would silently mail two signatures.
   const tightened = tightenEmailHtml(String(bodyHtml || ''))
-  const inner = tightened + (tightened.includes('data-crm-signature') ? '' : signatureInner())
+  const inner = tightened + signatureFor(tightened, loadConfig())
   const wrap = (h) => (h ? `<div style="${EMAIL_BASE_STYLE}">${h}</div>` : h)
   // Two passes, both producing cid: inline attachments: template GIFs (real files on disk) and
   // data: images (the signature logo). The receipt keeps the original srcs so the in-app sent view
