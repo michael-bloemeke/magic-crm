@@ -5,7 +5,6 @@
 //   - a placeholder mailed out as literal text, or the website turned into a link.
 //
 // Run it:  node --experimental-strip-types crm-email-signature.test.mjs
-import fs from 'node:fs'
 import { JSDOM } from 'jsdom'
 import { signatureFor, tightenEmailHtml } from './crm-email-render.mjs'
 
@@ -15,6 +14,8 @@ globalThis.DOMParser = dom.window.DOMParser
 
 const { hasSignature, withSignature, withoutSignature, signatureBlock, DEFAULT_SIGNATURE_HTML } =
   await import('./src/emailSignature.ts')
+
+// Template placeholders are asserted in crm-email-gifs.test.mjs, which imports the library itself.
 
 let failures = 0
 function check(name, cond, detail) {
@@ -56,25 +57,7 @@ check('no config at all -> nothing', signatureFor(body, null) === '')
 check('Settings on but empty signature -> nothing', signatureFor(body, { signatureEnabled: true, signatureHtml: '' }) === '')
 check('appended signature is not a link either', !/<a\b/i.test(signatureFor(body, cfgOn)))
 
-console.log('\n4. Placeholders: ONLY the name autofills; every other bracket stays, in red')
-const src = fs.readFileSync('./src/emailTemplates.ts', 'utf8')
-const arr = src.slice(src.indexOf('export const EMAIL_TEMPLATES'))
-const fields = [...arr.matchAll(/\$\{field\('([^']+)'/g)].map((m) => m[1])
-const notes = [...arr.matchAll(/\$\{note\('([^']+)'\)\}/g)].map((m) => m[1])
-// NAME is a const referencing field('firstName'); no template may call field() for anything else.
-check('no autofilling chips other than the name', fields.length === 0, fields.join(', '))
-check('the name const is the only field chip', /const NAME = field\('firstName'/.test(src))
-check('NAME is used', arr.includes('${NAME}'))
-// Verbatim, exactly as they read in Notion — casing included.
-const expected = ['the event', 'event', 'Event', 'decision maker', 'the event', 'the event']
-check('write-ins are verbatim and in order', JSON.stringify(notes) === JSON.stringify(expected), notes.join(' | '))
-check('no event-type autofill survives', !/field\('eventType'/.test(src))
-
-const css = fs.readFileSync('./src/index.css', 'utf8')
-const noteCss = css.slice(css.indexOf('.merge-field[data-note]'), css.indexOf('.merge-field[data-note]') + 260)
-check('write-in chips are red', /#b91c1c/.test(noteCss) && /#fee2e2/.test(noteCss), noteCss.slice(0, 120))
-
-console.log('\n5. The outgoing-HTML tightener does not eat the separator rule')
+console.log('\n4. The outgoing-HTML tightener does not eat the separator rule')
 // It collapses empty <p>/<div> into a short spacer, which is right for a blank line and WRONG for
 // an element whose entire purpose is a border it draws. That bug deleted the signature separator
 // from every signed email, visible only as a missing line.

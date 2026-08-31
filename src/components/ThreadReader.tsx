@@ -15,7 +15,8 @@ import type { EmailMessage } from '../api'
 import { RichTextEditor } from './RichTextEditor'
 import { EmailAttachments } from './EmailAttachments'
 import { textToHtml, resolveMergeFields } from '../smartFields'
-import { EMAIL_TEMPLATES, findTemplate } from '../emailTemplates'
+import { findTemplate } from '../emailTemplates'
+import { TemplateMenu } from './TemplateMenu'
 import { hasSignature, withSignature, withoutSignature } from '../emailSignature'
 import type { Project } from '../pipeline'
 
@@ -514,24 +515,8 @@ export function ThreadReader({
               </p>
               <div className="flex items-center gap-2">
                 {/* Fills the reply body. No subject: a reply keeps the thread's, or Gmail breaks
-                    the conversation apart. */}
-                <div className="relative">
-                  <select
-                    value={templateId}
-                    onChange={(e) => applyTemplate(e.target.value)}
-                    className="cursor-pointer appearance-none rounded-lg border border-[#d8dde3] bg-white py-1 pl-2.5 pr-7 text-[11.5px] text-[#14171b] focus:border-[#2563eb] focus:outline-none"
-                  >
-                    <option value="">No template</option>
-                    {EMAIL_TEMPLATES.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#858d97]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </div>
+                    the conversation apart. Opens upward — the reply box is at the page bottom. */}
+                <TemplateMenu value={templateId} onPick={applyTemplate} tone="light" direction="up" />
                 <button
                   type="button"
                   onClick={doDraft}

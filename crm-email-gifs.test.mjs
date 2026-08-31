@@ -6,10 +6,17 @@
 // client's confusion. So this asserts the whole chain: template -> composeOutgoing -> MIME, ending
 // at "the bytes in the message are byte-identical to the GIF on disk and still a valid GIF".
 //
-// Run it:  node crm-email-gifs.test.mjs      (exits non-zero on failure)
+// Run it:  node --experimental-strip-types crm-email-gifs.test.mjs
 import fs from 'node:fs'
+import { JSDOM } from 'jsdom'
 import { composeOutgoing, emailGifPath } from './crm-email-render.mjs'
 import { makeRaw } from './crm-gmail.mjs'
+
+// The template library is TypeScript, so it is imported through Node's type stripping and read as
+// real data rather than regex-scraped. That way a template whose GIF slug is wrong fails here.
+const dom = new JSDOM('<body></body>')
+globalThis.DOMParser = dom.window.DOMParser
+const { TEMPLATE_GROUPS, EMAIL_TEMPLATES } = await import('./src/emailTemplates.ts')
 import { initStore } from './crm-store.mjs'
 
 // composeOutgoing reads the signature out of the CRM config, which under CRM_STORE=supabase comes
@@ -25,10 +32,10 @@ function check(name, cond, detail) {
 
 // Every slug the template library actually references, read from the source of truth so a new
 // template with a typo'd or missing GIF fails here rather than in a client's inbox.
-// Slugs come from the gif('<slug>', ...) helper calls; the data-crm-gif attribute itself is built
-// inside that helper from a template literal, so matching the attribute would only find the literal.
-const templateSrc = fs.readFileSync('./src/emailTemplates.ts', 'utf8')
-const slugs = [...new Set([...templateSrc.matchAll(/\bgif\('([a-z0-9][a-z0-9-]*)'/g)].map((m) => m[1]))]
+// Read off the rendered bodies, so this checks what actually ships, not what the source looks like.
+const slugs = [
+  ...new Set(EMAIL_TEMPLATES.flatMap((t) => [...t.body.matchAll(/data-crm-gif="([^"]+)"/g)].map((m) => m[1]))),
+]
 
 console.log(`\n1. Every template GIF slug resolves to a real file (${slugs.length} slugs)`)
 check('found some slugs', slugs.length > 0, 'no data-crm-gif in emailTemplates.ts')
@@ -107,25 +114,59 @@ for (const bad of ['../crm-gmail', '../../etc/passwd', 'a/../../b', '', 'UPPER',
   check(`traversal refused: ${JSON.stringify(bad)}`, emailGifPath(bad) === null)
 }
 
-console.log('\n8. The library is exactly the NUMBERED Notion templates, with well-formed chips')
-// Parsed out of the source rather than imported, because the module is TypeScript. Guards the two
-// rules that are easy to break by hand: only numbered templates belong here, and every placeholder
-// is a real merge-field chip (a bare "[Name]" would ship to a client as literal text).
-const names = [...templateSrc.matchAll(/^\s*name: '([^']+)',$/gm)].map((m) => m[1])
-const subjects = [...templateSrc.matchAll(/^\s*subject: '([^']*)',$/gm)].map((m) => m[1])
-check('11 templates', names.length === 11, names.join(' | '))
-check('11 subjects', subjects.length === 11, String(subjects.length))
-check('all numbered 1-11 in order', names.every((n, i) => n.startsWith(`${i + 1}. `)), names.join(' | '))
-check('every subject is non-empty', subjects.every((x) => x.trim().length > 0))
-// Scoped to the array, not the whole file: the header comment names the excluded templates on purpose.
-const bodyLiterals = templateSrc.slice(templateSrc.indexOf('export const EMAIL_TEMPLATES'))
-check('no unfinished ones (Snacks / Worth A Try / Aliens / Jurassic)',
-  !/Snacks|Worth A Try|Ruled Out Aliens|Jurassic/i.test(bodyLiterals))
-// A stray bracketed placeholder that is NOT inside a chip would go out as literal text.
-const bareBrackets = [...bodyLiterals.matchAll(/\[([^\]]{1,40})\]/g)]
-  .map((m) => m[0])
-  .filter((b) => !/^\[(Client first name|Event type|decision maker)\]$/.test(b))
-check('no bare bracket placeholders outside chips', bareBrackets.length === 0, bareBrackets.join(' '))
+console.log('\n8. The library is the three folders, holding exactly what Michael asked for')
+const byName = Object.fromEntries(TEMPLATE_GROUPS.map((g) => [g.name, g.templates.map((t) => t.name)]))
+check('three folders', TEMPLATE_GROUPS.length === 3, TEMPLATE_GROUPS.map((g) => g.name).join(' | '))
+check('folders are Ghostbusters / 14 Magic Emails / Old HoneyBook Templates',
+  JSON.stringify(Object.keys(byName)) === JSON.stringify(['Ghostbusters', '14 Magic Emails', 'Old HoneyBook Templates']),
+  Object.keys(byName).join(' | '))
+
+// Ghostbusters: the numbered ones only.
+const gb = byName['Ghostbusters'] || []
+check('11 Ghostbusters', gb.length === 11, String(gb.length))
+check('all numbered 1-11 in order', gb.every((n, i) => n.startsWith(`${i + 1}. `)), gb.join(' | '))
+check('no unfinished Ghostbusters (Snacks / Worth A Try / Aliens / Jurassic)',
+  !/Snacks|Worth A Try|Ruled Out Aliens|Jurassic/i.test(gb.join(' ')))
+
+// 14 Magic Emails: all of them.
+check('11 Magic Emails entries', (byName['14 Magic Emails'] || []).length === 11, String((byName['14 Magic Emails'] || []).length))
+
+// HoneyBook: EXACTLY the eight he picked, and Post Call Email deliberately excluded.
+const hb = byName['Old HoneyBook Templates'] || []
+const wantHb = ['Initial Inquiry', 'Inquiry Follow Up', 'Follow Up', 'Follow Up #2', 'Follow Up #3',
+  'Break Up', 'Booking Confirmation', '2-Week Check In']
+check('the eight HoneyBook templates, in order', JSON.stringify(hb) === JSON.stringify(wantHb), hb.join(' | '))
+check('Post Call Email is NOT included', !hb.some((n) => /post call/i.test(n)))
+check('the contract/invoice email is NOT included', !hb.some((n) => /contract|invoice|agreement/i.test(n)))
+
+console.log('\n9. Every template is sendable and uniquely addressable')
+check('30 templates total', EMAIL_TEMPLATES.length === 30, String(EMAIL_TEMPLATES.length))
+const ids = EMAIL_TEMPLATES.map((t) => t.id)
+check('all ids unique', new Set(ids).size === ids.length, 'duplicate id')
+// The composer refuses to send without a subject, so a template with a blank one is a dead end.
+const noSubject = EMAIL_TEMPLATES.filter((t) => !t.subject.trim()).map((t) => t.name)
+check('every template has a subject', noSubject.length === 0, noSubject.join(', '))
+const noBody = EMAIL_TEMPLATES.filter((t) => !t.body.trim()).map((t) => t.name)
+check('every template has a body', noBody.length === 0, noBody.join(', '))
+
+console.log('\n10. Placeholders: ONLY the name autofills, everything else stays as a red write-in')
+const autofill = [...new Set(EMAIL_TEMPLATES.flatMap((t) =>
+  [...t.body.matchAll(/data-field="([^"]+)"/g)].map((m) => m[1])))]
+check('firstName is the only autofilling field', JSON.stringify(autofill) === JSON.stringify(['firstName']), autofill.join(', '))
+// Anything bracketed that is NOT inside a chip would be mailed to a client as literal text.
+const bare = EMAIL_TEMPLATES.flatMap((t) => {
+  const stripped = t.body.replace(/<span class="merge-field"[^>]*>[\s\S]*?<\/span>/g, '')
+  return [...stripped.matchAll(/\[[^\]]{1,60}\]|\{\{[^}]{1,60}\}\}/g)].map((m) => `${t.id}: ${m[0]}`)
+})
+check('no bare placeholders outside chips', bare.length === 0, bare.join(' | '))
+// The Calendly tags keep their own braces rather than being re-bracketed.
+const calendly = EMAIL_TEMPLATES.flatMap((t) =>
+  [...t.body.matchAll(/data-note="true"[^>]*>(\{\{[^<]+\}\})</g)].map((m) => m[1]))
+check('{{calendly}} tags kept verbatim in red', calendly.length > 0 && calendly.every((c) => /^\{\{\w+\}\}$/.test(c)), calendly.join(', '))
+
+const css = fs.readFileSync('./src/index.css', 'utf8')
+const noteCss = css.slice(css.indexOf('.merge-field[data-note]'), css.indexOf('.merge-field[data-note]') + 260)
+check('write-in chips are red', /#b91c1c/.test(noteCss) && /#fee2e2/.test(noteCss))
 
 console.log(failures ? `\n${failures} FAILURE(S)\n` : '\nAll checks passed.\n')
 process.exit(failures ? 1 : 0)

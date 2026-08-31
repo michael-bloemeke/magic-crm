@@ -14,7 +14,8 @@ import {
 } from '../api'
 import { RichTextEditor } from './RichTextEditor'
 import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
-import { EMAIL_TEMPLATES, findTemplate } from '../emailTemplates'
+import { findTemplate } from '../emailTemplates'
+import { TemplateMenu } from './TemplateMenu'
 import { hasSignature, withSignature, withoutSignature } from '../emailSignature'
 import { EmailAttachments } from './EmailAttachments'
 import { attachKey, fmtSize } from '../attachments'
@@ -592,30 +593,15 @@ export function EmailBuilderModal({
                 <span className="mt-1 block text-[10.5px] text-faint">Separate multiple addresses with commas.</span>
               </label>
 
-              {/* Template picker: fills the subject + message below. "No template" clears both. */}
-              <label className="block">
+              {/* Template picker: folders that fly out into their templates. Fills the subject +
+                  message below; "No template" clears both. */}
+              <div className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Template</span>
-                <div className="relative">
-                  <select
-                    value={templateId}
-                    onChange={(e) => applyTemplate(e.target.value)}
-                    className="w-full cursor-pointer appearance-none rounded-lg border border-line bg-surface-2 py-2 pl-3 pr-8 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
-                  >
-                    <option value="">No template</option>
-                    {EMAIL_TEMPLATES.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                  <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 9l6 6 6-6" />
-                  </svg>
-                </div>
+                <TemplateMenu value={templateId} onPick={applyTemplate} />
                 <span className="mt-1 block text-[10.5px] text-faint">
                   Fills the subject and message below. Edit them freely before sending.
                 </span>
-              </label>
+              </div>
 
               {/* Reply into an existing conversation instead of starting a new thread. */}
               {!autosave && (
