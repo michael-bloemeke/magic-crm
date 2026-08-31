@@ -85,5 +85,25 @@ for (const bad of ['../crm-gmail', '../../etc/passwd', 'a/../../b', '', 'UPPER',
   check(`traversal refused: ${JSON.stringify(bad)}`, emailGifPath(bad) === null)
 }
 
+console.log('\n7. The library is exactly the NUMBERED Notion templates, with well-formed chips')
+// Parsed out of the source rather than imported, because the module is TypeScript. Guards the two
+// rules that are easy to break by hand: only numbered templates belong here, and every placeholder
+// is a real merge-field chip (a bare "[Name]" would ship to a client as literal text).
+const names = [...templateSrc.matchAll(/^\s*name: '([^']+)',$/gm)].map((m) => m[1])
+const subjects = [...templateSrc.matchAll(/^\s*subject: '([^']*)',$/gm)].map((m) => m[1])
+check('11 templates', names.length === 11, names.join(' | '))
+check('11 subjects', subjects.length === 11, String(subjects.length))
+check('all numbered 1-11 in order', names.every((n, i) => n.startsWith(`${i + 1}. `)), names.join(' | '))
+check('every subject is non-empty', subjects.every((x) => x.trim().length > 0))
+// Scoped to the array, not the whole file: the header comment names the excluded templates on purpose.
+const bodyLiterals = templateSrc.slice(templateSrc.indexOf('export const EMAIL_TEMPLATES'))
+check('no unfinished ones (Snacks / Worth A Try / Aliens / Jurassic)',
+  !/Snacks|Worth A Try|Ruled Out Aliens|Jurassic/i.test(bodyLiterals))
+// A stray bracketed placeholder that is NOT inside a chip would go out as literal text.
+const bareBrackets = [...bodyLiterals.matchAll(/\[([^\]]{1,40})\]/g)]
+  .map((m) => m[0])
+  .filter((b) => !/^\[(Client first name|Event type|decision maker)\]$/.test(b))
+check('no bare bracket placeholders outside chips', bareBrackets.length === 0, bareBrackets.join(' '))
+
 console.log(failures ? `\n${failures} FAILURE(S)\n` : '\nAll checks passed.\n')
 process.exit(failures ? 1 : 0)
