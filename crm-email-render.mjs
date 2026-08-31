@@ -120,7 +120,11 @@ function signatureInner() {
 // signature. They differ only in images: the receipt keeps data: URIs (so the in-app sent view
 // renders the logo), while the send version uses cid: + inlineImages (so the recipient's Gmail does).
 export function composeOutgoing(bodyHtml) {
-  const inner = tightenEmailHtml(String(bodyHtml || '')) + signatureInner()
+  // If the composer already put a signature block IN the body (the "Signature" checkbox), that is
+  // the signature for this email and the Settings-driven one stands down. Without this guard,
+  // turning the Settings toggle on would silently mail two signatures.
+  const tightened = tightenEmailHtml(String(bodyHtml || ''))
+  const inner = tightened + (tightened.includes('data-crm-signature') ? '' : signatureInner())
   const wrap = (h) => (h ? `<div style="${EMAIL_BASE_STYLE}">${h}</div>` : h)
   // Two passes, both producing cid: inline attachments: template GIFs (real files on disk) and
   // data: images (the signature logo). The receipt keeps the original srcs so the in-app sent view

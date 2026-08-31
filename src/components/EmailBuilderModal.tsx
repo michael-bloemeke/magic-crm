@@ -18,6 +18,7 @@ import {
 import { RichTextEditor } from './RichTextEditor'
 import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
 import { EMAIL_TEMPLATES, findTemplate } from '../emailTemplates'
+import { hasSignature, withSignature, withoutSignature } from '../emailSignature'
 
 const MICHAEL = 'michael@michaelbloemeke.com'
 // Normalize a thread subject to a reply subject so Gmail keeps the message in that conversation.
@@ -103,9 +104,11 @@ export function EmailBuilderModal({
   // Which template is currently selected ('' = No template). Purely a picker: once applied, the
   // subject and body are just editable content, so editing them does not clear this back to ''.
   const [templateId, setTemplateId] = useState('')
-  // The signature appended to outgoing mail (configured in Settings). Shown as a read-only preview
-  // under the editor so the compose view matches what actually gets sent.
+  // The signature CONTENT (configured in Settings). Whether this particular email carries it is not
+  // tracked here: it is derived from the body, because ticking the box literally puts the signature
+  // block into the message. One source of truth, so a reopened draft can never disagree with itself.
   const [sig, setSig] = useState<{ enabled: boolean; html: string }>({ enabled: false, html: '' })
+  const signatureOn = hasSignature(body)
   // Custom event fields (definitions for the merge-field dropdown) + this project's values (so a
   // custom merge field resolves to its value, like the built-in smart fields).
   const [customFields, setCustomFields] = useState<{ id: string; label: string }[]>([])
@@ -163,6 +166,10 @@ export function EmailBuilderModal({
       .then((c) => {
         setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' })
         setCustomFields(c.customFields || [])
+        // Settings' "signature enabled" is the DEFAULT for the checkbox, applied only to a brand-new
+        // email. A saved draft keeps whatever was decided when it was written: re-adding a signature
+        // that was deliberately unticked would be the CRM overruling him.
+        if (!existing && c.signatureEnabled) setBody((b) => (hasSignature(b) ? b : withSignature(b, c.signatureHtml || '')))
       })
       .catch(() => setSig({ enabled: false, html: '' }))
     loadCustomValues(project.id)
@@ -396,6 +403,13 @@ export function EmailBuilderModal({
   // so that only happens after a confirm; an empty box swaps silently. Merge-field chips resolve
   // immediately against this project (and its custom values), so [Client first name] is already the
   // client's name by the time the box appears.
+  // Add or remove the signature block at the end of the message. Nothing else in the body is
+  // touched, so it can be ticked and unticked at any point while writing.
+  const toggleSignature = (on: boolean) => {
+    setBody((b) => (on ? withSignature(b, sig.html) : withoutSignature(b)))
+    setConfirmUnfilled(false)
+  }
+
   const applyTemplate = (id: string) => {
     const t = id ? findTemplate(id) : null
     if (id && !t) return
@@ -404,7 +418,11 @@ export function EmailBuilderModal({
     if (dirty && !window.confirm(label)) return
     setTemplateId(id)
     setSubject(t ? t.subject : '')
-    setBody(t ? resolveMergeFields(t.body, project, customVals) : '')
+    // A template replaces the message, but not the signature decision: if the box is ticked it
+    // stays ticked, and the block is re-appended below the new text.
+    const keepSig = signatureOn
+    const next = t ? resolveMergeFields(t.body, project, customVals) : ''
+    setBody(keepSig ? withSignature(next, sig.html) : next)
     setConfirmUnfilled(false)
     setStatus(null)
   }
@@ -738,17 +756,19 @@ export function EmailBuilderModal({
                   resolveField={(key) => resolveSmartField(key, project, customVals)}
                   placeholder="Write a message, or have Claude draft one…"
                 />
-                {sig.enabled && htmlHasContent(sig.html) && (
-                  <div className="mt-2">
-                    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
-                      Signature (added automatically)
-                    </span>
-                    <div
-                      className="email-rte rounded-lg border border-dashed border-line px-3 py-3"
-                      dangerouslySetInnerHTML={{ __html: sig.html }}
-                    />
-                  </div>
-                )}
+                {/* Ticking this puts the signature block into the message above, so what you see in
+                    the editor is exactly what the client receives. */}
+                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-[12.5px] text-parchment">
+                  <input
+                    type="checkbox"
+                    checked={signatureOn}
+                    onChange={(e) => toggleSignature(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-line"
+                    style={{ accentColor: 'var(--color-brass)' }}
+                  />
+                  Signature
+                  <span className="text-[11px] text-faint">adds your name, website and number at the bottom</span>
+                </label>
               </div>
 
               {/* Attachments: pick from the Files page, or upload a one-off. */}

@@ -8,11 +8,14 @@ import { type SmartField } from './smartFields'
 //
 // Two conventions matter here:
 //
-//  1. Placeholders are merge-field CHIPS, the same ones the "Insert field" dropdown produces, so
-//     [Name] autofills to the client's first name the moment the template is picked, and anything
-//     that can't be filled stays a visible bracketed placeholder and trips the pre-send warning.
-//     Written as chip markup (matching RichTextEditor): a data-field chip for real project data,
-//     a data-note chip for a write-in the CRM can't know (e.g. "[decision maker]").
+//  1. Placeholders are merge-field CHIPS, the same ones the "Insert field" dropdown produces. The
+//     rule is deliberate and narrow: ONLY the name placeholders autofill. [Name] / [First Name] /
+//     [NAME] become the client's first name the moment the template is picked, because that is the
+//     one substitution that is always right. Every OTHER bracket stays exactly as it reads in
+//     Notion ([the event], [Event], [decision maker]) and is highlighted RED in the composer, so
+//     Michael replaces it himself with the words that actually fit and can see at a glance that it
+//     still needs doing. Auto-filling those produced wrong-sounding sentences ("after the Wedding"),
+//     which is worse than an obvious blank.
 //
 //  2. GIFs are NOT giphy links. Each <img> carries data-crm-gif="<slug>" and points at the local
 //     /api/email-gif/<slug> route so it animates in the composer. At send time crm-email-render
@@ -35,7 +38,6 @@ const field = (key: SmartField['key'], label: string) =>
 const note = (text: string) => `<span class="merge-field" data-note="true" contenteditable="false">[${text}]</span>`
 
 const NAME = field('firstName', 'Client first name')
-const EVENT = field('eventType', 'Event type')
 
 // An embedded GIF. `w` is the file's real pixel width so it is never upscaled; max-width keeps it
 // inside narrow mobile mail clients.
@@ -62,10 +64,10 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
     subject: 'You Made A Great Call',
     body:
       `<p>Hello ${NAME},</p>` +
-      `<p>This is your future self writing from after ${EVENT}.</p>` +
+      `<p>This is your future self writing from after ${note('the event')}.</p>` +
       `<p>We hired Michael and it was a certified banger. You got a standing ovation. Janet from accounting cried tears of joy.</p>` +
       `<p>This timeline is thriving.</p>` +
-      `<p>Do not ruin this. Reply to Michael now. The fate of our ${EVENT} depends on it.</p>` +
+      `<p>Do not ruin this. Reply to Michael now. The fate of our ${note('event')} depends on it.</p>` +
       `<p>-${NAME} from The Future</p>` +
       gif('back-to-the-future', 448, 'Back to the Future'),
   },
@@ -111,7 +113,7 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
     subject: 'Search Party Update',
     body:
       `<p>Hey ${NAME},</p>` +
-      `<p>I've assembled the search party! I'm confident that you're still out there somewhere. Once you get found, let’s connect and we can lock down that ${EVENT}!</p>` +
+      `<p>I've assembled the search party! I'm confident that you're still out there somewhere. Once you get found, let’s connect and we can lock down that ${note('Event')}!</p>` +
       gif('search-party', 250, 'Search party'),
   },
   {
@@ -142,7 +144,7 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
     subject: 'Should I be using Pigeons?',
     body:
       `<p>Hey ${NAME},</p>` +
-      `<p>At this point I'm considering switching to carrier pigeons, but I figured I'd try another email first. Are you all still looking at magic for ${EVENT}? Let me know either way.</p>` +
+      `<p>At this point I'm considering switching to carrier pigeons, but I figured I'd try another email first. Are you all still looking at magic for ${note('the event')}? Let me know either way.</p>` +
       gif('carrier-pigeons', 223, 'Carrier pigeon') +
       `<p>Thanks!</p>`,
   },
@@ -152,7 +154,7 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
     subject: 'Did my email do a magic trick?',
     body:
       `<p>Hi ${NAME},</p>` +
-      `<p>Starting to think my last email vanished, which as a magician I respect. But also mildly inconvenient if you're still planning ${EVENT}.</p>` +
+      `<p>Starting to think my last email vanished, which as a magician I respect. But also mildly inconvenient if you're still planning ${note('the event')}.</p>` +
       `<p>Happy to help. If not, no worries, just let me know either way.</p>` +
       gif('magic-trick', 200, 'Disappearing act') +
       `<p>Thanks!</p>`,

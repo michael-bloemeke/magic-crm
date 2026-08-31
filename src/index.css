@@ -192,13 +192,16 @@
   padding: 0 4px;
   white-space: nowrap;
 }
-/* "Write-in" note placeholder (you/AI write this; never autofills). Visually distinct from the
-   yellow data chips: cool blue, dashed underline, italic — reads as "fill this in," not data. */
+/* "Write-in" placeholder: a bracket Michael replaces himself, and the ONLY thing a template leaves
+   unfilled ([the event], [decision maker]). RED on purpose — it is the same "this is still blank"
+   signal the Event details fields use, and it has to be impossible to miss in a composed email,
+   because the failure mode is mailing a client a literal "[the event]". Stays red until replaced;
+   it is stripped to plain bracketed text on send, so the colour never leaves the composer. */
 .merge-field[data-note] {
-  background: #cfe0ff;
-  color: #1e3a66;
-  font-weight: 600;
-  font-style: italic;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 700;
+  font-style: normal;
   text-decoration: underline dashed;
   white-space: normal;
 }
