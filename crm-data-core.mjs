@@ -473,8 +473,6 @@ function normalize(p, bucket) {
     // Sales call guide: markdown written by Claude when the inquiry lands, shown in the
     // Sales Call Guide dialog on the project page. `At` empty means never generated, which is
     // what the auto-sweep looks for.
-    salesCallGuide: str(p.sales_call_guide),
-    salesCallGuideAt: str(p.sales_call_guide_at),
     // Which contract variant this project's booking form went out with (standard / no-media). Read
     // only: it is set when the form is issued, so the PDF renders the version the client signed.
     agreementVariant: str(p.agreement_variant),
@@ -1028,8 +1026,6 @@ const EDITABLE_FIELDS = {
   eventDescription: 'event_description',
   projectNotes: 'project_notes',
   initialInquiry: 'initial_inquiry',
-  salesCallGuide: 'sales_call_guide',
-  salesCallGuideAt: 'sales_call_guide_at',
 }
 
 // Coerce an inbound field value to the stored form, exactly as the files path does inline.
@@ -1240,8 +1236,6 @@ export async function createProject(input = {}) {
       booking_source: rec.booking_source || null,
       event_summary: null,
       event_description: null,
-      sales_call_guide: null,
-      sales_call_guide_at: null,
       project_notes: rec.project_notes,
       how_it_went: null,
       assets: null,

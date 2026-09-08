@@ -117,11 +117,22 @@ export const reviewsFor = (eventType) => REVIEW_BANK[normaliseType(eventType)] |
 // uncluttered centre, because text sits over it. The shot list is in
 // `The Award-Winning Magic of Michael Bloemeke/proposal-shot-list.md`, and the live template preview
 // at /proposal/?demo=1 shows every slot with its aspect ratio.
+// ⚠️ THE PORTRAIT IS THE SAME PICTURE ON EVERY SET, ON PURPOSE (Michael, 2026-09-01).
+// It is `michael-portrait-hero-dark.webp`: Michael seated at the table looking off to his right,
+// hands on the cards, with the whole left of the frame dark and empty. That empty left side is
+// load-bearing, because the Who Is Michael text sits on top of it. Every proposal he has ever
+// approved uses it.
+//
+// These sets used to seed michael-portrait-bio.webp (and cards-bw for bachelorette), which meant
+// every NEW proposal quietly shipped a different, badly cropped portrait than the ten before it.
+// It reached Austin Gragson's page. His words: "I thought the other picture was fine. You did not
+// need to change that picture." Do not vary the portrait by event type. If a genuinely better
+// portrait arrives from the proposal shoot, change it here in all five sets at once.
 export const PHOTO_SETS = {
   wedding: {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/bonsecours-gala-circle.webp',
-    portrait: '/assets/photos/michael-portrait-bio.webp',
+    portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
@@ -132,7 +143,7 @@ export const PHOTO_SETS = {
   corporate: {
     hero: '/assets/photos/stage-show-audience.webp',
     format: '/assets/photos/corporate-team-magic.webp',
-    portrait: '/assets/photos/michael-portrait-bio.webp',
+    portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/corporate-team-magic.webp',
       '/assets/photos/mentalism-three-volunteers.webp',
@@ -143,7 +154,7 @@ export const PHOTO_SETS = {
   'holiday-party': {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/santa-christmas-magic.webp',
-    portrait: '/assets/photos/michael-portrait-bio.webp',
+    portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/santa-christmas-magic.webp',
       '/assets/photos/lounge-laughing-guest.webp',
@@ -154,7 +165,7 @@ export const PHOTO_SETS = {
   bachelorette: {
     hero: '/assets/photos/lounge-laughing-guest.webp',
     format: '/assets/photos/close-up-magic-convention.webp',
-    portrait: '/assets/photos/michael-portrait-cards-bw.webp',
+    portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/gala-guest-delight.webp',
@@ -165,7 +176,7 @@ export const PHOTO_SETS = {
   private: {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/close-up-magic-convention.webp',
-    portrait: '/assets/photos/michael-portrait-bio.webp',
+    portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/gala-guest-delight.webp',

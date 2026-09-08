@@ -55,7 +55,6 @@ import {
   sendCalendarInvite,
   listGigsEvents,
 } from './crm-calendar.mjs'
-import { loadLeads, addLead, updateLead, archiveLead, convertLead } from './crm-leads.mjs'
 import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
@@ -97,9 +96,6 @@ import {
   completeDraft as claudeCompleteDraft,
   draftReply as claudeDraftReply,
   chat as claudeChat,
-  generateSalesCallGuide as claudeGenerateSalesCallGuide,
-  salesCallGuideFor as claudeSalesCallGuideFor,
-  sweepSalesCallGuides as claudeSweepSalesCallGuides,
 } from './crm-claude.mjs'
 import { status as esignStatus, listTemplates as esignListTemplates } from './crm-esign.mjs'
 import {
@@ -268,19 +264,6 @@ export function crmDataPlugin() {
       const t7 = setTimeout(sweepBooking, 30_000)
       const t8 = setInterval(sweepBooking, 2 * 60 * 1000)
 
-      // Sales call guides write themselves. Michael asked for this to be automatic ("I don't want
-      // to initiate this"), so any early-stage project without a guide gets one filled in in the
-      // background. The first pass waits two minutes so a cold start is not competing with the
-      // cache warm-up, then it re-checks every ten minutes.
-      const sweepGuides = () => {
-        claudeSweepSalesCallGuides()
-          .then((r) => {
-            if (r?.generated?.length) console.log('[crm-data] sales call guides written for', r.generated.join(', '))
-          })
-          .catch((e) => console.error('[crm-data] sales call guide sweep failed:', e?.message || e))
-      }
-      const t9 = setTimeout(sweepGuides, 2 * 60 * 1000)
-      const t10 = setInterval(sweepGuides, 10 * 60 * 1000)
       server.httpServer?.on('close', () => {
         clearTimeout(t1)
         clearInterval(t2)
@@ -288,8 +271,6 @@ export function crmDataPlugin() {
         clearInterval(t6)
         clearTimeout(t7)
         clearInterval(t8)
-        clearTimeout(t9)
-        clearInterval(t10)
         if (cacheRefreshTimer) clearInterval(cacheRefreshTimer)
       })
 
@@ -572,36 +553,6 @@ export function crmDataPlugin() {
           })
       })
 
-      // --- Leads (marketplace enquiries that have not entered the pipeline yet) ---
-      server.middlewares.use('/api/leads/add', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ lead: await addLead(b) }))
-      })
-      server.middlewares.use('/api/leads/update', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ lead: await updateLead(b.id, b.patch || {}) }))
-      })
-      // Archive, not delete: the row survives so the contact details stay available for outreach.
-      server.middlewares.use('/api/leads/archive', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await archiveLead(b.id, { keepContact: !!b.keepContact }))
-      })
-      server.middlewares.use('/api/leads/convert', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => await convertLead(b.id, b.details || {}))
-      })
-      server.middlewares.use('/api/leads', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        Promise.resolve(loadLeads())
-          .then((leads) => {
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ leads }))
-          })
-          .catch((e) => {
-            res.statusCode = 500
-            res.end(JSON.stringify({ error: e?.message || 'Failed to load leads.' }))
-          })
-      })
 
       // --- Contacts (specific paths before the generic GET) ---
       server.middlewares.use('/api/contacts/add', (req, res, next) => {
@@ -1019,29 +970,6 @@ export function crmDataPlugin() {
             return { error: String(e?.message || e) }
           }
         })
-      })
-      // --- Sales call guide (read stored / force a rebuild) ---
-      server.middlewares.use('/api/claude/sales-guide/generate', (req, res, next) => {
-        if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => {
-          try {
-            return await claudeGenerateSalesCallGuide({ projectId: b.projectId })
-          } catch (e) {
-            return { error: String(e?.message || e) }
-          }
-        })
-      })
-      server.middlewares.use('/api/claude/sales-guide', (req, res, next) => {
-        if (req.method !== 'GET') return next()
-        try {
-          const url = new URL(req.url || '', 'http://localhost')
-          const projectId = url.searchParams.get('projectId') || ''
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify(claudeSalesCallGuideFor(projectId)))
-        } catch (e) {
-          res.statusCode = 500
-          res.end(JSON.stringify({ error: String(e?.message || e) }))
-        }
       })
       server.middlewares.use('/api/claude', (req, res, next) => {
         if (req.method !== 'GET') return next()

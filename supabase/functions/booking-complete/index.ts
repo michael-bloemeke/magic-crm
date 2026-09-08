@@ -790,10 +790,29 @@ async function notifyMichaelFailed(sb: SupabaseClient, projectId: string, error:
 }
 
 // Prepend a dated line to the project's activity log, matching the CRM's own format.
+// Activity-log lines are dated in EASTERN, not in the runtime's zone.
+//
+// This function runs in Supabase's cloud, where `new Date().getDate()` is UTC. Anything logged
+// between 8 PM and midnight Eastern was therefore stamped with TOMORROW'S date, silently, and the
+// log is the record Michael reads back later to reconstruct what happened when. The rest of the
+// cloud already pins America/New_York (the signed-PDF footer, notify-cron, the inquiry email), so
+// this was the one straggler. Fixed 2026-09-01.
+//
+// Intl knows the real DST rules for any date, so this is right in both EST and EDT.
+function easternStamp(now: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0);
+  return `${MONTHS[get("month") - 1]} ${get("day")}, ${get("year")}`;
+}
+
 async function logActivity(sb: SupabaseClient, project: any, line: string) {
   try {
-    const now = new Date();
-    const stamp = `${MONTHS[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+    const stamp = easternStamp(new Date());
     const log = Array.isArray(project.activity_log) ? project.activity_log : [];
     await sb.from("projects").update({ activity_log: [`${stamp}: ${line}`, ...log] }).eq("id", project.id);
     project.activity_log = [`${stamp}: ${line}`, ...log];

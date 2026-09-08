@@ -265,6 +265,21 @@ async function ensureServiceItem(name) {
   return created.Item
 }
 
+// Look up a payment term by name so the invoice's Terms box is filled in rather than blank.
+// Resolved at runtime rather than hard-coded, because the Term Id differs between the sandbox and
+// the production realm. "Due on receipt" is one of QuickBooks' stock terms and exists in a default
+// account. Returns null rather than throwing: a missing term should not stop an invoice being made.
+async function findTermByName(name) {
+  const safe = String(name || '').replace(/['\\]/g, ' ').trim()
+  if (!safe) return null
+  try {
+    const found = await query(`select * from Term where Name = '${safe}'`)
+    return found?.QueryResponse?.Term?.[0] || null
+  } catch {
+    return null
+  }
+}
+
 // --- Per-project invoice references (so the project page can show status) ----
 // Read the whole { invoices: { [projectId]: ref } } object. Under supabase it is reconstructed from
 // the row-per-project jsonb cache; under files it is the JSON file. Lookups in the writers use this.
@@ -330,6 +345,16 @@ export async function refreshInvoiceStatus(projectId) {
 // the project's Quote (total fee) when not given, so partial invoices (e.g. a 50%
 // deposit) are just a lower amount. A processingFeePercent > 0 adds a separate
 // "Card Processing Fee" line so the client covers the card-processing cost.
+// The note that prints on every invoice, under "Note to customer". Kept here so it is written once
+// and not retyped per invoice. Michael, 2026-09-03.
+//
+// ⚠️ PAYMENT INSTRUCTIONS ARE NOT HERE, AND CANNOT BE. QuickBooks has no per-invoice payment
+// instructions field in its API: it is a company-level sales-form setting. Michael's wording lives
+// in QuickBooks under Settings > Sales > Messages, which has the advantage of also covering invoices
+// he raises by hand. See the CRM notes if it ever needs changing.
+const INVOICE_NOTE_TO_CUSTOMER =
+  "Thanks so much for booking, I'm really looking forward to it! Please don't hesitate to reach out if there is anything you need before the event."
+
 export async function createInvoiceForProject(projectId, opts = {}) {
   const project = loadAll().projects.find((p) => p.id === projectId)
   if (!project) throw new Error('Project not found.')
@@ -366,13 +391,31 @@ export async function createInvoiceForProject(projectId, opts = {}) {
     })
   }
   const body = { CustomerRef: { value: customer.Id }, Line: lines }
+
+  // TERMS: always "Due on receipt" unless a caller overrides it (Michael, 2026-09-03). Payment is
+  // due up front to hold the date, so anything else on the invoice contradicts the agreement.
+  const termName = String(opts.terms ?? 'Due on receipt').trim()
+  if (termName) {
+    const term = await findTermByName(termName)
+    if (term) body.SalesTermRef = { value: term.Id }
+  }
   // A per-invoice memo is only set if a caller explicitly passes one. It used to default to
   // invoiceMemo(), but that text was written as the EMAIL that accompanies an invoice, not as the
   // note printed on the invoice document, and reusing it here made one piece of writing do two jobs
   // nobody chose (removed 2026-08-04). The invoice-facing wording now lives where it belongs, in
   // QuickBooks' own Sales > Messages settings, which also covers invoices Michael raises by hand.
-  const memo = String(opts.memo ?? '').trim()
+  // NOTE TO CUSTOMER (prints on the invoice). Defaulted so Michael is not retyping it on every
+  // invoice; pass opts.memo to override, or opts.memo = '' to leave it blank.
+  const memo = String(opts.memo ?? INVOICE_NOTE_TO_CUSTOMER).trim()
   if (memo) body.CustomerMemo = { value: memo.slice(0, 1000) }
+
+  // MEMO ON STATEMENT (hidden from the client). Carries the details that make a payment easy to
+  // reconcile months later, which is the only job this field has.
+  const privateNote = String(
+    opts.privateNote ??
+      [project.client, project.eventType, project.eventDate, `CRM: ${projectId}`].filter(Boolean).join(' · '),
+  ).trim()
+  if (privateNote) body.PrivateNote = privateNote.slice(0, 4000)
   if (email) body.BillEmail = { Address: email }
   const due = String(opts.dueDate || '').trim()
   if (due) body.DueDate = due // QuickBooks expects YYYY-MM-DD

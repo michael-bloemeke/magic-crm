@@ -473,30 +473,6 @@ export async function claudeDraftReply(input: { projectId: string; threadText: s
 }
 // A per-project chat message (read + write; can do real work like editing the activity log).
 export type ClaudeChatMessage = { role: 'user' | 'assistant'; text: string }
-export type SalesCallGuide = { guide: string; generatedAt: string; type: string }
-
-// Read the stored sales call guide for a project. Written automatically in the background when the
-// inquiry lands, so this usually just reads what is already there.
-export async function claudeSalesCallGuide(projectId: string): Promise<SalesCallGuide> {
-  const res = await fetch(`/api/claude/sales-guide?projectId=${encodeURIComponent(projectId)}`)
-  if (!res.ok) throw new Error(await res.text())
-  const j = await res.json()
-  if (j.error) throw new Error(j.error)
-  return j as SalesCallGuide
-}
-
-// Force a rebuild. Slow (a full headless Claude run), so the caller shows a spinner.
-export async function claudeRegenerateSalesCallGuide(projectId: string): Promise<SalesCallGuide> {
-  const res = await fetch('/api/claude/sales-guide/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId }),
-  })
-  if (!res.ok) throw new Error(await res.text())
-  const j = await res.json()
-  if (j.error) throw new Error(j.error)
-  return j as SalesCallGuide
-}
 
 export async function claudeChat(input: { projectId: string; message: string; history: ClaudeChatMessage[] }): Promise<string> {
   const res = await fetch('/api/claude/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
@@ -1520,84 +1496,6 @@ export async function loadAnalytics(): Promise<Analytics> {
   const res = await fetch('/api/analytics')
   if (!res.ok) throw new Error(`Failed to load analytics (${res.status})`)
   return (await res.json()) as Analytics
-}
-
-// --- Leads -----------------------------------------------------------------
-// Enquiries that have not entered the pipeline yet (GigSalad / The Bash / Bark / other). Leaving
-// this page never destroys the row: converting stamps it, clearing it archives it, so the contact
-// details stay available for the mailing list either way.
-
-export const LEAD_SOURCES = ['gigsalad', 'the-bash', 'bark', 'other'] as const
-export type LeadSource = (typeof LEAD_SOURCES)[number]
-export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
-  gigsalad: 'GigSalad',
-  'the-bash': 'The Bash',
-  bark: 'Bark',
-  other: 'Other',
-}
-
-export type Lead = {
-  id: string
-  title: string
-  source: LeadSource
-  leadDate: string
-  followUpDate: string
-  name: string
-  email: string
-  phone: string
-  notes: string
-  createdAt: string
-}
-
-export async function loadLeads(): Promise<Lead[]> {
-  const res = await fetch('/api/leads')
-  if (!res.ok) throw new Error(`Failed to load leads (${res.status})`)
-  const data = await res.json()
-  return (data.leads ?? []) as Lead[]
-}
-
-async function leadPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`)
-  return data as T
-}
-
-export async function addLead(input: Partial<Lead>): Promise<Lead> {
-  return (await leadPost<{ lead: Lead }>('/api/leads/add', input)).lead
-}
-
-export async function updateLead(id: string, patch: Partial<Lead>): Promise<Lead> {
-  return (await leadPost<{ lead: Lead }>('/api/leads/update', { id, patch })).lead
-}
-
-// keepContact saves the person to Contacts first, so a dead lead still feeds outreach.
-export async function archiveLead(
-  id: string,
-  keepContact: boolean,
-): Promise<{ contact: Contact | null; reused: boolean }> {
-  return await leadPost('/api/leads/archive', { id, keepContact })
-}
-
-export async function convertLead(
-  id: string,
-  details: {
-    clientName: string
-    eventType?: string
-    eventDate?: string
-    eventLocation?: string
-    totalFee?: string
-    name?: string
-    email?: string
-    phone?: string
-    notes?: string
-  },
-): Promise<{ project: Project; contact: Contact | null }> {
-  return await leadPost('/api/leads/convert', { id, details })
 }
 
 // --- Recurring task schedules ----------------------------------------------
