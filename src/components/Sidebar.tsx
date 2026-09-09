@@ -9,6 +9,7 @@ export type Page =
   | 'finance'
   | 'stats'
   | 'website'
+  | 'proposals'
   | 'contacts'
   | 'files'
   | 'completed'
@@ -120,6 +121,20 @@ const GROUPS: NavGroup[] = [
         icon: icon(
           <>
             <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+          </>,
+        ),
+      },
+      {
+        // Everything that has gone OUT to a client: the proposal pages and the booking forms, with
+        // their read counts. Sits next to Website because that is where those pages actually live.
+        id: 'proposals',
+        label: 'Proposals',
+        enabled: true,
+        icon: icon(
+          <>
+            <path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+            <path d="M14 3v4h4" />
+            <path d="M8.5 12.5h7M8.5 16.5h4.5" />
           </>,
         ),
       },

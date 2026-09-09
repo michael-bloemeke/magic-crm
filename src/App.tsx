@@ -15,6 +15,7 @@ import { InboxPage } from './components/InboxPage'
 import { CalendarPage } from './components/CalendarPage'
 import { FinancePage } from './components/FinancePage'
 import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
+import { ProposalsPage } from './components/ProposalsPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { FilesPage } from './components/FilesPage'
@@ -106,6 +107,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   calendar: { kicker: 'Calendar', title: 'Calendar' },
   finance: { kicker: 'Finance', title: 'Finance' },
   stats: { kicker: 'Stats', title: 'Lead Stats' },
+  proposals: { kicker: 'Proposals', title: 'Proposals and Booking Forms' },
   website: { kicker: 'Website', title: 'Website Analytics' },
   contacts: { kicker: 'Contacts', title: 'Contacts' },
   files: { kicker: 'Library', title: 'Files' },
@@ -1204,6 +1206,8 @@ function App() {
                 <FinancePage projects={liveProjects} onOpenProject={openFull} />
               ) : page === 'stats' ? (
                 <StatsPage projects={liveProjects} onOpenProject={openFull} onSaveField={saveField} />
+              ) : page === 'proposals' ? (
+                <ProposalsPage />
               ) : page === 'website' ? (
                 <WebsiteAnalyticsPage />
               ) : page === 'contacts' ? (

@@ -655,8 +655,20 @@ export async function proposalsOverview() {
     .map((b) => {
       const id = slugify(b.client_name)
       if (!byId.has(id)) return null // deleted, and deleted projects are excluded everywhere else
+      const project = byId.get(id)
+      const { outcome, label, note } = outcomeOf(project)
       return {
         projectId: id,
+        projectName: project.client || id,
+        // The same active/past split the proposals use, for the same reason: a booking form on a
+        // completed project belongs in the history, not in the list of what is out right now.
+        bucket: project.bucket || 'missing',
+        outcome,
+        outcomeLabel: label,
+        outcomeNote: note || '',
+        eventType: project.eventType || '',
+        eventDate: project.eventDate || '',
+        totalFee: project.totalFee ?? '',
         sentAt: b.booking_sent_at || '',
         // Same flag as the proposal, same reason: opening it from the CRM must not count.
         openUrl: b.booking_token ? `${SITE}/book/?t=${b.booking_token}&preview=1` : '',

@@ -762,6 +762,81 @@ export function bookingAgreementPdfUrl(projectId: string, download = false): str
 // The step before the booking flow: the per-client page Michael sends after a sales call. It lives
 // on michaelbloemeke.com and is served from Supabase, so publishing is a database write rather than
 // a deploy and the link works whether or not this app is running.
+// ---------------------------------------------------------------------------
+// The Proposals page
+// ---------------------------------------------------------------------------
+
+// ⚠️ `state` is COMPUTED on the server, not read off proposals.status. A proposal can say `live` in
+// the database while its page is actually dark, because the edge function also refuses anything past
+// its expiry or belonging to a project that has left the pipeline. See proposalsOverview in
+// crm-proposals.mjs. Never render `status` here; render `state`.
+export type ProposalState = 'draft' | 'live' | 'expired' | 'down'
+
+// Did the deal close? Read off the PROJECT, not the proposal: a proposal has no idea, and reading
+// `retired` as a loss would call every tidied-up page a lost deal.
+export type ProposalOutcome = 'open' | 'booked' | 'lost' | 'unknown'
+
+export type ProposalOverviewItem = {
+  projectId: string
+  projectName: string
+  contactNames: string
+  eventType: string
+  eventDate: string
+  totalFee: number | string | null
+  bucket: string
+  stageId: string
+
+  state: ProposalState
+  stateReason: string
+  outcome: ProposalOutcome
+  outcomeLabel: string
+  outcomeNote: string
+
+  // The clean link, the one Michael actually sends. Carries no flags.
+  url: string
+  // The link to open FROM THE CRM. Always flagged, so his own reading is never counted, and for a
+  // page that is no longer public it carries his preview key so he can still read it back.
+  openUrl: string
+  views: number
+  firstViewedAt: string
+  lastViewedAt: string
+  expiresAt: string
+  emailDraftedAt: string
+  createdAt: string
+}
+
+export type BookingOverviewItem = {
+  projectId: string
+  projectName: string
+  // Same active/past split the proposals use. A form on a completed project is history.
+  bucket: string
+  outcome: ProposalOutcome
+  outcomeLabel: string
+  outcomeNote: string
+  eventType: string
+  eventDate: string
+  totalFee: number | string | null
+  sentAt: string
+  openUrl: string
+  views: number
+  firstViewedAt: string
+  lastViewedAt: string
+  variant: string
+}
+
+export type ProposalsOverview = {
+  items: ProposalOverviewItem[]
+  bookings: BookingOverviewItem[]
+  // The blank templates, attached to no client. What a client actually sees.
+  samples: { proposal: string; booking: string }
+}
+
+export async function loadProposalsOverview(): Promise<ProposalsOverview> {
+  const res = await fetch('/api/proposals/overview')
+  if (!res.ok) throw new Error('Could not load the proposals.')
+  return (await res.json()) as ProposalsOverview
+}
+
 export type ProposalStatus = {
   exists: boolean
   // none = never created. draft = link issued but dead. live = the link works. retired = taken down.
