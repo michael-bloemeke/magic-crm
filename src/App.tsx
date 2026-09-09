@@ -969,6 +969,16 @@ function App() {
 
   const meta = PAGE_META[page]
 
+  // THE PROPOSALS PAGE IS THE ONE PAGE ON THE WEBSITE'S OWN ROYAL-BLUE SURFACE.
+  //
+  // Michael's reason (2026-09-09): "that way it looks like it's a page on my website almost." The
+  // blue and the damask live in ProposalsPage itself; what has to happen HERE is the page header,
+  // because a light header meeting a navy content area draws a hard seam across the screen and the
+  // blue reads as a panel pasted in rather than as the page. Extending it up removes the seam.
+  //
+  // Everything below is a ternary on this flag, so no other page's markup changes at all.
+  const onDamask = page === 'proposals'
+
   return (
     <div className="relative z-10 flex h-screen overflow-hidden">
       <Sidebar
@@ -1041,14 +1051,15 @@ function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
               className="flex items-end justify-between gap-6 px-8 pb-7 pt-8"
+              style={onDamask ? { background: 'linear-gradient(180deg, #18295f 0%, #16265a 100%)' } : undefined}
             >
               <div>
-                <div className="mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.24em] text-faint">
+                <div className={`mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.24em] ${onDamask ? 'text-[#b0b3bd]' : 'text-faint'}`}>
                   <span>{meta.kicker}</span>
                   <span className="h-px w-8 bg-brass-dim/50" />
                   <span>{todayLabel}</span>
                 </div>
-                <h1 className="font-display text-[40px] font-medium leading-none tracking-[-0.01em] text-parchment">
+                <h1 className={`font-display text-[40px] font-medium leading-none tracking-[-0.01em] ${onDamask ? 'text-[#f4f5f7]' : 'text-parchment'}`}>
                   {page === 'home' ? `${greeting}, Michael` : meta.title}
                 </h1>
               </div>
@@ -1145,10 +1156,16 @@ function App() {
             </motion.header>
 
             {/* Hairline under the header, fading toward the right */}
-            <div className="mx-8 h-px bg-gradient-to-r from-line-strong via-line to-transparent" />
+            <div
+              className={`mx-8 h-px ${onDamask ? 'bg-gradient-to-r from-white/25 via-white/10 to-transparent' : 'bg-gradient-to-r from-line-strong via-line to-transparent'}`}
+            />
 
             {/* Active view */}
-            <div ref={contentRef} className="flex min-h-0 flex-1 flex-col pt-7">
+            <div
+              ref={contentRef}
+              className="flex min-h-0 flex-1 flex-col pt-7"
+              style={onDamask ? { background: '#16265a' } : undefined}
+            >
               {error ? (
                 <div className="flex flex-1 items-center justify-center px-8 text-center">
                   <div className="max-w-md">
