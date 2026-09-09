@@ -841,7 +841,15 @@ export type ProposalStatus = {
   exists: boolean
   // none = never created. draft = link issued but dead. live = the link works. retired = taken down.
   status: 'none' | 'draft' | 'live' | 'retired'
+  // ⚠️ Render `state`, not `status`. Same reason as the Proposals page: the status column says
+  // 'live' on proposals whose pages are actually dark, because the edge function also gates on
+  // expiry and on the project's bucket. Absent only when no proposal exists.
+  state?: ProposalState
+  stateReason?: string
   url?: string
+  // The link to open FROM the CRM: always flagged, so previewing never counts as a view, and
+  // carrying the admin key when the page is no longer public so a draft can still be read.
+  openUrl?: string
   headline?: string
   // What still has to be filled in before it can be published, in plain words.
   gaps: string[]

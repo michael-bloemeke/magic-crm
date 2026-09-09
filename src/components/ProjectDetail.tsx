@@ -5,12 +5,16 @@ import type { Contact, Payment, ProjectLinks, Task } from '../api'
 import { StageSelect } from './StageSelect'
 import { EventTypeSelect } from './EventTypeSelect'
 import { ProjectDetailsBody } from './ProjectDetailsBody'
+import { type PreviewTarget } from './PreviewPage'
 import { ProjectActions } from './ProjectActions'
 import { EditableTitle } from './EditableTitle'
 import { DateConflictFlag } from './DateConflictFlag'
 
 type Props = {
   project: Project | null
+  // Opens the client's proposal page as a SCREEN in the CRM rather than a new browser window.
+  // See PreviewPage. Drilled from App because the preview takes over the whole main area.
+  onPreview: (t: PreviewTarget) => void
   dateConflict?: boolean
   conflictWith?: string[]
   tasks: Task[]
@@ -41,6 +45,7 @@ type Props = {
 
 export function ProjectDetail({
   project,
+  onPreview,
   dateConflict = false,
   conflictWith,
   tasks,
@@ -165,6 +170,7 @@ export function ProjectDetail({
                 />
               </div>
               <ProjectDetailsBody
+            onPreview={onPreview}
                 project={project}
                 tasks={tasks}
                 contacts={contacts}

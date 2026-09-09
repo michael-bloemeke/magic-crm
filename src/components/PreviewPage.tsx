@@ -33,11 +33,11 @@ export type PreviewTarget = {
 }
 
 export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack: () => void }) {
-  const [loaded, setLoaded] = useState(false)
+  // Which src has finished loading, rather than a boolean that would have to be reset whenever
+  // the target changes. Derived, so switching proposals shows its own spinner with no effect.
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-
-  // A different proposal in the same screen has to show its own spinner again.
-  useEffect(() => setLoaded(false), [target.src])
+  const loaded = loadedSrc === target.src
 
   // Escape backs out, because this is a full-screen takeover and that is what Escape means
   // everywhere else in the app.
@@ -103,7 +103,7 @@ export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack:
           key={target.src}
           src={target.src}
           title={target.title}
-          onLoad={() => setLoaded(true)}
+          onLoad={() => setLoadedSrc(target.src)}
           className="h-full w-full border-0"
           style={{ opacity: loaded ? 1 : 0, transition: 'opacity 160ms ease' }}
         />

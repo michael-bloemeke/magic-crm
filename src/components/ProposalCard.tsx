@@ -9,6 +9,7 @@ import {
   resetProposalViews,
   type ProposalStatus,
 } from '../api'
+import { type PreviewTarget } from './PreviewPage'
 
 // THE PROPOSAL, the step before the booking sequence.
 //
@@ -32,7 +33,13 @@ function fmtStamp(iso?: string): string {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-export function ProposalCard({ project }: { project: Project }) {
+export function ProposalCard({
+  project,
+  onPreview,
+}: {
+  project: Project
+  onPreview: (t: PreviewTarget) => void
+}) {
   const [p, setP] = useState<ProposalStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -110,15 +117,27 @@ export function ProposalCard({ project }: { project: Project }) {
           {/* Opening it from here adds ?preview=1, which renders the same page but does NOT count
               as a view. Copy hands over the clean URL, so what Michael sends is never flagged.
               Without this his own checking would swamp the one number the card exists to report. */}
-          <a
-            href={`${p.url}&preview=1`}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 flex-1 truncate text-[11.5px] text-brass-bright underline-offset-2 hover:underline"
-            title={`${p.url}\n\nOpens in preview mode, which is not counted as a view.`}
-          >
+          <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted" title={p.url}>
             {p.url.replace(/^https:\/\//, '')}
-          </a>
+          </span>
+          {p.openUrl && (
+            <button
+              type="button"
+              onClick={() =>
+                onPreview({
+                  src: p.openUrl as string,
+                  publicUrl: p.url as string,
+                  title: project.client || project.id,
+                  subtitle: p.state === 'live' ? 'Proposal · live' : `Proposal · ${p.stateReason || ''}`,
+                  backLabel: 'Back to the project',
+                })
+              }
+              className="shrink-0 rounded-md border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
+              title="Opens inside the CRM. Not counted as a view."
+            >
+              Open preview
+            </button>
+          )}
           <button type="button" onClick={copy} className="shrink-0 text-[11px] text-faint transition-colors hover:text-parchment">
             {copied ? 'Copied' : 'Copy'}
           </button>

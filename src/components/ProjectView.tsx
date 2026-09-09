@@ -18,6 +18,7 @@ import {
 import { StageSelect } from './StageSelect'
 import { EventTypeSelect } from './EventTypeSelect'
 import { ProjectDetailsBody } from './ProjectDetailsBody'
+import { type PreviewTarget } from './PreviewPage'
 import { ThreadReader } from './ThreadReader'
 import { MiniComms } from './MiniComms'
 import { NotesDrawer } from './NotesDrawer'
@@ -39,6 +40,9 @@ function longDate(iso: string): string {
 
 type Props = {
   project: Project
+  // Opens the client's proposal page as a SCREEN in the CRM rather than a new browser window.
+  // See PreviewPage. Drilled from App because the preview takes over the whole main area.
+  onPreview: (t: PreviewTarget) => void
   dateConflict?: boolean
   conflictWith?: string[]
   tasks: Task[]
@@ -69,6 +73,7 @@ type Props = {
 
 export function ProjectView({
   project,
+  onPreview,
   dateConflict = false,
   conflictWith,
   tasks,
@@ -381,6 +386,7 @@ export function ProjectView({
       <div className="board-scroll min-h-0 flex-1 overflow-y-auto px-8 pb-12">
         <div className="max-w-6xl pt-4">
           <ProjectDetailsBody
+            onPreview={onPreview}
             project={project}
             tasks={tasks}
             contacts={contacts}

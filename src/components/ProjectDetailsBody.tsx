@@ -8,6 +8,7 @@ import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
 import { BookingCard } from './BookingCard'
 import { ProposalCard } from './ProposalCard'
+import { type PreviewTarget } from './PreviewPage'
 import { ContactCard } from './ContactCard'
 import { ProjectNotesPanel } from './ProjectNotesPanel'
 import { InitialInquiryModal } from './InitialInquiryModal'
@@ -42,6 +43,9 @@ type Props = {
   // Full project view: use the wider multi-column layout, render content beside
   // Tasks (the "recent conversations" box), and keep the description/notes/activity
   // in the side panel. The narrow side pane leaves this off and shows them inline.
+  // Opens the client's proposal page as a SCREEN in the CRM rather than a new browser window.
+  // See PreviewPage. Drilled from App because the preview takes over the whole main area.
+  onPreview: (t: PreviewTarget) => void
   fullView?: boolean
   tasksAside?: ReactNode
 }
@@ -60,6 +64,7 @@ export function ProjectDetailsBody({
   onOpenContact,
   onUnlinkContact,
   onAddContact,
+  onPreview,
   fullView,
   tasksAside,
 }: Props) {
@@ -296,7 +301,7 @@ export function ProjectDetailsBody({
           <div className="space-y-2">
             {/* Left column is the two things that go out BEFORE they say yes, plus the invite.
                 Together these come out near the height of the booking card beside them. */}
-            <ProposalCard project={project} />
+            <ProposalCard project={project} onPreview={onPreview} />
             <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
           <div className="space-y-2">

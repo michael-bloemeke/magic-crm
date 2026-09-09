@@ -7,6 +7,7 @@ import {
   type ProposalState,
   type ProposalsOverview,
 } from '../api'
+import { type PreviewTarget } from './PreviewPage'
 
 // EVERYTHING MICHAEL HAS SENT, in one place.
 //
@@ -140,7 +141,12 @@ function LinkRow({
 // A plain function that RETURNS elements rather than a component declared in the page body. A
 // component defined inside another is a new type on every render, so React rebuilds the subtree and
 // every child's local state dies with it. It has cost this codebase two bugs already.
-function proposalRow(item: ProposalOverviewItem, booking: BookingOverviewItem | undefined, past: boolean) {
+function proposalRow(
+  item: ProposalOverviewItem,
+  booking: BookingOverviewItem | undefined,
+  past: boolean,
+  open: (t: PreviewTarget) => void,
+) {
   const opened = item.views > 0
   const dead = item.state !== 'live'
   const fee = fmtFee(item.totalFee)
@@ -185,7 +191,19 @@ function proposalRow(item: ProposalOverviewItem, booking: BookingOverviewItem | 
                   : 'Never opened.'}
             </span>
           </div>
-          <LinkRow url={item.url} openUrl={item.openUrl} dead={dead} />
+          <LinkRow
+            url={item.url}
+            openUrl={item.openUrl}
+            onOpen={() =>
+              open({
+                src: item.openUrl,
+                publicUrl: item.url,
+                title: item.projectName,
+                subtitle: dead ? `Proposal · ${item.stateReason}` : 'Proposal · live',
+                backLabel: 'Proposals',
+              })
+            }
+          />
           {/* Only for a page that WAS up and is not any more. A draft's status line already says
               "Never published", and saying it twice reads as a bug. */}
           {(item.state === 'expired' || item.state === 'down') && (
@@ -207,7 +225,19 @@ function proposalRow(item: ProposalOverviewItem, booking: BookingOverviewItem | 
                     : `Sent ${fmtStamp(booking.sentAt)}. Never opened.`}
               </span>
             </div>
-            <LinkRow url={booking.openUrl.replace(/&preview=1$/, '')} openUrl={booking.openUrl} />
+            <LinkRow
+              url={booking.openUrl.replace(/&preview=1$/, '')}
+              openUrl={booking.openUrl}
+              onOpen={() =>
+                open({
+                  src: booking.openUrl,
+                  publicUrl: booking.openUrl.replace(/&preview=1$/, ''),
+                  title: booking.projectName,
+                  subtitle: 'Booking form',
+                  backLabel: 'Proposals',
+                })
+              }
+            />
           </div>
         )}
       </div>
@@ -217,7 +247,7 @@ function proposalRow(item: ProposalOverviewItem, booking: BookingOverviewItem | 
 
 // A booking form on a project that has no proposal at all. It happens: a repeat client books
 // straight off a phone call. Leaving them off would make this page a liar about what has gone out.
-function bookingOnlyRow(booking: BookingOverviewItem, past: boolean) {
+function bookingOnlyRow(booking: BookingOverviewItem, past: boolean, open: (t: PreviewTarget) => void) {
   const day = fmtDay(booking.eventDate)
   const fee = fmtFee(booking.totalFee)
   return (
@@ -247,7 +277,19 @@ function bookingOnlyRow(booking: BookingOverviewItem, past: boolean) {
             : `Sent ${fmtStamp(booking.sentAt)}. Never opened.`}
       </p>
       <div className="mt-2">
-        <LinkRow url={booking.openUrl.replace(/&preview=1$/, '')} openUrl={booking.openUrl} />
+        <LinkRow
+          url={booking.openUrl.replace(/&preview=1$/, '')}
+          openUrl={booking.openUrl}
+          onOpen={() =>
+            open({
+          src: booking.openUrl,
+          publicUrl: booking.openUrl.replace(/&preview=1$/, ''),
+          title: booking.projectName,
+          subtitle: 'Booking form',
+          backLabel: 'Proposals',
+            })
+          }
+        />
       </div>
     </div>
   )
@@ -255,7 +297,7 @@ function bookingOnlyRow(booking: BookingOverviewItem, past: boolean) {
 
 // ---------------------------------------------------------------------------
 
-export function ProposalsPage() {
+export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => void }) {
   const [data, setData] = useState<ProposalsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -388,8 +430,8 @@ export function ProposalsPage() {
                 Nothing out at the moment.
               </p>
             )}
-            {active.map((i) => proposalRow(i, byProject.get(i.projectId), false))}
-            {bookingOnly.map((b) => bookingOnlyRow(b, false))}
+            {active.map((i) => proposalRow(i, byProject.get(i.projectId), false, onPreview))}
+            {bookingOnly.map((b) => bookingOnlyRow(b, false, onPreview))}
           </div>
 
           {/* PAST */}
@@ -411,8 +453,8 @@ export function ProposalsPage() {
                   Nothing here yet.
                 </p>
               )}
-              {pastRows.map((i) => proposalRow(i, byProject.get(i.projectId), true))}
-              {bookingOnlyPast.map((b) => bookingOnlyRow(b, true))}
+              {pastRows.map((i) => proposalRow(i, byProject.get(i.projectId), true, onPreview))}
+              {bookingOnlyPast.map((b) => bookingOnlyRow(b, true, onPreview))}
             </div>
           </div>
         </>

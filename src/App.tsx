@@ -231,6 +231,7 @@ function App() {
 
   // Open a project: full page (primary) or the side pane.
   const openFull = (p: Project) => {
+    setPreview(null)
     if (!fullProject) {
       const s = captureScroll() // capture the page we're leaving (not when project->project)
       backRef.current = { page, view, top: s.top, left: s.left }
@@ -240,6 +241,7 @@ function App() {
     setFullProject(p)
   }
   const openSide = (p: Project) => {
+    setPreview(null)
     setContactPane(null)
     setFullProject(null)
     setSelected(p)
@@ -1013,6 +1015,9 @@ function App() {
           setContactPane(null)
           setFullProject(null)
           setSelected(null)
+          // The preview is a full-screen takeover, so it has to come down with everything else or
+          // the sidebar looks broken: the page behind changes and the screen does not.
+          setPreview(null)
           setPage(p)
         }}
         taskAlerts={taskAlerts}
@@ -1026,6 +1031,7 @@ function App() {
         ) : fullProject ? (
           <ProjectView
             project={fullProject}
+            onPreview={setPreview}
             dateConflict={dateConflictIds.has(fullProject.id)}
             conflictWith={dateConflictInfo.get(fullProject.id)}
             tasks={tasksForFull}
@@ -1316,6 +1322,7 @@ function App() {
       </main>
 
       <ProjectDetail
+        onPreview={setPreview}
         project={contactPane ? null : selected}
         dateConflict={!!(selected && dateConflictIds.has(selected.id))}
         conflictWith={selected ? dateConflictInfo.get(selected.id) : undefined}
