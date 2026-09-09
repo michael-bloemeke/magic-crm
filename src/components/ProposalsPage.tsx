@@ -140,7 +140,7 @@ function proposalRow(item: ProposalOverviewItem, booking: BookingOverviewItem | 
   return (
     <div
       key={item.projectId}
-      className="rounded-xl border border-line bg-surface/50 px-4 py-3 transition-colors hover:border-line-strong"
+      className="rounded-xl border border-line bg-surface px-4 py-3 shadow-[0_1px_3px_-1px_rgba(15,22,32,0.10)] transition-colors hover:border-line-strong"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-parchment">{item.projectName}</p>
@@ -212,7 +212,7 @@ function bookingOnlyRow(booking: BookingOverviewItem, past: boolean) {
   const day = fmtDay(booking.eventDate)
   const fee = fmtFee(booking.totalFee)
   return (
-    <div key={booking.projectId} className="rounded-xl border border-line bg-surface/50 px-4 py-3">
+    <div key={booking.projectId} className="rounded-xl border border-line bg-surface px-4 py-3 shadow-[0_1px_3px_-1px_rgba(15,22,32,0.10)]">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-parchment">{booking.projectName}</p>
         <Pill text="Booking form only" />
@@ -296,11 +296,27 @@ export function ProposalsPage() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35 }}
+      // THE DAMASK. Michael asked for it here, 2026-09-09, and this is the ONLY page in the CRM
+      // that carries it. Same ornament as the website, rebuilt as DARK ink because the site's copy
+      // is white for a royal-blue surface and would be invisible on the CRM's #eef0f3 canvas.
+      //
+      // The site's own rule applies: ornament goes where it carries meaning, never everywhere. This
+      // page is the one showing what a client actually receives, so it is the one page in the app
+      // that gets to look like the brand rather than like a tool. `fixed` keeps the pattern still
+      // while the rows scroll over it, so it reads as a wall the cards sit on rather than wallpaper
+      // glued to the list.
       className="board-scroll h-full overflow-y-auto px-8 pb-12"
+      style={{
+        backgroundImage: 'url(/damask.webp)',
+        backgroundSize: '420px 420px',
+        backgroundRepeat: 'repeat',
+        backgroundAttachment: 'fixed',
+      }}
     >
+      <div className="mx-auto max-w-3xl">
       {/* THE SAMPLES. Deliberately first: this is the answer to "what does the thing I am sending
           actually look like", which is a question about the template, not about any client. */}
-      <div className="max-w-3xl rounded-xl border border-line bg-surface/50 px-4 py-4">
+      <div className="rounded-xl border border-line bg-surface px-4 py-4 shadow-[0_1px_3px_-1px_rgba(15,22,32,0.10)]">
         <p className="text-[13px] font-semibold text-parchment">What the client sees</p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           The blank templates, attached to nobody. Nothing you do in them is saved and no client's
@@ -317,7 +333,7 @@ export function ProposalsPage() {
       </div>
 
       {error && (
-        <div className="mt-6 max-w-2xl rounded-xl border border-rose-500/40 bg-rose-500/[0.06] px-4 py-3">
+        <div className="mt-6 rounded-xl border border-rose-500/40 bg-rose-500/[0.06] px-4 py-3">
           <p className="text-[13px] font-semibold text-rose-300">Couldn't load the proposals</p>
           <p className="mt-1 text-[12.5px] text-muted">{error}</p>
           <button
@@ -333,7 +349,7 @@ export function ProposalsPage() {
       {data == null && !error && (
         <div className="mt-6 space-y-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 max-w-3xl animate-pulse rounded-xl border border-line bg-surface/40" />
+            <div key={i} className="h-28 animate-pulse rounded-xl border border-line bg-surface/40" />
           ))}
         </div>
       )}
@@ -349,7 +365,7 @@ export function ProposalsPage() {
           </div>
           <p className="mt-1 text-[12px] text-muted">Everyone still in the pipeline, soonest event first.</p>
 
-          <div className="mt-3 max-w-3xl space-y-2.5">
+          <div className="mt-3 space-y-2.5">
             {active.length === 0 && bookingOnly.length === 0 && (
               <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-[12.5px] text-muted">
                 Nothing out at the moment.
@@ -372,7 +388,7 @@ export function ProposalsPage() {
               internet; the link here still opens your own copy and is never counted.
             </p>
 
-            <div className="mt-3 max-w-3xl space-y-2.5">
+            <div className="mt-3 space-y-2.5">
               {pastRows.length === 0 && bookingOnlyPast.length === 0 && (
                 <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-[12.5px] text-muted">
                   Nothing here yet.
@@ -384,6 +400,7 @@ export function ProposalsPage() {
           </div>
         </>
       )}
+      </div>
     </motion.div>
   )
 }
