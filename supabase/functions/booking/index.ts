@@ -199,7 +199,10 @@ Deno.serve(async (req) => {
         prefill: {},
         signed: false,
         submitted: false,
-        agreement: String(tpl?.html || ""),
+        // Same SHAPE the real flow returns ({ summary, html }), so the page's own renderAgreement
+        // handles it with no demo-specific branch. The summary is filled in client side from
+        // whatever Michael typed into the sample form.
+        agreement: { summary: [], html: String(tpl?.html || "") },
       });
     }
 
