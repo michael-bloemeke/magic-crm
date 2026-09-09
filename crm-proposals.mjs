@@ -129,15 +129,22 @@ export const reviewsFor = (eventType) => REVIEW_BANK[normaliseType(eventType)] |
 // need to change that picture." Do not vary the portrait by event type. If a genuinely better
 // portrait arrives from the proposal shoot, change it here in all five sets at once.
 export const PHOTO_SETS = {
+  // ⚠️ EIGHT gallery photos per set, always. Michael set that as the standard on 2026-09-09: the
+  // strip renders as two rows of four on a full-screen page, and four photos left it looking thin.
+  // The edge function caps the gallery at 8, so eight is both the standard and the ceiling.
   wedding: {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/bonsecours-gala-circle.webp',
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
+      '/assets/photos/wedding-couple-laughing.webp',
+      '/assets/photos/wedding-garden-mingling.webp',
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/gala-guest-delight.webp',
+      '/assets/photos/cocktail-hour-guest-reaction.webp',
       '/assets/photos/guest-shock-reaction.webp',
+      '/assets/photos/party-guests-astonished.webp',
     ],
   },
   corporate: {
@@ -146,9 +153,13 @@ export const PHOTO_SETS = {
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/corporate-team-magic.webp',
+      '/assets/photos/corporate-gala-strolling-crowd.webp',
       '/assets/photos/mentalism-three-volunteers.webp',
+      '/assets/photos/corporate-guests-laughing.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
+      '/assets/photos/gala-guest-astonished.webp',
       '/assets/photos/guest-shock-reaction.webp',
+      '/assets/photos/stage-show-adult-volunteer.webp',
     ],
   },
   'holiday-party': {
@@ -157,9 +168,13 @@ export const PHOTO_SETS = {
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/santa-christmas-magic.webp',
+      '/assets/photos/corporate-guests-laughing.webp',
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/corporate-team-magic.webp',
+      '/assets/photos/tuxedo-guests-laughing.webp',
+      '/assets/photos/gala-guest-delight.webp',
       '/assets/photos/guest-shock-reaction.webp',
+      '/assets/photos/mentalism-three-volunteers.webp',
     ],
   },
   bachelorette: {
@@ -168,9 +183,13 @@ export const PHOTO_SETS = {
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
       '/assets/photos/lounge-laughing-guest.webp',
+      '/assets/photos/party-guests-astonished.webp',
       '/assets/photos/gala-guest-delight.webp',
+      '/assets/photos/cocktail-hour-guest-reaction.webp',
       '/assets/photos/guest-shock-reaction.webp',
       '/assets/photos/magic-convention-card-spread.webp',
+      '/assets/photos/gala-guest-astonished.webp',
+      '/assets/photos/tuxedo-guests-laughing.webp',
     ],
   },
   private: {
@@ -178,10 +197,14 @@ export const PHOTO_SETS = {
     format: '/assets/photos/close-up-magic-convention.webp',
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
     gallery: [
+      '/assets/photos/cocktail-hour-guest-reaction.webp',
       '/assets/photos/lounge-laughing-guest.webp',
+      '/assets/photos/party-guests-astonished.webp',
       '/assets/photos/gala-guest-delight.webp',
-      '/assets/photos/stage-show-audience.webp',
-      '/assets/photos/guest-shock-reaction.webp',
+      '/assets/photos/tuxedo-guests-laughing.webp',
+      '/assets/photos/gala-guest-astonished.webp',
+      '/assets/photos/corporate-guests-laughing.webp',
+      '/assets/photos/mentalism-three-volunteers.webp',
     ],
   },
 }
