@@ -24,7 +24,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { sb } from './crm-store.mjs'
-import { loadAll, appendActivityLog } from './crm-data-core.mjs'
+import { loadAll, appendActivityLog, slugify } from './crm-data-core.mjs'
 import { proposalEmail } from './crm-booking-emails.mjs'
 import { clientEmailFor } from './crm-booking-form.mjs'
 
@@ -499,4 +499,181 @@ export async function draftProposalEmail(projectId, { createDraft }) {
   await appendActivityLog(projectId, 'Proposal email drafted in Gmail. Not sent.')
 
   return { ok: true, to, url, threadId: draft?.threadId || '' }
+}
+
+// ---------------------------------------------------------------------------
+// The Proposals page
+// ---------------------------------------------------------------------------
+//
+// One read that answers the question the per-project ProposalCard cannot: what have I sent, to
+// whom, and did anybody look at it. Before this page the only way to see a proposal was to remember
+// whose project it was on, which stopped working somewhere around the tenth one.
+//
+// ⚠️ THE POINT OF THIS FUNCTION IS THAT "live" IS COMPUTED, NOT READ.
+//
+// `proposals.status` says `live` for three proposals right now whose pages are actually dark,
+// because the edge function refuses to serve any proposal whose project has left the active or
+// completed buckets. There are THREE independent gates and the status column is only one of them:
+//
+//   1. status must be 'live'
+//   2. expires_at must be in the future (default: event date + 90 days)
+//   3. the project must be in the active or completed bucket
+//
+// Showing the raw column would tell Michael a page is up when it is not. So `state` below runs the
+// same three checks the edge function runs, in the same order, and `reason` says which one closed
+// it. If the edge function's gates ever change, change these with them.
+
+const PREVIEW_KEY_ID = 1
+
+// Michael's own key, which lets him open a proposal the public can no longer reach. Cached for the
+// life of the process: it is one row that never changes, and this is read once per page load.
+let previewKeyCache = null
+async function previewKey() {
+  if (previewKeyCache !== null) return previewKeyCache
+  const { data, error } = await sb().from('push_config').select('preview_key').eq('id', PREVIEW_KEY_ID).maybeSingle()
+  if (error) {
+    console.warn('[proposals] could not read the preview key:', error.message)
+    return ''
+  }
+  previewKeyCache = data?.preview_key || ''
+  return previewKeyCache
+}
+
+// The four states a proposal can be in, from Michael's point of view rather than the database's.
+//
+//   draft    written but never published. Nobody can reach it and nobody ever could.
+//   live     up right now. The link in the client's inbox works.
+//   expired  it was live and the clock ran out. Nothing was decided; it simply aged out.
+//   down     taken down on purpose, or taken down BY the project leaving the pipeline.
+//
+// `expired` and `down` are kept apart because they mean different things when Michael is looking
+// back at a lost deal: one is "I retired this", the other is "this quietly lapsed".
+function proposalState(row, project) {
+  if (row.status === 'draft') return { state: 'draft', reason: 'Never published.' }
+  if (row.status === 'retired') return { state: 'down', reason: 'Taken down by hand.' }
+
+  const bucket = project?.bucket
+  if (bucket !== 'active' && bucket !== 'completed') {
+    return {
+      state: 'down',
+      reason: bucket === 'archived' ? 'Down because the project was archived.' : 'Down because the project left the pipeline.',
+    }
+  }
+
+  const expires = row.expires_at ? Date.parse(row.expires_at) : NaN
+  if (!Number.isNaN(expires) && expires < Date.now()) {
+    return { state: 'expired', reason: 'Past its expiry date.' }
+  }
+
+  return { state: 'live', reason: 'Up now. The link works.' }
+}
+
+// Booked, lost, or still in play. Read off the project, never off the proposal: the proposal has no
+// idea whether the deal closed, and inferring it from `retired` would call every tidied-up page a
+// loss. `completed` is the only thing in this system that means the gig actually happened.
+function outcomeOf(project) {
+  if (!project) return { outcome: 'unknown', label: 'No project' }
+  if (project.bucket === 'completed') return { outcome: 'booked', label: 'Booked' }
+  if (project.bucket === 'archived') {
+    return { outcome: 'lost', label: 'Fell through', note: project.archiveReason || project.whyArchived || '' }
+  }
+  if (project.deletedAt) return { outcome: 'lost', label: 'Deleted' }
+  // Still in the pipeline. Money already taken is worth saying out loud, because a deposit-paid
+  // project in the active list is a won deal that simply has not happened yet.
+  if (project.stageId === 'deposit-paid' || project.stageId === 'paid-in-full') {
+    return { outcome: 'booked', label: 'Booked' }
+  }
+  return { outcome: 'open', label: 'In play' }
+}
+
+export async function proposalsOverview() {
+  const [{ data: rows, error }, key] = await Promise.all([
+    sb().from('proposals').select('*'),
+    previewKey(),
+  ])
+  if (error) throw new Error(`crm-proposals.proposalsOverview: ${error.message}`)
+
+  // Deleted projects are excluded everywhere else in the CRM (Finance, Stats, tasks, the phone
+  // snapshot), so they are excluded here too rather than becoming the one screen that resurrects
+  // them. loadAll() already drops them.
+  const projects = loadAll().projects
+  const byId = new Map(projects.map((p) => [p.id, p]))
+
+  const items = (rows || []).map((row) => {
+    const project = byId.get(row.project_id) || null
+    const { state, reason } = proposalState(row, project)
+    const { outcome, label, note } = outcomeOf(project)
+
+    // Michael's link ALWAYS carries a flag, so his own checking can never be mistaken for the
+    // client's reading. Which flag depends on whether the page is still public:
+    //   live      preview=1, the flag that already existed. Renders, does not count.
+    //   anything  the admin key as well, which is the only thing that gets past the three gates.
+    // The clean URL, the one he actually sends, is `url` and carries neither.
+    const url = proposalUrl(row.token)
+    const openUrl = state === 'live' ? `${url}&preview=1` : key ? `${url}&preview=1&k=${encodeURIComponent(key)}` : ''
+
+    return {
+      projectId: row.project_id,
+      projectName: project?.client || row.project_id,
+      contactNames: project?.contactNames || '',
+      eventType: project?.eventType || '',
+      eventDate: project?.eventDate || '',
+      totalFee: project?.totalFee ?? '',
+      bucket: project?.bucket || 'missing',
+      stageId: project?.stageId || '',
+
+      state,
+      stateReason: reason,
+      outcome,
+      outcomeLabel: label,
+      outcomeNote: note || '',
+
+      url,
+      openUrl,
+      views: row.view_count ?? 0,
+      firstViewedAt: row.first_viewed_at || '',
+      lastViewedAt: row.last_viewed_at || '',
+      expiresAt: row.expires_at || '',
+      emailDraftedAt: row.email_drafted_at || '',
+      createdAt: row.created_at || '',
+    }
+  })
+
+  // Booking forms are a SEPARATE list keyed the same way, not a column on the proposal. A project
+  // can have one without the other in both directions: a repeat client books with no proposal, and
+  // most proposals never get as far as a form.
+  const { data: bookingRows, error: bookingErr } = await sb()
+    .from('projects')
+    .select('id, client_name, booking_token, booking_sent_at, booking_viewed_at, booking_view_count, booking_last_viewed_at, agreement_variant')
+    .not('booking_token', 'is', null)
+  if (bookingErr) throw new Error(`crm-proposals.proposalsOverview (bookings): ${bookingErr.message}`)
+
+  // Keyed by the SLUG, which is what loadAll() uses as a project id, not by projects.id. They are
+  // usually the same string and occasionally are not, and matching on the raw column would silently
+  // drop the ones that differ.
+  const bookings = (bookingRows || [])
+    .map((b) => {
+      const id = slugify(b.client_name)
+      if (!byId.has(id)) return null // deleted, and deleted projects are excluded everywhere else
+      return {
+        projectId: id,
+        sentAt: b.booking_sent_at || '',
+        // Same flag as the proposal, same reason: opening it from the CRM must not count.
+        openUrl: b.booking_token ? `${SITE}/book/?t=${b.booking_token}&preview=1` : '',
+        views: b.booking_view_count ?? 0,
+        firstViewedAt: b.booking_viewed_at || '',
+        lastViewedAt: b.booking_last_viewed_at || '',
+        variant: b.agreement_variant || '',
+      }
+    })
+    .filter(Boolean)
+
+  return {
+    items,
+    bookings,
+    samples: {
+      proposal: `${SITE}/proposal/?demo=1`,
+      booking: `${SITE}/book/?demo=1`,
+    },
+  }
 }

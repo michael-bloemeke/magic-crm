@@ -179,13 +179,40 @@ Deno.serve(async (req) => {
   // moment the link reached a human. Recording it is what lets the CRM show a live status instead of
   // asking Michael to press a button and find out.
   if (req.method === "GET") {
+    // THE SAMPLE FORM, for the CRM's Proposals page. No token, no project, nothing written.
+    //
+    // It exists so Michael can see what a client actually receives without opening somebody's real
+    // form and inflating their view count. The agreement it shows is the UNFILLED contract template
+    // straight out of contract_templates, which is the same wording every real agreement is built
+    // from, so the sample can never drift away from the thing being sampled.
+    if (url.searchParams.get("demo") === "1") {
+      const { data: tpl } = await sb
+        .from("contract_templates")
+        .select("html")
+        .eq("variant", "standard")
+        .maybeSingle();
+      return json({
+        demo: true,
+        eventDate: "Saturday, June 13, 2026",
+        performanceStyle: "The formal show",
+        answers: [],
+        prefill: {},
+        signed: false,
+        submitted: false,
+        agreement: String(tpl?.html || ""),
+      });
+    }
+
     const token = (url.searchParams.get("token") || "").trim();
+    // Michael opening a client's own form to check it. Renders identically, stamps nothing, so
+    // "opened 3 times" always means the CLIENT. Same flag and same reasoning as the proposal page.
+    const preview = url.searchParams.get("preview") === "1";
     if (!validToken(token)) return json({ error: "Invalid link." }, 400);
 
     const { data: project, error: projErr } = await sb
       .from("projects")
       .select(
-        "id, agreement_html, booking_viewed_at, event_date, performance_style, " +
+        "id, agreement_html, booking_viewed_at, booking_view_count, event_date, performance_style, " +
           "event_summary, event_start_time, show_start_time, av, number_of_guests, " +
           "event_location, venue_type, indoors_or_outdoors, age_of_guests, vips, contact_names",
       )
@@ -194,14 +221,35 @@ Deno.serve(async (req) => {
     if (projErr) return json({ error: "Lookup failed." }, 500);
     if (!project) return json({ error: "This link is no longer valid." }, 404);
 
-    // Stamp once only. It answers "did this ever reach them", not "how many times did they look",
-    // and overwriting it would quietly destroy the useful signal.
-    if (!project.booking_viewed_at) {
-      await sb
-        .from("projects")
-        .update({ booking_viewed_at: new Date().toISOString() })
+    // TWO different facts, kept in two columns on purpose.
+    //
+    // booking_viewed_at answers "did this ever reach a human" and is stamped ONCE, guarded by the
+    // .is() so a second load cannot overwrite it. Overwriting it would quietly destroy the signal.
+    //
+    // booking_view_count and booking_last_viewed_at answer "how often are they going back to it",
+    // which is what the Proposals page reads. Every load counts, including a forward to the spouse
+    // or the boss, exactly like the proposal page's own counter.
+    //
+    // Bookkeeping never blocks the client: a failure here must not cost them their form, so the
+    // update is fired and its error only logged.
+    if (!preview) {
+      const now = new Date().toISOString();
+      if (!project.booking_viewed_at) {
+        await sb
+          .from("projects")
+          .update({ booking_viewed_at: now })
+          .eq("id", project.id)
+          .is("booking_viewed_at", null);
+      }
+      sb.from("projects")
+        .update({
+          booking_view_count: (project.booking_view_count ?? 0) + 1,
+          booking_last_viewed_at: now,
+        })
         .eq("id", project.id)
-        .is("booking_viewed_at", null);
+        .then(({ error }) => {
+          if (error) console.warn("[booking] view stamp failed:", error.message);
+        });
     }
 
     const { data: row, error } = await sb

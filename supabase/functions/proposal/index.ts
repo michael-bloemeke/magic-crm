@@ -41,6 +41,15 @@ const json = (body: unknown, status = 200) =>
 
 const validToken = (t: string) => !!t && t.length <= 100 && !/[^A-Za-z0-9_-]/.test(t);
 
+// Constant time, so the number of correct leading characters cannot be read off the response time.
+// Length is compared first and leaks only the length, which is not a secret.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 const db = () =>
   createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
@@ -390,6 +399,15 @@ Deno.serve(async (req) => {
   // "opened 3 times" always means the CLIENT, which is the only reading that is worth anything. The
   // CRM card links here; the link it hands him to actually send does not carry the flag.
   const preview = params.get("preview") === "1";
+  // MICHAEL'S OWN KEY, and the only thing that can read a proposal the public can no longer reach.
+  //
+  // The CRM's Proposals page lists every proposal he has ever sent, including ones that are retired,
+  // past their expiry, or whose project has been archived. All three of those are hard gates below,
+  // so without this a proposal would vanish from his own records the moment it came down. The key is
+  // read from push_config (service-role only) and is never put in a link that goes to a client.
+  //
+  // It implies preview: an admin open is never counted as a view.
+  const adminKey = clean(params.get("k"));
   // An invalid token is answered exactly like an expired one. Nothing here should ever help someone
   // work out whether a token they guessed was close.
   if (!validToken(token)) return json(EXPIRED);
@@ -401,8 +419,20 @@ Deno.serve(async (req) => {
     console.error("[proposal] lookup failed:", error.message);
     return json({ error: "Something went wrong" }, 500);
   }
-  if (!prop || prop.status !== "live") return json(EXPIRED);
-  if (prop.expires_at && Date.parse(prop.expires_at) < Date.now()) return json(EXPIRED);
+  if (!prop) return json(EXPIRED);
+
+  // Checked only when a key was supplied, so the ordinary client path costs no extra read.
+  let admin = false;
+  if (adminKey) {
+    const { data: cfg } = await sb.from("push_config").select("preview_key").eq("id", 1).maybeSingle();
+    const expected = String(cfg?.preview_key || "");
+    admin = expected.length > 0 && timingSafeEqual(adminKey, expected);
+  }
+
+  if (!admin) {
+    if (prop.status !== "live") return json(EXPIRED);
+    if (prop.expires_at && Date.parse(prop.expires_at) < Date.now()) return json(EXPIRED);
+  }
 
   const { data: project } = await sb
     .from("projects")
@@ -415,7 +445,8 @@ Deno.serve(async (req) => {
 
   // The page comes down when the deal leaves the pipeline. Completed stays up: a completed client is
   // a happy client who may want to look back at what they booked, and there are few of them.
-  if (!project || (project.bucket !== "active" && project.bucket !== "completed")) return json(EXPIRED);
+  if (!project) return json(EXPIRED);
+  if (!admin && project.bucket !== "active" && project.bucket !== "completed") return json(EXPIRED);
 
   const name = firstName(project.contact_names) || firstName(project.client_name);
 
@@ -459,7 +490,7 @@ Deno.serve(async (req) => {
     videoId: safeVideoId(prop.video_id),
   };
 
-  if (preview) return json({ ...body, preview: true });
+  if (preview || admin) return json({ ...body, preview: true, admin });
 
   // Stamp the view after the response is assembled, so a bookkeeping failure can never cost the
   // client their page. The first view is the one worth interrupting Michael for.

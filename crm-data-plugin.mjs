@@ -41,6 +41,7 @@ import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
 import {
   proposalStatus, ensureProposal, saveProposal, publishProposal, retireProposal, draftProposalEmail,
+  proposalsOverview,
   resetProposalViews,
 } from './crm-proposals.mjs'
 import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking, agreementPdfFromCloud } from './crm-booking-agreement.mjs'
@@ -1238,6 +1239,21 @@ export function crmDataPlugin() {
       // Publishing is a database write, not a deploy, so a client who is ready at 10 PM gets their
       // link at 10 PM whether or not this app is running. These endpoints only exist so Michael can
       // drive it from the project instead of the command line.
+
+      // THE PROPOSALS PAGE. Every proposal and every booking form in one read, with the live/down
+      // state COMPUTED rather than taken off the status column. See proposalsOverview for why.
+      server.middlewares.use('/api/proposals/overview', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        proposalsOverview()
+          .then((out) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(out))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
 
       // Everything the card needs in one read: does a proposal exist, is it live, what is missing,
       // the link, and whether anyone has opened it.

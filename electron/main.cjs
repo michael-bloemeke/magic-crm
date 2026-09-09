@@ -11,7 +11,7 @@
 // Stage 2 (later) = a fully self-contained, double-clickable .app via electron-builder, which
 // needs the data API bundled to run without the repo/node22. Not done yet.
 
-const { app, BrowserWindow, ipcMain, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeImage, screen } = require('electron')
 const path = require('path')
 const os = require('os')
 const http = require('http')
@@ -91,6 +91,32 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   })
   win.loadURL(BASE_URL)
+
+  // Anything the app opens in a new window (proposal pages, invoice PDFs, Google Calendar links)
+  // fills the screen instead of landing in Electron's small default child window.
+  //
+  // Michael, 2026-09-09: "I want it to be zoomed in, so it just covers the four corners of my
+  // screen. I don't want a whole new screen that I have to swipe to." So this deliberately sizes
+  // the window to the display's WORK AREA rather than calling maximize() or setFullScreen(true):
+  // workArea already excludes the menu bar and the dock, and it keeps the window in the current
+  // Space, so there is nothing to swipe to. A proposal page at that width is also what the client
+  // actually sees, which is the point.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const display = screen.getDisplayMatching(win.getBounds())
+    const { x, y, width, height } = display.workArea
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        x,
+        y,
+        width,
+        height,
+        // The proposal page is near-black; a light flash before it paints looks broken.
+        backgroundColor: url.includes('/proposal/') ? '#0b0f1a' : '#eef0f3',
+        webPreferences: { nodeIntegration: false, contextIsolation: true },
+      },
+    }
+  })
 }
 
 app.whenReady().then(async () => {
