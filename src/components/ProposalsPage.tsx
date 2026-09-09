@@ -85,9 +85,22 @@ function Pill({ text, style }: { text: string; style?: CSSProperties }) {
   )
 }
 
-// The link plus a Copy button. Copy hands over the CLEAN url, never the flagged one, so what
-// Michael pastes into an email is never marked as a preview.
-function LinkRow({ url, openUrl, dead }: { url: string; openUrl: string; dead?: boolean }) {
+// The link, an Open preview button, and Copy.
+//
+// It used to be an anchor with target="_blank", which is exactly what Michael asked to be rid of:
+// "I don't like that it's a new window." The preview now takes over the CRM screen instead.
+//
+// Copy still hands over the CLEAN url, never the flagged one, so what he pastes into an email is
+// never marked as a preview.
+function LinkRow({
+  url,
+  openUrl,
+  onOpen,
+}: {
+  url: string
+  openUrl: string
+  onOpen?: () => void
+}) {
   const [copied, setCopied] = useState(false)
   const copy = () => {
     navigator.clipboard.writeText(url).then(() => {
@@ -97,22 +110,18 @@ function LinkRow({ url, openUrl, dead }: { url: string; openUrl: string; dead?: 
   }
   return (
     <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/40 px-3 py-1.5">
-      {openUrl ? (
-        <a
-          href={openUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="min-w-0 flex-1 truncate text-[11.5px] text-brass-bright underline-offset-2 hover:underline"
-          title={
-            dead
-              ? `${url}\n\nThe public page is down. This opens your own copy and is not counted.`
-              : `${url}\n\nOpens in preview mode, which is not counted as a view.`
-          }
+      <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted" title={url}>
+        {url.replace(/^https:\/\//, '')}
+      </span>
+      {openUrl && onOpen && (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="shrink-0 rounded-md border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
+          title="Opens inside the CRM. Not counted as a view."
         >
-          {url.replace(/^https:\/\//, '')}
-        </a>
-      ) : (
-        <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">{url.replace(/^https:\/\//, '')}</span>
+          Open preview
+        </button>
       )}
       <button
         type="button"

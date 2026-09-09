@@ -16,6 +16,7 @@ import { CalendarPage } from './components/CalendarPage'
 import { FinancePage } from './components/FinancePage'
 import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
 import { ProposalsPage } from './components/ProposalsPage'
+import { PreviewPage, type PreviewTarget } from './components/PreviewPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { FilesPage } from './components/FilesPage'
@@ -212,6 +213,12 @@ function App() {
     return { top: el?.scrollTop ?? 0, left: el?.scrollLeft ?? 0 }
   }
 
+  // The embedded proposal / booking-form viewer. See PreviewPage for why it is an iframe of the
+  // real URL rather than a re-render, and for the rule that its src is always the server-built
+  // flagged link so a preview can never count as a view.
+  const [preview, setPreview] = useState<PreviewTarget | null>(null)
+  const closePreview = () => setPreview(null)
+
   // Navigation history for the global Back button. Snapshots are tiny (ids + page), capped at 50.
   const [history, setHistory] = useState<NavSnap[]>([])
   const lastNav = useRef<NavSnap | null>(null)
@@ -244,6 +251,12 @@ function App() {
   // Back: pop the last recorded location and restore it (page/view/open-project/open-contact),
   // walking back through the whole session. Null-safe so a deleted project/contact just clears.
   const goBack = () => {
+    // The preview sits on top of whatever screen opened it, so Back closes that first rather than
+    // popping the history and skipping a screen.
+    if (preview) {
+      setPreview(null)
+      return
+    }
     setHistory((h) => {
       if (h.length === 0) return h
       const prev = h[h.length - 1]
@@ -979,6 +992,7 @@ function App() {
   // Everything below is a ternary on this flag, so no other page's markup changes at all.
   const onDamask = page === 'proposals'
 
+
   return (
     <div className="relative z-10 flex h-screen overflow-hidden">
       <Sidebar
@@ -1007,7 +1021,9 @@ function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        {fullProject ? (
+        {preview ? (
+          <PreviewPage target={preview} onBack={closePreview} />
+        ) : fullProject ? (
           <ProjectView
             project={fullProject}
             dateConflict={dateConflictIds.has(fullProject.id)}
@@ -1224,7 +1240,7 @@ function App() {
               ) : page === 'stats' ? (
                 <StatsPage projects={liveProjects} onOpenProject={openFull} onSaveField={saveField} />
               ) : page === 'proposals' ? (
-                <ProposalsPage />
+                <ProposalsPage onPreview={setPreview} />
               ) : page === 'website' ? (
                 <WebsiteAnalyticsPage />
               ) : page === 'contacts' ? (

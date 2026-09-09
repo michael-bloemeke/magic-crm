@@ -436,6 +436,20 @@ export async function resetProposalViews(projectId) {
 //
 // Did they read it? A view is counted every time, not once per person: the forwarded view, from the
 // spouse or the boss who was not on the call, is the one that decides the booking.
+// The link the CRM opens, as opposed to `url`, which is the clean one Michael sends.
+//
+// ⚠️ IT ALWAYS CARRIES A FLAG. `preview=1` renders the identical page without counting the view,
+// and for anything the public can no longer reach (draft, retired, expired, or a project that has
+// left the pipeline) the admin key is added as well, because preview=1 alone does not get past the
+// status, expiry or bucket gates. Michael's own reading must never touch the view count: that
+// number is the whole reason the counter exists.
+export function previewUrlFor(row, project, key) {
+  const url = proposalUrl(row.token)
+  const { state } = proposalState(row, project)
+  if (state === 'live') return `${url}&preview=1`
+  return key ? `${url}&preview=1&k=${encodeURIComponent(key)}` : ''
+}
+
 export async function proposalStats(projectId) {
   const row = await loadProposal(projectId)
   if (!row) return null
@@ -455,10 +469,16 @@ export async function proposalStatus(projectId) {
   const row = await loadProposal(projectId)
   if (!row) return { exists: false, status: 'none', gaps: [], views: 0 }
   const project = loadAll().projects.find((p) => p.id === projectId)
+  const { state, reason } = proposalState(row, project)
   return {
     exists: true,
     status: row.status,
+    // The COMPUTED state, for the same reason the Proposals page uses it: `status` says 'live' on
+    // proposals whose pages are actually dark, because archiving a project takes the page down.
+    state,
+    stateReason: reason,
     url: proposalUrl(row.token),
+    openUrl: previewUrlFor(row, project, await previewKey()),
     headline: row.headline || '',
     gaps: proposalGaps(row, project),
     views: row.view_count ?? 0,
@@ -610,7 +630,7 @@ export async function proposalsOverview() {
     //   anything  the admin key as well, which is the only thing that gets past the three gates.
     // The clean URL, the one he actually sends, is `url` and carries neither.
     const url = proposalUrl(row.token)
-    const openUrl = state === 'live' ? `${url}&preview=1` : key ? `${url}&preview=1&k=${encodeURIComponent(key)}` : ''
+    const openUrl = previewUrlFor(row, project, key)
 
     return {
       projectId: row.project_id,
