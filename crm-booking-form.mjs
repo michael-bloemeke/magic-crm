@@ -48,15 +48,20 @@ const FORM_BASE = 'https://michaelbloemeke.com'
 // internal and must never appear in front of a client.
 
 export const BOOKING_FIELDS = [
+  // ⚠️ THE ORDER IS A LAYOUT DECISION AS WELL AS A CONTENT ONE (Michael, 2026-09-10). The booking
+  // page renders two columns on a screen wider than 880px, so these are sequenced to pair up:
+  // every full-width question sits on its own, and the short ones fall into topical pairs
+  // (the two times, the two guest questions, the two venue questions, and so on). Reordering this
+  // list reflows that page, and `crm-booking-form.test.mjs` asserts the two match IN ORDER.
   { id: 'event_summary', key: 'eventSummary', label: 'Basic description of the event', hint: 'A sentence or two about what the event is', type: 'textarea', required: true },
   { id: 'event_start_time', key: 'eventStartTime', label: 'Event start time', type: 'time', required: true },
   { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time would you like the magic to start?', type: 'time', required: true },
-  { id: 'av', key: 'av', label: 'For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?', hint: 'You can put NA if not applicable', type: 'textarea', required: true },
   { id: 'number_of_guests', key: 'numberOfGuests', label: 'Number of guests', type: 'text', required: true },
+  { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
   { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'Full street address, including city and ZIP', type: 'textarea', required: true },
   { id: 'venue_type', key: 'venueType', label: 'Venue type', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
   { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoor or outdoor', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
-  { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
+  { id: 'av', key: 'av', label: 'For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?', hint: 'You can put NA if not applicable', type: 'textarea', required: true },
   { id: 'vips', key: 'vips', label: 'Any VIPs that Michael should give special attention to?', type: 'textarea', required: true },
   // Not a project field: drives who the QuickBooks invoice is addressed to. REQUIRED (Michael,
   // 2026-08-03): on a corporate booking the signer is often not the payer, and an invoice made out to
