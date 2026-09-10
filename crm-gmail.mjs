@@ -620,7 +620,6 @@ export async function unreadByProject({ force = false } = {}) {
   }
 
   const addresses = Object.keys(emailToId)
-  console.log('[unread-probe] activeProjects=%d idxKeys=%d addresses=%d', projects.length, Object.keys(idx).length, addresses.length)
   if (addresses.length === 0) {
     unreadCache = { at: Date.now(), counts: {} }
     return {}
