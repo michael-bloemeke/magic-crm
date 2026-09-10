@@ -1581,6 +1581,38 @@ export async function loadAnalytics(): Promise<Analytics> {
   return (await res.json()) as Analytics
 }
 
+// --- Bank balances (Coastal via YNAB, through the bank-balances edge function) ---------------
+// READ ONLY, and deliberately so. This returns how much is sitting in each account and nothing
+// else: no transactions, no spending, no transfers. The YNAB token lives only as a Supabase
+// secret and never reaches the browser.
+export type BankAccount = {
+  id: string
+  name: string
+  type: string
+  onBudget: boolean
+  // What the bank itself says. This is the number shown.
+  cleared: number
+  // Includes transactions entered in YNAB that have not hit the bank yet, so it can differ.
+  balance: number
+  uncleared: number
+  lastReconciledAt: string | null
+}
+export type BankBalances = {
+  ok: boolean
+  // false = the YNAB_TOKEN secret is not set yet, or YNAB is unreachable. `reason` says which.
+  connected: boolean
+  generatedAt: string
+  budgetName?: string
+  accounts: BankAccount[]
+  total?: number
+  reason?: string
+}
+export async function loadBankBalances(force = false): Promise<BankBalances> {
+  const res = await fetch(`/api/bank${force ? '?force=1' : ''}`)
+  if (!res.ok) throw new Error(`Failed to load bank balances (${res.status})`)
+  return (await res.json()) as BankBalances
+}
+
 // --- Recurring task schedules ----------------------------------------------
 // A schedule is DATA, not a cron job: one Postgres job materialises every row, so adding a
 // recurrence here never means editing a schedule by hand somewhere invisible.

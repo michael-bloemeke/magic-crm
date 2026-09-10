@@ -89,6 +89,7 @@ import {
 import { loadUnseenNotifications, addNotification, markNotificationSeen } from './crm-notifications.mjs'
 import { getPushConfig, setPushConfig, sendPush, subscribeUrl } from './crm-push.mjs'
 import { loadAnalytics } from './crm-analytics.mjs'
+import { loadBankBalances } from './crm-bank.mjs'
 import { buildSnapshot } from './crm-snapshot.mjs'
 import {
   isClaudeAvailable,
@@ -1008,6 +1009,23 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/analytics', (req, res, next) => {
         if (req.method !== 'GET') return next()
         loadAnalytics()
+          .then((data) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(data))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
+
+      // --- Bank balances (proxies + caches the bank-balances edge function). READ ONLY. ---
+      // Nothing on this path can move money. It returns a balance per account and nothing else.
+      // `?force=1` skips the 15 minute cache for the Finance page's refresh button.
+      server.middlewares.use('/api/bank', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const force = /[?&]force=1/.test(req.originalUrl || req.url || '')
+        loadBankBalances({ force })
           .then((data) => {
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(data))

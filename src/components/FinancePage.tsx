@@ -9,6 +9,7 @@ import {
   deleteExpense as apiDeleteExpense,
   deletePayment as apiDeletePayment,
   deleteTrip as apiDeleteTrip,
+  loadBankBalances,
   loadExpenses,
   loadFinance,
   loadMileage,
@@ -16,6 +17,7 @@ import {
   saveConfig,
   setMileageRate as apiSetRate,
   PAYMENT_METHODS,
+  type BankBalances,
   type BreakdownItem,
   type Expense,
   type FinanceBasis,
@@ -173,6 +175,11 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
           <BasisToggle value={basis} onChange={setBasis} />
         </div>
       </div>
+
+      {/* What is actually sitting in the bank right now. Separate from everything else on this
+          page, because every other figure here is derived from logged payments and this one is
+          read straight off the accounts. */}
+      <BankBalancesCard />
 
       {/* Stat cards: This month / Last 12 months / Still expected */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -491,6 +498,107 @@ function BreakdownModal({ breakdown, onClose, onOpenProject }: { breakdown: Brea
         </motion.div>
       )}
     </AnimatePresence>
+  )
+}
+
+// --- In the bank -------------------------------------------------------------
+//
+// READ ONLY. Coastal -> Plaid -> YNAB -> the bank-balances edge function -> here. Nothing on that
+// path can move, deposit or withdraw money; the only thing fetched is a balance per account.
+// Michael's ask was deliberately narrow: a number saying how much is sitting there, nothing else.
+//
+// Accounts are NOT hardcoded. Whatever is open in YNAB shows up, so when Magic Income is added to
+// the Coastal link it appears here on its own with no code change.
+//
+// The figure shown is the CLEARED balance, which is what the bank says. YNAB's other balance
+// includes transactions entered but not yet hit the bank, so a difference is flagged rather than
+// silently averaged away.
+function BankBalancesCard() {
+  const [data, setData] = useState<BankBalances | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = (force = false) => {
+    setBusy(true)
+    loadBankBalances(force)
+      .then(setData)
+      .catch(() => setData({ ok: false, connected: false, generatedAt: '', accounts: [], reason: 'Could not reach the CRM server.' }))
+      .finally(() => setBusy(false))
+  }
+  useEffect(() => load(false), [])
+
+  if (!data) return null
+
+  const when = data.generatedAt
+    ? new Date(data.generatedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : ''
+
+  return (
+    <div className="rounded-2xl border border-line bg-surface-2/50 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-faint">In the bank</p>
+        <div className="flex items-center gap-3">
+          {data.connected && when && <span className="text-[11px] text-faint">as of {when}</span>}
+          <button
+            type="button"
+            onClick={() => load(true)}
+            disabled={busy}
+            className="rounded-lg px-2 py-1 text-[11px] font-semibold text-muted transition-colors hover:text-parchment disabled:opacity-50"
+          >
+            {busy ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {!data.connected ? (
+        <div className="text-[12.5px] leading-relaxed text-muted">
+          <p className="text-parchment">Not connected yet.</p>
+          <p className="mt-1">
+            This reads your balances from YNAB, which holds the read-only link to Coastal. Generate a personal access
+            token in YNAB's account settings, then set it as a Supabase secret:
+          </p>
+          <code className="mt-2 block rounded-lg bg-surface-3/60 px-3 py-2 text-[11.5px] text-parchment">
+            npx supabase secrets set YNAB_TOKEN=&lt;token&gt; --project-ref yfmacqvcmkogvkcxfjkr
+          </code>
+          {data.reason && <p className="mt-2 text-[11.5px] text-faint">{data.reason}</p>}
+        </div>
+      ) : data.accounts.length === 0 ? (
+        <p className="text-[12.5px] text-muted">
+          Connected to YNAB, but no open accounts came back. Check that Coastal is still linked in YNAB.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {data.accounts.map((a) => {
+              const drift = Math.abs(a.balance - a.cleared) >= 0.01
+              return (
+                <div key={a.id} className="rounded-xl border border-line bg-surface-3/40 px-3 py-3">
+                  <p className="truncate text-[12px] font-semibold text-parchment" title={a.name}>
+                    {a.name}
+                  </p>
+                  <p
+                    className="mt-1 font-display text-[26px] leading-none tabular-nums"
+                    style={{ color: a.cleared < 0 ? 'var(--color-umb-postcall)' : 'var(--color-brass)' }}
+                  >
+                    {money(a.cleared)}
+                  </p>
+                  {drift && (
+                    <p className="mt-1 text-[11px] text-faint" title="YNAB has transactions entered that have not reached the bank yet">
+                      {money(a.balance)} in YNAB
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {data.accounts.length > 1 && typeof data.total === 'number' && (
+            <p className="mt-3 text-[11.5px] text-faint">
+              Across every account: <span className="text-muted tabular-nums">{money(data.total)}</span>
+            </p>
+          )}
+          {data.budgetName && <p className="mt-1 text-[11px] text-faint">YNAB budget: {data.budgetName}</p>}
+        </>
+      )}
+    </div>
   )
 }
 
