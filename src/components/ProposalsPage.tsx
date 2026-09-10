@@ -340,7 +340,7 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
   const byProject = useMemo(() => new Map((data?.bookings ?? []).map((b) => [b.projectId, b])), [data])
 
   const sampleBtn =
-    'rounded-lg border border-brass-dim/60 bg-surface-3 px-3.5 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass'
+    'rounded-lg border border-brass-dim/60 bg-surface-3 px-3.5 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:cursor-not-allowed disabled:opacity-40'
 
   return (
     <motion.div
@@ -382,12 +382,43 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
           numbers move. This is the copy to read when you want something changed.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <a className={sampleBtn} href={data?.samples.proposal || '#'} target="_blank" rel="noreferrer">
+          {/* Buttons, not links, for the same reason every other preview here is: they open as a
+              screen in the CRM rather than a new browser window. The samples are ?demo=1, which is
+              attached to no client and writes nothing, so there is nothing to count either way. */}
+          <button
+            type="button"
+            className={sampleBtn}
+            disabled={!data}
+            onClick={() =>
+              data &&
+              onPreview({
+                src: data.samples.proposal,
+                publicUrl: data.samples.proposal,
+                title: 'Sample proposal',
+                subtitle: 'The blank template. Attached to no client.',
+                backLabel: 'Proposals',
+              })
+            }
+          >
             Sample proposal
-          </a>
-          <a className={sampleBtn} href={data?.samples.booking || '#'} target="_blank" rel="noreferrer">
+          </button>
+          <button
+            type="button"
+            className={sampleBtn}
+            disabled={!data}
+            onClick={() =>
+              data &&
+              onPreview({
+                src: data.samples.booking,
+                publicUrl: data.samples.booking,
+                title: 'Sample booking form',
+                subtitle: 'The blank template. Nothing you type is saved.',
+                backLabel: 'Proposals',
+              })
+            }
+          >
             Sample booking form
-          </a>
+          </button>
         </div>
       </div>
 
