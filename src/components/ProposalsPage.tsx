@@ -155,7 +155,7 @@ function proposalRow(
   return (
     <div
       key={item.projectId}
-      className="rounded-xl border border-white/10 bg-[#ecedf2] px-4 py-3 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)] transition-colors hover:border-white/25"
+      className="rounded-xl border border-line bg-surface px-4 py-3 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)] transition-colors hover:border-line-strong"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-parchment">{item.projectName}</p>
@@ -251,7 +251,7 @@ function bookingOnlyRow(booking: BookingOverviewItem, past: boolean, open: (t: P
   const day = fmtDay(booking.eventDate)
   const fee = fmtFee(booking.totalFee)
   return (
-    <div key={booking.projectId} className="rounded-xl border border-white/10 bg-[#ecedf2] px-4 py-3 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)]">
+    <div key={booking.projectId} className="rounded-xl border border-line bg-surface px-4 py-3 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)]">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <p className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-parchment">{booking.projectName}</p>
         <Pill text="Booking form only" />
@@ -357,25 +357,11 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
       // while the rows scroll over it, so it reads as a wall the cards sit on rather than wallpaper
       // glued to the list.
       className="board-scroll h-full overflow-y-auto px-8 pb-12"
-      style={{
-        // The website's OWN blue section, reproduced exactly: the same royal-blue gradient
-        // (--bg-warm #18295f to --bg #0c1638) under the same damask-texture.webp, tiled at the
-        // same 360px, and the file is a byte-for-byte copy of the site's. So this reads as a page
-        // of michaelbloemeke.com rather than a screen in a tool, which is the point.
-        //
-        // `fixed` is a deliberate departure: the site scrolls its texture, but the site's damask
-        // sits on a section a screen tall, where the CRM's sits on a list that can run for pages.
-        // Scrolling the pattern past that much content turns it into moving wallpaper.
-        backgroundImage: 'url(/damask.webp), linear-gradient(180deg, #18295f 0%, #0c1638 100%)',
-        backgroundSize: '360px 360px, cover',
-        backgroundRepeat: 'repeat, no-repeat',
-        backgroundAttachment: 'fixed, fixed',
-      }}
     >
       <div className="mx-auto max-w-3xl">
       {/* THE SAMPLES. Deliberately first: this is the answer to "what does the thing I am sending
           actually look like", which is a question about the template, not about any client. */}
-      <div className="rounded-xl border border-white/10 bg-[#ecedf2] px-4 py-4 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)]">
+      <div className="rounded-xl border border-line bg-surface px-4 py-4 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)]">
         <p className="text-[13px] font-semibold text-parchment">What the client sees</p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
           The proposal template is the master copy: every new proposal starts from it, and only the
@@ -440,7 +426,7 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
       {data == null && !error && (
         <div className="mt-6 space-y-3">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-xl border border-white/10 bg-white/5" />
+            <div key={i} className="h-28 animate-pulse rounded-xl border border-line bg-surface/40" />
           ))}
         </div>
       )}
@@ -449,16 +435,16 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
         <>
           {/* ACTIVE */}
           <div className="mt-8 flex items-baseline gap-2.5">
-            <h2 className="text-[15px] font-semibold text-[#f4f5f7]">Out right now</h2>
-            <span className="text-[12px] text-[#b0b3bd]">
+            <h2 className="text-[15px] font-semibold text-parchment">Out right now</h2>
+            <span className="text-[12px] text-faint">
               {active.length + bookingOnly.length} {active.length + bookingOnly.length === 1 ? 'client' : 'clients'}
             </span>
           </div>
-          <p className="mt-1 text-[12px] text-[#d3d5da]">Everyone still in the pipeline, soonest event first.</p>
+          <p className="mt-1 text-[12px] text-muted">Everyone still in the pipeline, soonest event first.</p>
 
           <div className="mt-3 space-y-2.5">
             {active.length === 0 && bookingOnly.length === 0 && (
-              <p className="rounded-xl border border-dashed border-white/25 px-4 py-6 text-center text-[12.5px] text-[#d3d5da]">
+              <p className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12.5px] text-muted">
                 Nothing out at the moment.
               </p>
             )}
@@ -467,21 +453,21 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
           </div>
 
           {/* PAST */}
-          <div className="mt-10 border-t border-white/15 pt-8">
+          <div className="mt-10 border-t border-line pt-8">
             <div className="flex items-baseline gap-2.5">
-              <h2 className="text-[15px] font-semibold text-[#f4f5f7]">Everything before</h2>
-              <span className="text-[12px] text-[#b0b3bd]">
+              <h2 className="text-[15px] font-semibold text-parchment">Everything before</h2>
+              <span className="text-[12px] text-faint">
                 {pastRows.length + bookingOnlyPast.length} {pastRows.length + bookingOnlyPast.length === 1 ? 'client' : 'clients'}
               </span>
             </div>
-            <p className="mt-1 text-[12px] text-[#d3d5da]">
+            <p className="mt-1 text-[12px] text-muted">
               Completed and archived, newest first. A page marked Down or Expired is no longer on the
               internet; the link here still opens your own copy and is never counted.
             </p>
 
             <div className="mt-3 space-y-2.5">
               {pastRows.length === 0 && bookingOnlyPast.length === 0 && (
-                <p className="rounded-xl border border-dashed border-white/25 px-4 py-6 text-center text-[12.5px] text-[#d3d5da]">
+                <p className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-[12.5px] text-muted">
                   Nothing here yet.
                 </p>
               )}

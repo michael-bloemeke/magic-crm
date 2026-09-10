@@ -40,6 +40,9 @@ function longDate(iso: string): string {
 
 type Props = {
   project: Project
+  // The website's royal-blue ground. Plain navy, no damask: this is the densest screen in
+  // the app and a repeating pattern behind it would fight the content. See index.css.
+  groundClass?: string
   // Opens the client's proposal page as a SCREEN in the CRM rather than a new browser window.
   // See PreviewPage. Drilled from App because the preview takes over the whole main area.
   onPreview: (t: PreviewTarget) => void
@@ -74,6 +77,7 @@ type Props = {
 export function ProjectView({
   project,
   onPreview,
+  groundClass = '',
   dateConflict = false,
   conflictWith,
   tasks,
@@ -289,7 +293,7 @@ export function ProjectView({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      className="flex h-full min-h-0 flex-col"
+      className={`flex h-full min-h-0 flex-col ${groundClass}`}
     >
       {/* Slim top bar — always visible: back, title, actions. The bulky event
           header now scrolls inside the Details tab so it doesn't eat the viewport

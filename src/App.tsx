@@ -992,7 +992,17 @@ function App() {
   // blue reads as a panel pasted in rather than as the page. Extending it up removes the seam.
   //
   // Everything below is a ternary on this flag, so no other page's markup changes at all.
-  const onDamask = page === 'proposals'
+  // Which pages wear the website's look. Michael, 2026-09-09: Home, Pipeline, Proposals and a
+  // project page. Damask goes only where the page is calm enough to carry it: Home and Proposals
+  // have few, large elements, while the Pipeline is a map of small nodes and connector lines that
+  // a repeating pattern would fight. A project page is the densest screen in the app, so it takes
+  // the plain navy too.
+  const BRAND_PAGES: Page[] = ['home', 'pipeline', 'proposals']
+  const DAMASK_PAGES: Page[] = ['home', 'proposals']
+  const onBrand = BRAND_PAGES.includes(page)
+  const groundClass = onBrand
+    ? `brand-ground${DAMASK_PAGES.includes(page) ? ' brand-ground--damask' : ''}`
+    : ''
 
 
   return (
@@ -1030,6 +1040,7 @@ function App() {
           <PreviewPage target={preview} onBack={closePreview} />
         ) : fullProject ? (
           <ProjectView
+            groundClass="brand-ground"
             project={fullProject}
             onPreview={setPreview}
             dateConflict={dateConflictIds.has(fullProject.id)}
@@ -1072,16 +1083,16 @@ function App() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-              className="flex items-end justify-between gap-6 px-8 pb-7 pt-8"
-              style={onDamask ? { background: 'linear-gradient(180deg, #18295f 0%, #16265a 100%)' } : undefined}
+              className={`flex items-end justify-between gap-6 px-8 pb-7 pt-8 ${onBrand ? 'brand-header' : ''}`}
+              style={onBrand ? { background: 'linear-gradient(180deg, #18295f 0%, #16265a 100%)' } : undefined}
             >
               <div>
-                <div className={`mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.24em] ${onDamask ? 'text-[#b0b3bd]' : 'text-faint'}`}>
+                <div className={`mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.24em] ${onBrand ? 'text-[#b0b3bd]' : 'text-faint'}`}>
                   <span>{meta.kicker}</span>
                   <span className="h-px w-8 bg-brass-dim/50" />
                   <span>{todayLabel}</span>
                 </div>
-                <h1 className={`font-display text-[40px] font-medium leading-none tracking-[-0.01em] ${onDamask ? 'text-[#f4f5f7]' : 'text-parchment'}`}>
+                <h1 className={`font-display text-[40px] font-medium leading-none tracking-[-0.01em] ${onBrand ? 'text-[#f4f5f7]' : 'text-parchment'}`}>
                   {page === 'home' ? `${greeting}, Michael` : meta.title}
                 </h1>
               </div>
@@ -1179,14 +1190,13 @@ function App() {
 
             {/* Hairline under the header, fading toward the right */}
             <div
-              className={`mx-8 h-px ${onDamask ? 'bg-gradient-to-r from-white/25 via-white/10 to-transparent' : 'bg-gradient-to-r from-line-strong via-line to-transparent'}`}
+              className={`mx-8 h-px ${onBrand ? 'bg-gradient-to-r from-white/25 via-white/10 to-transparent' : 'bg-gradient-to-r from-line-strong via-line to-transparent'}`}
             />
 
             {/* Active view */}
             <div
               ref={contentRef}
-              className="flex min-h-0 flex-1 flex-col pt-7"
-              style={onDamask ? { background: '#16265a' } : undefined}
+              className={`flex min-h-0 flex-1 flex-col pt-7 ${groundClass}`}
             >
               {error ? (
                 <div className="flex flex-1 items-center justify-center px-8 text-center">

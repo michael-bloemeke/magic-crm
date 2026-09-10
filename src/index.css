@@ -205,3 +205,135 @@
   text-decoration: underline dashed;
   white-space: normal;
 }
+
+/* ============================================================================
+   THE BRAND GROUND (added 2026-09-09, EXPERIMENTAL, easy to revert)
+
+   Michael asked to see the CRM wearing the website's look: royal blue and gold,
+   the same treatment the Proposals page already got. This is that, applied to
+   Home, the Pipeline and a project page.
+
+   ⚠️ HOW IT WORKS, AND WHY IT IS ONLY ABOUT FIFTY LINES INSTEAD OF A REWRITE.
+
+   Every colour in this app is a Tailwind v4 `@theme` token, so `text-faint`
+   compiles to `color: var(--color-faint)`. Redefining those variables on a page
+   wrapper therefore retints everything inside it with no component edits at all.
+
+   The trick is the second block. Cards are already opaque and already carry a
+   `bg-surface*` utility, so any element painting a surface RESETS the tokens back
+   to the light palette for its own subtree. The result: the page ground goes navy
+   and the text sitting directly on it goes light, while every card stays exactly
+   as it was. Nothing inside a card had to change, which is what keeps a dense
+   working tool readable.
+
+   ⚠️ THIS IS NOT A THEME PICKER. The one-theme rule from 2026-08-06 stands: there
+   is no toggle, no data-theme attribute, and no second palette to maintain. This
+   is one ground, applied to four pages by class name.
+
+   TO REVERT THE WHOLE EXPERIMENT: `git revert` the single commit that added it.
+   ---------------------------------------------------------------------------- */
+
+:is(.brand-ground, .brand-header) {
+  /* Text that sits directly ON the navy, at the website's own scale:
+     --text for headings, --text-soft for body, --slate for metadata. */
+  --color-canvas: #16265a;
+  --color-parchment: #f4f5f7;
+  --color-muted: #d3d5da;
+  --color-faint: #b0b3bd;
+
+  /* Hairlines invert, or they vanish into the navy. */
+  --color-line: rgba(255, 255, 255, 0.14);
+  --color-line-strong: rgba(255, 255, 255, 0.26);
+
+  /* The accent goes GOLD on navy. The app's blue accent is a light-background
+     colour and disappears against the ground; gold is what the website uses in
+     exactly this position. Inside a card it reverts to blue, below. */
+  --color-brass: #e3c279;
+  --color-brass-bright: #f0d69b;
+  --color-brass-dim: rgba(227, 194, 121, 0.72);
+
+  /* The booked green and the archive amber are tuned for a light canvas and go
+     muddy on navy, so they lift to their on-dark equivalents. */
+  --color-umb-inquiry: #a9b2c4;
+  --color-umb-postcall: #8ab0ff;
+  --color-umb-booked: #6ee7a5;
+  --color-umb-archive: #f0b866;
+
+}
+
+/* Only the ground paints. `.brand-header` is tokens alone: the header band already has its own
+   flat navy from App.tsx, and it must NOT get the opaque-surface treatment below, or its
+   translucent chips would turn into heavy white blocks. */
+.brand-ground {
+  background-color: #16265a;
+  background-image: linear-gradient(180deg, #18295f 0%, #0c1638 100%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: cover;
+}
+
+/* The damask variant. Used only where the page is calm enough to carry it. */
+.brand-ground--damask {
+  background-image: url('/damask.webp'), linear-gradient(180deg, #18295f 0%, #0c1638 100%);
+  background-size: 360px 360px, cover;
+  background-repeat: repeat, no-repeat;
+  background-attachment: fixed, fixed;
+}
+
+/* ⚠️ ANYTHING THAT PAINTS A SURFACE IS A CARD, AND A CARD IS STILL LIGHT.
+   This is the rule that makes the whole approach safe: it means no component
+   inside a card needed editing, and a card added later is covered automatically.
+   The attribute match catches bg-surface, bg-surface-2, bg-surface-3/60 and every
+   other opacity variant in one selector. */
+:is(.brand-ground, .brand-header) [class*="bg-surface"],
+:is(.brand-ground, .brand-header) [class*="bg-white"],
+/* ⚠️ AND the hard-coded light surfaces. Several components (the email composer, the thread
+   reader, the attachment rows, the template menu) paint with a literal hex like `bg-[#f5f7f9]`
+   instead of a token, so the selectors above miss them and their dark text would be left on the
+   light-on-navy palette, which renders it invisible. That is exactly the bug the Proposals page
+   hit with its own `bg-[#ecedf2]` cards.
+
+   Matching the first hex digit is the reliable way to catch them without enumerating every value:
+   d, e and f are the light end of the ramp. A saturated background like `bg-[#2563eb]` is left
+   alone on purpose, because it already carries its own white text. */
+:is(.brand-ground, .brand-header) [class*="bg-[#d"],
+:is(.brand-ground, .brand-header) [class*="bg-[#e"],
+:is(.brand-ground, .brand-header) [class*="bg-[#f"] {
+  --color-canvas: #eef0f3;
+  --color-parchment: #14171b;
+  --color-muted: #545b64;
+  --color-faint: #858d97;
+  --color-line: rgba(15, 22, 32, 0.11);
+  --color-line-strong: rgba(15, 22, 32, 0.18);
+  --color-brass: #2563eb;
+  --color-brass-bright: #1a4fd0;
+  --color-brass-dim: #a9c2f6;
+  --color-umb-inquiry: #64748b;
+  --color-umb-postcall: #2563eb;
+  --color-umb-booked: #15803d;
+  --color-umb-archive: #b45309;
+}
+
+/* ⚠️ AND THEY HAVE TO BE OPAQUE. Most cards in this app carry a translucent surface
+   (`bg-surface/60`, `bg-surface-2/40`), which was invisible on a light grey canvas and is
+   ruinous on navy: the ground bleeds through, the card turns muddy blue, and the dark text
+   inside it drops below readable. Repainting each surface level at full strength keeps the
+   raised/recessed hierarchy the opacities were expressing, without the bleed.
+
+   Source order matters here, not specificity: every one of these selectors has the same
+   weight, so the more specific level has to come last to win. */
+.brand-ground [class*="bg-surface"] { background-color: var(--color-surface); }
+.brand-ground [class*="bg-surface-2"] { background-color: var(--color-surface-2); }
+.brand-ground [class*="bg-surface-3"] { background-color: var(--color-surface-3); }
+.brand-ground [class*="bg-surface-4"] { background-color: var(--color-surface-4); }
+.brand-ground [class*="bg-surface-5"] { background-color: var(--color-surface-5); }
+
+/* Cards lift off the navy the way the website's do on its blue sections. */
+.brand-ground [class*="bg-surface"] {
+  box-shadow: 0 18px 40px -22px rgba(4, 8, 24, 0.7);
+}
+/* Except the small stuff: chips, inline rows and inputs nested inside a card
+   should not each cast their own shadow. */
+.brand-ground [class*="bg-surface"] [class*="bg-surface"] {
+  box-shadow: none;
+}
