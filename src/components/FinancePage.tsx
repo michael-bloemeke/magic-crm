@@ -570,6 +570,16 @@ function BankBalancesCard() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {data.accounts.map((a) => {
               const drift = Math.abs(a.balance - a.cleared) >= 0.01
+              // ⚠️ THIS NUMBER IS YNAB'S LEDGER, NOT THE BANK'S BALANCE, and the two drift apart.
+              // YNAB reconstructs a balance from a starting figure plus whatever transactions it
+              // managed to import. If the bank sync misses anything, the number silently goes wrong
+              // and keeps going wrong. On 2026-09-10 it read -$2,039 against a real balance of
+              // $1,162, because the account had not been reconciled since the day it was set up.
+              // So the reconcile date is shown, and shouted about once it goes stale. Without it
+              // this card is confidently wrong and gives no clue that it is.
+              const rec = a.lastReconciledAt ? new Date(a.lastReconciledAt) : null
+              const daysStale = rec ? Math.floor((Date.now() - rec.getTime()) / 86_400_000) : null
+              const stale = daysStale === null || daysStale > 7
               return (
                 <div key={a.id} className="rounded-xl border border-line bg-surface-3/40 px-3 py-3">
                   <p className="truncate text-[12px] font-semibold text-parchment" title={a.name}>
@@ -586,6 +596,16 @@ function BankBalancesCard() {
                       {money(a.balance)} in YNAB
                     </p>
                   )}
+                  <p
+                    className={`mt-1 text-[11px] ${stale ? 'text-[var(--color-umb-postcall)]' : 'text-faint'}`}
+                    title="YNAB rebuilds this from imported transactions. It is only known-correct as of the last reconcile against the bank."
+                  >
+                    {rec
+                      ? daysStale === 0
+                        ? 'Reconciled today'
+                        : `Reconciled ${daysStale} day${daysStale === 1 ? '' : 's'} ago${stale ? ', may be wrong' : ''}`
+                      : 'Never reconciled, treat as unreliable'}
+                  </p>
                 </div>
               )
             })}
