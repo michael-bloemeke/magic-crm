@@ -515,6 +515,9 @@ export async function markThreadRead(threadId) {
     id: threadId,
     requestBody: { removeLabelIds: ['UNREAD'] },
   })
+  // The badge is served from a 60s cache, so without this it would keep showing mail Michael has
+  // just read, which reads as the app being broken rather than as a stale cache.
+  invalidateUnreadCache()
   return { ok: true, threadId }
 }
 
@@ -572,7 +575,39 @@ export async function createDraft({ to, subject, body, html, attachments, inline
 
 // One pass over unread mail, tallied per project (by matching the sender to a
 // project's contact email). Used for the unread badges in the flow view.
-export async function unreadByProject() {
+// Unread counts per active project, for the flow-view badges and the bell.
+//
+// ⚠️ THIS IS THE MOST QUOTA-EXPENSIVE THING IN THE APP, AND IT RUNS ON A TIMER. Read the arithmetic
+// before changing it.
+//
+// The original shape was: list ALL unread (`is:unread`, up to 60), then `messages.get` every one of
+// them to read its From header and see whether it belonged to a client. That is 1 + 60 requests and
+// 5 + 60x5 = 305 quota units PER CALL, fired back to back. Gmail's ceiling is 250 units per user per
+// SECOND, so one call could exceed it on its own, and App.tsx's backgroundRefresh calls this every
+// 20 seconds plus on every window focus, per open window. On 2026-09-09 it was returning
+// "Quota exceeded ... Units per minute per user" and the bell's unread count was simply broken.
+//
+// THE FIX IS THE SHAPE OF THE QUERY, not the timer. Nearly all of Michael's unread mail is
+// newsletters and noise; only a handful is ever from a client. So instead of fetching every unread
+// message to find out who sent it, ASK GMAIL for the intersection: `is:unread from:(the client
+// addresses)`. Gmail does the filtering server side and hands back only messages that already
+// matter, so the expensive per-message GETs run over a few messages rather than sixty.
+//
+// Typical cost is now ~10-30 units against the old 305, and a handful of requests against 61.
+const UNREAD_CHUNK = 10 // addresses per query; keeps each `from:(...)` well inside Gmail's limit
+
+// Short server-side cache. backgroundRefresh fires on a 20s timer AND on every focus and
+// visibility change, so without this a click back into the window costs a full round of quota for a
+// badge that cannot meaningfully have changed. Unread is derived live from Gmail and is not stored,
+// so a slightly stale count self-corrects on the next pass; that is already how the bell behaves.
+const UNREAD_TTL_MS = 60_000
+let unreadCache = { at: 0, counts: null }
+
+export async function unreadByProject({ force = false } = {}) {
+  if (!force && unreadCache.counts && Date.now() - unreadCache.at < UNREAD_TTL_MS) {
+    return unreadCache.counts
+  }
+
   // Only active projects get badges; first-wins so a contact shared with an
   // archived/completed project can't steal an active project's unread count.
   const projects = loadAll().projects.filter((p) => p.bucket === 'active')
@@ -583,20 +618,63 @@ export async function unreadByProject() {
       if (!emailToId[e]) emailToId[e] = p.id
     }
   }
-  const gmail = api()
-  const res = await gmail.users.messages.list({ userId: 'me', q: 'is:unread', maxResults: 60 })
-  const msgs = res.data.messages || []
-  const counts = {}
-  for (const m of msgs) {
-    const full = await gmail.users.messages.get({
-      userId: 'me',
-      id: m.id,
-      format: 'metadata',
-      metadataHeaders: ['From'],
-    })
-    const from = emailFromAddr(header(full.data.payload, 'From'))
-    const pid = emailToId[from]
-    if (pid) counts[pid] = (counts[pid] || 0) + 1
+
+  const addresses = Object.keys(emailToId)
+  if (addresses.length === 0) {
+    unreadCache = { at: Date.now(), counts: {} }
+    return {}
   }
+
+  const gmail = api()
+
+  // 1) Cheap pass: ask Gmail which unread messages are from a client at all. One list per chunk of
+  //    addresses (5 units each), and the result is already the shortlist.
+  const ids = []
+  const seen = new Set()
+  for (let i = 0; i < addresses.length; i += UNREAD_CHUNK) {
+    const chunk = addresses.slice(i, i + UNREAD_CHUNK)
+    const q = `is:unread from:{${chunk.join(' ')}}`
+    try {
+      const list = await gmail.users.messages.list({ userId: 'me', q, maxResults: 60 })
+      for (const m of list.data.messages || []) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id)
+          ids.push(m.id)
+        }
+      }
+    } catch (e) {
+      // A chunk that fails must not take the whole badge down. The rest still count, and the next
+      // pass retries; a partially-low badge beats a 500 and an empty bell.
+      console.warn('[crm-gmail] unread chunk failed:', e?.message || e)
+    }
+  }
+
+  // 2) Attribute each one to its project. Still a GET per message, because only the From header
+  //    says WHICH client it came from and a chunked query cannot tell us. But this now runs over
+  //    the few that are actually from clients rather than over everything unread.
+  const counts = {}
+  for (const id of ids) {
+    try {
+      const full = await gmail.users.messages.get({
+        userId: 'me',
+        id,
+        format: 'metadata',
+        metadataHeaders: ['From'],
+      })
+      const from = emailFromAddr(header(full.data.payload, 'From'))
+      const pid = emailToId[from]
+      if (pid) counts[pid] = (counts[pid] || 0) + 1
+    } catch (e) {
+      console.warn('[crm-gmail] unread attribute failed:', e?.message || e)
+    }
+  }
+
+  unreadCache = { at: Date.now(), counts }
   return counts
+}
+
+// Marking a thread read has to invalidate the cache, or the badge sits there for up to a minute
+// after Michael has just cleared it, which reads as the app being broken.
+export function invalidateUnreadCache() {
+  unreadCache = { at: 0, counts: null }
 }
