@@ -1007,8 +1007,16 @@ function App() {
   // website's own rule (ornament goes where it carries meaning) applied to the app.
   const DAMASK_PAGES: Page[] = ['home', 'proposals', 'website', 'settings']
   const onBrand = true
+  // Home is on a lighter navy as a test. Everything else keeps the deeper ground.
+  const LIGHT_PAGES: Page[] = ['home']
   const groundClass = onBrand
-    ? `brand-ground${DAMASK_PAGES.includes(page) ? ' brand-ground--damask' : ''}`
+    ? [
+        'brand-ground',
+        DAMASK_PAGES.includes(page) ? 'brand-ground--damask' : '',
+        LIGHT_PAGES.includes(page) ? 'brand-ground--light' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
     : ''
 
 
@@ -1091,7 +1099,17 @@ function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
               className={`flex items-end justify-between gap-6 px-8 pb-7 pt-8 ${onBrand ? 'brand-header' : ''}`}
-              style={onBrand ? { background: 'linear-gradient(180deg, #18295f 0%, #16265a 100%)' } : undefined}
+              // The header band has to end on the same colour the ground starts on, or a lighter page
+              // shows a seam right under the title. That is the whole reason the band exists.
+              style={
+                onBrand
+                  ? {
+                      background: LIGHT_PAGES.includes(page)
+                        ? 'linear-gradient(180deg, #354990 0%, #2f4383 100%)'
+                        : 'linear-gradient(180deg, #18295f 0%, #16265a 100%)',
+                    }
+                  : undefined
+              }
             >
               <div>
                 <div className={`mb-1 flex items-center gap-3 text-[11px] uppercase tracking-[0.24em] ${onBrand ? 'text-[#b0b3bd]' : 'text-faint'}`}>

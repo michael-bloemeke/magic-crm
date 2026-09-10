@@ -272,6 +272,17 @@
   background-size: cover;
 }
 
+/* A LIGHTER NAVY, on Home only, as a test (Michael, 2026-09-10). Same hue, lifted about a third
+   of the way toward white, so it still reads as the brand blue but sits less heavily for a page
+   that is open all day. If it works here it is one line to move it to the rest. */
+.brand-ground--light {
+  background-color: #2b3d7a;
+  background-image: linear-gradient(180deg, #2f4383 0%, #1e2f68 100%);
+}
+.brand-ground--light.brand-ground--damask {
+  background-image: url('/damask.webp'), linear-gradient(180deg, #2f4383 0%, #1e2f68 100%);
+}
+
 /* The damask variant. Used only where the page is calm enough to carry it. */
 .brand-ground--damask {
   background-image: url('/damask.webp'), linear-gradient(180deg, #18295f 0%, #0c1638 100%);
