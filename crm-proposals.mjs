@@ -129,9 +129,15 @@ export const reviewsFor = (eventType) => REVIEW_BANK[normaliseType(eventType)] |
 // need to change that picture." Do not vary the portrait by event type. If a genuinely better
 // portrait arrives from the proposal shoot, change it here in all five sets at once.
 export const PHOTO_SETS = {
-  // ⚠️ EIGHT gallery photos per set, always. Michael set that as the standard on 2026-09-09: the
-  // strip renders as two rows of four on a full-screen page, and four photos left it looking thin.
-  // The edge function caps the gallery at 8, so eight is both the standard and the ceiling.
+  // ⚠️ SIX gallery photos per set (Michael, 2026-09-09, superseding the eight-photo standard set
+  // earlier the same day): "one row of six pictures at the very bottom of this review section."
+  // The edge function still caps at 8, so six is the standard rather than the ceiling.
+  //
+  // The PROPOSAL TEMPLATE at /proposal/?demo=1 is now the master copy for every new proposal, and it
+  // carries a single generic six. These per-event-type sets are kept because a wedding showing
+  // wedding photos beats a wedding showing a corporate gala, which is a distinction Michael asked
+  // for originally and has not withdrawn. If he ever wants every type to use the template's own six,
+  // replace all of these with that list.
   wedding: {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/bonsecours-gala-circle.webp',
@@ -143,8 +149,6 @@ export const PHOTO_SETS = {
       '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/gala-guest-delight.webp',
       '/assets/photos/cocktail-hour-guest-reaction.webp',
-      '/assets/photos/guest-shock-reaction.webp',
-      '/assets/photos/party-guests-astonished.webp',
     ],
   },
   corporate: {
@@ -158,8 +162,6 @@ export const PHOTO_SETS = {
       '/assets/photos/corporate-guests-laughing.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/gala-guest-astonished.webp',
-      '/assets/photos/guest-shock-reaction.webp',
-      '/assets/photos/stage-show-adult-volunteer.webp',
     ],
   },
   'holiday-party': {
@@ -173,8 +175,6 @@ export const PHOTO_SETS = {
       '/assets/photos/corporate-team-magic.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/gala-guest-delight.webp',
-      '/assets/photos/guest-shock-reaction.webp',
-      '/assets/photos/mentalism-three-volunteers.webp',
     ],
   },
   bachelorette: {
@@ -188,8 +188,6 @@ export const PHOTO_SETS = {
       '/assets/photos/cocktail-hour-guest-reaction.webp',
       '/assets/photos/guest-shock-reaction.webp',
       '/assets/photos/magic-convention-card-spread.webp',
-      '/assets/photos/gala-guest-astonished.webp',
-      '/assets/photos/tuxedo-guests-laughing.webp',
     ],
   },
   private: {
@@ -203,8 +201,6 @@ export const PHOTO_SETS = {
       '/assets/photos/gala-guest-delight.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/gala-guest-astonished.webp',
-      '/assets/photos/corporate-guests-laughing.webp',
-      '/assets/photos/mentalism-three-volunteers.webp',
     ],
   },
 }

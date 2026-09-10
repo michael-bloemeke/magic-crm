@@ -378,8 +378,9 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
       <div className="rounded-xl border border-white/10 bg-[#ecedf2] px-4 py-4 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)]">
         <p className="text-[13px] font-semibold text-parchment">What the client sees</p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          The blank templates, attached to nobody. Nothing you do in them is saved and no client's
-          numbers move. This is the copy to read when you want something changed.
+          The proposal template is the master copy: every new proposal starts from it, and only the
+          parts in [brackets] get changed. Both are attached to nobody, nothing you do in them is
+          saved, and no client's numbers move.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {/* Buttons, not links, for the same reason every other preview here is: they open as a
@@ -394,13 +395,13 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
               onPreview({
                 src: data.samples.proposal,
                 publicUrl: data.samples.proposal,
-                title: 'Sample proposal',
-                subtitle: 'The blank template. Attached to no client.',
+                title: 'Proposal template',
+                subtitle: 'The master copy. Every new proposal starts from this.',
                 backLabel: 'Proposals',
               })
             }
           >
-            Sample proposal
+            Proposal template
           </button>
           <button
             type="button"
