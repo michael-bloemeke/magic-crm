@@ -298,7 +298,18 @@
    alone on purpose, because it already carries its own white text. */
 :is(.brand-ground, .brand-header) [class*="bg-[#d"],
 :is(.brand-ground, .brand-header) [class*="bg-[#e"],
-:is(.brand-ground, .brand-header) [class*="bg-[#f"] {
+:is(.brand-ground, .brand-header) [class*="bg-[#f"],
+/* ⚠️ AND `bg-canvas`. It means "the page behind the cards", which on this ground is the NAVY, so a
+   component using it as a recessed light surface (the calendar's out-of-month day cells) punched
+   navy holes through a white grid. Resetting the token on the element itself makes the utility
+   resolve to the light canvas again, which is what those components actually meant. */
+:is(.brand-ground, .brand-header) [class*="bg-canvas"],
+/* ⚠️ AND gradient buttons. Several actions paint with `bg-gradient-to-b from-surface-3 to-surface`
+   rather than a flat `bg-surface`, so the selectors above miss them: the button kept its light
+   gradient while its `text-brass-bright` label picked up the ground's GOLD, which is unreadable on
+   near-white. That is what made "+ New contact" and "+ New project" disappear.
+   The gradient itself is already light, so only the tokens need resetting. */
+:is(.brand-ground, .brand-header) [class*="from-surface"] {
   --color-canvas: #eef0f3;
   --color-parchment: #14171b;
   --color-muted: #545b64;
@@ -322,6 +333,7 @@
 
    Source order matters here, not specificity: every one of these selectors has the same
    weight, so the more specific level has to come last to win. */
+.brand-ground [class*="bg-canvas"] { background-color: var(--color-canvas); }
 .brand-ground [class*="bg-surface"] { background-color: var(--color-surface); }
 .brand-ground [class*="bg-surface-2"] { background-color: var(--color-surface-2); }
 .brand-ground [class*="bg-surface-3"] { background-color: var(--color-surface-3); }

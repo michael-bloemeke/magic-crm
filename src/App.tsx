@@ -997,9 +997,16 @@ function App() {
   // have few, large elements, while the Pipeline is a map of small nodes and connector lines that
   // a repeating pattern would fight. A project page is the densest screen in the app, so it takes
   // the plain navy too.
-  const BRAND_PAGES: Page[] = ['home', 'pipeline', 'proposals']
-  const DAMASK_PAGES: Page[] = ['home', 'proposals']
-  const onBrand = BRAND_PAGES.includes(page)
+  // EVERY page now (Michael, 2026-09-09, after seeing the first four): "add my own design to it so
+  // that it looks almost like it pairs with my website well." So the ground is the default and the
+  // exceptions are listed, rather than the other way round.
+  //
+  // ⚠️ DAMASK IS THE EXCEPTION, NOT THE RULE. It goes only where a page is a few large blocks with
+  // room to breathe. Anything that is a dense list, a table, a grid of small controls or a map of
+  // nodes gets plain navy, because a repeating pattern behind small type is noise. This is the
+  // website's own rule (ornament goes where it carries meaning) applied to the app.
+  const DAMASK_PAGES: Page[] = ['home', 'proposals', 'website', 'settings']
+  const onBrand = true
   const groundClass = onBrand
     ? `brand-ground${DAMASK_PAGES.includes(page) ? ' brand-ground--damask' : ''}`
     : ''
@@ -1180,7 +1187,20 @@ function App() {
                     type="button"
                     title="New project"
                     onClick={() => setNewProjectOpen(true)}
-                    className="rounded-xl border border-brass-dim/60 bg-gradient-to-b from-surface-3 to-surface px-4 py-2.5 text-[13px] font-semibold text-brass-bright shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] transition-all duration-200 hover:border-brass hover:text-brass-bright hover:shadow-[0_0_22px_-6px_var(--color-brass)]"
+                    // ⚠️ THE ONE FILLED BUTTON IN THE HEADER, and on the brand ground it has to be
+                    // a different colour from the light theme's version. The light version is a
+                    // near-white gradient with gold text, which the surface reset cannot reach (it
+                    // is a `bg-gradient-to-b`, not a `bg-surface`), so on navy it rendered as faint
+                    // gold on near-white and stopped reading as the primary action.
+                    //
+                    // Solid gold with dark text is what the website uses in this position, and it
+                    // is the only element on a branded page painted that way, which is what makes
+                    // it the obvious thing to click.
+                    className={
+                      onBrand
+                        ? 'rounded-xl border border-transparent bg-[#e3c279] px-4 py-2.5 text-[13px] font-semibold text-[#14161c] shadow-[0_10px_24px_-12px_rgba(227,194,121,0.9)] transition-all duration-200 hover:bg-[#f0d69b] hover:shadow-[0_12px_28px_-10px_rgba(227,194,121,0.95)]'
+                        : 'rounded-xl border border-brass-dim/60 bg-gradient-to-b from-surface-3 to-surface px-4 py-2.5 text-[13px] font-semibold text-brass-bright shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] transition-all duration-200 hover:border-brass hover:text-brass-bright hover:shadow-[0_0_22px_-6px_var(--color-brass)]'
+                    }
                   >
                     + New project
                   </button>
