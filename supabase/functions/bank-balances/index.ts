@@ -116,11 +116,29 @@ Deno.serve(async (req) => {
     const data = await ynabGet(`/budgets/${budgetId}/accounts`, token);
     const raw = (data?.accounts || []) as YnabAccount[];
 
-    // Closed and deleted accounts are dropped. Everything else is returned as-is: no name matching,
-    // no hardcoded list of which three buckets to show. That means when Michael adds Magic Income to
-    // the Coastal link in YNAB, it appears here on its own with no code change.
+    // The card is labelled "In the bank", so it shows money Michael HAS, never money he owes. A
+    // credit card is a liability and YNAB stores it as a negative balance, so leaving it in would
+    // both mean the wrong thing and drag the total down. Filtering by TYPE rather than by name, so
+    // this holds for any account he adds later.
+    const ASSET_TYPES = new Set(["checking", "savings", "cash", "otherAsset"]);
+
+    // Payment wallets are not the bank. Michael's ask is what is sitting in his Coastal buckets, and
+    // YNAB types PayPal and Venmo as "checking", so type alone does not separate them. Excluded by
+    // name, because YNAB's v1 accounts endpoint does not report which institution an account came
+    // from. Michael can see these in YNAB itself; they do not belong on a card labelled "In the bank".
+    // Anything NOT on this list still appears automatically, so adding Magic Income or the savings
+    // account to the Coastal link in YNAB needs no code change here.
+    const WALLETS = ["paypal", "venmo", "cash app", "cashapp", "apple cash", "zelle"];
+    const isWallet = (name: string) => {
+      const n = (name || "").toLowerCase();
+      return WALLETS.some((w) => n.includes(w));
+    };
+
+    // Closed and deleted accounts are dropped. Beyond that there is no name matching and no
+    // hardcoded list of which buckets to show, so when Michael adds Magic Income or his savings to
+    // the Coastal link in YNAB, they appear here on their own with no code change.
     const accounts = raw
-      .filter((a) => !a.deleted && !a.closed)
+      .filter((a) => !a.deleted && !a.closed && ASSET_TYPES.has(a.type) && !isWallet(a.name))
       .map((a) => ({
         id: a.id,
         name: a.name,
