@@ -363,6 +363,48 @@ async function ensureServiceItem(call: any, name: string) {
 // The work
 // ---------------------------------------------------------------------------
 
+// ⚠️ A PROJECT STORES THE CLIENT'S EMAIL IN TWO PLACES AND THIS FUNCTION ONLY EVER READ ONE.
+//
+// 1. `projects.contact_emails`, plain text on the project. The website inquiry function fills this,
+//    so every lead that arrives through the site has always worked.
+// 2. The linked CONTACT record, via `contact_links`. This is what the CRM's project page and contact
+//    panel actually SHOW, and it is what a project built by hand ends up with.
+//
+// The desktop app learned this on 2026-08-04 and grew a fallback (`clientEmailFor` in
+// crm-booking-form.mjs). **That fix was never carried into this edge function.** The result, on
+// 2026-09-10 with Jack and Grace's wedding two days out: the booking form sent perfectly, because
+// the app resolved the contact record, then the client filled it in and signed, and then this job
+// failed eight times with "No client email to send the agreement to" and gave up at MAX_ATTEMPTS.
+// Michael saw an email on the contact card and a stuck booking, with nothing connecting the two.
+//
+// So: fill the project's own field from the linked contact whenever it is blank, immediately after
+// the project is read. Every downstream reader then works unchanged, including the invoice branch,
+// the payment confirmation and the stuck-booking alert. Silent on failure by design; a missing
+// email must still surface as the caller's own clear error, not as a crash in here.
+async function hydrateClientEmail(sb: SupabaseClient, project: any): Promise<void> {
+  if (!project) return;
+  if (String(project.contact_emails || "").trim()) return;
+  try {
+    const { data: links } = await sb.from("contact_links").select("contact_id").eq("project_id", project.id);
+    const ids = (links || []).map((l: any) => l.contact_id).filter(Boolean);
+    if (!ids.length) return;
+    const { data: contacts } = await sb.from("contacts").select("id, emails").in("id", ids);
+    for (const id of ids) {
+      // contacts.emails is a jsonb ARRAY, unlike projects.contact_emails which is comma-separated
+      // text. Handle both rather than relying on Array.toString() joining with commas by luck.
+      const raw = (contacts || []).find((c: any) => c.id === id)?.emails;
+      const list = Array.isArray(raw) ? raw : String(raw || "").split(/[,;]/);
+      const email = list.map((e: any) => String(e || "").trim()).find(Boolean);
+      if (email) {
+        project.contact_emails = email;
+        return;
+      }
+    }
+  } catch (e) {
+    console.error("[booking-complete] contact-record email lookup failed:", String((e as Error)?.message ?? e));
+  }
+}
+
 async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boolean; invoiced: boolean }> {
   const projectId = row.project_id as string;
   const out = { emailed: false, invoiced: false };
@@ -373,6 +415,7 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
     .eq("id", projectId)
     .maybeSingle();
   if (projErr || !project) throw new Error("Project not found.");
+  await hydrateClientEmail(sb, project);
   if (!project.agreement_html) throw new Error("No agreement was published for this project.");
 
   const answers = Array.isArray(row.answers) ? row.answers : [];
@@ -647,6 +690,7 @@ async function checkPaidAndConfirm(sb: SupabaseClient): Promise<{ paid: number; 
         .select("id, client_name, project_name, contact_emails, contact_names, activity_log, booking_thread_id")
         .eq("id", row.project_id)
         .maybeSingle();
+      await hydrateClientEmail(sb, project);
       const to = String(project?.contact_emails || "").split(/[,;]/)[0].trim();
       if (project && to) {
         const who = String(project.contact_names || "").split(/[,;]/)[0].trim() ||
@@ -758,6 +802,7 @@ async function notifyMichaelFailed(sb: SupabaseClient, projectId: string, error:
     .select("id, client_name, project_name, contact_emails, event_date")
     .eq("id", projectId)
     .maybeSingle();
+  await hydrateClientEmail(sb, project);
   const { data: row } = await sb
     .from("booking_submissions")
     .select("pdf_sent_at, invoice_sent_at")
