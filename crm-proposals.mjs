@@ -142,9 +142,13 @@ export const PHOTO_SETS = {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/bonsecours-gala-circle.webp',
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
+    // ⚠️ `wedding-couple-laughing.webp` USED TO LEAD THIS LIST AND WAS REMOVED 2026-09-18.
+    // It is now the fixed photo on the "A private set" style block, which is on every wedding
+    // proposal by standing rule, so leaving it here put the same picture on one page twice.
+    // Do not add it back to this gallery.
     gallery: [
-      '/assets/photos/wedding-couple-laughing.webp',
       '/assets/photos/wedding-garden-mingling.webp',
+      '/assets/photos/guest-shock-reaction.webp',
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/gala-guest-delight.webp',
