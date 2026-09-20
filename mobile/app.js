@@ -10,7 +10,7 @@
 import {
   loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail,
   addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
-  reloadPaymentsFinance, savePushSubscription,
+  reloadPaymentsFinance, savePushSubscription, saveNativePushToken,
   createProject, archiveProject, completeProject, restoreProject, deleteProject,
   updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
@@ -2413,8 +2413,28 @@ function startAutoRefresh() {
   })
 }
 
-// ---------- web push (notifications from this app) ----------
+// ---------- push (notifications from this app) ----------
+//
+// TWO DELIVERY ROUTES, ONE UI. This file is the single source for both the PWA at
+// michaelbloemeke.com/crm/ and the native iOS app (../ios-app wraps these same files with
+// Capacitor). The native build is not a fork: it is this code, detecting at runtime that it is
+// running inside a native shell and taking the APNs path instead of the Web Push path.
+//
+// Why native exists at all: iOS Web Push only works from a Home Screen install, silently dies if
+// the icon is removed and re-added, and has a habit of losing permission across iOS updates.
+// Michael, 2026-09-20, after notifications stopped: "this being a webapp just isn't cutting it."
+//
+// (WARNING) EVERYTHING BELOW MUST STAY BACKWARDS-SAFE. When window.Capacitor is undefined (always
+// true in a browser and in the PWA) every branch here falls through to the original Web Push
+// behaviour, unchanged.
+function isNativeApp() {
+  return !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform())
+}
+function nativePushPlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications) || null
+}
 function pushSupported() {
+  if (isNativeApp()) return !!nativePushPlugin()
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
 }
 function updatePushButton() {
@@ -2423,8 +2443,13 @@ function updatePushButton() {
   // Show the bell when push is usable, we have the VAPID key, and this device isn't already subscribed
   // (or permission hasn't been permanently denied). Once subscribed (localStorage flag), hide it. No
   // passcode gate anymore: the subscribe write is authenticated by the logged-in Supabase session.
-  var show = pushSupported() && VAPID_PUBLIC_KEY &&
-    localStorage.getItem('mcrm_push') !== '1' && window.Notification && Notification.permission !== 'denied'
+  // The VAPID key and Notification.permission are Web Push concepts. Native has neither: iOS
+  // owns the permission prompt and the plugin reports the result, so the bell shows until this
+  // device has successfully registered once.
+  var show = isNativeApp()
+    ? pushSupported() && localStorage.getItem('mcrm_push') !== '1'
+    : pushSupported() && VAPID_PUBLIC_KEY &&
+      localStorage.getItem('mcrm_push') !== '1' && window.Notification && Notification.permission !== 'denied'
   btn.classList.toggle('hidden', !show)
 }
 function urlB64ToUint8(base64) {
@@ -2440,6 +2465,7 @@ function urlB64ToUint8(base64) {
 // Handles "already subscribed" (reuse the existing subscription and just re-save it) and a denied /
 // dismissed permission gracefully.
 function enablePush() {
+  if (isNativeApp()) return enableNativePush()
   if (!pushSupported()) {
     alert('To get notifications, add this app to your Home Screen first (Share, then Add to Home Screen), then open it from there and try again.')
     return
@@ -2477,6 +2503,47 @@ function enablePush() {
   })
 }
 
+// Native (APNs) push. iOS hands back a device token rather than a Web Push subscription, so the
+// token is stored in the SAME push_subscriptions table under an apns:// endpoint. That keeps one
+// subscription list for the whole system: the server reads the endpoint scheme and picks its send
+// path, and the PWA and the native app can both be registered at once while this beds in.
+function enableNativePush() {
+  var Push = nativePushPlugin()
+  if (!Push) {
+    alert('Notifications are not available in this build.')
+    return
+  }
+  // The token arrives on an event, not as the return value of register(), so listen first.
+  Push.addListener('registration', function (token) {
+    var value = token && token.value
+    if (!value) return
+    saveNativePushToken(value)
+      .then(function () {
+        localStorage.setItem('mcrm_push', '1')
+        updatePushButton()
+        alert('Notifications are on. Alerts will show up on your lock screen.')
+      })
+      .catch(function (e) {
+        alert('Could not save this device for notifications: ' + ((e && e.message) || e))
+      })
+  })
+  Push.addListener('registrationError', function (err) {
+    alert('iOS would not register this device for notifications: ' + JSON.stringify(err))
+  })
+
+  Push.requestPermissions()
+    .then(function (res) {
+      if (!res || res.receive !== 'granted') {
+        alert('Notifications were not allowed. You can turn them on in Settings, then tap the bell again.')
+        return
+      }
+      return Push.register()
+    })
+    .catch(function (e) {
+      alert('Could not turn on notifications: ' + ((e && e.message) || e))
+    })
+}
+
 // ---------- boot ----------
 var wired = false
 function wireUI() {
@@ -2491,7 +2558,11 @@ function wireUI() {
   $('#refresh').addEventListener('click', loadAndRender)
   var ep = $('#enable-push')
   if (ep) ep.addEventListener('click', enablePush)
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {})
+  // (WARNING) NOT IN THE NATIVE APP. The worker caches assets so the PWA opens offline; inside the
+  // native shell the assets are already on the device, so it adds nothing and actively hurts. It
+  // would serve a cached copy of a previous build after an update, which is the most common way a
+  // Capacitor app ends up stuck on stale code with no way for the user to clear it.
+  if (!isNativeApp() && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {})
 }
 
 // Show the app, hide the login screen, and load live data.

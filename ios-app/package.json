@@ -1,0 +1,12 @@
+{
+  "name": "magic-crm-ios",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Native iOS shell for the Magic CRM phone app. Capacitor wraps the SAME web app that ../mobile serves as a PWA, so there is one UI codebase and two delivery routes. Built 2026-09-20 because iOS web push was too unreliable to run the business on.",
+  "scripts": {
+    "www": "node build-www.mjs",
+    "sync": "node build-www.mjs && npx cap sync ios",
+    "open": "npx cap open ios"
+  }
+}

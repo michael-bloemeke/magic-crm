@@ -1280,3 +1280,31 @@ export async function resetBookingOnPhone(projectId) {
   const { error } = await sb.from('projects').update({ booking_viewed_at: null }).eq('id', projectId)
   if (error) throw error
 }
+
+// saveNativePushToken: the NATIVE (iOS/APNs) counterpart of savePushSubscription above.
+//
+// iOS hands the app a device token, not a Web Push subscription, so there is no endpoint URL to key
+// on. Rather than add a second table and a second fan-out path on the server, the token is stored in
+// the SAME push_subscriptions table under a synthetic `apns://<token>` endpoint.
+//
+// WHY THAT IS WORTH DOING RATHER THAN A CLEAN SEPARATE TABLE:
+//   - Every sender (notify-cron, inquiry, and anything added later) already walks this one table.
+//     They branch on the endpoint scheme and pick APNs or Web Push. Nothing has to learn about a
+//     second source of devices, so a new notification type cannot accidentally support only one.
+//   - The PWA and the native app can be registered AT THE SAME TIME while the native build is
+//     proven out. Michael keeps getting notifications on the old route until he decides to drop it.
+//
+// `endpoint` is unique, so re-registering the same device refreshes its row instead of piling up.
+// RLS requires a logged-in session, exactly like the web path.
+export async function saveNativePushToken(token) {
+  const value = String(token || '').trim()
+  if (!value) throw new Error('No device token from iOS.')
+  const row = {
+    endpoint: `apns://${value}`,
+    subscription: { kind: 'apns', token: value, platform: 'ios' },
+    user_agent: (typeof navigator !== 'undefined' && navigator.userAgent) || 'ios-native',
+  }
+  const { error } = await sb.from('push_subscriptions').upsert(row, { onConflict: 'endpoint' })
+  if (error) throw error
+  return { ok: true, endpoint: row.endpoint }
+}
