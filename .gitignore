@@ -60,3 +60,8 @@ portal/files/
 *.njsproj
 *.sln
 *.sw?
+
+# Capacitor / native iOS shell
+ios-app/www
+ios-app/ios/App/Pods
+ios-app/ios/App/App/public
