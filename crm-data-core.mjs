@@ -579,13 +579,37 @@ function loadAllSupabase() {
   // Throttled + fire-and-forget; removes them from the cache before the loop below.
   autoPurgeExpiredDeleted()
   const projects = []
-  // Dedup by id (slug), keeping the first row per id. The cache is a flat list of rows across
-  // all buckets; project ids are unique in Supabase (id is the PK), so this is a belt-and-braces
-  // pass matching the files path's dedup semantics.
+  // ⚠️ THE APP ID IS THE ROW'S PRIMARY KEY, NOT slugify(client_name). This is a real-bug fix
+  // (2026-09-20), not a tidy-up.
+  //
+  // `normalize()` derives the id by slugging `client_name`, and this loop used to drop any row whose
+  // slug it had already seen, on the stated reasoning that "project ids are unique in Supabase (id is
+  // the PK), so this is a belt-and-braces pass". That reasoning is wrong: the PK guarantees `p.id` is
+  // unique, and guarantees nothing at all about `slugify(p.client_name)`.
+  //
+  // The website's `inquiry` edge function creates exactly such a row. On a name collision it suffixes
+  // the ID COLUMN (`peter-indiana-pan-2`) but leaves `client_name` as the original, so two rows slug
+  // to one id and this loop silently threw one away.
+  //
+  // WHAT MICHAEL SAW: he deleted a spam inquiry, the row really was soft-deleted, then a second
+  // inquiry from the same name arrived and was inserted as `-2`. From then on the active `-2` row
+  // shadowed the deleted one. The Deleted page was empty and the project sat back in the pipeline,
+  // exactly as though the delete had been undone. Nothing was wrong with delete; the project he was
+  // looking at was a different row wearing the same id.
+  //
+  // Preferring `p.id` is a no-op for every correctly created project (402 of 403 rows had
+  // `p.id === slugify(client_name)`) and makes the odd one addressable instead of invisible.
   const seenIds = new Set()
   for (const p of getCachedProjects()) {
     const norm = normalize(p, str(p.bucket) || 'active')
-    if (seenIds.has(norm.id)) continue
+    const pk = str(p.id)
+    if (pk && pk !== norm.id) norm.id = pk
+    // A collision now means two rows genuinely share a primary key, which cannot happen. If it ever
+    // does, say so rather than dropping someone's project on the floor and leaving no trace.
+    if (seenIds.has(norm.id)) {
+      console.warn(`[crm-data] duplicate project id "${norm.id}" in the cache; keeping the first row`)
+      continue
+    }
     seenIds.add(norm.id)
     // Stash the stored stage from the row so we can apply the derived-stage logic below.
     norm._storedStage = str(p.stage_id)

@@ -432,11 +432,27 @@ Deno.serve(async (req) => {
     };
 
     // Insert with a unique id: slug of the name, suffixed if that slug is already taken.
+    //
+    // ⚠️ `client_name` MUST BE SUFFIXED WITH THE ID. It is not just a label: the CRM treats it as
+    // the project's identity and derives the join key for stages, tasks, payments and links from
+    // `slugify(client_name)`. Suffixing only the id column produces two rows that slug to the same
+    // key, and the CRM's own createProject refuses to make such a pair on purpose.
+    //
+    // That is the bug Michael hit on 2026-09-20: a second inquiry from the same name landed as
+    // `peter-indiana-pan-2` while `client_name` stayed "Peter Indiana Pan", so it collided with the
+    // row he had already deleted. The active row shadowed the deleted one, the Deleted page came up
+    // empty, and the project appeared to un-delete itself in the pipeline.
+    //
+    // `project_name` keeps the clean name, so the suffix never shows up in the CRM's UI: the display
+    // reads "Peter Indiana Pan" while the identity underneath is unique.
     const baseId = slugify(displayName);
     let projectId: string | null = null;
     for (let i = 0; i < 8; i++) {
-      const id = i === 0 ? baseId : `${baseId}-${i + 1}`;
-      const { error } = await supabase.from("projects").insert({ id, ...baseRow });
+      const suffix = i === 0 ? "" : ` ${i + 1}`;
+      const id = slugify(displayName + suffix);
+      const { error } = await supabase
+        .from("projects")
+        .insert({ id, ...baseRow, client_name: displayName + suffix });
       if (!error) { projectId = id; break; }
       if (error.code !== "23505") {
         console.warn("[inquiry] project insert failed:", error.message);
@@ -444,8 +460,11 @@ Deno.serve(async (req) => {
       }
     }
     if (!projectId) {
-      const id = `${baseId}-${Math.random().toString(36).slice(2, 7)}`;
-      const { error } = await supabase.from("projects").insert({ id, ...baseRow });
+      const suffix = ` ${Math.random().toString(36).slice(2, 7)}`;
+      const id = slugify(displayName + suffix);
+      const { error } = await supabase
+        .from("projects")
+        .insert({ id, ...baseRow, client_name: displayName + suffix });
       if (!error) projectId = id;
       else console.warn("[inquiry] project insert final failure:", error.message);
     }
