@@ -11,6 +11,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return true
     }
 
+    // MARK: - APNs registration
+    //
+    // (WARNING) THESE TWO METHODS ARE LOAD-BEARING AND CAPACITOR DOES NOT ADD THEM FOR YOU.
+    //
+    // iOS delivers the device token to the AppDelegate, not to the plugin. @capacitor/push-notifications
+    // listens for these two NotificationCenter posts and turns them into the JS `registration` /
+    // `registrationError` events that app.js waits on. Without them the whole chain looks like it
+    // works: permission is granted, register() is called, iOS really does issue a token, and then
+    // nothing catches it. No error, no token, no row in push_subscriptions.
+    //
+    // That is exactly what happened on the first install (2026-09-21): the bell was tapped, iOS
+    // granted permission, and the database stayed empty. If native push ever goes silent again,
+    // check that these are still here before looking anywhere else.
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
     func applicationWillResignActive(_ application: UIApplication) {
         // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
         // Use this method to pause ongoing tasks, disable timers, and invalidate graphics rendering callbacks. Games should use this method to pause the game.

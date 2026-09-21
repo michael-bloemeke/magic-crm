@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Push Notifications capability.
+
+	     "development" is correct for a build installed from Xcode, which is how this first goes
+	     onto Michael's phone. It maps to APNs SANDBOX. A TestFlight or App Store build needs
+	     "production" instead, and Xcode rewrites this automatically when it exports for those.
+
+	     ⚠️ This is the client half of the sandbox/production split that _shared/apns.ts handles on
+	     the server. The two must agree or Apple returns BadDeviceToken, which looks exactly like a
+	     corrupt token. The sender tries production, falls back to sandbox, and remembers which one
+	     worked per device, so the mismatch is absorbed rather than becoming a debugging session. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>
