@@ -8,5 +8,14 @@
   },
   "server": {
     "iosScheme": "capacitor"
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
+    }
   }
 }
