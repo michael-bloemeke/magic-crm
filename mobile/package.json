@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Magic CRM phone app: a static PWA, no build step and no server code. Supabase Auth login + live reads from Supabase (RLS-gated). Source of truth lives HERE; `npm run sync` copies it into the Website repo, which is what serves it at michaelbloemeke.com/crm/.",
   "scripts": {
-    "sync": "node sync-to-website.mjs"
+    "sync": "node sync-to-website.mjs",
+    "test": "/Users/michaelbloemeke/.local/node22/bin/node test/run.mjs"
   }
 }

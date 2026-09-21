@@ -76,13 +76,25 @@ export async function noteDataVersionLoaded() {
 
 // ---------- small mappers (mirror the desktop's crm-data-core.mjs / crm-finance.mjs) ----------
 function str(v) { return v == null ? '' : String(v) }
-// total_fee / tips / mileage: numeric column, but keep a text companion for non-numeric legacy values.
+// total_fee / tips / mileage: a numeric column with a text companion for values that are not
+// numbers ("TBD", "$750-$1500"). The two are meant to be mutually exclusive: import-phase1.mjs
+// only fills the companion when the numeric parse FAILS.
+//
+// ⚠️ THE NUMBER WINS. This used to return the companion whenever it was non-empty, which is the
+// wrong way round the moment both columns are populated, and five projects have ended up that way.
+// On "Jacqueline and David's wedding", total_fee is 1250 and total_fee_text holds a sentence about
+// the conversation, so the phone showed "Quote: Not set" on a project with a quote, left the fee
+// off its pipeline card, and would have held the "Ready to book" gate red on a job that was ready.
+// The Proposals page, the backup exporter and verify-phone-read all read number-first; this was the
+// one place that did not.
 function numOrNull(v, text) {
-  if (text != null && text !== '') return text // preserve a non-numeric legacy value verbatim
   if (typeof v === 'number') return v
-  if (v == null || v === '') return null
-  const n = Number(v)
-  return Number.isFinite(n) ? n : null
+  if (v != null && v !== '') {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  if (text != null && text !== '') return text // a genuinely non-numeric value, kept verbatim
+  return null
 }
 // Payments store amount in a numeric column with an amount_text companion (see crm-finance.mjs).
 function amountOf(r) {
@@ -115,6 +127,7 @@ function projectFromRow(p) {
     status: str(p.status),
     eventType: str(p.event_type),
     eventDate: str(p.event_date),
+    arrivalTime: str(p.arrival_time),
     eventStartTime: str(p.event_start_time),
     showStartTime: str(p.show_start_time),
     eventLocation: str(p.event_location),
@@ -194,7 +207,7 @@ const NOTIF_LABELS = {
 export async function loadProjects() {
   const { data, error } = await sb
     .from('projects')
-    .select('id,client_name,project_name,bucket,stage_id,status,event_type,event_date,event_start_time,show_start_time,event_location,venue_type,indoors_or_outdoors,number_of_guests,age_of_guests,performance_style,total_fee,total_fee_text,tips,mileage,vips,av,booking_source,event_summary,event_description,project_notes,contact_names,contact_emails,contact_phones,flags,archive_reason,completed_date,deleted_at,activity_log')
+    .select('id,client_name,project_name,bucket,stage_id,status,event_type,event_date,arrival_time,event_start_time,show_start_time,event_location,venue_type,indoors_or_outdoors,number_of_guests,age_of_guests,performance_style,total_fee,total_fee_text,tips,mileage,vips,av,booking_source,event_summary,event_description,project_notes,contact_names,contact_emails,contact_phones,flags,archive_reason,completed_date,deleted_at,activity_log')
   if (error) throw error
   return (data || []).map(projectFromRow)
 }
@@ -548,6 +561,7 @@ export async function addNote(projectId, text) {
 // name. Mirrors the relevant subset of EDITABLE_FIELDS in crm-data-core.mjs.
 const PROJECT_FIELD_COLUMNS = {
   eventDate: 'event_date',
+  arrivalTime: 'arrival_time',
   eventLocation: 'event_location',
   venueType: 'venue_type',
   indoorsOrOutdoors: 'indoors_or_outdoors',
@@ -565,12 +579,36 @@ const PROJECT_FIELD_COLUMNS = {
   projectName: 'project_name',
   vips: 'vips',
   av: 'av',
+  eventSummary: 'event_summary',
 }
+// The QUOTE is not in the map above because total_fee is a NUMERIC column with a total_fee_text
+// companion for legacy non-numeric values, so it cannot be written like the text fields. It gets
+// its own branch in updateProjectField.
+//
+// ⚠️ This was the bug. totalFee was added to EDITABLE_DETAIL_FIELDS on the phone (2026-08-05) to
+// unblock "Ready to book", whose gate needs a quote, but nothing was added HERE. So the field
+// appeared in Event details, accepted a number, and then threw "Field not editable on phone:
+// totalFee" on blur. The gate that the field existed to satisfy stayed red.
+const FEE_FIELD = 'totalFee'
 // updateProjectField: write one allow-listed text column. contact_phones gets the desktop's phone
 // normalization applied on save (coerceFieldValue in crm-data-core.mjs). All these columns are text,
 // so values are stored as strings. Returns the stored value for optimistic UI patching.
 export async function updateProjectField(id, col, value) {
   if (!id) throw new Error('Project id is required.')
+  if (col === FEE_FIELD) {
+    // Mirrors coerceFieldValue for total_fee in crm-data-core.mjs: a clean number goes in the
+    // numeric column and clears the text companion; anything else (blank, "TBD", a range) goes in
+    // the companion and nulls the number, so the finance maths never sees a half-parsed value.
+    const raw = String(value == null ? '' : value).trim().replace(/[$,]/g, '')
+    const n = raw === '' ? null : Number(raw)
+    const numeric = n != null && Number.isFinite(n) ? n : null
+    const { error } = await sb
+      .from('projects')
+      .update({ total_fee: numeric, total_fee_text: numeric == null && raw !== '' ? raw : null })
+      .eq('id', id)
+    if (error) throw error
+    return { ok: true, id, field: col, column: 'total_fee', value: numeric != null ? numeric : raw }
+  }
   const column = PROJECT_FIELD_COLUMNS[col]
   if (!column) throw new Error(`Field not editable on phone: ${col}`)
   let stored = value == null ? '' : String(value)
@@ -813,6 +851,11 @@ function receivedTotalForPayments(payments, projectId) {
 // branch (all columns filled so normalize() reads it like an imported row). Only the name is required.
 // The slug must be unique (checked against the DB). Stage is clamped to a valid, non-Booked, non-Post
 // Show stage (a brand-new project has no payment yet), defaulting to Inquiry. Returns the app record.
+// The eight canonical lead sources. MUST stay identical to LEAD_SOURCES in
+// src/components/StatsPage.tsx, which is what buckets them on the Stats page: a value that is not
+// on this list falls into "Other" there, so an extra one here would silently vanish from the chart.
+export const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'Other']
+
 export async function createProject(input = {}, structure = { umbrellas: [] }) {
   const name = String(input.clientName == null ? '' : input.clientName).trim()
   if (!name) throw new Error('Project name is required.')
@@ -857,7 +900,12 @@ export async function createProject(input = {}, structure = { umbrellas: [] }) {
     contact_names: String(input.contactNames == null ? '' : input.contactNames),
     contact_emails: String(input.contactEmails == null ? '' : input.contactEmails),
     contact_phones: formatPhoneField(String(input.contactPhones == null ? '' : input.contactPhones)),
-    booking_source: null,
+    // Where the lead came from. Was hardcoded null until 2026-09-21, which meant the ONE app that
+    // is used to log a gig-site lead in the moment, on the phone, was guaranteed to leave the one
+    // field the Stats page needs to attribute it empty. Defaults to 'Other' rather than null so a
+    // project created here is always attributable to something, even if only to "not recorded".
+    // The eight canonical values are LEAD_SOURCES in src/components/StatsPage.tsx.
+    booking_source: LEAD_SOURCES.indexOf(String(input.bookingSource || '')) >= 0 ? String(input.bookingSource) : 'Other',
     event_summary: null,
     event_description: null,
     project_notes: String(input.projectNotes == null ? '' : input.projectNotes),
@@ -1029,6 +1077,85 @@ export async function sendEmail({ to, subject, body, projectId, kind } = {}) {
   }
   if (data && data.ok === false) throw new Error(data.error || 'Could not send.')
   return data || {}
+}
+
+// ---------- proposals ----------
+//
+// Through an Edge Function, not a table read, and deliberately so. `proposals` has RLS on with no
+// policy for `authenticated`, and `push_config` holds the admin preview key, which should never be
+// on the device at all. The function computes the state, the outcome and the already-flagged
+// preview URL with the service role and hands back something safe to render.
+//
+// ⚠️ `openUrl` is Michael's link and always carries preview=1 (plus the admin key when the page is
+// no longer public). `url` is the CLEAN link, the one he sends a client. Never swap them: opening
+// the clean one from inside the CRM would count as a client view and corrupt the only number that
+// tells him whether anybody read his proposal.
+export async function loadProposalsOverview() {
+  const { data, error } = await sb.functions.invoke('proposals-overview', { body: {} })
+  if (error) {
+    let msg = error.message || 'Could not load proposals.'
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error } catch (_) { /* keep msg */ }
+    throw new Error(msg)
+  }
+  if (data && data.ok === false) throw new Error(data.error || 'Could not load proposals.')
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    bookings: Array.isArray(data?.bookings) ? data.bookings : [],
+    samples: data?.samples || {},
+  }
+}
+
+// ---------- reading Gmail, from the cloud ----------
+//
+// All three go through the `gmail` Edge Function, which holds the OAuth refresh token server-side
+// and verifies the logged-in session JWT. Nothing about the mailbox is reachable from the phone
+// without being signed in, and no Google credential ever reaches the device.
+//
+// This replaces nothing on the desktop: crm-gmail.mjs still serves the Mac. It EXISTS because that
+// module is Node, loaded by the Vite dev plugin, so every read path in the CRM needed the laptop
+// awake. Michael, 2026-09-21: "I want to read and send emails."
+
+async function gmail(body) {
+  const { data, error } = await sb.functions.invoke('gmail', { body })
+  if (error) {
+    let msg = error.message || 'Could not reach email.'
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error } catch (_) { /* keep msg */ }
+    throw new Error(msg)
+  }
+  if (data && data.ok === false) throw new Error(data.error || 'Could not reach email.')
+  return data || {}
+}
+
+// Thread summaries for a Gmail search. `q` is Gmail query syntax, passed straight through, and may
+// be an ARRAY of queries when one will not fit (see buildClientMailQueries in app.js). Returns the
+// merged, de-duplicated, newest-first list.
+export async function gmailList({ q = 'in:inbox', max = 25 } = {}) {
+  const r = await gmail({ action: 'list', q, max })
+  return Array.isArray(r.threads) ? r.threads : []
+}
+
+// One conversation, with message bodies. Reading does NOT mark anything read; that is a separate,
+// explicit call, so opening a thread to check who it is from cannot quietly clear the badge.
+export async function gmailThread(threadId) {
+  const r = await gmail({ action: 'thread', threadId })
+  return { threadId, subject: r.subject || '(no subject)', messages: Array.isArray(r.messages) ? r.messages : [] }
+}
+
+export async function gmailMarkRead(threadId) {
+  return gmail({ action: 'markRead', threadId })
+}
+
+// The unread inbox: the true count AND the threads, in ONE call.
+//
+// Both, because they feed two things that must not disagree: the drawer badge, and the "waiting on
+// you" marks on the pipeline. Gmail's own resultSizeEstimate gives the real count even though only
+// 25 threads are fetched, so the badge is right whether he has 3 unread or 300 while the payload
+// stays small. Roughly 130 quota units per call against a 1.2M/day allowance, on a five-minute
+// timer: about 37k a day, or 3% of the budget.
+export async function gmailUnread(queries) {
+  const q = Array.isArray(queries) && queries.length ? queries : 'is:unread in:inbox'
+  const r = await gmail({ action: 'list', q, max: 25 })
+  return { count: Number(r.resultSize) || 0, threads: Array.isArray(r.threads) ? r.threads : [] }
 }
 
 // Save (or update) a draft email for a project + step, directly in `emails` (status draft). Phone-side,
@@ -1235,7 +1362,7 @@ export async function readyToBookOnPhone(project, variantId) {
 export async function loadBookingProgress(projectId) {
   const [{ data: proj }, { data: row }] = await Promise.all([
     sb.from('projects').select('booking_viewed_at, agreement_variant, booking_token').eq('id', projectId).maybeSingle(),
-    sb.from('booking_submissions').select('submitted_at, signed_at, signed_name').eq('project_id', projectId).maybeSingle(),
+    sb.from('booking_submissions').select('submitted_at, signed_at, signed_name, answers').eq('project_id', projectId).maybeSingle(),
   ])
   const viewedAt = proj?.booking_viewed_at || ''
   const submittedAt = row?.submitted_at || ''
@@ -1246,6 +1373,14 @@ export async function loadBookingProgress(projectId) {
     signedName: row?.signed_name || '',
     variant: proj?.agreement_variant || '',
     linkOut: !!proj?.booking_token,
+    // What the client actually TYPED on the booking form, verbatim, as [{id, value}].
+    //
+    // Michael, 2026-09-21: "I need to be able to see the PDF of their completed booking form...
+    // so I can see what they entered and so that I can especially see the address of the event."
+    // The answers are already a column here, so reading them costs nothing extra and gives the
+    // phone something better than a PDF: selectable, tappable text. The agreement PDF stays too,
+    // because that is the DOCUMENT, and these are the ANSWERS. Two different questions.
+    answers: Array.isArray(row?.answers) ? row.answers : [],
   }
 }
 
@@ -1306,5 +1441,20 @@ export async function saveNativePushToken(token) {
   }
   const { error } = await sb.from('push_subscriptions').upsert(row, { onConflict: 'endpoint' })
   if (error) throw error
+
+  // Drop any OTHER apns:// row. There is exactly one iPhone, so a second Apple token is always a
+  // dead one left behind by a token rotation, and every sender in the system walks this table and
+  // would keep posting to it forever. APNs answers a dead token with BadDeviceToken rather than an
+  // error anybody sees, so nothing would ever have cleaned them up.
+  //
+  // Web Push rows are deliberately untouched: the PWA and the native app are allowed to be
+  // registered at the same time while the native build is being proven out.
+  const { error: sweepErr } = await sb
+    .from('push_subscriptions')
+    .delete()
+    .like('endpoint', 'apns://%')
+    .neq('endpoint', row.endpoint)
+  if (sweepErr) console.warn('[push] could not clear an old Apple token:', sweepErr.message)
+
   return { ok: true, endpoint: row.endpoint }
 }

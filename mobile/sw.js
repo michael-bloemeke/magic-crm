@@ -33,8 +33,46 @@
 // Opening an alert no longer counts as dealing with it.
 // v24: the Alerts badge no longer counts tasks. A due task is counted once, on Tasks; the app icon
 // is Tasks + Alerts.
+// v25 (2026-09-21): the phone stops needing the laptop. Michael: "make it so that there's nothing
+// that I need my laptop for."
+//   - Project Details opens FIRST and leads with a day-of card: date + countdown, arrival / event /
+//     show times, the venue address as a one-tap route into Maps, and the day-of contact with
+//     Call / Text / Email. Missing fields are called out rather than omitted.
+//   - What the client sent back: the completed booking form's answers as readable text, plus the
+//     signed performance agreement PDF, both on the Details tab.
+//   - Tasks are editable: tap one to retitle, reschedule (Today / Tomorrow / +1 week / Clear) or
+//     delete, on the Tasks page and inside a project. Completed tasks are reachable again.
+//   - EMAIL. Read and send from the phone with the Mac off, through a new `gmail` Edge Function:
+//     an Inbox page, a per-project Email tab, a composer, and an unread badge on the drawer.
+//   - A Proposals page: every proposal and booking form, its state, and its view count. Every link
+//     opened from the CRM is a PREVIEW and never counts as a client view.
+//   - Pipeline cards show how far off the event is, how many tasks are due, and whether that client
+//     has unread mail waiting.
+//   - Fixed: the Quote could not actually be saved from the phone (it was in the edit form but not
+//     in the writable-column allow-list, so it threw on blur). Arrival time was missing entirely.
+//   - Fixed: the Quote READ back-to-front. total_fee_text is a companion for values that are not
+//     numbers, but the phone preferred it whenever it was non-empty, so five projects that have
+//     both columns populated showed "Quote: Not set" on a project with a quote. Number wins now,
+//     matching the Proposals page, the backup exporter and verify-phone-read.
+//   - Fixed: New project now asks where the lead came from and stores it. booking_source was
+//     hardcoded null here, so the one app used to log a gig-site lead in the moment left the one
+//     field Stats needs to attribute it empty. (Logged as open in magic-crm.md since 2026-08-24.)
+//   - Fixed: the app now re-registers with APNs on EVERY launch, as Apple asks, instead of only
+//     when the bell is tapped. iOS rotates device tokens, the bell hides itself once used, and a
+//     dead token fails silently, so notifications could stop for good with nothing on screen to
+//     explain it. Shipping an update to the native app means reinstalling it, so this is the
+//     difference between notifications surviving an update and not.
+// v26 (2026-09-21), both from Michael after using v25:
+//   - THE INBOX IS NOT A MAILBOX. It was pulling his entire Gmail inbox. It now shows only mail
+//     sent to or from a contact on an ACTIVE project, matching how the desktop CRM has always
+//     worked: "I don't want things like Bark updates or GigSalad or any of that nonsense." The
+//     unread badge counts the same thing, so it reads what is actually waiting on him instead of
+//     201. Rows name the CLIENT, never Michael, because the newest message in a live thread is
+//     usually his own reply.
+//   - PROPOSALS OPEN INSIDE THE CRM. Preview used to hand off to Firefox. It now frames the real
+//     page in a full-screen pane with a Back button, the same as PreviewPage.tsx on the Mac.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v24'
+var CACHE = 'mcrm-v26'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

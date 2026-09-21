@@ -9,11 +9,12 @@
 
 import {
   loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail,
-  addTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
+  addTask, updateTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage,
   reloadPaymentsFinance, savePushSubscription, saveNativePushToken,
-  createProject, archiveProject, completeProject, restoreProject, deleteProject,
+  createProject, archiveProject, completeProject, restoreProject, deleteProject, LEAD_SOURCES,
   updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
+  gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview,
 } from './supabase-data.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 
@@ -26,7 +27,8 @@ var DETAIL_ID = null // when non-null, the detail view for this project is on sc
 
 var PAGE_TITLES = {
   home: 'Home', pipeline: 'Pipeline', completed: 'Completed', archived: 'Archived', deleted: 'Deleted',
-  contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money',
+  contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', money: 'Money', inbox: 'Inbox',
+  proposals: 'Proposals',
 }
 
 // Completed / Archived / Deleted are their own pages now (2026-08-06). They used to be a segmented
@@ -78,6 +80,83 @@ function fmtShort(s) {
   var d = parseDate(s); if (!d) return s || ''
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+// "18:00" -> "6:00 PM". Times arrive from a <input type=time> on the booking form (always HH:MM)
+// or from Michael typing free text, so anything that is not HH:MM is passed straight through
+// rather than mangled. Never guess at a time; showing "5ish" verbatim beats showing nothing.
+function fmtTime(v) {
+  var t = String(v == null ? '' : v).trim()
+  var m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(t)
+  if (!m) return t
+  var h = Number(m[1]), mi = m[2]
+  if (h > 23) return t
+  var ap = h < 12 ? 'AM' : 'PM'
+  var h12 = h % 12 === 0 ? 12 : h % 12
+  return h12 + ':' + mi + ' ' + ap
+}
+
+// How far off the event is, in his words rather than a date maths answer. Drives the line under the
+// date on the day-of card: on the morning of a gig it should say "Today", not "0 days".
+function countdownText(dateStr) {
+  var d = parseDate(dateStr); if (!d) return ''
+  var t = new Date(); t.setHours(0, 0, 0, 0)
+  d.setHours(0, 0, 0, 0)
+  var days = Math.round((d - t) / 86400000)
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Tomorrow'
+  if (days === -1) return 'Yesterday'
+  if (days > 0) return 'in ' + days + ' days'
+  return Math.abs(days) + ' days ago'
+}
+
+// ---- the venue address, and getting it into a map ----
+//
+// Michael, 2026-09-21: "I need to be able to see the event address. The venue address when I get in
+// my car so I can stick it in the map."
+//
+// `maps://` (and `comgooglemaps://`) are custom schemes, which is the whole reason they work here.
+// A WKWebView will not load a scheme it does not know, so Capacitor's navigation delegate hands it
+// to the OS instead. That is the exact path the tel: / sms: / mailto: links in this app already
+// take, so it is proven in this build rather than hoped for. An https://maps.apple.com link would
+// be a universal link, and universal links do NOT open the target app when they are followed from
+// inside a WKWebView, so it would load a web map in the app window. Wrong tool.
+//
+// `daddr` (destination address) rather than `q` (search): he is getting in the car. He wants the
+// route, not a pin he then has to tap again.
+function mapsLinks(addr) {
+  var a = String(addr || '').replace(/\s+/g, ' ').trim()
+  if (!a) return null
+  var e = encodeURIComponent(a)
+  return {
+    address: a,
+    apple: 'maps://?daddr=' + e + '&dirflg=d',
+    // Google Maps' own scheme when the app is installed; the https form is the fallback that
+    // always resolves, so this link is never a dead tap.
+    google: 'comgooglemaps://?daddr=' + e + '&directionsmode=driving',
+    googleWeb: 'https://www.google.com/maps/dir/?api=1&destination=' + e + '&travelmode=driving',
+  }
+}
+
+// Copy to the clipboard, with the older execCommand path kept because navigator.clipboard is
+// undefined on a page served over plain http (the localhost dev build) and would otherwise throw.
+function copyText(text, okMsg) {
+  var done = function () { toast(okMsg || 'Copied') }
+  var fail = function () { toast('Could not copy', 'err') }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fail)
+    return
+  }
+  try {
+    var ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.cssText = 'position:fixed;left:-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+    done()
+  } catch (_) { fail() }
+}
+
 function todayStr() {
   var n = new Date()
   return n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0')
@@ -229,7 +308,8 @@ function stageName(id) { return (STAGE[id] || {}).name || '' }
 // The event-detail fields, in the desktop's order. Settings can relabel, hide or delete any of them
 // (SNAP.eventFieldLabels / eventFieldHidden / eventFieldDeleted), which allFieldRows applies.
 var EVENT_FIELDS = [
-  ['eventSummary', 'Description'], ['eventDate', 'Event date'], ['eventStartTime', 'Event start'],
+  ['eventSummary', 'Description'], ['eventDate', 'Event date'], ['arrivalTime', 'Arrival time'],
+  ['eventStartTime', 'Event start'],
   ['showStartTime', 'Show start'], ['totalFee', 'Quote'], ['numberOfGuests', 'Guest Count'],
   ['ageOfGuests', 'Guest ages'], ['eventLocation', 'Location'], ['venueType', 'Venue type'],
   ['indoorsOrOutdoors', 'Indoors / Outdoors'], ['performanceStyle', 'Performance'],
@@ -405,6 +485,10 @@ function openNewProject() {
   })
   var typeOpts = ['', 'Wedding', 'Corporate', 'Private Event', 'Bachelor(ette) Party', 'Other']
     .map(function (t) { return '<option value="' + esc(t) + '">' + esc(t || 'Event type…') + '</option>' }).join('')
+  // Where the lead came from, asked at CREATE time, which on the phone is usually seconds after the
+  // gig-site notification arrived and is the only moment he actually knows the answer.
+  var srcOpts = [''].concat(LEAD_SOURCES)
+    .map(function (t) { return '<option value="' + esc(t) + '">' + esc(t || 'Where did they find you?') + '</option>' }).join('')
   var sheet = el(
     '<div class="sheet"><div class="sheet-card">' +
       '<div class="sheet-title">New project</div>' +
@@ -413,6 +497,7 @@ function openNewProject() {
       '<select class="stagesel" id="np-stage">' + stageOpts + '</select></div>' +
       '<div class="addrow"><input class="field-input" id="np-date" type="date" /><input class="field-input" id="np-fee" inputmode="decimal" placeholder="Fee" /></div>' +
       '<input class="field-input" id="np-loc" placeholder="Location" style="margin-top:8px" />' +
+      '<select class="field-input" id="np-src" style="margin-top:8px">' + srcOpts + '</select>' +
       '<div class="fld-l" style="margin:14px 0 6px">Contacts</div>' +
       '<div id="np-contacts"></div>' +
       '<button class="btn-ghost" id="np-addcontact" style="width:100%">+ Add contact</button>' +
@@ -484,6 +569,7 @@ function openNewProject() {
       eventDate: sheet.querySelector('#np-date').value,
       totalFee: sheet.querySelector('#np-fee').value,
       eventLocation: sheet.querySelector('#np-loc').value,
+      bookingSource: sheet.querySelector('#np-src').value,
       contactNames: primary.name,
       contactEmails: primary.email,
       contactPhones: primary.phone,
@@ -551,10 +637,30 @@ function projectCard(p, accent) {
     var pillStyle = (accent && !pill.cls) ? ' style="color:' + accent + ';border-color:color-mix(in oklab,' + accent + ' 45%, var(--line))"' : ''
     pillHtml = '<span class="pill ' + pill.cls + '"' + pillStyle + '>' + esc(pill.text) + '</span>'
   }
+  // The date on its own is a fact he then has to do arithmetic on. "Oct 4 · in 13 days" is the
+  // answer he was going to work out anyway, and on an active project it is the whole reason he is
+  // looking at the board. Past events keep just the date: "42 days ago" on a finished gig is noise.
+  var cd = p.bucket === 'active' ? countdownText(p.eventDate) : ''
+  var soon = cd === 'Today' || cd === 'Tomorrow'
+  var meta = [p.eventType, p.eventDate ? fmtDate(p.eventDate) : ''].filter(Boolean).join('  ·  ')
+
+  // Two marks, both answering "does this one need me today". Tasks come from data already loaded;
+  // unread mail comes from the five-minute inbox poll and is simply absent until it has run once.
+  var due = (SNAP.tasks || []).filter(function (t) {
+    if (t.projectId !== p.id || t.done) return false
+    var st = dueState(t.dueDate, t.dueTime)
+    return st === 'due' || st === 'overdue'
+  }).length
+  var unread = UNREAD_BY_PROJECT[p.id] || 0
+  var marks = ''
+  if (due) marks += '<span class="cmark cmark-task">' + due + ' due</span>'
+  if (unread) marks += '<span class="cmark cmark-mail">' + unread + ' unread</span>'
+
   var c = el(
     '<button class="card' + (accent ? ' accented' : '') + '">' +
       '<div class="row1"><span class="name">' + esc(p.client) + '</span><span class="fee">' + esc(money(p.totalFee)) + '</span></div>' +
-      '<div class="meta">' + esc([p.eventType, p.eventDate ? fmtDate(p.eventDate) : ''].filter(Boolean).join('  ·  ')) + '</div>' +
+      '<div class="meta">' + esc(meta) + (cd ? '<span class="cdown' + (soon ? ' soon' : '') + '">' + esc(cd) + '</span>' : '') + '</div>' +
+      (marks ? '<div class="cmarks">' + marks + '</div>' : '') +
       pillHtml +
     '</button>'
   )
@@ -735,13 +841,18 @@ function doDelete(p) {
 // The header block (name, stage, contacts, Actions) repeats on every tab so the things you always
 // want are always there. It is NOT sticky by request: it scrolls away like any other content.
 // Everything that mutates the project's shape (stage, contacts, lifecycle) lives behind Actions.
+// Details FIRST, and the default. Michael, 2026-09-21: "I spend most of my time with the project
+// details page." Booking used to open first because it was the tab with the buttons on it, but
+// sending a booking form is something he does once per client and reading the event details is
+// something he does every time he opens the project.
 var PROJECT_TABS = [
-  ['booking', 'Booking', '<path d="M5 3h11l4 4v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><path d="M9 13h6M9 17h4"/>'],
   ['details', 'Details', '<path d="M4 5h16M4 12h16M4 19h10"/>'],
+  ['booking', 'Booking', '<path d="M5 3h11l4 4v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><path d="M9 13h6M9 17h4"/>'],
   ['tasks', 'Tasks', '<path d="M9 11l3 3L20 6"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>'],
+  ['email', 'Email', '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>'],
   ['notes', 'Notes', '<path d="M4 4h16v12l-4 4H4z"/><path d="M20 16h-4v4"/>'],
 ]
-var PTAB = 'booking' // which tab of the project view is showing
+var PTAB = 'details' // which tab of the project view is showing
 
 function renderDetail(id, keepScroll) {
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
@@ -760,6 +871,7 @@ function renderDetail(id, keepScroll) {
 
   if (PTAB === 'details') v.appendChild(detailsTab(p))
   else if (PTAB === 'tasks') v.appendChild(tasksSection(p))
+  else if (PTAB === 'email') v.appendChild(emailTab(p))
   else if (PTAB === 'notes') v.appendChild(notesTab(p))
   else v.appendChild(bookingTab(p))
 
@@ -866,9 +978,292 @@ function projectContactCards(p) {
 // each have a home of their own.
 function bookingTab(p) {
   var wrap = el('<div></div>')
+  wrap.appendChild(proposalSection(p))
   wrap.appendChild(bookingSection(p))
   wrap.appendChild(paymentsSection(p))
   return wrap
+}
+
+// This project's proposal: is it up, and has anyone read it.
+//
+// The whole list lives on the Proposals page; this is the one row that belongs to the client whose
+// page he is already on, because "did they open it yet" is a question he asks about a SPECIFIC
+// client, days after sending. Reuses the Proposals page's cache, so opening a project after
+// visiting that page costs nothing.
+//
+// ⚠️ Preview only, same as everywhere else. openUrl is pre-flagged by the server; url is the clean
+// one and is only ever copied.
+function proposalSection(p) {
+  var wrap = el('<div></div>')
+  var body = el('<div></div>')
+
+  function draw(data) {
+    var r = (data.items || []).find(function (x) { return x.projectId === p.id })
+    if (!r) return // no proposal for this client; say nothing rather than add an empty section
+    body.innerHTML = ''
+    body.appendChild(sectionLabel('Proposal'))
+    var card = el('<div class="card" style="pointer-events:auto"></div>')
+    var chips = el('<div class="phead-chips" style="margin-top:0"></div>')
+    chips.appendChild(el('<span class="pill ' + propStateClass(r.state) + '" style="margin:0">' + esc(propStateLabel(r.state)) + '</span>'))
+    chips.appendChild(el('<span class="propviews">' + r.views + (r.views === 1 ? ' view' : ' views') + '</span>'))
+    card.appendChild(chips)
+    card.appendChild(el('<div class="hint">' + esc(r.lastViewedAt ? 'Last opened ' + timeAgo(r.lastViewedAt) : r.views ? 'Opened, but no timestamp recorded.' : 'They have not opened it yet.') + '</div>'))
+    if (r.state !== 'live') card.appendChild(el('<div class="hint">' + esc(r.stateReason) + '</div>'))
+    var acts = el('<div class="do-actions" style="margin-top:11px"></div>')
+    if (r.openUrl) {
+      var view = el('<button class="do-go">Preview</button>')
+      view.addEventListener('click', function () {
+        openPreview({ src: r.openUrl, publicUrl: r.url, title: r.projectName, backLabel: p.client })
+      })
+      acts.appendChild(view)
+    }
+    var copy = el('<button class="do-alt">Copy link</button>')
+    copy.addEventListener('click', function () { copyText(r.url, 'Client link copied') })
+    acts.appendChild(copy)
+    card.appendChild(acts)
+    body.appendChild(card)
+  }
+
+  if (PROP_CACHE) draw(PROP_CACHE)
+  else {
+    loadProposalsOverview()
+      .then(function (d) { PROP_CACHE = d; if (DETAIL_ID === p.id) draw(d) })
+      .catch(function () { /* the proposal row is a nice-to-have; the booking flow below is not */ })
+  }
+  wrap.appendChild(body)
+  return wrap
+}
+
+// ---- the day-of card ----
+//
+// The single block Michael actually reads, and the reason the phone app exists. His brief,
+// 2026-09-21: "being able to see the event details in full clarity, especially the time and
+// location and contact information of the client. I need to be able to see the event address. The
+// venue address when I get in my car so I can stick it in the map."
+//
+// So: WHEN, WHERE, WHO, at a size he can read at arm's length, with the three things he does with
+// them (drive there, call them, text them) as one tap each. Everything that is merely *recorded*
+// about the event, rather than *done* on the day, is below in "Everything else".
+//
+// Blank fields say "Not set" in red here too. On the day of a gig, not knowing the show time is a
+// louder fact than any of the ones you do know.
+function dayOfCard(p) {
+  var card = el('<div class="dayof"></div>')
+
+  // WHEN. The date, then the three times side by side, because their ORDER is the thing he is
+  // reading: arrive, doors, show.
+  var when = el('<div class="do-sec"></div>')
+  var dateLine = el('<div class="do-date"></div>')
+  if (p.eventDate) {
+    dateLine.appendChild(el('<div class="do-date-v">' + esc(fmtDate(p.eventDate)) + '</div>'))
+    var cd = countdownText(p.eventDate)
+    if (cd) dateLine.appendChild(el('<div class="do-date-c' + (cd === 'Today' || cd === 'Tomorrow' ? ' soon' : '') + '">' + esc(cd) + '</div>'))
+  } else {
+    dateLine.appendChild(el('<div class="do-date-v miss">No date set</div>'))
+  }
+  when.appendChild(dateLine)
+
+  // These three fields are NOT always times. On the first real project this card was tried against,
+  // "Event" held "Not locked in yet" and "Show" held "Cocktail hour, around 6", and both were
+  // truncated to "Not locked...." and "Cocktail ho..." by a nowrap rule written for "8:30 PM".
+  // A real clock time stays big and on one line; anything else is set smaller and allowed to wrap,
+  // because a sentence he wrote himself is worth more than a tidy column.
+  var times = el('<div class="do-times"></div>')
+  ;[['arrivalTime', 'Arrive'], ['eventStartTime', 'Event'], ['showStartTime', 'Show']].forEach(function (t) {
+    var raw = String(p[t[0]] == null ? '' : p[t[0]]).trim()
+    var v = fmtTime(raw)
+    var isClock = /^\d{1,2}:\d{2}\s?(AM|PM)$/i.test(v)
+    times.appendChild(el(
+      '<div class="do-time"><div class="do-time-l">' + esc(t[1]) + '</div>' +
+      '<div class="do-time-v' + (v ? (isClock ? '' : ' free') : ' miss') + '">' + (v ? esc(v) : '--') + '</div></div>'
+    ))
+  })
+  when.appendChild(times)
+  card.appendChild(when)
+
+  // WHERE. The address is the payload; venue type and indoors/outdoors are the context he wants
+  // alongside it (what am I walking into, and do I need to worry about weather).
+  var where = el('<div class="do-sec"></div>')
+  where.appendChild(el('<div class="do-l">Venue</div>'))
+  // Don't say the same thing twice. venueType is free text and often already contains the answer:
+  // one real project reads "NC State University Club. Mainly indoors, with an outdoor patio guests
+  // move between", and joining indoorsOrOutdoors onto that printed "Mainly indoors, with an outdoor
+  // patio" a second time in the same sentence.
+  var vt = String(p.venueType || '').trim()
+  var io = String(p.indoorsOrOutdoors || '').trim()
+  var parts = [vt]
+  if (io && vt.toLowerCase().indexOf(io.toLowerCase()) < 0) parts.push(io)
+  var vmeta = parts.filter(Boolean).join('  ·  ')
+  if (vmeta) where.appendChild(el('<div class="do-vmeta">' + esc(vmeta) + '</div>'))
+
+  var m = mapsLinks(p.eventLocation)
+  if (m) {
+    var addr = el('<button class="do-addr">' + esc(m.address) + '</button>')
+    addr.addEventListener('click', function () { window.location.href = m.apple })
+    where.appendChild(addr)
+
+    var row = el('<div class="do-actions"></div>')
+    var drive = el('<a class="do-go">Directions</a>')
+    drive.href = m.apple
+    row.appendChild(drive)
+    // Google gets its own button because he may be routing around traffic, not because Apple Maps
+    // failed. Try the app, fall back to the web after a beat if nothing took the tap.
+    var g = el('<a class="do-alt">Google</a>')
+    g.href = m.google
+    g.addEventListener('click', function () {
+      var hid = false
+      var onHide = function () { hid = true }
+      document.addEventListener('visibilitychange', onHide, { once: true })
+      setTimeout(function () {
+        document.removeEventListener('visibilitychange', onHide)
+        if (!hid && !document.hidden) window.open(m.googleWeb, '_blank')
+      }, 700)
+    })
+    row.appendChild(g)
+    var cp = el('<button class="do-alt">Copy</button>')
+    cp.addEventListener('click', function () { copyText(m.address, 'Address copied') })
+    row.appendChild(cp)
+    where.appendChild(row)
+  } else {
+    where.appendChild(el('<div class="do-addr miss" style="pointer-events:none">No venue address yet</div>'))
+  }
+  card.appendChild(where)
+
+  // WHO. The header already lists every contact; this repeats the PRIMARY one, because on the day
+  // there is exactly one person he calls and it should not take a scroll to find them.
+  var linked = projectContactCards(p)
+  var who = linked[0]
+  if (who) {
+    var sec = el('<div class="do-sec"></div>')
+    sec.appendChild(el('<div class="do-l">Day-of contact</div>'))
+    sec.appendChild(el('<div class="do-who">' + esc(who.name) + '</div>'))
+    var sub = [fmtPhoneDisplay(who.phones[0]), who.emails[0]].filter(Boolean).join('  ·  ')
+    if (sub) sec.appendChild(el('<div class="do-whos">' + esc(sub) + '</div>'))
+    var acts = el('<div class="do-actions"></div>')
+    if (who.phones[0]) {
+      acts.appendChild(el('<a class="do-go" href="tel:' + esc(who.phones[0]) + '">Call</a>'))
+      acts.appendChild(el('<a class="do-alt" href="sms:' + esc(who.phones[0]) + '">Text</a>'))
+    }
+    if (who.emails[0]) acts.appendChild(el('<a class="do-alt" href="mailto:' + esc(who.emails[0]) + '">Email</a>'))
+    if (acts.children.length) sec.appendChild(acts)
+    card.appendChild(sec)
+  }
+
+  // Headcount and what he is actually performing. Short, because they are one-glance facts.
+  var facts = []
+  if (String(p.numberOfGuests || '').trim()) facts.push(['Guests', String(p.numberOfGuests).trim()])
+  if (String(p.ageOfGuests || '').trim()) facts.push(['Ages', String(p.ageOfGuests).trim()])
+  if (String(p.performanceStyle || '').trim()) facts.push(['Performing', String(p.performanceStyle).trim()])
+  if (facts.length) {
+    var fsec = el('<div class="do-sec do-facts"></div>')
+    facts.forEach(function (f) {
+      fsec.appendChild(el('<div class="do-fact"><span class="do-fact-l">' + esc(f[0]) + '</span><span class="do-fact-v">' + esc(f[1]) + '</span></div>'))
+    })
+    card.appendChild(fsec)
+  }
+  return card
+}
+
+// (123) 456-7890 for a plain 10-digit string, verbatim for anything else. Display only; the tel:
+// href always carries the raw value so nothing can be lost to formatting.
+function fmtPhoneDisplay(v) {
+  var d = String(v || '').replace(/\D/g, '')
+  if (d.length === 10) return '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6)
+  if (d.length === 11 && d[0] === '1') return '(' + d.slice(1, 4) + ') ' + d.slice(4, 7) + '-' + d.slice(7)
+  return String(v || '')
+}
+
+// ---- what the client actually sent back ----
+//
+// Two different artefacts, and Michael asked for both: "I need to be able to see the PDF of their
+// completed booking form and performance agreement so I can see what they entered".
+//
+//   - The ANSWERS, verbatim, as text. This is the useful one on a phone: it is selectable,
+//     searchable and the address in it is tappable. A PDF of a form is a picture of a form.
+//   - The AGREEMENT PDF, which is the document with legal weight, built by the same cloud renderer
+//     that produced the client's copy. Already wired; it just lived on the Booking tab where he
+//     was not looking for it.
+//
+// Note the answers are the raw submission, NOT the project fields. They can differ: Michael edits a
+// project after the form comes in. Seeing what the CLIENT said, unedited, is the point.
+function submittedSection(p) {
+  var wrap = el('<div></div>')
+  var body = el('<div></div>')
+
+  function draw(g) {
+    body.innerHTML = ''
+    var answers = (g && Array.isArray(g.answers) ? g.answers : []).filter(function (a) {
+      return a && String(a.value == null ? '' : a.value).trim()
+    })
+    if (!answers.length && !(g && (g.stage === 'submitted' || g.stage === 'signed'))) return
+    body.appendChild(sectionLabel('What they sent back'))
+
+    if (g.stage === 'submitted' || g.stage === 'signed') {
+      var chip = el(
+        '<button class="pdfchip"><span class="pdfchip-i">PDF</span><span>' +
+        '<span class="pdfchip-n">Performance agreement' + (g.stage === 'signed' ? ' (signed)' : '') + '</span>' +
+        '<span class="pdfchip-s">' + (g.stage === 'signed' ? 'Signed ' + esc(bookingStamp(g.signedAt) || '') + (g.signedName ? ' by ' + esc(g.signedName) : '') : 'Details in, not signed yet') + ' · tap to preview</span>' +
+        '</span></button>'
+      )
+      chip.addEventListener('click', function () { openPdfPreview(p) })
+      body.appendChild(chip)
+    }
+
+    if (!answers.length) return
+    var open = false
+    var toggle = el('<button class="pdfchip"><span class="pdfchip-i" style="background:rgba(93,169,163,0.16);color:var(--teal)">FRM</span><span><span class="pdfchip-n">Completed booking form</span><span class="pdfchip-s">' + answers.length + ' answers · tap to read</span></span></button>')
+    var list = el('<div class="kv kv-full" style="display:none"></div>')
+    answers.forEach(function (a) {
+      var label = BOOKING_FORM_LABELS[a.id] || a.id
+      var value = String(a.value).trim()
+      var item = el('<div class="item"><div class="k">' + esc(label) + '</div></div>')
+      // The venue address the CLIENT typed gets the same one-tap route as the one on the day-of
+      // card, because this is often where it lands first.
+      var mm = a.id === 'venue_address' ? mapsLinks(value) : null
+      if (mm) {
+        var v = el('<button class="v do-inline-addr">' + esc(value) + '</button>')
+        v.addEventListener('click', function () { window.location.href = mm.apple })
+        item.appendChild(v)
+      } else {
+        item.appendChild(el('<div class="v">' + esc(value) + '</div>'))
+      }
+      list.appendChild(item)
+    })
+    toggle.addEventListener('click', function () {
+      open = !open
+      list.style.display = open ? '' : 'none'
+      toggle.querySelector('.pdfchip-s').textContent = answers.length + ' answers · tap to ' + (open ? 'hide' : 'read')
+    })
+    body.appendChild(toggle)
+    body.appendChild(list)
+  }
+
+  draw(BOOKING_PROGRESS[p.id])
+  refreshBookingProgress(p.id, draw)
+  wrap.appendChild(body)
+  return wrap
+}
+
+// Answer id -> the question the client was asked. Mirrors BOOKING_FIELDS in crm-booking-form.mjs,
+// shortened for a phone: the form asks "For a stage show, what AV is available at the venue (sound
+// system, projector/screen, etc)?" and on a 390px screen that is a paragraph, not a label.
+//
+// ⚠️ Keys must stay in step with BOOKING_FIELDS. An id with no entry here falls back to the raw id,
+// which is ugly but never wrong, so a new question added to the form degrades rather than breaks.
+var BOOKING_FORM_LABELS = {
+  event_summary: 'Description of the event',
+  event_start_time: 'Event start time',
+  show_start_time: 'Show start time',
+  number_of_guests: 'Number of guests',
+  age_of_guests: 'Ages of the guests',
+  venue_address: 'Venue address',
+  venue_type: 'Venue type',
+  indoors_or_outdoors: 'Indoor or outdoor',
+  av: 'AV available',
+  vips: 'VIPs',
+  invoice_to: 'Invoice made out to',
+  unforgettable: 'How to make it unforgettable',
+  notes: 'Anything else',
 }
 
 // Details: EVERY event field, including the blank ones, which are called out in red. A field you
@@ -877,7 +1272,9 @@ function bookingTab(p) {
 // minefield of accidental edits.
 function detailsTab(p) {
   var wrap = el('<div></div>')
-  wrap.appendChild(sectionLabel('Event details'))
+  wrap.appendChild(dayOfCard(p))
+  wrap.appendChild(submittedSection(p))
+  wrap.appendChild(sectionLabel('Everything else'))
   var rows = allFieldRows(p)
   var missing = rows.filter(function (r) { return r.empty }).length
   var kv = el('<div class="kv kv-full"></div>')
@@ -1062,6 +1459,7 @@ function tasksSection(p) {
     wrap.appendChild(slot)
     if (open.length) open.forEach(function (t) { wrap.appendChild(taskCard(t, false, rebuild)) })
     else wrap.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">No open tasks.</div>'))
+    wrap.appendChild(doneSection((SNAP.tasks || []).filter(function (t) { return t.projectId === p.id && t.done }), false))
   }
   rebuild()
   return wrap
@@ -1554,6 +1952,10 @@ function renderLog(wrap, p) {
 var EDITABLE_DETAIL_FIELDS = [
   ['projectName', 'Display name', 'text'],
   ['eventDate', 'Event date', 'date'],
+  // Arrival time. Present in the desktop's EVENT_FIELDS since the beginning and missing from the
+  // phone's until 2026-09-21, which meant the one time that decides when Michael leaves the house
+  // was the one time he could not read or set from his phone.
+  ['arrivalTime', 'Arrival time', 'text'],
   ['eventStartTime', 'Event start', 'text'],
   ['showStartTime', 'Show start', 'text'],
   ['eventLocation', 'Location', 'text'],
@@ -1922,11 +2324,89 @@ function taskCard(t, showProject, onChange) {
       after()
     })
   })
-  if (showProject) {
-    var body = c.querySelector('.taskbody')
-    body.addEventListener('click', function () { renderDetail(t.projectId) })
-  }
+  // Tapping the task opens the editor, on the Tasks page AND inside a project. It used to open the
+  // project on one screen and do nothing on the other, so the only thing you could do to a task
+  // from the phone was tick it or bin it. Michael, 2026-09-21: "I want to... go through all of my
+  // tasks easily, both in the overview task view and in the individual project view." Going
+  // through them means rescheduling them, which needs somewhere to do it.
+  c.querySelector('.taskbody').addEventListener('click', function () { openTaskEditor(t, after) })
   return c
+}
+
+// One task, editable: retitle, reschedule, jump to its project, delete. The quick-date row is the
+// part that matters for his morning pass, because "not today" is the most common answer to a task
+// and it should not cost a date picker.
+function openTaskEditor(t, after) {
+  var refresh = after || refreshView
+  var pr = t.projectId ? SNAP.projects.find(function (x) { return x.id === t.projectId }) : null
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card">' +
+      '<div class="sheet-head"><div class="sheet-title">Task</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var close = function () { sheet.remove() }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+
+  var title = document.createElement('textarea')
+  title.className = 'field-input'
+  title.rows = 2
+  title.value = t.title || ''
+  body.appendChild(el('<div class="do-l" style="margin-bottom:6px">Task</div>'))
+  body.appendChild(title)
+
+  body.appendChild(el('<div class="do-l" style="margin:14px 0 6px">Due</div>'))
+  var when = el('<div class="addrow"></div>')
+  var dIn = document.createElement('input'); dIn.className = 'search'; dIn.type = 'date'; dIn.value = t.dueDate || ''
+  var tIn = document.createElement('input'); tIn.className = 'search'; tIn.type = 'time'; tIn.value = t.dueTime || ''
+  when.appendChild(dIn); when.appendChild(tIn)
+  body.appendChild(when)
+
+  var quick = el('<div class="do-actions" style="margin-top:9px"></div>')
+  ;[['Today', 0], ['Tomorrow', 1], ['+1 week', 7], ['Clear', null]].forEach(function (q) {
+    var b = el('<button class="do-alt" style="padding:8px 4px;font-size:12.5px">' + esc(q[0]) + '</button>')
+    b.addEventListener('click', function () {
+      dIn.value = q[1] == null ? '' : addDays(todayStr(), q[1])
+      if (q[1] == null) tIn.value = ''
+    })
+    quick.appendChild(b)
+  })
+  body.appendChild(quick)
+
+  if (pr) {
+    var go = el('<button class="btn-ghost" style="width:100%;margin-top:14px">Open ' + esc(pr.client) + '</button>')
+    go.addEventListener('click', function () { close(); renderDetail(pr.id) })
+    body.appendChild(go)
+  }
+
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+  bar.children[0].addEventListener('click', close)
+  bar.children[1].addEventListener('click', function () {
+    var nt = title.value.trim()
+    if (!nt) { toast('A task needs a title.', 'err'); return }
+    // Every field is sent, including the blanks: updateTask treats null as "leave alone" and a
+    // string as "set to this", so clearing a due date has to be an empty STRING, not an omission.
+    doWrite(updateTask({ id: t.id, title: nt, dueDate: dIn.value || '', dueTime: tIn.value || '' }), 'Task saved', function () {
+      t.title = nt; t.dueDate = dIn.value || ''; t.dueTime = tIn.value || ''
+      close(); refresh()
+    })
+  })
+  body.appendChild(bar)
+
+  var del = el('<button class="btn-ghost" style="width:100%;margin-top:9px;color:var(--red);border-color:color-mix(in oklab,var(--red) 40%, var(--line))">Delete task</button>')
+  del.addEventListener('click', function () {
+    doWrite(deleteTask(t.id), 'Task deleted', function () {
+      SNAP.tasks = SNAP.tasks.filter(function (x) { return x.id !== t.id })
+      close(); refresh()
+    })
+  })
+  body.appendChild(del)
+
+  document.body.appendChild(sheet)
 }
 
 // A minimal add-task form (title + optional due date/time), used both on the Tasks tab (no project)
@@ -1981,11 +2461,649 @@ function renderTasks() {
   var today = dated.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'due' })
   var upcoming = dated.filter(function (t) { return !dueState(t.dueDate, t.dueTime) })
   var nodate = open.filter(function (t) { return !t.dueDate })
-  if (!open.length) { v.appendChild(el('<div class="empty">No open tasks. Nice.</div>')); return }
+  if (!open.length) v.appendChild(el('<div class="empty">No open tasks. Nice.</div>'))
   if (overdue.length) { v.appendChild(sectionLabel('Overdue · ' + overdue.length)); overdue.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
   if (today.length) { v.appendChild(sectionLabel('Today · ' + today.length)); today.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
   if (upcoming.length) { v.appendChild(sectionLabel('Upcoming · ' + upcoming.length)); upcoming.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
   if (nodate.length) { v.appendChild(sectionLabel('No due date · ' + nodate.length)); nodate.forEach(function (t) { v.appendChild(taskCard(t, true)) }) }
+  v.appendChild(doneSection(SNAP.tasks.filter(function (t) { return t.done }), true))
+}
+
+// The tasks he has already ticked, folded away. Not a report: a way BACK.
+//
+// A tapped checkbox removes a task from every list on the phone instantly, so a mis-tap while
+// scrolling through a morning's worth of tasks used to be unrecoverable without the laptop. The
+// tasks table has no completion timestamp, so this cannot honestly claim to be "done today" and
+// does not try; it is just "done", newest due date first, capped at 25.
+function doneSection(done, showProject) {
+  var wrap = el('<div></div>')
+  if (!done.length) return wrap
+  var open = false
+  var head = el('<button class="donehead"><span>Done · ' + done.length + '</span><span class="donechev">Show</span></button>')
+  var list = el('<div style="display:none"></div>')
+  done.slice().sort(function (a, b) { return String(b.dueDate || '').localeCompare(String(a.dueDate || '')) })
+    .slice(0, 25)
+    .forEach(function (t) { list.appendChild(taskCard(t, showProject)) })
+  head.addEventListener('click', function () {
+    open = !open
+    list.style.display = open ? '' : 'none'
+    head.querySelector('.donechev').textContent = open ? 'Hide' : 'Show'
+  })
+  wrap.appendChild(head)
+  wrap.appendChild(list)
+  return wrap
+}
+
+// ================================ EMAIL ================================
+//
+// Michael, 2026-09-21: "I want to read and send emails. I often send emails from the client's
+// project page... but the inbox page is still good because I want to be able to see notifications
+// when I have unread emails."
+//
+// Two entry points, one engine:
+//   - INBOX, a page: everything, newest first, unread called out.
+//   - PROJECT > Email, a tab: only the correspondence with THAT client, plus a compose box already
+//     addressed to them. This is the one he says he actually uses.
+//
+// Both read through the `gmail` Edge Function. Sending goes through `send-email`, which already
+// existed and already records the sent message against the project.
+
+// Threads are cached per query so switching tabs and coming back is instant and does not spend a
+// Gmail quota unit. 90 seconds, because an inbox that is a minute and a half stale is fine and a
+// pull-to-refresh he has to think about is not.
+var MAIL_CACHE = {}
+var MAIL_TTL_MS = 90 * 1000
+function mailFetch(q, max, cb) {
+  var key = (Array.isArray(q) ? q.join('~') : q) + '|' + max
+  var hit = MAIL_CACHE[key]
+  if (hit && Date.now() - hit.at < MAIL_TTL_MS) { cb(null, hit.threads); return }
+  gmailList({ q: q, max: max })
+    .then(function (threads) { MAIL_CACHE[key] = { at: Date.now(), threads: threads }; cb(null, threads) })
+    .catch(function (e) { cb(e) })
+}
+function mailForget() { MAIL_CACHE = {} }
+
+// "3:42 PM" today, "Sep 14" this year, "Sep 14 2024" beyond. Same shape Mail uses, for the same
+// reason: the older a message is, the less its time of day matters.
+function mailWhen(ts) {
+  var d = new Date(Number(ts) || 0)
+  if (!ts || isNaN(d.getTime())) return ''
+  var now = new Date()
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Every email address that belongs to a project: its own contact_emails column plus every linked
+// contact's addresses. Lower-cased, de-duplicated. This is what decides whether a thread is "about"
+// a client, and it runs HERE rather than in the Edge Function because the phone already holds all
+// of it in memory and a second copy on the server would be a second thing to keep in step.
+function projectEmails(p) {
+  var out = {}
+  ;(p.contactEmails || '').split(/[,;]/).forEach(function (e) {
+    var v = e.trim().toLowerCase(); if (v) out[v] = 1
+  })
+  contactsForProject(p).forEach(function (c) {
+    ;(c.emails || []).forEach(function (e) { var v = String(e).trim().toLowerCase(); if (v) out[v] = 1 })
+  })
+  return Object.keys(out)
+}
+
+// projectId for a thread, or '' when it belongs to nobody in the CRM. Built once per render rather
+// than per row: with a few hundred projects and a few dozen threads, doing it per row is a few
+// thousand string comparisons for an answer that does not change.
+//
+// ACTIVE PROJECTS FIRST, then everything else. Mirrors unreadByProject in crm-gmail.mjs: first wins,
+// so a contact who appears on both a live job and an old archived one is attributed to the live one
+// rather than to whichever the loop happened to reach first.
+function emailToProjectIndex() {
+  var ix = {}
+  // SNAP is null until the first load finishes, and the mail poll starts at the same moment.
+  var all = (SNAP && SNAP.projects) || []
+  var ordered = all.filter(function (p) { return p.bucket === 'active' })
+    .concat(all.filter(function (p) { return p.bucket !== 'active' }))
+  ordered.forEach(function (p) {
+    projectEmails(p).forEach(function (e) { if (!ix[e]) ix[e] = p.id })
+  })
+  return ix
+}
+
+// ---- WHOSE MAIL THE INBOX SHOWS ----
+//
+// Michael, 2026-09-21: "it's pulling in my entire Gmail inbox... that's not how the CRM on my
+// laptop works. It only shows me emails that are sent to or from contacts in my active projects.
+// I don't want things like Bark updates or GigSalad or any of that nonsense."
+//
+// So the Inbox is not a mailbox, it is a CLIENT CORRESPONDENCE view. The scope is every email
+// address belonging to a contact on an ACTIVE project, and a thread qualifies if it was sent to OR
+// from one of them. His own sent mail counts, which is the point: this is the conversation, not the
+// arrivals board.
+//
+// Why it is chunked. Gmail caps a query at roughly 2,000 characters. Thirty addresses written twice
+// (once under from:, once under to:) is well past that, so the list is split and the Edge Function
+// runs one query per chunk and merges. `from:{a b c}` is Gmail's own OR-over-a-field syntax, which
+// is what crm-gmail.mjs uses for the same reason, and it is far shorter than "from:a OR from:b".
+var MAIL_CHUNK = 12
+function activeProjectEmails() {
+  var seen = {}
+  var out = []
+  ;((SNAP && SNAP.projects) || []).forEach(function (p) {
+    if (p.bucket !== 'active') return
+    projectEmails(p).forEach(function (e) {
+      // Gmail's brace syntax is whitespace-separated, so an address containing a space would break
+      // out of the group and silently widen the search. Anything that is not a plain address is
+      // dropped rather than trusted.
+      if (!/^[^\s{}]+@[^\s{}]+\.[^\s{}]+$/.test(e)) return
+      if (seen[e]) return
+      seen[e] = 1
+      out.push(e)
+    })
+  })
+  return out
+}
+
+// The queries for the Inbox. `extra` prefixes each one ('is:unread' for the unread view).
+// Returns [] when there is nobody to search for, which the caller must treat as "show nothing"
+// rather than falling back to a bare query: a fallback here would quietly put all 201 Bark and
+// GigSalad notifications back on the screen, which is the exact thing being fixed.
+function buildClientMailQueries(extra) {
+  var addrs = activeProjectEmails()
+  if (!addrs.length) return []
+  var pre = extra ? extra + ' ' : ''
+  var qs = []
+  for (var i = 0; i < addrs.length; i += MAIL_CHUNK) {
+    var group = addrs.slice(i, i + MAIL_CHUNK).join(' ')
+    qs.push(pre + '(from:{' + group + '} OR to:{' + group + '})')
+  }
+  return qs
+}
+
+// ---- the Inbox page ----
+var INBOX_UNREAD_ONLY = false
+function renderInbox() {
+  var v = $('#view'); v.innerHTML = ''
+  var head = el('<div class="tabhead"><div class="seg"></div><button class="addbtn" id="mail-refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Refresh</button></div>')
+  var seg = head.querySelector('.seg')
+  ;[['All', false], ['Unread', true]].forEach(function (o) {
+    var b = el('<button class="segb' + (INBOX_UNREAD_ONLY === o[1] ? ' on' : '') + '">' + o[0] + '</button>')
+    b.addEventListener('click', function () { if (INBOX_UNREAD_ONLY === o[1]) return; INBOX_UNREAD_ONLY = o[1]; renderInbox() })
+    seg.appendChild(b)
+  })
+  head.querySelector('#mail-refresh').addEventListener('click', function () { mailForget(); renderInbox() })
+  v.appendChild(head)
+
+  var list = el('<div></div>')
+  v.appendChild(list)
+
+  var q = buildClientMailQueries(INBOX_UNREAD_ONLY ? 'is:unread' : '')
+  if (!q.length) {
+    list.appendChild(el('<div class="empty" style="padding:40px 16px">No active project has a contact with an email address, so there is nobody to show mail from yet.</div>'))
+    return
+  }
+  // Say out loud what this list is, because it is deliberately NOT the mailbox and a short list is
+  // otherwise indistinguishable from a broken one.
+  v.insertBefore(el('<div class="hint" style="margin:0 2px 4px">Everyone on your active projects. Nothing else.</div>'), list)
+  list.appendChild(el('<div class="empty">Loading mail…</div>'))
+
+  mailFetch(q, 25, function (err, threads) {
+    if (TAB !== 'inbox') return // he navigated away while it was in flight
+    list.innerHTML = ''
+    if (err) { list.appendChild(mailError(err, function () { mailForget(); renderInbox() })); return }
+    if (!threads.length) {
+      list.appendChild(el('<div class="empty">' + (INBOX_UNREAD_ONLY ? 'Nothing unread from a client.' : 'No mail with anyone on your active projects yet.') + '</div>'))
+      return
+    }
+    var ix = emailToProjectIndex()
+    threads.forEach(function (t) { list.appendChild(mailRow(t, ix, function () { renderInbox() })) })
+  })
+}
+
+// One thread in a list. The project name, when we can work it out, is the most valuable thing on
+// the row: it turns "who is Sarah again" into "oh, the Duke wedding".
+//
+// THE NAME ON THE ROW IS THE CLIENT, NEVER MICHAEL. A thread is collapsed to its newest message,
+// and in an ongoing conversation the newest message is usually his own reply, so a straight "from"
+// made most of the inbox read "Michael Bloemeke ... Michael Bloemeke ... Michael Bloemeke". The
+// counterpart is worked out by scope rather than by knowing his own address: whichever party to the
+// thread is a contact on one of his projects is the client, and if that is a recipient rather than
+// the sender the row says "To" so a conversation he is waiting on still reads differently from one
+// he last spoke in. Same convention Mail uses, for the same reason.
+function mailRow(t, ix, after) {
+  var pid = ix ? ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || '' : ''
+  var pr = pid ? SNAP.projects.find(function (x) { return x.id === pid }) : null
+  var who = t.from || t.fromEmail
+  var outbound = false
+  if (ix && !ix[t.fromEmail]) {
+    var toClient = (t.to || []).filter(function (e) { return ix[e] })[0]
+    if (toClient) { who = toClient; outbound = true }
+  }
+  var row = el(
+    '<button class="mailrow' + (t.unread ? ' unread' : '') + '">' +
+      '<span class="maildot"></span>' +
+      '<span class="mailbody">' +
+        '<span class="mailtop"><span class="mailfrom">' + (outbound ? '<span class="mailto">To</span> ' : '') + esc(who) + '</span><span class="mailwhen">' + esc(mailWhen(t.ts)) + '</span></span>' +
+        '<span class="mailsub">' + esc(t.subject) + '</span>' +
+        '<span class="mailsnip">' + esc(String(t.snippet || '').slice(0, 130)) + '</span>' +
+        (pr ? '<span class="mailproj">' + esc(pr.client) + '</span>' : '') +
+      '</span>' +
+    '</button>'
+  )
+  row.addEventListener('click', function () { openThread(t, pr, after) })
+  return row
+}
+
+function mailError(err, retry) {
+  var box = el('<div class="empty" style="padding:26px 14px"><div>' + esc(err.message || 'Could not reach email.') + '</div></div>')
+  var b = el('<button class="btn-ghost" style="margin-top:12px">Try again</button>')
+  b.addEventListener('click', retry)
+  box.appendChild(b)
+  return box
+}
+
+// ---- reading one thread ----
+//
+// Opening does NOT mark read. Michael's unread count is a real signal about what he still owes an
+// answer to, and glancing at a thread to see who it is from should not quietly spend it. "Mark
+// read" is a button, and replying marks it read on his behalf because a reply settles the question.
+function openThread(t, project, after) {
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title" style="min-width:0">' + esc(t.subject || '(no subject)') + '</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var dirty = false
+  var close = function () { sheet.remove(); if (dirty && after) after() }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+  body.appendChild(el('<div class="empty">Loading…</div>'))
+  document.body.appendChild(sheet)
+
+  gmailThread(t.threadId).then(function (th) {
+    body.innerHTML = ''
+    if (project) {
+      var go = el('<button class="btn-ghost" style="width:100%;margin-bottom:12px">Open ' + esc(project.client) + '</button>')
+      go.addEventListener('click', function () { close(); navigate(pageForBucket(project.bucket)); renderDetail(project.id) })
+      body.appendChild(go)
+    }
+    th.messages.forEach(function (m) {
+      var msg = el('<div class="msg"></div>')
+      msg.appendChild(el('<div class="msg-h"><span class="msg-from">' + esc(m.from || m.fromEmail) + '</span><span class="msg-when">' + esc(mailWhen(m.ts)) + '</span></div>'))
+      msg.appendChild(el('<div class="msg-to">to ' + esc((m.to || []).join(', ') || 'me') + '</div>'))
+      msg.appendChild(el('<div class="msg-b">' + esc(m.body || '(no text)').replace(/\n/g, '<br>') + '</div>'))
+      body.appendChild(msg)
+    })
+
+    var last = th.messages[th.messages.length - 1] || {}
+    var bar = el('<div class="addrow" style="margin-top:14px"></div>')
+    var rep = el('<button class="btn-gold">Reply</button>')
+    rep.addEventListener('click', function () {
+      close()
+      openCompose({
+        to: last.fromEmail && last.fromEmail !== 'me' ? last.fromEmail : (last.to || [])[0] || '',
+        subject: /^re:/i.test(th.subject) ? th.subject : 'Re: ' + th.subject,
+        project: project,
+        threadId: t.threadId,
+        after: after,
+      })
+    })
+    var mk = el('<button class="btn-ghost">' + (t.unread ? 'Mark read' : 'Read') + '</button>')
+    if (!t.unread) mk.disabled = true
+    mk.addEventListener('click', function () {
+      doWrite(gmailMarkRead(t.threadId), 'Marked read', function () {
+        t.unread = false; mailForget(); dirty = true; close()
+      })
+    })
+    bar.appendChild(mk); bar.appendChild(rep)
+    body.appendChild(bar)
+  }).catch(function (e) {
+    body.innerHTML = ''
+    body.appendChild(mailError(e, close))
+  })
+}
+
+// ---- writing one ----
+//
+// Plain text, on purpose. The send function turns blank lines into paragraphs and single newlines
+// into <br>, so what he types on a phone keyboard is what the client reads. No formatting toolbar
+// to fat-finger, no HTML to get wrong one-handed.
+function openCompose(opts) {
+  var o = opts || {}
+  var project = o.project || null
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card sheet-tall">' +
+      '<div class="sheet-head"><div class="sheet-title">' + (o.threadId ? 'Reply' : 'New email') + '</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var close = function () { sheet.remove() }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+
+  var to = document.createElement('input')
+  to.className = 'search'; to.type = 'email'; to.placeholder = 'To'
+  to.value = o.to || ''
+  to.autocapitalize = 'off'; to.autocorrect = 'off'
+  body.appendChild(el('<div class="do-l" style="margin-bottom:6px">To</div>'))
+  body.appendChild(to)
+
+  // Every address on the project, one tap each. Typing an email address on a phone is the single
+  // most annoying thing in this whole app, and he already has these people in the CRM.
+  if (project) {
+    var addrs = projectEmails(project)
+    if (addrs.length) {
+      var chips = el('<div class="do-actions" style="flex-wrap:wrap;margin-top:8px"></div>')
+      addrs.forEach(function (a) {
+        var c = el('<button class="do-alt" style="flex:0 1 auto;padding:7px 11px;font-size:12px">' + esc(a) + '</button>')
+        c.addEventListener('click', function () { to.value = a })
+        chips.appendChild(c)
+      })
+      body.appendChild(chips)
+    }
+  }
+
+  var subj = document.createElement('input')
+  subj.className = 'search'; subj.placeholder = 'Subject'
+  subj.value = o.subject || ''
+  body.appendChild(el('<div class="do-l" style="margin:14px 0 6px">Subject</div>'))
+  body.appendChild(subj)
+
+  var msg = document.createElement('textarea')
+  msg.className = 'field-input'; msg.rows = 10
+  msg.value = o.body || ''
+  body.appendChild(el('<div class="do-l" style="margin:14px 0 6px">Message</div>'))
+  body.appendChild(msg)
+
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Send</button></div>')
+  bar.children[0].addEventListener('click', close)
+  var send = bar.children[1]
+  send.addEventListener('click', function () {
+    var t = to.value.trim(), sj = subj.value.trim(), bd = msg.value
+    if (!/.+@.+\..+/.test(t)) { toast('Add a valid recipient.', 'err'); return }
+    if (!sj) { toast('Add a subject.', 'err'); return }
+    if (!bd.trim()) { toast('The message is empty.', 'err'); return }
+    // Disabled while in flight. A cloud send is a second or two on a phone network, and a second
+    // tap would be a second email in the client's inbox.
+    send.disabled = true
+    send.textContent = 'Sending…'
+    sendEmail({ to: t, subject: sj, body: bd, projectId: project ? project.id : '', kind: 'custom' })
+      .then(function () {
+        toast('Email sent')
+        mailForget()
+        // The reply settles the thread, so it is no longer unread. Failing to mark it is not worth
+        // failing the send over: the email is gone either way.
+        if (o.threadId) gmailMarkRead(o.threadId).catch(function () {})
+        close()
+        if (o.after) o.after()
+      })
+      .catch(function (e) {
+        send.disabled = false
+        send.textContent = 'Send'
+        toast(e.message || 'Could not send.', 'err')
+      })
+  })
+  body.appendChild(bar)
+  document.body.appendChild(sheet)
+  setTimeout(function () { (o.to ? msg : to).focus() }, 60)
+}
+
+// ---- the project's Email tab ----
+//
+// "I often send emails from the client's project page, the details page, and not on the inbox
+// page." So this is the one that matters: their correspondence and a Write button, in the place he
+// is already standing when he decides to write.
+function emailTab(p) {
+  var wrap = el('<div></div>')
+  var addrs = projectEmails(p)
+
+  var head = sectionHead(addrs.length ? 'Email  ·  ' + addrs.join(', ') : 'Email', 'Write', function () {
+    openCompose({ to: addrs[0] || '', project: p, after: function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) } })
+  })
+  wrap.appendChild(head)
+
+  if (!addrs.length) {
+    wrap.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">No email address on this project. Add a contact from Actions, then you can write to them from here.</div>'))
+    return wrap
+  }
+
+  var list = el('<div></div>')
+  list.appendChild(el('<div class="empty" style="padding:18px 2px">Loading their emails…</div>'))
+  wrap.appendChild(list)
+
+  // Gmail's OR needs the terms parenthesised or it binds only to the last one, which would silently
+  // search for "from:a" OR "anything to:b" and quietly return the wrong mail.
+  var clause = addrs.map(function (a) { return 'from:' + a + ' OR to:' + a }).join(' OR ')
+  var q = '(' + clause + ')'
+  mailFetch(q, 20, function (err, threads) {
+    if (DETAIL_ID !== p.id) return
+    list.innerHTML = ''
+    if (err) { list.appendChild(mailError(err, function () { mailForget(); renderDetail(p.id, true) })); return }
+    if (!threads.length) { list.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nothing in the mailbox with them yet.</div>')); return }
+    threads.forEach(function (t) {
+      list.appendChild(mailRow(t, null, function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }))
+    })
+  })
+  return wrap
+}
+
+// ================================ PROPOSALS ================================
+//
+// Every proposal and booking form he has ever sent, what state it is in, and whether anyone read
+// it. The desktop version of this page was built 2026-09-09; this is the same list on the phone,
+// which Michael named as one of the pages he wants there ("the proposal page is a big one").
+//
+// ⚠️ EVERY LINK OPENED FROM HERE IS A PREVIEW. `openUrl` comes back from the server already
+// carrying preview=1 (and the admin key for anything the public can no longer reach). `url` is the
+// clean link and is only ever COPIED, never opened. His view counts are real data about whether
+// clients are reading his proposals, and his own checking must not show up in them.
+
+var PROP_CACHE = null
+var PROP_TAB = 'proposals' // 'proposals' | 'bookings'
+
+function renderProposals() {
+  var v = $('#view'); v.innerHTML = ''
+  var head = el('<div class="tabhead"><div class="seg"></div><button class="addbtn" id="prop-refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Refresh</button></div>')
+  var seg = head.querySelector('.seg')
+  ;[['Proposals', 'proposals'], ['Booking forms', 'bookings']].forEach(function (o) {
+    var b = el('<button class="segb' + (PROP_TAB === o[1] ? ' on' : '') + '">' + o[0] + '</button>')
+    b.addEventListener('click', function () { if (PROP_TAB === o[1]) return; PROP_TAB = o[1]; renderProposals() })
+    seg.appendChild(b)
+  })
+  head.querySelector('#prop-refresh').addEventListener('click', function () { PROP_CACHE = null; renderProposals() })
+  v.appendChild(head)
+
+  var body = el('<div></div>')
+  body.appendChild(el('<div class="empty">Loading proposals…</div>'))
+  v.appendChild(body)
+
+  var draw = function (data) {
+    if (TAB !== 'proposals') return
+    body.innerHTML = ''
+    // The templates, first, because "what does a client actually see" is a question he asks far
+    // more often than any single client's page.
+    var samples = el('<div class="do-actions" style="margin-bottom:6px"></div>')
+    var s1 = el('<button class="do-alt">Proposal template</button>')
+    s1.addEventListener('click', function () {
+      openPreview({ src: data.samples.proposal, title: 'Proposal template', backLabel: 'Proposals' })
+    })
+    var s2 = el('<button class="do-alt">Booking form template</button>')
+    s2.addEventListener('click', function () {
+      openPreview({ src: data.samples.booking, title: 'Booking form template', backLabel: 'Proposals' })
+    })
+    samples.appendChild(s1); samples.appendChild(s2)
+    body.appendChild(samples)
+
+    var rows = PROP_TAB === 'proposals' ? data.items : data.bookings
+    if (!rows.length) { body.appendChild(el('<div class="empty">Nothing sent yet.</div>')); return }
+
+    // Active first, then everything that has already resolved. Same split as the desktop: what is
+    // out right now is a different question from what happened to the ones that are done.
+    var live = rows.filter(function (r) { return r.outcome === 'open' })
+    var past = rows.filter(function (r) { return r.outcome !== 'open' })
+    live.sort(propSort); past.sort(propSort)
+    if (live.length) {
+      body.appendChild(sectionLabel('Out now · ' + live.length))
+      live.forEach(function (r) { body.appendChild(proposalCard(r)) })
+    }
+    if (past.length) {
+      body.appendChild(sectionLabel('Settled · ' + past.length))
+      past.forEach(function (r) { body.appendChild(proposalCard(r)) })
+    }
+  }
+
+  if (PROP_CACHE) { draw(PROP_CACHE); return }
+  loadProposalsOverview()
+    .then(function (d) { PROP_CACHE = d; draw(d) })
+    .catch(function (e) {
+      if (TAB !== 'proposals') return
+      body.innerHTML = ''
+      body.appendChild(mailError(e, function () { PROP_CACHE = null; renderProposals() }))
+    })
+}
+
+// Most recently touched first: last viewed, else sent, else created. A proposal a client opened an
+// hour ago is the one he wants at the top, not whichever happens to be newest.
+function propSort(a, b) {
+  var ka = a.lastViewedAt || a.sentAt || a.createdAt || ''
+  var kb = b.lastViewedAt || b.sentAt || b.createdAt || ''
+  return String(kb).localeCompare(String(ka))
+}
+
+function proposalCard(r) {
+  var card = el('<div class="card propcard"></div>')
+  var top = el('<div class="row1"></div>')
+  top.appendChild(el('<span class="name" style="font-size:15px">' + esc(r.projectName) + '</span>'))
+  if (r.totalFee !== '' && r.totalFee != null) top.appendChild(el('<span class="fee">' + esc(money(r.totalFee)) + '</span>'))
+  card.appendChild(top)
+
+  var meta = [r.eventType, r.eventDate ? fmtDate(r.eventDate) : ''].filter(Boolean).join('  ·  ')
+  if (meta) card.appendChild(el('<div class="meta">' + esc(meta) + '</div>'))
+
+  var chips = el('<div class="phead-chips" style="margin-top:8px"></div>')
+  // Two different facts, side by side, because they answer two different questions: is the LINK
+  // still working, and did the DEAL close. A dead link on a booked gig is fine; a dead link on a
+  // deal still in play is something to fix.
+  if (r.state) chips.appendChild(el('<span class="pill ' + propStateClass(r.state) + '" style="margin:0">' + esc(propStateLabel(r.state)) + '</span>'))
+  chips.appendChild(el('<span class="pill ' + (r.outcome === 'booked' ? 'done' : r.outcome === 'lost' ? 'del' : '') + '" style="margin:0">' + esc(r.outcomeLabel) + '</span>'))
+  // Views is the number he actually came for.
+  chips.appendChild(el('<span class="propviews">' + r.views + (r.views === 1 ? ' view' : ' views') + '</span>'))
+  card.appendChild(chips)
+
+  if (r.lastViewedAt) card.appendChild(el('<div class="hint">Last opened ' + esc(timeAgo(r.lastViewedAt)) + '</div>'))
+  else if (r.views === 0) card.appendChild(el('<div class="hint">Never opened.</div>'))
+  if (r.stateReason && r.state !== 'live') card.appendChild(el('<div class="hint">' + esc(r.stateReason) + '</div>'))
+  if (r.outcomeNote) card.appendChild(el('<div class="hint">' + esc(r.outcomeNote) + '</div>'))
+
+  var acts = el('<div class="do-actions" style="margin-top:11px"></div>')
+  if (r.openUrl) {
+    var view = el('<button class="do-go">Preview</button>')
+    view.addEventListener('click', function () {
+      openPreview({
+        src: r.openUrl,
+        publicUrl: r.url,
+        title: r.projectName,
+        backLabel: 'Proposals',
+      })
+    })
+    acts.appendChild(view)
+  }
+  var copy = el('<button class="do-alt">Copy link</button>')
+  copy.addEventListener('click', function () { copyText(r.url, 'Client link copied') })
+  acts.appendChild(copy)
+  var proj = SNAP.projects.find(function (x) { return x.id === r.projectId })
+  if (proj) {
+    var go = el('<button class="do-alt">Project</button>')
+    go.addEventListener('click', function () { navigate(pageForBucket(proj.bucket)); renderDetail(proj.id) })
+    acts.appendChild(go)
+  }
+  card.appendChild(acts)
+  card.appendChild(el('<div class="hint" style="margin-top:7px">Preview does not count as a view. Copy gives the clean link.</div>'))
+  return card
+}
+
+function propStateLabel(s) {
+  return s === 'live' ? 'Live' : s === 'draft' ? 'Draft' : s === 'expired' ? 'Expired' : 'Down'
+}
+function propStateClass(s) {
+  return s === 'live' ? 'due' : s === 'expired' ? 'overdue' : s === 'draft' ? '' : 'arch'
+}
+
+// ---- the proposal, INSIDE the CRM ----
+//
+// Michael, 2026-09-21: "whenever I click preview on a proposal or if I look at the proposal
+// template, it moves me over to Firefox. And I don't want to have to look at these things in a
+// separate browser. I want it to pull up as an embedded page within the CRM, just like you did in
+// my laptop app."
+//
+// So this is the phone's version of PreviewPage.tsx: one full-screen pane, a bar with Back, and the
+// real page in an iframe underneath. It frames the ACTUAL URL rather than re-rendering the proposal,
+// for the same reason the desktop does: a second implementation would drift from the first the
+// moment either is edited, and the whole point is to trust what he is looking at.
+//
+// ⚠️ NOTHING HERE MAY EVER COUNT AS A VIEW. `src` is always the server-built `openUrl`, which
+// already carries preview=1 and, for anything the public can no longer reach, the admin key. The
+// clean link is `publicUrl` and is only ever copied. Never point this at a raw proposal URL and
+// never build the URL here.
+//
+// An overlay rather than a router destination, deliberately: dismissing it puts him back exactly
+// where he was, whether that was the Proposals page or a project's Booking tab, with no bookkeeping
+// about where "back" should go.
+function openPreview(opts) {
+  var o = opts || {}
+  if (!o.src) { toast('No link for that.', 'err'); return }
+  var pane = el(
+    '<div class="previewpane">' +
+      '<div class="pv-bar">' +
+        '<button class="pv-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
+        '<span>' + esc(o.backLabel || 'Back') + '</span></button>' +
+        '<div class="pv-t"><div class="pv-title">' + esc(o.title || 'Preview') + '</div>' +
+        '<div class="pv-sub">Preview. Not counted as a view.</div></div>' +
+      '</div>' +
+      '<div class="pv-body"><div class="pv-load">Loading the page the client sees…</div></div>' +
+    '</div>'
+  )
+  var body = pane.querySelector('.pv-body')
+  var close = function () {
+    pane.remove()
+    document.body.classList.remove('previewing')
+    window.removeEventListener('popstate', onPop)
+  }
+  // The iPhone's own back swipe and the Android back button both raise popstate. Pushing a state
+  // means the hardware/gesture back closes the preview instead of leaving the app.
+  var onPop = function () { close() }
+  try { history.pushState({ preview: 1 }, '') } catch (_) { /* not fatal */ }
+  window.addEventListener('popstate', onPop)
+  pane.querySelector('.pv-back').addEventListener('click', function () {
+    try { history.back() } catch (_) { close() }
+  })
+
+  var frame = document.createElement('iframe')
+  frame.className = 'pv-frame'
+  frame.src = o.src
+  frame.setAttribute('referrerpolicy', 'no-referrer')
+  frame.addEventListener('load', function () {
+    var l = body.querySelector('.pv-load')
+    if (l) l.remove()
+    frame.style.opacity = '1'
+  })
+  frame.style.opacity = '0'
+  body.appendChild(frame)
+
+  if (o.publicUrl) {
+    var copy = el('<button class="pv-copy">Copy the link to send</button>')
+    copy.addEventListener('click', function () { copyText(o.publicUrl, 'Client link copied') })
+    pane.appendChild(copy)
+  }
+
+  document.body.appendChild(pane)
+  document.body.classList.add('previewing')
 }
 
 function renderMoney() {
@@ -2104,6 +3222,54 @@ function updateCounts() {
   } catch (e) { /* badge unsupported */ }
 }
 
+// ---- unread mail, on the drawer ----
+//
+// Deliberately NOT folded into the app-icon number. That number is defined as alerts + due tasks
+// and nothing else (see updateCounts), and both of those are things only this CRM knows about.
+// Unread mail already has a notification: the Mail app's own. What was missing was seeing it from
+// inside the CRM, next to the client it belongs to, which is what the drawer badge is for.
+//
+// Five minutes, not the twenty-second data refresh: mail is not a CRM write, and polling Gmail
+// every twenty seconds is how the desktop's inbox counter blew through its API quota on 2026-09-09.
+var UNREAD_MAIL = 0
+var UNREAD_BY_PROJECT = {} // projectId -> how many unread threads are from / to that client
+var MAIL_COUNT_MS = 5 * 60 * 1000
+var mailCountTimer = null
+function refreshUnreadMail() {
+  // The badge counts EXACTLY what the Inbox page shows: unread mail from someone on an active
+  // project. It used to count the whole Gmail inbox, which read 201 and meant nothing, because 201
+  // is mostly Bark and GigSalad notifications rather than anyone waiting on a reply.
+  var queries = buildClientMailQueries('is:unread')
+  if (!queries.length) { UNREAD_MAIL = 0; UNREAD_BY_PROJECT = {}; setTabCount('nav-badge-inbox', 0); return Promise.resolve() }
+  return gmailUnread(queries)
+    .then(function (r) {
+      UNREAD_MAIL = r.count
+      setTabCount('nav-badge-inbox', r.count)
+      // The same fetch also answers "which clients are waiting on me", which is the version of this
+      // question that is actually useful on the pipeline. Matching happens here, against contacts
+      // the phone already holds, so it costs nothing extra.
+      var ix = emailToProjectIndex()
+      var by = {}
+      r.threads.forEach(function (t) {
+        if (!t.unread) return
+        var pid = ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || ''
+        if (pid) by[pid] = (by[pid] || 0) + 1
+      })
+      UNREAD_BY_PROJECT = by
+      // Repaint only the list pages, and only when nothing is being typed into or edited: a
+      // background repaint that throws away a half-written search box is worse than a stale mark.
+      if (!DETAIL_ID && !isEditingActive() && !editorOpen() && (TAB === 'pipeline' || TAB === 'home')) render()
+    })
+    .catch(function () { /* a mail hiccup must never break the CRM; leave the marks as they were */ })
+}
+function startMailCount() {
+  if (mailCountTimer) return
+  refreshUnreadMail()
+  mailCountTimer = setInterval(function () {
+    if (!document.hidden) refreshUnreadMail()
+  }, MAIL_COUNT_MS)
+}
+
 function render() {
   if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
   removeProjectTabs() // any full page render means we are no longer inside a project
@@ -2115,6 +3281,8 @@ function render() {
   else if (TAB === 'contacts') renderContacts()
   else if (TAB === 'tasks') renderTasks()
   else if (TAB === 'alerts') renderAlerts()
+  else if (TAB === 'inbox') renderInbox()
+  else if (TAB === 'proposals') renderProposals()
   else if (TAB === 'money') renderMoney()
   var title = $('#pagetitle'); if (title) title.textContent = PAGE_TITLES[TAB] || 'Bloom CRM'
   updateCounts()
@@ -2162,14 +3330,18 @@ function renderHome() {
   var gigs = (SNAP.projects || []).filter(function (p) {
     return p.bucket === 'active' && p.eventDate && p.eventDate >= today && p.eventDate <= end7
   }).sort(function (a, b) { return a.eventDate < b.eventDate ? -1 : 1 })
-  var earned = (SNAP.finance && SNAP.finance.thisMonth && SNAP.finance.thisMonth.earned) || 0
   var alerts = (SNAP.notifications || []).length
 
   v.appendChild(el('<div class="greeting">' + esc(greetingText()) +
     '<span class="sub2">' + esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })) + '</span></div>'))
 
   var grid = el('<div class="statgrid"></div>')
-  grid.appendChild(statCard(money(earned) || '$0', 'Earned this month', 'money', 's-money'))
+  // Unread mail took the money tile, 2026-09-21. Michael: "I don't expect to use the finance page
+  // on my phone", and in the same breath, "I want to be able to see notifications when I have
+  // unread emails." Money is still a tap away in the drawer; this tile now answers a question he
+  // asked for. It reads 0 until the five-minute poll has run once, which is honest: it is a count
+  // of what the app has actually seen.
+  grid.appendChild(statCard(String(UNREAD_MAIL), 'Unread email', 'inbox', 's-mail'))
   grid.appendChild(statCard(String(overdue.length), 'Overdue tasks', 'tasks', 's-over'))
   grid.appendChild(statCard(String(dueToday.length), 'Due today', 'tasks', 's-due'))
   grid.appendChild(statCard(String(gigs.length), 'Gigs next 7 days', 'pipeline', 's-gigs'))
@@ -2508,9 +3680,36 @@ function enablePush() {
 // subscription list for the whole system: the server reads the endpoint scheme and picks its send
 // path, and the PWA and the native app can both be registered at once while this beds in.
 function enableNativePush() {
+  registerNativePush({ loud: true })
+}
+
+// Register this device with APNs and store whatever token comes back.
+//
+// `loud` is the bell: it asks iOS for permission and reports the outcome to Michael. Without it
+// this is the SILENT refresh that runs on every launch (see refreshNativePushToken), which must
+// never put a dialog on screen.
+//
+// ⚠️ WHY THE SILENT REFRESH EXISTS, and why it is not optional here.
+//
+// An APNs device token is not permanent. iOS reissues it after a restore, sometimes after an
+// update, and in practice after reinstalling the app. Apple's own guidance is to call
+// registerForRemoteNotifications() on EVERY launch and send the server whatever token comes back.
+//
+// This app only ever registered when the bell was tapped, so a rotated token was invisible: the
+// bell had already hidden itself (localStorage 'mcrm_push'), the database kept the dead token, and
+// APNs answers a dead token with BadDeviceToken, which nobody sees. Notifications simply stopped,
+// silently and permanently, until someone thought to tap a button that was no longer on screen.
+// That is exactly what happened on 2026-09-20 ("I don't think I saw any notification after tapping
+// the bell"), and it was diagnosed only by posting to both APNs hosts by hand.
+//
+// It matters much more now than it did then, because shipping an update to this app MEANS
+// reinstalling it over a cable. Without this, every update Michael gets is a coin flip on whether
+// his notifications survive it.
+function registerNativePush(opts) {
+  var loud = !!(opts && opts.loud)
   var Push = nativePushPlugin()
   if (!Push) {
-    alert('Notifications are not available in this build.')
+    if (loud) alert('Notifications are not available in this build.')
     return
   }
   // The token arrives on an event, not as the return value of register(), so listen first.
@@ -2521,27 +3720,54 @@ function enableNativePush() {
       .then(function () {
         localStorage.setItem('mcrm_push', '1')
         updatePushButton()
-        alert('Notifications are on. Alerts will show up on your lock screen.')
+        if (loud) alert('Notifications are on. Alerts will show up on your lock screen.')
       })
       .catch(function (e) {
-        alert('Could not save this device for notifications: ' + ((e && e.message) || e))
+        // A failed SILENT refresh must not nag. It is retried on the next launch, and the bell is
+        // put back so there is still a way to fix it by hand.
+        if (loud) alert('Could not save this device for notifications: ' + ((e && e.message) || e))
+        else {
+          console.warn('[push] silent token refresh failed:', (e && e.message) || e)
+          localStorage.removeItem('mcrm_push')
+          updatePushButton()
+        }
       })
   })
   Push.addListener('registrationError', function (err) {
-    alert('iOS would not register this device for notifications: ' + JSON.stringify(err))
+    if (loud) alert('iOS would not register this device for notifications: ' + JSON.stringify(err))
+    else console.warn('[push] silent registration error:', JSON.stringify(err))
   })
 
-  Push.requestPermissions()
+  // checkPermissions on the silent path, requestPermissions on the loud one. The silent refresh
+  // must never raise the system prompt: being asked "allow notifications?" out of nowhere, every
+  // launch, because a background refresh decided to ask, is worse than no refresh at all.
+  var ask = loud ? Push.requestPermissions() : Push.checkPermissions()
+  ask
     .then(function (res) {
       if (!res || res.receive !== 'granted') {
-        alert('Notifications were not allowed. You can turn them on in Settings, then tap the bell again.')
+        if (loud) alert('Notifications were not allowed. You can turn them on in Settings, then tap the bell again.')
+        else {
+          // He turned them off in Settings. Put the bell back so there is a way to turn them on.
+          localStorage.removeItem('mcrm_push')
+          updatePushButton()
+        }
         return
       }
       return Push.register()
     })
     .catch(function (e) {
-      alert('Could not turn on notifications: ' + ((e && e.message) || e))
+      if (loud) alert('Could not turn on notifications: ' + ((e && e.message) || e))
+      else console.warn('[push] silent refresh could not start:', (e && e.message) || e)
     })
+}
+
+// Called on every launch of the native app, for a device that has already been registered once.
+// Does nothing in the PWA (Web Push subscriptions do not rotate this way) and nothing for a device
+// that has never opted in, which must be a deliberate tap on the bell.
+function refreshNativePushToken() {
+  if (!isNativeApp()) return
+  if (localStorage.getItem('mcrm_push') !== '1') return
+  registerNativePush({ loud: false })
 }
 
 // ---------- boot ----------
@@ -2572,6 +3798,8 @@ function enterApp() {
   wireUI()
   loadAndRender()
   startAutoRefresh() // keep the phone's data live (interval + focus/visibility), like the desktop
+  startMailCount()   // and the unread-mail badge on the drawer, on its own slower clock
+  refreshNativePushToken() // iOS rotates APNs tokens; re-register every launch so one never goes stale
 }
 
 // Log out: end the Supabase session (clears the persisted token) and return to the login screen.
