@@ -18,6 +18,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as webpush from "jsr:@negrel/webpush@0.5.0";
+// Native iOS delivery, beside Web Push. See _shared/apns.ts.
+import { sendApns, apnsConfigured } from "../_shared/apns.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -211,6 +213,14 @@ async function pushAndNotify(sb: any, lead: string, projectId: string | null, in
     const subs: WebPushSub[] = (subRows ?? [])
       .map((r: { subscription?: unknown }) => (r && r.subscription ? (r.subscription as WebPushSub) : null))
       .filter((s: WebPushSub | null): s is WebPushSub => !!s && !!s.endpoint && !!s.keys?.p256dh && !!s.keys?.auth);
+    // (WARNING) The native half of the SAME table. A new inquiry is the single most time-critical
+    // alert Michael gets, so it has to reach the iPhone whichever way that phone is registered.
+    // The filter above drops these rows on its own (an APNs row carries no p256dh/auth keys), so
+    // the two lists never overlap and nothing is sent twice.
+    const apnsTokens: string[] = (subRows ?? [])
+      .map((r: { endpoint?: string }) => String(r?.endpoint ?? ""))
+      .filter((e: string) => e.startsWith("apns://"))
+      .map((e: string) => e.slice("apns://".length));
 
     const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("seen", false);
     const badge = (count ?? 0) + 1;
@@ -240,6 +250,21 @@ async function pushAndNotify(sb: any, lead: string, projectId: string | null, in
       }));
       if (dead.length) {
         try { await sb.from("push_subscriptions").delete().in("endpoint", dead); } catch { /* best-effort */ }
+      }
+    }
+
+    // The native route. Deliberately OUTSIDE the VAPID guard above: web push being unconfigured or
+    // having no subscribers must never stop the iPhone being told a lead came in.
+    if (apnsTokens.length && apnsConfigured()) {
+      const r = await sendApns(apnsTokens, {
+        title: "New inquiry!",
+        body: lead ? `New website inquiry from ${lead}.` : "A new inquiry just came in through the website.",
+        badge,
+        url: cfg?.app_url,
+      });
+      pushed += r.pushed;
+      if (r.dead.length) {
+        try { await sb.from("push_subscriptions").delete().in("endpoint", r.dead); } catch { /* best-effort */ }
       }
     }
 

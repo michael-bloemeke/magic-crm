@@ -20,6 +20,9 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as webpush from "jsr:@negrel/webpush@0.5.0";
+// Native iOS delivery. See _shared/apns.ts: device tokens live in the SAME
+// push_subscriptions table under an apns:// endpoint, so both routes stay live at once.
+import { sendApns, apnsConfigured } from "../_shared/apns.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -164,8 +167,24 @@ async function pushAll(
   subs: WebPushSub[],
   payload: PushPayload,
   prune: (endpoints: string[]) => Promise<void>,
+  apnsTokens: string[] = [],
 ): Promise<{ pushed: number; pruned: number }> {
-  if (!subs.length) return { pushed: 0, pruned: 0 };
+  // (WARNING) TWO ROUTES, ONE CALL. Every caller below sends one payload and must reach every
+  // device Michael owns, whether it registered through the PWA (Web Push) or the native iOS app
+  // (APNs). Fanning out here rather than at each call site is what stops a notification type
+  // added later from silently supporting only one of them.
+  let apnsPushed = 0;
+  const apnsDead: string[] = [];
+  if (apnsTokens.length && apnsConfigured()) {
+    const r = await sendApns(apnsTokens, { title: payload.title, body: payload.body, badge: payload.count, url: payload.url });
+    apnsPushed = r.pushed;
+    apnsDead.push(...r.dead);
+  }
+  if (apnsDead.length) {
+    try { await prune(apnsDead); } catch { /* best-effort prune */ }
+  }
+
+  if (!subs.length) return { pushed: apnsPushed, pruned: apnsDead.length };
   const body = JSON.stringify(payload);
   const dead: string[] = [];
   let pushed = 0;
@@ -185,7 +204,7 @@ async function pushAll(
   if (dead.length) {
     try { await prune(dead); } catch { /* best-effort prune */ }
   }
-  return { pushed, pruned: dead.length };
+  return { pushed: pushed + apnsPushed, pruned: dead.length + apnsDead.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -249,12 +268,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .map((r: { subscription?: unknown }) => (r && r.subscription ? (r.subscription as WebPushSub) : null))
       .filter((s): s is WebPushSub => !!s && !!s.endpoint && !!s.keys?.p256dh && !!s.keys?.auth);
   }
+  // The native half of the same table. readSubs() above filters these out on its own (they carry no
+  // p256dh/auth keys), so the two lists never overlap.
+  async function readApnsTokens(): Promise<string[]> {
+    const { data, error } = await sb.from("push_subscriptions").select("endpoint");
+    if (error || !Array.isArray(data)) return [];
+    return data
+      .map((r: { endpoint?: string }) => String(r?.endpoint ?? ""))
+      .filter((e) => e.startsWith("apns://"))
+      .map((e) => e.slice("apns://".length));
+  }
   async function pruneSubs(endpoints: string[]): Promise<void> {
     if (!endpoints.length) return;
     await sb.from("push_subscriptions").delete().in("endpoint", endpoints);
   }
 
   const subs = await readSubs();
+  const apnsTokens = await readApnsTokens();
 
   // Current unseen count is part of the phone's app-icon badge; compute once and reuse. (task-due +
   // new-inquiry live in the same notifications table the bell reads.)
@@ -357,6 +387,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             count,
           },
           pruneSubs,
+          apnsTokens,
         );
         pushed += r.pushed;
         pruned += r.pruned;

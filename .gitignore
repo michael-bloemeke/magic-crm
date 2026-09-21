@@ -65,3 +65,7 @@ portal/files/
 ios-app/www
 ios-app/ios/App/Pods
 ios-app/ios/App/App/public
+ios-app/node_modules
+ios-app/ios/App/.build
+ios-app/ios/App/App.xcodeproj/xcuserdata
+ios-app/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata

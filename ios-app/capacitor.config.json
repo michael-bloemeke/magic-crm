@@ -1,0 +1,12 @@
+{
+  "appId": "com.michaelbloemeke.crm",
+  "appName": "Bloom CRM",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#16265a"
+  },
+  "server": {
+    "iosScheme": "capacitor"
+  }
+}
