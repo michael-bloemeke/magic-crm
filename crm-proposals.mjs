@@ -151,14 +151,25 @@ export const PHOTO_SETS = {
     // The first was removed 2026-09-18 and the second was missed until 2026-09-22, when it shipped
     // on Jocelyn Magriso's page and Michael caught it. Do not add either back.
     // Check the same way for any event type: the gallery and the style photos must be disjoint.
-    // SIX, one row. Not eight: the eight-photo rule was superseded the same day it was written.
+    // EIGHT, and eight DIFFERENT pictures (Michael, 2026-09-22).
+    //
+    // ⚠️ SOME PHOTOS IN assets/photos ARE THE SAME PICTURE UNDER TWO FILENAMES. Checking the names
+    // is not enough and it has now shipped a visible duplicate once. Known twins:
+    //     gala-guest-astonished  ==  guest-shock-reaction
+    //     bonsecours-gala-circle ==  corporate-gala-strolling-crowd   (and the first is `format`)
+    //     service-stage-show     ==  stage-show-audience
+    // Before changing this list, compare candidates by IMAGE, not filename. A 32x32 average-hash
+    // over assets/photos finds every pair in a second; anything under ~10 bits apart is the same
+    // shot. Then check the result against the style photos, hero, format and portrait as well.
     gallery: [
-      '/assets/photos/gala-guest-astonished.webp',
       '/assets/photos/guest-shock-reaction.webp',
-      '/assets/photos/lounge-laughing-guest.webp',
-      '/assets/photos/tuxedo-guests-laughing.webp',
+      '/assets/photos/party-guests-astonished.webp',
+      '/assets/photos/corporate-guests-laughing.webp',
       '/assets/photos/gala-guest-delight.webp',
+      '/assets/photos/tuxedo-guests-laughing.webp',
       '/assets/photos/cocktail-hour-guest-reaction.webp',
+      '/assets/photos/lounge-laughing-guest.webp',
+      '/assets/photos/european-style-close-up.webp',
     ],
   },
   corporate: {
