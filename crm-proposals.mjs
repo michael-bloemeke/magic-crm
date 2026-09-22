@@ -142,12 +142,18 @@ export const PHOTO_SETS = {
     hero: '/assets/photos/homepage-hero.webp',
     format: '/assets/photos/bonsecours-gala-circle.webp',
     portrait: '/assets/photos/michael-portrait-hero-dark.webp',
-    // ⚠️ `wedding-couple-laughing.webp` USED TO LEAD THIS LIST AND WAS REMOVED 2026-09-18.
-    // It is now the fixed photo on the "A private set" style block, which is on every wedding
-    // proposal by standing rule, so leaving it here put the same picture on one page twice.
-    // Do not add it back to this gallery.
+    // ⚠️ NO PHOTO IN THIS GALLERY MAY ALSO BE A STYLE-BLOCK PHOTO. Michael's rule, 2026-09-22:
+    // the strip sits a few hundred pixels below the performance styles, so a repeat is obvious and
+    // makes the page look like it ran out of pictures. Both wedding style photos are therefore
+    // banned from this list:
+    //   `wedding-couple-laughing.webp`  = the "A private performance for the wedding party" photo
+    //   `wedding-garden-mingling.webp`  = the "Mingling magic" photo
+    // The first was removed 2026-09-18 and the second was missed until 2026-09-22, when it shipped
+    // on Jocelyn Magriso's page and Michael caught it. Do not add either back.
+    // Check the same way for any event type: the gallery and the style photos must be disjoint.
+    // SIX, one row. Not eight: the eight-photo rule was superseded the same day it was written.
     gallery: [
-      '/assets/photos/wedding-garden-mingling.webp',
+      '/assets/photos/gala-guest-astonished.webp',
       '/assets/photos/guest-shock-reaction.webp',
       '/assets/photos/lounge-laughing-guest.webp',
       '/assets/photos/tuxedo-guests-laughing.webp',
