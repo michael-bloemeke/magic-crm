@@ -381,6 +381,24 @@ async function ensureServiceItem(call: any, name: string) {
 // the project is read. Every downstream reader then works unchanged, including the invoice branch,
 // the payment confirmation and the stuck-booking alert. Silent on failure by design; a missing
 // email must still surface as the caller's own clear error, not as a crash in here.
+// ⚠️ WHO A CLIENT-FACING MESSAGE IS ADDRESSED TO (Michael, 2026-09-28).
+//
+// ALWAYS the contact name. NEVER project_name.
+//
+// project_name is the CRM's display label for the job and is routinely not a person: a company, an
+// occasion, "40th anniversary". It printed on a real signed contract once, and the confirmation
+// email opened "Hi Charlie's," because the project was called "Charlie's 11th birthday, Harry
+// Potter themed". client_name is the immutable slug key and is usually the person, so it is the
+// fallback. project_name is not in the chain at all.
+//
+// Internal alerts TO Michael still use project_name on purpose: those are subject lines that
+// identify a job on his own board, not a greeting to a human.
+function clientFacingName(project: any): string {
+  const contact = String(project?.contact_names || "").split(/[,;]/)[0].trim();
+  if (contact) return contact;
+  return String(project?.client_name || "Client").trim() || "Client";
+}
+
 async function hydrateClientEmail(sb: SupabaseClient, project: any): Promise<void> {
   if (!project) return;
   if (String(project.contact_emails || "").trim()) return;
@@ -411,7 +429,7 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
 
   const { data: project, error: projErr } = await sb
     .from("projects")
-    .select("id, client_name, project_name, agreement_html, total_fee, contact_emails, activity_log, event_date, booking_thread_id")
+    .select("id, client_name, project_name, contact_names, agreement_html, total_fee, contact_emails, activity_log, event_date, booking_thread_id")
     .eq("id", projectId)
     .maybeSingle();
   if (projErr || !project) throw new Error("Project not found.");
@@ -420,7 +438,7 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
 
   const answers = Array.isArray(row.answers) ? row.answers : [];
   const built = buildAgreement(project.agreement_html, answers, String(project.event_date || ""));
-  const clientName = String(project.project_name || project.client_name || "Client");
+  const clientName = clientFacingName(project);
   const byId = new Map(answers.map((a: any) => [a.id, a.value]));
 
   // --- 1. The signed copy --------------------------------------------------
@@ -693,8 +711,7 @@ async function checkPaidAndConfirm(sb: SupabaseClient): Promise<{ paid: number; 
       await hydrateClientEmail(sb, project);
       const to = String(project?.contact_emails || "").split(/[,;]/)[0].trim();
       if (project && to) {
-        const who = String(project.contact_names || "").split(/[,;]/)[0].trim() ||
-          String(project.project_name || project.client_name || "");
+        const who = clientFacingName(project);
         const first = who.trim().split(/\s+/)[0] || "there";
         await sendPlain(sb, {
           to,
@@ -904,7 +921,7 @@ Deno.serve(async (req) => {
 
     const { data: project } = await sb
       .from("projects")
-      .select("id, client_name, project_name, agreement_html, event_date")
+      .select("id, client_name, project_name, contact_names, agreement_html, event_date")
       .eq("id", projectId)
       .maybeSingle();
     if (!project?.agreement_html) return json({ error: "No agreement has been published for this project." }, 404);
@@ -917,7 +934,7 @@ Deno.serve(async (req) => {
 
     const answers = Array.isArray(row?.answers) ? row!.answers : [];
     const built = buildAgreement(project.agreement_html, answers, String(project.event_date || ""));
-    const clientName = String(project.project_name || project.client_name || "Client");
+    const clientName = clientFacingName(project);
     const sig: Signature | null = row?.signed_at
       ? { name: row.signed_name || "", date: row.signed_date || "", signedAt: row.signed_at, ip: row.signer_ip || "" }
       : null;

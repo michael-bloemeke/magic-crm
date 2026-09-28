@@ -533,7 +533,18 @@ function App() {
     loadGigsEvents(from, to).then(setGigEvents).catch(() => {})
   }
 
+  // Bumped on every Refresh press. ProjectView watches it so the Conversations box and the project's
+  // drafts re-pull from Gmail too: those live in ProjectView's own effects, keyed on project.id, so
+  // refreshAll alone never reached them. That is the bug Michael hit repeatedly, where the only way
+  // to see a new email was to leave the project and come back.
+  const [refreshNonce, setRefreshNonce] = useState(0)
+  // True for a moment after a press, purely so the button visibly does something.
+  const [refreshing, setRefreshing] = useState(false)
+
   const refreshAll = () => {
+    setRefreshNonce((n) => n + 1)
+    setRefreshing(true)
+    window.setTimeout(() => setRefreshing(false), 650)
     loadProjects().then(setProjects).catch(() => {})
     loadTasks().then(setTasks).catch(() => {})
     loadGigs()
@@ -963,7 +974,7 @@ function App() {
       aria-label="Refresh"
       className="flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface/60 text-muted transition-colors hover:border-line-strong hover:text-parchment"
     >
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <svg viewBox="0 0 24 24" className={`h-5 w-5${refreshing ? ' animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5" />
       </svg>
     </button>
@@ -1057,6 +1068,7 @@ function App() {
           <ProjectView
             groundClass="brand-ground"
             project={fullProject}
+            refreshKey={refreshNonce}
             onPreview={setPreview}
             dateConflict={dateConflictIds.has(fullProject.id)}
             conflictWith={dateConflictInfo.get(fullProject.id)}

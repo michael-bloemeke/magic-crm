@@ -305,7 +305,7 @@ export function ProjectDetailsBody({
             <CalendarInviteCard project={project} recipientEmails={recipientEmails} />
           </div>
           <div className="space-y-2">
-            <BookingCard project={project} onSaveField={onSaveField} />
+            <BookingCard project={project} onSaveField={onSaveField} onPreview={onPreview} />
           </div>
         </div>
         {/* The money, last and full width. It is a log, so it reads better as wide rows than as a

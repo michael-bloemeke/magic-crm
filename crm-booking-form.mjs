@@ -58,7 +58,9 @@ export const BOOKING_FIELDS = [
   { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time would you like the magic to start?', type: 'time', required: true },
   { id: 'number_of_guests', key: 'numberOfGuests', label: 'Number of guests', type: 'text', required: true },
   { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
-  { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'Full street address, including city and ZIP', type: 'textarea', required: true },
+  // ⚠️ The PAGE enforces a full address on this one (a ZIP plus a street number). See `addr: true`
+  // in Website/book/index.html. Michael, 2026-09-28: clients were sending a street name with no town.
+  { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'The complete address, exactly as you would type it into Google Maps. Street number, street, city, state, and ZIP.', type: 'textarea', required: true },
   { id: 'venue_type', key: 'venueType', label: 'Venue type', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
   { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoor or outdoor', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
   { id: 'av', key: 'av', label: 'For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?', hint: 'You can put NA if not applicable', type: 'textarea', required: true },

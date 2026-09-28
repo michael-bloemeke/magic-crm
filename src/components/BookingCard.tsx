@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { type PreviewTarget } from './PreviewPage'
 import { type Project } from '../pipeline'
 import { EditableField } from './EditableField'
 import {
@@ -58,9 +59,12 @@ function fmtStamp(iso?: string): string {
 export function BookingCard({
   project,
   onSaveField,
+  onPreview,
 }: {
   project: Project
   onSaveField: (field: string, value: string) => void
+  // Opens the client's own booking form as a screen in the CRM, the same way the proposal previews.
+  onPreview?: (t: PreviewTarget) => void
 }) {
   const [booking, setBooking] = useState<BookingStatus | null>(null)
   const [invoice, setInvoice] = useState<QuickBooksInvoice | null>(null)
@@ -130,6 +134,8 @@ export function BookingCard({
 
   const primary =
     'rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:cursor-not-allowed disabled:opacity-40'
+  const secondary =
+    'rounded-lg border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment'
 
   const reachedIdx = STEPS.findIndex((s) => s.key === stage)
 
@@ -256,6 +262,26 @@ export function BookingCard({
         >
           {busy ? 'Working…' : linkOut ? 'Resend booking form' : 'Ready to book'}
         </button>
+        {/* Michael's own read of the form the client gets. `preview=1` is what stops it counting as
+            a client view, exactly as the proposal preview does: the view timeline is the whole
+            reason that flag exists, and his own checking must never move it. */}
+        {linkOut && booking?.url && onPreview && (
+          <button
+            type="button"
+            onClick={() =>
+              onPreview({
+                src: booking.url + (booking.url.indexOf('?') < 0 ? '?' : '&') + 'preview=1',
+                publicUrl: booking.url,
+                title: 'Booking form',
+                subtitle: project.projectName || project.clientName,
+                backLabel: 'Back to the project',
+              })
+            }
+            className={secondary}
+          >
+            Preview the form
+          </button>
+        )}
       </div>
 
       {/* Pick the agreement. Two clicks instead of one, deliberately: which contract a client signs

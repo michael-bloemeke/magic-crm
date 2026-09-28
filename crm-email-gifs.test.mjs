@@ -114,12 +114,20 @@ for (const bad of ['../crm-gmail', '../../etc/passwd', 'a/../../b', '', 'UPPER',
   check(`traversal refused: ${JSON.stringify(bad)}`, emailGifPath(bad) === null)
 }
 
-console.log('\n8. The library is the three folders, holding exactly what Michael asked for')
+console.log('\n8. The library is the four folders, holding exactly what Michael asked for')
 const byName = Object.fromEntries(TEMPLATE_GROUPS.map((g) => [g.name, g.templates.map((t) => t.name)]))
-check('three folders', TEMPLATE_GROUPS.length === 3, TEMPLATE_GROUPS.map((g) => g.name).join(' | '))
-check('folders are Ghostbusters / 14 Magic Emails / Old HoneyBook Templates',
-  JSON.stringify(Object.keys(byName)) === JSON.stringify(['Ghostbusters', '14 Magic Emails', 'Old HoneyBook Templates']),
+check('four folders', TEMPLATE_GROUPS.length === 4, TEMPLATE_GROUPS.map((g) => g.name).join(' | '))
+check('folders are Ghostbusters / 14 Magic Emails / Old HoneyBook Templates / Misc',
+  JSON.stringify(Object.keys(byName)) === JSON.stringify(['Ghostbusters', '14 Magic Emails', 'Old HoneyBook Templates', 'Misc']),
   Object.keys(byName).join(' | '))
+// Misc is Michael's own, added 2026-09-28, and is the one folder that will keep growing.
+check('Misc holds Proposal nudge', JSON.stringify(byName['Misc']) === JSON.stringify(['Proposal nudge']),
+  (byName['Misc'] || []).join(' | '))
+// The nudge must never name the document or hint that view tracking exists.
+const nudge = EMAIL_TEMPLATES.find((t) => t.id === 'misc-proposal-nudge')
+check('nudge never says "proposal" to the client',
+  !!nudge && !/proposal/i.test(nudge.subject + nudge.body),
+  nudge ? nudge.subject : 'MISSING')
 
 // Ghostbusters: the numbered ones only.
 const gb = byName['Ghostbusters'] || []
@@ -140,7 +148,7 @@ check('Post Call Email is NOT included', !hb.some((n) => /post call/i.test(n)))
 check('the contract/invoice email is NOT included', !hb.some((n) => /contract|invoice|agreement/i.test(n)))
 
 console.log('\n9. Every template is sendable and uniquely addressable')
-check('30 templates total', EMAIL_TEMPLATES.length === 30, String(EMAIL_TEMPLATES.length))
+check('31 templates total', EMAIL_TEMPLATES.length === 31, String(EMAIL_TEMPLATES.length))
 const ids = EMAIL_TEMPLATES.map((t) => t.id)
 check('all ids unique', new Set(ids).size === ids.length, 'duplicate id')
 // The composer refuses to send without a subject, so a template with a blank one is a dead end.

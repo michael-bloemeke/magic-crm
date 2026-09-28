@@ -5,6 +5,7 @@ import type { SmartField } from './smartFields'
 //   Ghostbusters            the numbered follow-ups from the Notion "Ghostbusters" page
 //   14 Magic Emails         the Notion "14 Magic Emails" sequence
 //   Old HoneyBook Templates the ones worth keeping from the HoneyBook archive
+//   Misc                    Michael's own frequently-sent one-offs, written here rather than ported
 //
 // Three conventions run through all of them:
 //
@@ -430,10 +431,33 @@ const HONEYBOOK: EmailTemplate[] = [
   },
 ]
 
+// --- Misc -------------------------------------------------------------------
+// Michael's own frequently-sent one-offs, added 2026-09-28. Unlike the three groups above, these are
+// NOT ported from Notion or HoneyBook: they are written here and this file is their only home.
+//
+// Keep them GENERIC. The whole point is that he reaches for one without having to edit it, so they
+// must not name a specific document, event type, or stage of the pipeline.
+
+const MISC: EmailTemplate[] = [
+  {
+    // ⚠️ DELIBERATELY SAYS "my last email", NEVER "the proposal" (Michael, 2026-09-28).
+    // Two reasons, both his. It has to be reusable for any unanswered email, not just a proposal.
+    // And the CRM tracks whether a proposal page has been opened, which he wants kept to himself:
+    // nothing in this copy may hint that he can see what the client has or has not looked at.
+    id: 'misc-proposal-nudge',
+    name: 'Proposal nudge',
+    subject: 'Did my email come through?',
+    body:
+      `<p>Hi ${NAME},</p>` +
+      `<p>Just making sure my last email came through alright. It sometimes lands in spam or the promotions tab.</p>`,
+  },
+]
+
 export const TEMPLATE_GROUPS: TemplateGroup[] = [
   { id: 'ghostbusters', name: 'Ghostbusters', templates: GHOSTBUSTERS },
   { id: 'magic-14', name: '14 Magic Emails', templates: MAGIC_14 },
   { id: 'honeybook', name: 'Old HoneyBook Templates', templates: HONEYBOOK },
+  { id: 'misc', name: 'Misc', templates: MISC },
 ]
 
 /** Every template, flattened. */
