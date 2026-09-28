@@ -238,6 +238,75 @@ async function query(sql) {
   return qb(`/query?query=${encodeURIComponent(sql)}`)
 }
 
+// --- Profit & Loss, for the finance page ------------------------------------
+//
+// WHY THE CRM READS THIS ITSELF rather than anybody pasting a figure in: an expense total that is
+// typed in is wrong the next day. This is one call against the connection the CRM already holds.
+//
+// CASH BASIS, deliberately. The finance page's question is "what money came in and what money went
+// out", not "what did I invoice". Accrual would count an invoice the day it was raised, which is
+// not the question being asked and would not line up with the CRM's own payments-received figure.
+//
+// Returns { expenses, income, cogs, otherExpenses, start, end }. `expenses` is TOTAL business
+// spend: operating expenses plus cost of goods sold plus other expenses. All three are money that
+// left the business, and leaving one out would flatter the after-expenses number.
+function plRowTotal(rows, group) {
+  // The P&L is a tree. Each top-level section carries a `group` and a Summary row whose last
+  // ColData cell holds its total. Walk rather than index, because the sections present depend on
+  // which accounts have activity: a month with no COGS simply has no COGS section.
+  const walk = (list) => {
+    for (const r of list || []) {
+      if (r.group === group && r.Summary?.ColData?.length) {
+        const cell = r.Summary.ColData[r.Summary.ColData.length - 1]
+        const n = Number(String(cell?.value ?? '').replace(/[$,]/g, ''))
+        if (Number.isFinite(n)) return n
+      }
+      const inner = walk(r.Rows?.Row)
+      if (inner != null) return inner
+    }
+    return null
+  }
+  return walk(rows) ?? 0
+}
+
+export async function profitAndLoss(startDate, endDate) {
+  const start = String(startDate)
+  const end = String(endDate)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('profitAndLoss needs YYYY-MM-DD dates.')
+  }
+  const data = await qb(
+    `/reports/ProfitAndLoss?start_date=${start}&end_date=${end}&accounting_method=Cash`,
+  )
+  const rows = data?.Rows?.Row || []
+  const expenses = plRowTotal(rows, 'Expenses')
+  const cogs = plRowTotal(rows, 'COGS')
+  const otherExpenses = plRowTotal(rows, 'OtherExpenses')
+  return {
+    start,
+    end,
+    income: plRowTotal(rows, 'Income'),
+    expenses: Math.round((expenses + cogs + otherExpenses) * 100) / 100,
+    operatingExpenses: expenses,
+    cogs,
+    otherExpenses,
+  }
+}
+
+// The earliest date QuickBooks actually has an expense on.
+//
+// ⚠️ THIS IS NOT A DETAIL. QuickBooks holds nothing before January 2026 (checked 2026-09-28: every
+// month of 2024 and 2025 reports zero), while the CRM has payments back to May 2025. Subtracting
+// nine months of expenses from twelve months of income would produce an "after expenses" figure
+// that is too high by about three months of spending, and it would look perfectly plausible.
+//
+// So the finance page asks for this and refuses to net off a period QuickBooks cannot cover.
+export async function quickbooksExpensesSince() {
+  const r = await query('select * from Purchase order by TxnDate asc maxresults 1')
+  const txn = r?.QueryResponse?.Purchase?.[0]
+  return txn?.TxnDate || ''
+}
+
 // Find a customer by display name, or create one.
 async function ensureCustomer(name, email) {
   const safe = String(name || '').replace(/['\\]/g, ' ').trim() || 'Client'
