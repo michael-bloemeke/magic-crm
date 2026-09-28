@@ -72,6 +72,9 @@ import {
   sendInvoiceForProject as qbSendInvoice,
   refreshInvoiceStatus as qbRefreshInvoice,
   invoicePdfForProject as qbInvoicePdf,
+  profitAndLoss as qbProfitAndLoss,
+  quickbooksExpensesSince as qbExpensesSince,
+  isConnected as qbIsConnected,
 } from './crm-quickbooks.mjs'
 import {
   loadContracts,
@@ -1033,6 +1036,88 @@ export function crmDataPlugin() {
           .catch((e) => {
             res.statusCode = 500
             res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
+
+      // --- Business expenses, for the Finance page's "after expenses" figures. READ ONLY. ---
+      //
+      // Michael, 2026-09-28: "I want to know how much money I've received that didn't have to get
+      // spent on business expenses." The CRM has no expense data of its own (the `expenses` table
+      // has never had a row in it), so this comes from QuickBooks, which is already connected and
+      // is by his own rule the ledger of the actual money.
+      //
+      // ⚠️ THE TWO LEDGERS DO NOT COVER THE SAME PERIOD, and that is the whole difficulty here.
+      // QuickBooks holds nothing before 2026-01-01; the CRM has payments back to 2025-05-27. Taking
+      // twelve months of CRM income and subtracting nine months of QuickBooks expenses produces a
+      // number that is too high by about three months of spending and looks entirely plausible. So
+      // this endpoint reports the period it can actually vouch for, and the page nets off only that
+      // period. When QuickBooks has a full year behind it the clamp stops applying on its own.
+      //
+      // Cash basis, because the question is money in and money out, not what was invoiced.
+      // Cached for 15 minutes: two QuickBooks report calls take about a second and the Finance page
+      // is opened far more often than expenses change.
+      let expenseCache = { at: 0, data: null }
+      const EXPENSE_TTL_MS = 15 * 60 * 1000
+      server.middlewares.use('/api/finance/expenses', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const force = /[?&]force=1/.test(req.originalUrl || req.url || '')
+        const send = (data) => {
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(data))
+        }
+        if (!force && expenseCache.data && Date.now() - expenseCache.at < EXPENSE_TTL_MS) {
+          return send(expenseCache.data)
+        }
+        ;(async () => {
+          if (!(await qbIsConnected())) {
+            return { ok: true, connected: false, reason: 'QuickBooks is not connected.' }
+          }
+          const now = new Date()
+          const ymd = (d) => d.toISOString().slice(0, 10)
+          const today = ymd(now)
+          const monthStart = `${today.slice(0, 7)}-01`
+
+          // The rolling twelve-month window the Finance page's own card uses: the first day of the
+          // month eleven months back, so it lines up with computeFinance()'s month blocks rather
+          // than being a day-for-day year that would straddle two part-months.
+          const twelveStart = new Date(now.getFullYear(), now.getMonth() - 11, 1)
+          const twelveStartYmd = `${twelveStart.getFullYear()}-${String(twelveStart.getMonth() + 1).padStart(2, '0')}-01`
+
+          const since = await qbExpensesSince() // '' when QuickBooks has no expenses at all
+          const clamped = since && since > twelveStartYmd
+          const windowStart = clamped ? `${since.slice(0, 7)}-01` : twelveStartYmd
+
+          const [month, window] = await Promise.all([
+            qbProfitAndLoss(monthStart, today),
+            qbProfitAndLoss(windowStart, today),
+          ])
+          return {
+            ok: true,
+            connected: true,
+            generatedAt: new Date().toISOString(),
+            dataStartsAt: since,
+            thisMonth: { expenses: month.expenses, from: monthStart, to: today },
+            window: {
+              expenses: window.expenses,
+              from: windowStart,
+              to: today,
+              // The page sums only the month blocks at or after this key, so the income it nets
+              // against covers exactly the same period as the expenses.
+              fromMonth: windowStart.slice(0, 7),
+              // false = QuickBooks cannot cover the full twelve months and the figure is for a
+              // shorter period. The page has to say so rather than imply a year.
+              coversFullWindow: !clamped,
+            },
+          }
+        })()
+          .then((data) => {
+            expenseCache = { at: Date.now(), data }
+            send(data)
+          })
+          .catch((e) => {
+            // Never fail the Finance page over this. It is one extra line on two cards; the rest of
+            // the page is computed from payments and does not need QuickBooks at all.
+            send({ ok: false, connected: false, reason: String(e?.message || e) })
           })
       })
 

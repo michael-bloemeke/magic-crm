@@ -10,6 +10,7 @@ import {
   deletePayment as apiDeletePayment,
   deleteTrip as apiDeleteTrip,
   loadBankBalances,
+  loadBusinessExpenses,
   loadExpenses,
   loadFinance,
   loadMileage,
@@ -19,6 +20,7 @@ import {
   PAYMENT_METHODS,
   type BankBalances,
   type BreakdownItem,
+  type BusinessExpenses,
   type Expense,
   type FinanceBasis,
   type FinanceSummary,
@@ -33,6 +35,12 @@ type Breakdown = { title: string; subtitle?: string; items: BreakdownItem[] }
 const money = (n: number) => {
   const v = Math.round(n || 0)
   return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US')
+}
+// 'YYYY-MM' -> 'Jan 2026'. Used for the note that says which months an expense figure covers.
+const monthName = (key: string) => {
+  const m = /^(\d{4})-(\d{2})$/.exec(key || '')
+  if (!m) return key
+  return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
 const todayISO = () => {
   const d = new Date()
@@ -104,11 +112,20 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
   const [editingMonthly, setEditingMonthly] = useState(false)
   const [monthlyDraft, setMonthlyDraft] = useState('')
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null)
+  const [expenses, setExpenses] = useState<BusinessExpenses | null>(null)
 
   useEffect(() => {
     loadFinance()
       .then(setData)
       .catch(() => setData(null))
+  }, [])
+
+  // Separate from loadFinance on purpose. This one goes out to QuickBooks, and the Finance page
+  // must not sit blank waiting for it, nor break when it is down.
+  useEffect(() => {
+    loadBusinessExpenses()
+      .then(setExpenses)
+      .catch(() => setExpenses(null))
   }, [])
 
   if (!data) return <p className="animate-pulse text-[13px] text-faint">Loading finances…</p>
@@ -148,6 +165,25 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
     (basis === 'received' ? 'Payments by date received, by project' : 'Payments by event month, by project') +
     (includeTips ? ' (tips included)' : '')
   const last12Value = valueOf(data.last12)
+
+  // What QuickBooks says went back out. Loaded separately and allowed to fail: it is one extra line
+  // on two cards, and the rest of this page is computed from logged payments and never needs
+  // QuickBooks at all. A failure leaves the line off rather than showing a zero, because a zero
+  // would read as "no expenses" rather than "not known".
+  const netReceived = (m: MonthMoney) => m.received + (includeTips ? m.tips : 0)
+  const thisMonthExpenses = expenses?.connected ? expenses.thisMonth : null
+  const windowExpenses = expenses?.connected ? expenses.window : null
+  // The income to net the window's expenses against. When QuickBooks cannot cover the full twelve
+  // months, only the month blocks it CAN cover are summed, so the two sides describe one period.
+  const windowReceived = windowExpenses
+    ? windowExpenses.coversFullWindow
+      ? netReceived(data.last12)
+      : data.months.filter((m) => m.key >= windowExpenses.fromMonth).reduce((sum, m) => sum + netReceived(m), 0)
+    : 0
+  const windowNote =
+    windowExpenses && !windowExpenses.coversFullWindow
+      ? `${monthName(windowExpenses.fromMonth)} onward only. QuickBooks has no expenses before then.`
+      : undefined
   // Month blocks fill toward the monthly goal (100% at goal or above), not relative
   // to the highest month.
   const monthlyGoal = Math.max(1, data.monthlyGoal)
@@ -192,6 +228,9 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
               setBreakdown({ title: `This month · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(data.thisMonth) })
             }
           />
+          {thisMonthExpenses && (
+            <NetOfExpenses received={netReceived(data.thisMonth)} expenses={thisMonthExpenses.expenses} />
+          )}
         </Card>
 
         <Card label={`Last 12 months${tipNote}`}>
@@ -203,6 +242,9 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
               setBreakdown({ title: `Last 12 months · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(data.last12) })
             }
           />
+          {windowExpenses && (
+            <NetOfExpenses received={windowReceived} expenses={windowExpenses.expenses} periodNote={windowNote} />
+          )}
         </Card>
 
         <Card label="Still expected to come in">
@@ -657,6 +699,48 @@ function Figure({
     <button type="button" onClick={onClick} title="See the breakdown" className="-m-1 rounded-lg p-1 text-left transition-colors hover:bg-surface-3/60">
       {content}
     </button>
+  )
+}
+
+// What he actually kept: money received, less what QuickBooks says went back out.
+//
+// Michael, 2026-09-28: "I want to know how much money I've received that didn't have to get spent
+// on business expenses." It sits UNDER the received figure rather than replacing it, because the
+// gross number is still the one he checks against his goals.
+//
+// ⚠️ TWO LEDGERS, AND THEY DO NOT COVER THE SAME PERIOD. The income is the CRM's logged payments;
+// the expenses are QuickBooks, which holds nothing before January 2026 while the CRM has payments
+// back to May 2025. When the periods differ this nets off only the months QuickBooks can vouch for
+// and says which ones, rather than quietly subtracting nine months of spending from twelve months
+// of income and flattering the answer by about three months of costs.
+//
+// It is always computed from RECEIVED, whichever basis the page is on, and says so. Netting
+// expenses off "money earned" (payments sorted into their gig's event month) would be comparing
+// money that left the bank this month against money attributed to a gig next March.
+function NetOfExpenses({
+  received,
+  expenses,
+  periodNote,
+}: {
+  received: number
+  expenses: number
+  periodNote?: string
+}) {
+  return (
+    <div className="mt-3 border-t border-line/70 pt-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">After business expenses</p>
+      <p className="mt-1 font-display text-[21px] leading-none tabular-nums" style={{ color: 'var(--color-umb-booked)' }}>
+        {money(received - expenses)}
+      </p>
+      <p className="mt-1 text-[11px] leading-snug text-faint">
+        received less {money(expenses)} of expenses, from QuickBooks
+      </p>
+      {periodNote && (
+        <p className="mt-0.5 text-[11px] leading-snug" style={{ color: 'var(--color-umb-archive)' }}>
+          {periodNote}
+        </p>
+      )}
+    </div>
   )
 }
 
