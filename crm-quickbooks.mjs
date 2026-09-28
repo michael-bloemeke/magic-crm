@@ -293,6 +293,57 @@ export async function profitAndLoss(startDate, endDate) {
   }
 }
 
+// The same P&L, split into months.
+//
+// One call rather than twelve. The report's column metadata carries each column's StartDate, which
+// is what keys a column to a 'YYYY-MM' month; the column titles cannot be trusted for this because
+// the current month comes back as "Sep 1-28, 2026" rather than "Sep 2026".
+//
+// Returns [{ month, income, expenses }] oldest first, one entry per month in the range.
+export async function profitAndLossByMonth(startDate, endDate) {
+  const start = String(startDate)
+  const end = String(endDate)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    throw new Error('profitAndLossByMonth needs YYYY-MM-DD dates.')
+  }
+  const data = await qb(
+    `/reports/ProfitAndLoss?start_date=${start}&end_date=${end}&accounting_method=Cash&summarize_column_by=Month`,
+  )
+
+  // Column 0 is the account name and the last is the Total, so only the ones carrying a StartDate
+  // are real months. Their INDEX is what lines up with the cells on each row.
+  const months = []
+  ;(data?.Columns?.Column || []).forEach((col, i) => {
+    const meta = (col.MetaData || []).find((m) => m.Name === 'StartDate')
+    if (meta?.Value) months.push({ index: i, month: String(meta.Value).slice(0, 7) })
+  })
+
+  // The value a top-level group reports in one column.
+  const cellOf = (group, index) => {
+    const walk = (list) => {
+      for (const r of list || []) {
+        if (r.group === group) {
+          const cells = r.Summary?.ColData || r.ColData || []
+          const n = Number(String(cells[index]?.value ?? '').replace(/[$,]/g, ''))
+          return Number.isFinite(n) ? n : 0
+        }
+        const inner = walk(r.Rows?.Row)
+        if (inner != null) return inner
+      }
+      return null
+    }
+    return walk(data?.Rows?.Row) ?? 0
+  }
+
+  return months.map(({ index, month }) => ({
+    month,
+    income: cellOf('Income', index),
+    // Total business spend, same definition as profitAndLoss(): operating + COGS + other.
+    expenses:
+      Math.round((cellOf('Expenses', index) + cellOf('COGS', index) + cellOf('OtherExpenses', index)) * 100) / 100,
+  }))
+}
+
 // The earliest date QuickBooks actually has an expense on.
 //
 // ⚠️ THIS IS NOT A DETAIL. QuickBooks holds nothing before January 2026 (checked 2026-09-28: every

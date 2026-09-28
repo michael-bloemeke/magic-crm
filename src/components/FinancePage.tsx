@@ -36,6 +36,12 @@ const money = (n: number) => {
   const v = Math.round(n || 0)
   return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US')
 }
+// To the penny. Michael, 2026-09-28: "you can include dollars and cents." Used only for the figures
+// that come from QuickBooks, which is the ledger of the actual money; everything derived from the
+// quote stays in round dollars, because cents on a number that was never exact is false precision.
+const money2 = (n: number) =>
+  ((n || 0) < 0 ? '-$' : '$') +
+  Math.abs(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 // 'YYYY-MM' -> 'Jan 2026'. Used for the note that says which months an expense figure covers.
 const monthName = (key: string) => {
   const m = /^(\d{4})-(\d{2})$/.exec(key || '')
@@ -166,23 +172,64 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
     (includeTips ? ' (tips included)' : '')
   const last12Value = valueOf(data.last12)
 
-  // What QuickBooks says went back out. Loaded separately and allowed to fail: it is one extra line
-  // on two cards, and the rest of this page is computed from logged payments and never needs
-  // QuickBooks at all. A failure leaves the line off rather than showing a zero, because a zero
-  // would read as "no expenses" rather than "not known".
-  const netReceived = (m: MonthMoney) => m.received + (includeTips ? m.tips : 0)
-  const thisMonthExpenses = expenses?.connected ? expenses.thisMonth : null
-  const windowExpenses = expenses?.connected ? expenses.window : null
-  // The income to net the window's expenses against. When QuickBooks cannot cover the full twelve
-  // months, only the month blocks it CAN cover are summed, so the two sides describe one period.
-  const windowReceived = windowExpenses
-    ? windowExpenses.coversFullWindow
-      ? netReceived(data.last12)
-      : data.months.filter((m) => m.key >= windowExpenses.fromMonth).reduce((sum, m) => sum + netReceived(m), 0)
-    : 0
-  const windowNote =
-    windowExpenses && !windowExpenses.coversFullWindow
-      ? `${monthName(windowExpenses.fromMonth)} onward only. QuickBooks has no expenses before then.`
+  // ---- MONEY RECEIVED NOW COMES FROM QUICKBOOKS ----
+  //
+  // Michael, 2026-09-28: "Can you change that so that it's being pulled from QuickBooks instead of
+  // being just calculated by adding up all of the money from gigs? I think QuickBooks is much more
+  // accurate."
+  //
+  // He is right about what it measures. The CRM logs the QUOTE; QuickBooks records what actually
+  // landed, including the 3% card fee he adds on top, so for September the CRM says $10,355 and
+  // QuickBooks says $9,426.37 for the same nine gigs plus one the CRM had not caught.
+  //
+  // ⚠️ BLENDED PER MONTH, on his instruction, because QuickBooks holds nothing before January 2026
+  // and an uncovered month reports 0.00 rather than saying it does not know. Taking QuickBooks at
+  // face value for the whole window would show $66,798 instead of $96,270 and drop his annual goal
+  // bar from 96% to 66%, none of which would be real. So each month uses QuickBooks where
+  // QuickBooks has data and the CRM's logged payments where it does not, and the card says which
+  // months came from where. As QuickBooks fills in, the CRM half shrinks on its own.
+  const crmReceived = (m: MonthMoney) => m.received + (includeTips ? m.tips : 0)
+  const qbMonths = expenses?.connected ? expenses.months || [] : []
+  const qbByMonth = new Map(qbMonths.map((m) => [m.month, m]))
+  const usingQuickBooks = qbMonths.some((m) => m.covered)
+
+  // One month's money, from whichever ledger can speak for it. Tips are a CRM concept and are added
+  // on top either way: a cash tip never went through QuickBooks.
+  const moneyFor = (m: MonthPoint) => {
+    const qb = qbByMonth.get(m.key)
+    if (qb?.covered) return qb.income + (includeTips ? m.tips : 0)
+    return crmReceived(m)
+  }
+  const thisMonthKey = data.months.length ? data.months[data.months.length - 1].key : ''
+  const thisMonthQb = qbByMonth.get(thisMonthKey)
+  const thisMonthValue = thisMonthQb?.covered
+    ? thisMonthQb.income + (includeTips ? data.thisMonth.tips : 0)
+    : crmReceived(data.thisMonth)
+  const last12Received = usingQuickBooks
+    ? data.months.reduce((sum, m) => sum + moneyFor(m), 0)
+    : crmReceived(data.last12)
+  // The goal bars follow the card above them. On the earned basis there is no QuickBooks
+  // equivalent, so they stay on the CRM figure, which is what that basis means anyway.
+  const goalValue = basis === 'received' && usingQuickBooks ? last12Received : last12Value
+
+  // Which months in the window the CRM still has to cover for. Named on the card so the blend is
+  // visible rather than a silent mixture of two ledgers.
+  const crmMonths = usingQuickBooks ? data.months.filter((m) => !qbByMonth.get(m.key)?.covered) : []
+  const blendNote = crmMonths.length
+    ? `${monthName(crmMonths[0].key)} to ${monthName(crmMonths[crmMonths.length - 1].key)} from your logged payments. QuickBooks starts ${monthName(expenses?.dataStartsMonth || '')}.`
+    : undefined
+
+  // Expenses, for the "after business expenses" line. Same per-month coverage rule: only months
+  // QuickBooks can vouch for are netted off, and the income they are netted against is those same
+  // months, so the two sides always describe one period.
+  const coveredMonths = qbMonths.filter((m) => m.covered)
+  const windowExpenses = coveredMonths.reduce((sum, m) => sum + m.expenses, 0)
+  const windowReceivedForExpenses = data.months
+    .filter((m) => qbByMonth.get(m.key)?.covered)
+    .reduce((sum, m) => sum + moneyFor(m), 0)
+  const expenseNote =
+    coveredMonths.length && coveredMonths.length < qbMonths.length
+      ? `${monthName(coveredMonths[0].month)} onward only. QuickBooks has no expenses before then.`
       : undefined
   // Month blocks fill toward the monthly goal (100% at goal or above), not relative
   // to the highest month.
@@ -222,28 +269,46 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
         <Card label={`This month${tipNote}`}>
           <Figure
             label={basisLabel}
-            value={money(valueOf(data.thisMonth))}
-            hint={basis === 'received' ? 'money that hit your account this month' : 'payments for gigs performed this month'}
+            value={basis === 'received' && thisMonthQb?.covered ? money2(thisMonthValue) : money(valueOf(data.thisMonth))}
+            hint={
+              basis === 'received'
+                ? thisMonthQb?.covered
+                  ? 'money that hit your account this month, from QuickBooks'
+                  : 'money that hit your account this month'
+                : 'payments for gigs performed this month'
+            }
             onClick={() =>
               setBreakdown({ title: `This month · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(data.thisMonth) })
             }
           />
-          {thisMonthExpenses && (
-            <NetOfExpenses received={netReceived(data.thisMonth)} expenses={thisMonthExpenses.expenses} />
+          {thisMonthQb?.covered && (
+            <NetOfExpenses received={thisMonthValue} expenses={thisMonthQb.expenses} basis={basis} />
           )}
         </Card>
 
         <Card label={`Last 12 months${tipNote}`}>
           <Figure
             label={basisLabel}
-            value={money(last12Value)}
-            hint={basis === 'received' ? 'money received over the last 12 months' : 'payments by event month, last 12 months'}
+            value={basis === 'received' && usingQuickBooks ? money2(last12Received) : money(last12Value)}
+            hint={
+              basis === 'received'
+                ? usingQuickBooks
+                  ? 'money received over the last 12 months, from QuickBooks'
+                  : 'money received over the last 12 months'
+                : 'payments by event month, last 12 months'
+            }
+            note={basis === 'received' ? blendNote : undefined}
             onClick={() =>
               setBreakdown({ title: `Last 12 months · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(data.last12) })
             }
           />
-          {windowExpenses && (
-            <NetOfExpenses received={windowReceived} expenses={windowExpenses.expenses} periodNote={windowNote} />
+          {coveredMonths.length > 0 && (
+            <NetOfExpenses
+              received={windowReceivedForExpenses}
+              expenses={windowExpenses}
+              periodNote={expenseNote}
+              basis={basis}
+            />
           )}
         </Card>
 
@@ -335,8 +400,10 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
           </div>
         ) : (
           <div className="space-y-3">
+            {/* Tracks the same number the Last 12 months card shows, so the two can never disagree
+                about how the year is going. */}
             {data.goals.map((g) => (
-              <GoalBar key={g.goal} goal={g.goal} value={last12Value} />
+              <GoalBar key={g.goal} goal={g.goal} value={goalValue} />
             ))}
           </div>
         )}
@@ -344,7 +411,8 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
         {!editingGoals && (
           <p className="mt-2 text-[11.5px] text-faint">
             Tracking {basisLabel.toLowerCase()} over the last 12 months against each goal
-            {includeTips ? ', tips included' : ''}.
+            {includeTips ? ', tips included' : ''}
+            {basis === 'received' && usingQuickBooks ? ', from QuickBooks where it has the data' : ''}.
           </p>
         )}
       </section>
@@ -676,12 +744,15 @@ function Figure({
   label,
   value,
   hint,
+  note,
   color = 'var(--color-brass)',
   onClick,
 }: {
   label: string
   value: string
   hint?: string
+  // A caveat about where the figure came from. Amber, because it qualifies the number above it.
+  note?: string
   color?: string
   onClick?: () => void
 }) {
@@ -692,6 +763,11 @@ function Figure({
         {value}
       </p>
       {hint && <p className="mt-1 max-w-[15rem] text-[11px] leading-snug text-faint">{hint}</p>}
+      {note && (
+        <p className="mt-1 max-w-[17rem] text-[11px] leading-snug" style={{ color: 'var(--color-umb-archive)' }}>
+          {note}
+        </p>
+      )}
     </>
   )
   if (!onClick) return <div>{content}</div>
@@ -721,20 +797,33 @@ function NetOfExpenses({
   received,
   expenses,
   periodNote,
+  basis,
 }: {
   received: number
   expenses: number
   periodNote?: string
+  basis: FinanceBasis
 }) {
   return (
     <div className="mt-3 border-t border-line/70 pt-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">After business expenses</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+        {basis === 'received' ? 'After business expenses' : 'Received, after business expenses'}
+      </p>
       <p className="mt-1 font-display text-[21px] leading-none tabular-nums" style={{ color: 'var(--color-umb-booked)' }}>
-        {money(received - expenses)}
+        {money2(received - expenses)}
       </p>
       <p className="mt-1 text-[11px] leading-snug text-faint">
-        received less {money(expenses)} of expenses, from QuickBooks
+        received less {money2(expenses)} of expenses, from QuickBooks
       </p>
+      {/* On the EARNED basis this line's figure is bigger than the headline above it, which reads
+          as a fault unless the mismatch is explained. It stays on the received basis on purpose:
+          netting money that actually left the bank this month against money attributed to a gig
+          next March would not mean anything. */}
+      {basis === 'earned' && (
+        <p className="mt-0.5 text-[11px] leading-snug text-faint">
+          still on money received, not earned, so expenses line up with the month they were paid
+        </p>
+      )}
       {periodNote && (
         <p className="mt-0.5 text-[11px] leading-snug" style={{ color: 'var(--color-umb-archive)' }}>
           {periodNote}

@@ -73,6 +73,7 @@ import {
   refreshInvoiceStatus as qbRefreshInvoice,
   invoicePdfForProject as qbInvoicePdf,
   profitAndLoss as qbProfitAndLoss,
+  profitAndLossByMonth as qbProfitAndLossByMonth,
   quickbooksExpensesSince as qbExpensesSince,
   isConnected as qbIsConnected,
 } from './crm-quickbooks.mjs'
@@ -1073,41 +1074,36 @@ export function crmDataPlugin() {
             return { ok: true, connected: false, reason: 'QuickBooks is not connected.' }
           }
           const now = new Date()
-          const ymd = (d) => d.toISOString().slice(0, 10)
-          const today = ymd(now)
-          const monthStart = `${today.slice(0, 7)}-01`
+          const today = now.toISOString().slice(0, 10)
 
-          // The rolling twelve-month window the Finance page's own card uses: the first day of the
-          // month eleven months back, so it lines up with computeFinance()'s month blocks rather
-          // than being a day-for-day year that would straddle two part-months.
+          // The same rolling twelve-month window the Finance page's own month blocks use: the first
+          // day of the month eleven months back, so the two line up month for month.
           const twelveStart = new Date(now.getFullYear(), now.getMonth() - 11, 1)
           const twelveStartYmd = `${twelveStart.getFullYear()}-${String(twelveStart.getMonth() + 1).padStart(2, '0')}-01`
 
-          const since = await qbExpensesSince() // '' when QuickBooks has no expenses at all
-          const clamped = since && since > twelveStartYmd
-          const windowStart = clamped ? `${since.slice(0, 7)}-01` : twelveStartYmd
-
-          const [month, window] = await Promise.all([
-            qbProfitAndLoss(monthStart, today),
-            qbProfitAndLoss(windowStart, today),
+          const [since, months] = await Promise.all([
+            qbExpensesSince(), // '' when QuickBooks has no expenses at all
+            qbProfitAndLossByMonth(twelveStartYmd, today),
           ])
+
+          // The first month QuickBooks can speak for. Months before it come back as 0.00, which is
+          // indistinguishable from a genuinely empty month, so the page must be told where the data
+          // actually begins rather than inferring it from zeros.
+          const startsMonth = since ? since.slice(0, 7) : ''
           return {
             ok: true,
             connected: true,
             generatedAt: new Date().toISOString(),
             dataStartsAt: since,
-            thisMonth: { expenses: month.expenses, from: monthStart, to: today },
-            window: {
-              expenses: window.expenses,
-              from: windowStart,
-              to: today,
-              // The page sums only the month blocks at or after this key, so the income it nets
-              // against covers exactly the same period as the expenses.
-              fromMonth: windowStart.slice(0, 7),
-              // false = QuickBooks cannot cover the full twelve months and the figure is for a
-              // shorter period. The page has to say so rather than imply a year.
-              coversFullWindow: !clamped,
-            },
+            dataStartsMonth: startsMonth,
+            // Oldest first, one entry per month of the window: { month, income, expenses }.
+            months: months.map((m) => ({
+              ...m,
+              // Whether QuickBooks actually covers this month, as opposed to reporting zero because
+              // it has nothing. The page uses this to decide, per month, which ledger to believe.
+              covered: !startsMonth || m.month >= startsMonth,
+            })),
+            thisMonth: months.length ? months[months.length - 1] : null,
           }
         })()
           .then((data) => {

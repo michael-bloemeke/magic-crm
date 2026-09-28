@@ -1613,32 +1613,38 @@ export async function loadBankBalances(force = false): Promise<BankBalances> {
   return (await res.json()) as BankBalances
 }
 
-// --- Business expenses (QuickBooks, cash basis) -----------------------------
-// READ ONLY. Powers the "after business expenses" line under the Finance page's received figures.
+// --- QuickBooks money, by month (cash basis) --------------------------------
+// READ ONLY. Powers both the Finance page's "money received" headline and the "after business
+// expenses" line under it.
 //
-// ⚠️ `window.coversFullWindow` is the important field. QuickBooks holds nothing before 2026-01-01
-// while the CRM has payments back to May 2025, so the twelve-month expense figure may cover a
-// SHORTER period than the twelve-month income figure. When it is false the page must net off only
-// the months from `window.fromMonth` onward and say which period it is showing. Netting a full
-// year of income against a partial year of expenses overstates what he kept, and does it quietly.
+// ⚠️ `covered` is the important field on each month. QuickBooks holds nothing before 2026-01-01
+// while the CRM has payments back to May 2025, and an uncovered month reports 0.00, which is
+// indistinguishable from a month in which nothing happened. The page must decide PER MONTH which
+// ledger to believe: QuickBooks where it is covered, the CRM's own logged payments where it is not.
+// Reading the zeros as real would wipe about $30,000 off his twelve-month figure and do it quietly.
+export type QuickBooksMonth = {
+  // 'YYYY-MM'
+  month: string
+  income: number
+  // Total business spend: operating expenses + COGS + other expenses.
+  expenses: number
+  // false = QuickBooks has no data for this month, so its 0.00 means "don't know", not "nothing".
+  // The Finance page falls back to the CRM's own logged payments for these months.
+  covered: boolean
+}
 export type BusinessExpenses = {
   ok: boolean
-  // false = QuickBooks is not connected, or the call failed. `reason` says which. The page simply
-  // leaves the line off rather than showing a zero, because zero would read as "no expenses".
+  // false = QuickBooks is not connected, or the call failed. `reason` says which. The page falls
+  // back to the CRM figures entirely rather than showing a zero, because zero would read as
+  // "no money and no expenses".
   connected: boolean
   generatedAt?: string
-  // The earliest date QuickBooks has an expense on. '' when it has none at all.
+  // The earliest date / month QuickBooks has anything on. '' when it has nothing at all.
   dataStartsAt?: string
-  thisMonth?: { expenses: number; from: string; to: string }
-  window?: {
-    expenses: number
-    from: string
-    to: string
-    // YYYY-MM. The page sums only the month blocks at or after this, so income and expenses cover
-    // exactly the same period.
-    fromMonth: string
-    coversFullWindow: boolean
-  }
+  dataStartsMonth?: string
+  // Oldest first, one entry per month of the rolling twelve-month window.
+  months?: QuickBooksMonth[]
+  thisMonth?: QuickBooksMonth | null
   reason?: string
 }
 export async function loadBusinessExpenses(force = false): Promise<BusinessExpenses> {
