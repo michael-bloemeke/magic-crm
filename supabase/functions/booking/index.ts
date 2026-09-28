@@ -285,9 +285,10 @@ Deno.serve(async (req) => {
     put("indoors_or_outdoors", project.indoors_or_outdoors);
     put("age_of_guests", project.age_of_guests);
     put("vips", project.vips);
-    // Best guess only: the invoice often goes to somebody other than the signer, which is exactly
-    // why the question is asked. Seeding it with the contact saves typing in the common case.
-    put("invoice_to", project.contact_names);
+    // ⚠️ "invoice_to" IS DELIBERATELY NOT PREFILLED (Michael, 2026-09-28). It used to be seeded from
+    // project.contact_names as a typing saver, and the result was that clients skimmed past it and
+    // signed whatever was already there. The name on this field prints on the invoice and on the
+    // contract, so it has to be a deliberate answer, not an accepted default. Leave it blank.
     // "unforgettable" and "notes" are deliberately NOT prefilled. They append to Michael's project
     // notes, so seeding them with his own notes would show the client his internal remarks and then
     // append them back onto themselves.
