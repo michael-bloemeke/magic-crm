@@ -58,9 +58,12 @@ export const BOOKING_FIELDS = [
   { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time would you like the magic to start?', type: 'time', required: true },
   { id: 'number_of_guests', key: 'numberOfGuests', label: 'Number of guests', type: 'text', required: true },
   { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
-  // ⚠️ The PAGE enforces a full address on this one (a ZIP plus a street number). See `addr: true`
-  // in Website/book/index.html. Michael, 2026-09-28: clients were sending a street name with no town.
-  { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'The complete address, exactly as you would type it into Google Maps. Street number, street, city, state, and ZIP.', type: 'textarea', required: true },
+  // ⚠️ REQUIRED, but deliberately NOT format-checked (Michael, 2026-09-28). Clients were sending a
+  // street name with no town. A validation rule was built and then reverted, because rejecting a
+  // good address on a form a paying client is filling in is worse than an imperfect one. The hint
+  // does the work and explains WHY, which is what changes behaviour. Revisit only if bad addresses
+  // keep arriving after this wording has had a run.
+  { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'Michael types this straight into Google Maps to get to you, so please give the whole thing: street number, street, city, state, and ZIP.', type: 'textarea', required: true },
   { id: 'venue_type', key: 'venueType', label: 'Venue type', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
   { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoor or outdoor', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
   { id: 'av', key: 'av', label: 'For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?', hint: 'You can put NA if not applicable', type: 'textarea', required: true },
