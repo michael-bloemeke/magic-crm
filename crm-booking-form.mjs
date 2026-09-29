@@ -54,8 +54,8 @@ export const BOOKING_FIELDS = [
   // (the two times, the two guest questions, the two venue questions, and so on). Reordering this
   // list reflows that page, and `crm-booking-form.test.mjs` asserts the two match IN ORDER.
   { id: 'event_summary', key: 'eventSummary', label: 'Basic description of the event', hint: 'A sentence or two about what the event is', type: 'textarea', required: true },
-  { id: 'event_start_time', key: 'eventStartTime', label: 'Event start time', type: 'time', required: true },
-  { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time would you like the magic to start?', type: 'time', required: true },
+  { id: 'event_start_time', key: 'eventStartTime', label: 'Event start time', hint: 'What time will the guests arrive?', type: 'time', required: true },
+  { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time will the magic start?', type: 'time', required: true },
   { id: 'number_of_guests', key: 'numberOfGuests', label: 'Number of guests', type: 'text', required: true },
   { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
   // ⚠️ REQUIRED, but deliberately NOT format-checked (Michael, 2026-09-28). Clients were sending a
@@ -66,7 +66,7 @@ export const BOOKING_FIELDS = [
   { id: 'venue_address', key: 'eventLocation', label: 'Venue address', hint: 'Michael types this straight into Google Maps to get to you, so please give the whole thing: street number, street, city, state, and ZIP.', type: 'textarea', required: true },
   { id: 'venue_type', key: 'venueType', label: 'Venue type', hint: 'Private home, hotel ballroom, country club, restaurant, etc.', type: 'text', required: true },
   { id: 'indoors_or_outdoors', key: 'indoorsOrOutdoors', label: 'Indoor or outdoor', type: 'select', options: ['Indoors', 'Outdoors', 'Both'], required: true },
-  { id: 'av', key: 'av', label: 'For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?', hint: 'You can put NA if not applicable', type: 'textarea', required: true },
+  { id: 'av', key: 'av', label: 'AV available at the venue', hint: 'For a stage show: sound system, projector/screen, etc. Put NA if not applicable.', type: 'textarea', required: true },
   { id: 'vips', key: 'vips', label: 'Any VIPs that Michael should give special attention to?', type: 'textarea', required: true },
   // Not a project field: drives who the QuickBooks invoice is addressed to. REQUIRED (Michael,
   // 2026-08-03): on a corporate booking the signer is often not the payer, and an invoice made out to
