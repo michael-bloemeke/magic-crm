@@ -55,7 +55,10 @@ export const BOOKING_FIELDS = [
   // list reflows that page, and `crm-booking-form.test.mjs` asserts the two match IN ORDER.
   { id: 'event_summary', key: 'eventSummary', label: 'Basic description of the event', hint: 'A sentence or two about what the event is', type: 'textarea', required: true },
   { id: 'event_start_time', key: 'eventStartTime', label: 'Event start time', hint: 'What time will the guests arrive?', type: 'time', required: true },
-  { id: 'show_start_time', key: 'showStartTime', label: 'Show start time', hint: 'What time will the magic start?', type: 'time', required: true },
+  // Labelled "Performance start time" on the form (2026-09-28). The id stays `show_start_time` and
+  // the project key stays `showStartTime`: they are the join between the form, the project column
+  // and the agreement, and renaming either would orphan every answer already submitted.
+  { id: 'show_start_time', key: 'showStartTime', label: 'Performance start time', hint: 'What time will the magic start?', type: 'time', required: true },
   { id: 'number_of_guests', key: 'numberOfGuests', label: 'Number of guests', type: 'text', required: true },
   { id: 'age_of_guests', key: 'ageOfGuests', label: 'Ages of the guests', type: 'text', required: true },
   // ⚠️ REQUIRED, but deliberately NOT format-checked (Michael, 2026-09-28). Clients were sending a
