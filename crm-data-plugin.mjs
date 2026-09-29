@@ -111,7 +111,7 @@ import {
   TITLE as CONTRACT_TITLE,
   SIGNATURE_LINES as CONTRACT_SIGNATURE_LINES,
 } from './crm-contract-template.mjs'
-import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject, createDraft as gmailCreateDraft } from './crm-gmail.mjs'
+import { getAuthUrl, exchangeCode, isConnected, credentialsPresent, unreadByProject, createDraft as gmailCreateDraft, deleteDraft as gmailDeleteDraft } from './crm-gmail.mjs'
 import { listFiles, saveFile, readFile, deleteFile } from './crm-files.mjs'
 import { saveAttachment, deleteAttachment } from './crm-email-attachments.mjs'
 import { loadContacts, addContact, updateContact, deleteContact } from './crm-contacts.mjs'
@@ -1267,7 +1267,7 @@ export function crmDataPlugin() {
           // record of the invoice. Otherwise the timeline would still show them having signed the
           // version being replaced, and the claim stamps would block the corrected copy going out.
           if (b.resend) await resetBooking(b.projectId)
-          const draft = await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, project })
+          const draft = await draftBookingEmail(b.projectId, { createDraft: gmailCreateDraft, deleteDraft: gmailDeleteDraft, project })
           await publishAgreement(b.projectId, { variant })
           return { ...draft, variant, reset: !!b.resend }
         })

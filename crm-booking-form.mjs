@@ -175,11 +175,14 @@ export async function registerToken(projectId) {
   await sb().from('projects').update({ booking_token: token }).eq('id', projectId)
 }
 
-export function markSent(projectId) {
+// `extra` carries anything else worth remembering about this send. `draftId` is the Gmail draft
+// that was just written, so the NEXT regeneration can bin it instead of piling up.
+export function markSent(projectId, extra = {}) {
   const d = readFile()
   const rec = d.forms[projectId]
   if (!rec) return
   rec.sentAt = new Date().toISOString()
+  if (extra.draftId !== undefined) rec.draftId = extra.draftId
   writeFile(d)
 }
 
@@ -464,7 +467,7 @@ export function clientEmailFor(project) {
 
 // Draft (never send) the email that carries the booking-form link. Michael reviews and sends it
 // himself from Gmail, which is both his own standing rule and where he now writes everything.
-export async function draftBookingEmail(projectId, { createDraft, project }) {
+export async function draftBookingEmail(projectId, { createDraft, deleteDraft, project }) {
   // GATES: everything the client will SEE on the agreement has to be right before the link goes out.
   //
   // This is the last moment Michael is in the loop. The instant they finish the booking form the
@@ -496,8 +499,29 @@ export async function draftBookingEmail(projectId, { createDraft, project }) {
     )
   }
   const { subject, text, html } = bookingFormEmail({ project, url: link.url })
+
+  // Replace the previous draft rather than adding to it. "Regenerate form / email" is a button
+  // Michael presses more than once (he edits a detail, regenerates, edits another), and without
+  // this each press leaves another near-identical draft in his Gmail for him to sort out. Binning
+  // the old one first is deliberately non-fatal: if it has already been sent or deleted by hand,
+  // the new draft still gets written.
+  // `deleteDraft` is injected the same way `createDraft` is, so this module still knows nothing
+  // about Gmail. An older caller that does not pass it simply skips the tidy-up.
+  //
+  // The try/catch is the point, not a formality: the draft may already be sent or deleted by hand,
+  // and Gmail answers that with a 404. Losing the whole regenerate because the tidy-up failed would
+  // be exactly backwards, so a failure here is noted and stepped over.
+  const previousDraftId = readFile().forms[projectId]?.draftId || ''
+  if (previousDraftId && typeof deleteDraft === 'function') {
+    try {
+      await deleteDraft(previousDraftId)
+    } catch (e) {
+      console.warn(`[booking] could not bin the previous draft for ${projectId}:`, e?.message || e)
+    }
+  }
+
   const draft = await createDraft({ to, subject, body: text, html })
-  markSent(projectId)
+  markSent(projectId, { draftId: draft?.id || '' })
   // Remember the thread. Sending a draft keeps it, so this is what the CONTRACT email replies into
   // later, which is the whole point of "not a thousand separate threads in their inbox".
   if (CRM_STORE === 'supabase' && draft?.threadId) {

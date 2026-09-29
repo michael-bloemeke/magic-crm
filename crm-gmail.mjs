@@ -573,6 +573,20 @@ export async function createDraft({ to, subject, body, html, attachments, inline
   return { ok: true, id: res.data.id, threadId: res.data.message?.threadId || '' }
 }
 
+// Bin a draft. Used when the booking email is REGENERATED: without it, pressing that button twice
+// leaves two near-identical drafts in his Gmail and he has to work out which is the current one.
+// Never throws: the draft may already be gone (he sent it, or deleted it by hand), and failing to
+// tidy up an old draft must not stop a new one being written.
+export async function deleteDraft(id) {
+  if (!id) return { ok: false, skipped: 'no draft id' }
+  try {
+    await api().users.drafts.delete({ userId: 'me', id })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) }
+  }
+}
+
 // One pass over unread mail, tallied per project (by matching the sender to a
 // project's contact email). Used for the unread badges in the flow view.
 // Unread counts per active project, for the flow-view badges and the bell.

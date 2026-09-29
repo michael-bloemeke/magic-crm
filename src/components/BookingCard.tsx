@@ -23,7 +23,23 @@ import {
 // ONE control:
 //
 //   Ready to book   publishes the agreement to the website, issues the form link, and leaves a
-//                   ready-to-send draft in Gmail. Disabled until the two gated fields are filled.
+//                   ready-to-send draft in Gmail. Disabled until the gated fields are filled.
+//
+// Once a link is out, that button becomes REGENERATE FORM / EMAIL (renamed from "Resend booking
+// form" on 2026-09-28). Michael: "it'll still use the same link and everything, but it'll just kind
+// of refresh it all. And if anything changed, it'll just kind of redo it and fix it." That is what
+// it already did; the old name described the email and said nothing about the agreement being
+// republished, which is the half that matters after editing a detail.
+//
+//   ⚠️ THE LINK NEVER CHANGES. `bookingFormLink` mints a token once and reuses it forever, and
+//   `resetBooking` deliberately leaves `booking_token` alone, so a link already sitting in the
+//   client's inbox keeps working and starts serving the corrected agreement.
+//
+//   What DOES get cleared is the timeline, any signature, and the CRM's invoice record, because
+//   otherwise the card would still show them having signed the version being replaced. The warning
+//   in the variant picker says so.
+//
+//   The Gmail draft is REPLACED, not added to: regenerating three times leaves one draft, not three.
 //
 // The agreement itself is an ATTACHMENT, not a button. It used to be "View contract", which forced a
 // download; the document exists, so it should sit on the project the way a PDF sits on an email, one
@@ -260,7 +276,7 @@ export function BookingCard({
           title={readyToSend ? '' : 'Add a performance style, a quote and an event date first'}
           className={primary}
         >
-          {busy ? 'Working…' : linkOut ? 'Resend booking form' : 'Ready to book'}
+          {busy ? 'Working…' : linkOut ? 'Regenerate form / email' : 'Ready to book'}
         </button>
         {/* Michael's own read of the form the client gets. `preview=1` is what stops it counting as
             a client view, exactly as the proposal preview does: the view timeline is the whole
@@ -293,8 +309,9 @@ export function BookingCard({
           </p>
           {linkOut && (
             <p className="px-1.5 pb-1.5 text-[10.5px] leading-snug text-rose-300/90">
-              Resending clears the timeline and any signature, and drops the CRM's invoice record.
-              Delete the old invoice in QuickBooks yourself if one already went out.
+              The link stays the same and the Gmail draft is replaced. This clears the timeline and
+              any signature, and drops the CRM's invoice record. Delete the old invoice in QuickBooks
+              yourself if one already went out.
             </p>
           )}
           {variants.map((v) => (

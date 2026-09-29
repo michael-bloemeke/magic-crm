@@ -133,5 +133,44 @@ check('gate still blocks a blank performance style', /performance style/.test(aw
 check('gate still blocks a missing quote', /quote/.test(await gateError({ ...goodProject, totalFee: 0 })), true)
 check('a complete project clears the gate', /performance style|quote|event date/.test(await gateError(goodProject)), false)
 
+// ---------------------------------------------------------------------------
+// Regenerate form / email replaces the draft, and never changes the link
+// ---------------------------------------------------------------------------
+//
+// Michael presses this button more than once (edit a detail, regenerate, edit another). Without the
+// tidy-up each press leaves another near-identical draft in his Gmail for him to sort out. And the
+// link must survive, because one may already be sitting in the client's inbox.
+const { bookingFormLink } = await import('./crm-booking-form.mjs')
+const deleted = []
+let nextDraft = 1
+const drafter = async () => ({ ok: true, id: `draft-${nextDraft++}`, threadId: 't' })
+const binner = async (id) => { deleted.push(id); return { ok: true } }
+
+const linkBefore = bookingFormLink('x').url
+await draftBookingEmail('x', { project: goodProject, createDraft: drafter, deleteDraft: binner })
+check('first regenerate bins nothing', deleted.length, 0)
+
+await draftBookingEmail('x', { project: goodProject, createDraft: drafter, deleteDraft: binner })
+check('second regenerate bins the first draft', deleted.join(), 'draft-1')
+
+await draftBookingEmail('x', { project: goodProject, createDraft: drafter, deleteDraft: binner })
+check('third bins the second, so one draft survives', deleted.join(), 'draft-1,draft-2')
+check('the booking link never changed', bookingFormLink('x').url, linkBefore)
+
+// A caller that does not inject deleteDraft (the older signature) must still work.
+let threw = ''
+try {
+  await draftBookingEmail('x', { project: goodProject, createDraft: drafter })
+} catch (e) { threw = String(e.message || e) }
+check('works without deleteDraft injected', threw, '')
+
+// Binning a draft that is already gone must not stop the new one being written.
+const angry = async () => { throw new Error('404 draft not found') }
+let threw2 = ''
+try {
+  await draftBookingEmail('x', { project: goodProject, createDraft: drafter, deleteDraft: angry })
+} catch (e) { threw2 = String(e.message || e) }
+check('a failed tidy-up does not fail the regenerate', threw2, '')
+
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURE(S)`)
 process.exit(fails ? 1 : 0)
