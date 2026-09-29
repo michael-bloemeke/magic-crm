@@ -240,10 +240,11 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
       {/* Master controls: one basis toggle + tips toggle drive the whole page */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-[12px] leading-snug text-muted">
-          Every figure below comes from the <span className="text-parchment">payments</span> you've logged.{' '}
-          <span className="text-parchment">Money received</span> counts a payment in the month it arrived;{' '}
-          <span className="text-parchment">Money earned</span> counts it in the gig's event month. The quote and tips
-          stay out unless you turn tips on.
+          <span className="text-parchment">Money received</span> comes from{' '}
+          <span className="text-parchment">QuickBooks</span> for every month it covers, and from the{' '}
+          <span className="text-parchment">payments</span> you've logged before that. It counts money in the month it
+          arrived. <span className="text-parchment">Money earned</span> is your logged payments only, counted in the
+          gig's event month. The quote and tips stay out unless you turn tips on.
         </p>
         <div className="flex items-center gap-3">
           <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-muted">
@@ -460,15 +461,26 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
           )}
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {/* The blocks use the SAME number as the cards above, so a month cannot read $10,355 here
+              and $9,426.37 four inches higher up. The breakdown behind each one is still the CRM's
+              per-project list, because that is the only thing that knows which gig was which; the
+              sheet says so when the total came from QuickBooks. */}
           {data.months.map((m) => {
-            const val = valueOf(m)
+            const fromQb = basis === 'received' && !!qbByMonth.get(m.key)?.covered
+            const val = basis === 'received' && usingQuickBooks ? moneyFor(m) : valueOf(m)
             const pct = Math.min(1, val / monthlyGoal)
             return (
               <button
                 type="button"
                 key={m.key}
                 onClick={() =>
-                  setBreakdown({ title: `${m.label} · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(m) })
+                  setBreakdown({
+                    title: `${m.label} · ${basisLabel}`,
+                    subtitle: fromQb
+                      ? `${itemSubtitle}. The month's total comes from QuickBooks; this is the gig-by-gig record behind it.`
+                      : itemSubtitle,
+                    items: itemsOf(m),
+                  })
                 }
                 title={`${money(val)} of ${money(data.monthlyGoal)} goal · see the breakdown`}
                 className="relative overflow-hidden rounded-xl border border-line bg-surface-2/60 p-3 text-left transition-colors hover:border-line-strong"
