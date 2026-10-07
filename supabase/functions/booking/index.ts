@@ -195,6 +195,7 @@ Deno.serve(async (req) => {
         demo: true,
         eventDate: "Saturday, June 13, 2026",
         performanceStyle: "The formal show",
+        quote: "$1,500",
         answers: [],
         prefill: {},
         signed: false,
@@ -216,6 +217,7 @@ Deno.serve(async (req) => {
       .from("projects")
       .select(
         "id, agreement_html, booking_viewed_at, booking_view_count, event_date, performance_style, " +
+          "total_fee, total_fee_text, " +
           "event_summary, event_start_time, show_start_time, av, number_of_guests, " +
           "event_location, venue_type, indoors_or_outdoors, age_of_guests, vips, contact_names",
       )
@@ -266,6 +268,21 @@ Deno.serve(async (req) => {
     // problem. Both go out on every step, even before they have submitted.
     const eventDate = prettyDate(String(project.event_date || ""));
     const performanceStyle = String(project.performance_style || "").trim();
+    // The QUOTE, stated back to them alongside the date and the style (Michael, 2026-10-07):
+    // "I want the quote included there as well. I don't want the client to have the option to edit
+    // the quote, but I want it listed at the top so they can see it."
+    //
+    // This is the BOOKING FEE, the same figure the agreement's fee clause carries, NOT the invoice
+    // total. The 3% card fee rides on top as its own line on the QuickBooks invoice and is waived
+    // when they pay another way, so adding it here would state a number they may never be charged.
+    //
+    // Number first, text companion second, matching every other reader of this pair: they are meant
+    // to be mutually exclusive, and when both are filled the number is the real one. Formatted the
+    // same way `contractMoney` formats it for the agreement, so the two cannot disagree.
+    const feeNum = Number(project.total_fee);
+    const quote = Number.isFinite(feeNum) && feeNum > 0
+      ? "$" + Math.round(feeNum).toLocaleString("en-US")
+      : String(project.total_fee_text ?? "").trim();
 
     // What Michael already has on file, so the client reads it back and corrects it rather than
     // typing everything from scratch. Every one of these stays editable on the form; only the date
@@ -293,7 +310,7 @@ Deno.serve(async (req) => {
     // notes, so seeding them with his own notes would show the client his internal remarks and then
     // append them back onto themselves.
 
-    const base = { eventDate, performanceStyle, prefill };
+    const base = { eventDate, performanceStyle, quote, prefill };
     if (!row) return json({ submitted: false, signed: false, ...base });
     if (row.signed_at) return json({ submitted: true, signed: true, ...base });
 
