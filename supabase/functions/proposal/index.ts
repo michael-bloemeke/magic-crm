@@ -488,6 +488,9 @@ Deno.serve(async (req) => {
     clients: normaliseClients(prop.clients),
     photos: normalisePhotos(prop.photos),
     videoId: safeVideoId(prop.video_id),
+    // An optional second video shown under the promo reel (added 2026-10-09 for the Charlotte Today
+    // clip). Same whitelist as the first; empty means the page shows one video, as before.
+    video2Id: safeVideoId(prop.video2_id),
   };
 
   if (preview || admin) return json({ ...body, preview: true, admin });
