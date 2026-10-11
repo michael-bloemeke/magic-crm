@@ -10,6 +10,29 @@ import { EditableField } from './EditableField'
 // The message is editable (paste in the first email for a project that arrived some other way);
 // the form fill is a read-only record of what was actually submitted.
 
+// Gig-site leads (GigSalad, The Bash, Bark) are created by the `gig-leads` edge function, which
+// writes the lead's listing link into the message as "Open the lead on <Site>: <url>". The message
+// is a plain editable text box, so a URL in it is not clickable; this pulls those links out and
+// shows them as real buttons under the message. Added 2026-10-11 at Michael's request.
+const LEAD_SITES: Array<[RegExp, string]> = [
+  [/(^|\.)gigsalad\.com$/i, 'GigSalad'],
+  [/(^|\.)thebash\.com$/i, 'The Bash'],
+  [/(^|\.)bark\.com$/i, 'Bark'],
+]
+function leadLinks(text: string): { url: string; site: string }[] {
+  const out: { url: string; site: string }[] = []
+  for (const raw of String(text || '').match(/https?:\/\/[^\s<>"]+/g) ?? []) {
+    try {
+      const host = new URL(raw).hostname
+      const hit = LEAD_SITES.find(([re]) => re.test(host))
+      if (hit && !out.some((x) => x.url === raw)) out.push({ url: raw, site: hit[1] })
+    } catch {
+      /* not a URL */
+    }
+  }
+  return out
+}
+
 // '2026-06-24T19:31:05.883Z' -> 'Jun 24, 2026, 3:31 PM' (local).
 function fmtSubmitted(iso: string): string {
   const d = new Date(iso)
@@ -79,6 +102,20 @@ export function InitialInquiryModal({
                     placeholder="What the client wrote when they first reached out."
                   />
                 </div>
+                {leadLinks(project.initialInquiry).map((l) => (
+                  <a
+                    key={l.url}
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3.5 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass hover:text-brass"
+                  >
+                    Open this lead on {l.site}
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M14 4h6v6M20 4l-8 8M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+                    </svg>
+                  </a>
+                ))}
               </section>
 
               {fields.length > 0 && (
@@ -95,7 +132,7 @@ export function InitialInquiryModal({
                 </section>
               )}
 
-              {fields.length === 0 && (
+              {fields.length === 0 && leadLinks(project.initialInquiry).length === 0 && (
                 <p className="text-[12px] text-faint">
                   No website form on file. (The form is saved automatically for inquiries that come through the site.)
                 </p>
