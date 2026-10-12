@@ -350,10 +350,6 @@ export function ProjectDetailsBody({
         form={inquiryForm}
         onClose={() => setInquiryOpen(false)}
         onSaveField={onSaveField}
-        onOpenLead={(url, site) => {
-          setInquiryOpen(false)
-          onPreview({ src: url, publicUrl: url, title: `${site} lead`, subtitle: project.client, backLabel: 'Back to project', kind: 'site' })
-        }}
       />
     </div>
   )

@@ -46,15 +46,12 @@ export function InitialInquiryModal({
   form,
   onClose,
   onSaveField,
-  onOpenLead,
 }: {
   open: boolean
   project: Project
   form: InquiryForm | null
   onClose: () => void
   onSaveField: (field: string, value: string) => void
-  // Opens the lead inside the CRM (desktop app only). In a plain browser the link opens a new tab.
-  onOpenLead?: (url: string, site: string) => void
 }) {
   useEffect(() => {
     if (!open) return
@@ -111,12 +108,6 @@ export function InitialInquiryModal({
                     href={l.url}
                     target="_blank"
                     rel="noreferrer"
-                    onClick={(e) => {
-                      if (onOpenLead && window.crm?.isElectron) {
-                        e.preventDefault()
-                        onOpenLead(l.url, l.site)
-                      }
-                    }}
                     className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3.5 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass hover:text-brass"
                   >
                     Open this lead on {l.site}

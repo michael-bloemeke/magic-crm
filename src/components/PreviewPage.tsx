@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 // THE PROPOSAL, INSIDE THE CRM.
 //
@@ -30,25 +30,6 @@ export type PreviewTarget = {
   subtitle?: string
   // Where Back goes, in his words: "the proposals page or the project page, wherever I was."
   backLabel: string
-  // 'site' = a third-party page (a GigSalad, Bash or Bark lead), shown in an Electron <webview>
-  // because those sites refuse to load in an iframe. Added 2026-10-11. Default is the proposal /
-  // booking-form iframe, which is Michael's own domain.
-  kind?: 'site'
-}
-
-// The <webview> for third-party sites. A real browser view inside the window: the sites cannot
-// block it the way they block an iframe, and it uses the app's default session, so his GigSalad,
-// Bash and Bark logins carry over. Only exists in the desktop app (webviewTag in electron/main.cjs);
-// in a plain browser tab the lead button opens a new tab instead and never reaches this.
-function SiteView({ src, onLoaded }: { src: string; onLoaded: () => void }) {
-  const ref = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.addEventListener('did-stop-loading', onLoaded)
-    return () => el.removeEventListener('did-stop-loading', onLoaded)
-  }, [onLoaded])
-  return createElement('webview', { ref, src, allowpopups: 'true', style: { width: '100%', height: '100%' } })
 }
 
 export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack: () => void }) {
@@ -97,9 +78,7 @@ export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack:
         </div>
 
         {/* The reassurance, said out loud on the screen where it matters. */}
-        {target.kind !== 'site' && (
-          <span className="hidden shrink-0 text-[11px] text-faint sm:block">Preview. Not counted as a view.</span>
-        )}
+        <span className="hidden shrink-0 text-[11px] text-faint sm:block">Preview. Not counted as a view.</span>
 
         <button
           type="button"
@@ -114,17 +93,12 @@ export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack:
       <div className="relative min-h-0 flex-1 bg-surface-2">
         {!loaded && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <p className="text-[12.5px] text-muted">{target.kind === 'site' ? 'Loading the lead…' : 'Loading the page the client sees…'}</p>
+            <p className="text-[12.5px] text-muted">Loading the page the client sees…</p>
           </div>
         )}
         {/* No `sandbox`: Michael asked for "all the links and everything to work the same as they
             normally would", and sandboxing would break the page's own navigation and its YouTube
             embed. This frames his own domain, so there is nothing to isolate it from. */}
-        {target.kind === 'site' ? (
-          <div key={target.src} className="h-full w-full" style={{ opacity: loaded ? 1 : 0, transition: 'opacity 160ms ease' }}>
-            <SiteView src={target.src} onLoaded={() => setLoadedSrc(target.src)} />
-          </div>
-        ) : (
         <iframe
           key={target.src}
           src={target.src}
@@ -133,7 +107,6 @@ export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack:
           className="h-full w-full border-0"
           style={{ opacity: loaded ? 1 : 0, transition: 'opacity 160ms ease' }}
         />
-        )}
       </div>
     </div>
   )
