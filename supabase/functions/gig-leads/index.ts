@@ -1,5 +1,5 @@
 // GIG-SITE LEADS INTO THE CRM, ON THEIR OWN. Built 2026-10-11 at Michael's request (projects.md,
-// project 20). GigSalad went live first; The Bash was added the same day. Bark is next.
+// project 20). GigSalad went live first; The Bash was added the same day; Bark on 2026-10-12.
 //
 // WHY. People who post on the gig sites rarely answer the first call, so a lead needs following up
 // every day for a few days, and the leads were sitting in his inbox and the apps without ever
@@ -7,8 +7,11 @@
 //
 // WHAT IT DOES, every couple of minutes off pg_cron (job `gig-leads`):
 //   1. Searches Gmail for NEW-LEAD emails only, one query per site (see SOURCES below):
-//      GigSalad leads@gigsalad.com "New lead"; The Bash info@thebash.com "Gig Alert".
-//      Quote-viewed notices, reminders, stats and promos never match.
+//      GigSalad leads@gigsalad.com "New lead"; The Bash info@thebash.com "Gig Alert";
+//      Bark "Bark purchased lead" (an email his Zapier Zap sends him, PURCHASED leads only; see
+//      bark.ts). Quote-viewed notices, reminders, stats and promos never match.
+//      Bark leads carry the buyer's name, email and phone, so they arrive with the contact filled
+//      in, and are skipped (status `duplicate`) if an ACTIVE project already has that email/phone.
 //   2. Skips any message already in `lead_imports`, so one email can never make two projects.
 //   3. Parses everything the email carries (GigSalad: first name, type, date, times, city. The Bash:
 //      gig ID, type, date only) and turns the email's tracking link into the clean listing link
@@ -20,7 +23,8 @@
 //      the CRM's Initial inquiry popup turns into an "Open this lead on <Site>" button.
 //   5. Adds four follow-up tasks (Michael's choice, 2026-10-11): day 0 respond on GigSalad, days
 //      1 and 2 follow up, day 4 last follow-up. All-day tasks, dated in Eastern time.
-//      Day 0 is worded for the site ("Respond on The Bash").
+//      Day 0 is worded for the site ("Respond on The Bash"); a Bark lead is already bought, with
+//      the phone and email in hand, so its day 0 is "Respond: call, text, and email".
 //   6. Flags a date clash in the notes: the China trip window, or a booked gig the same night.
 //   7. Pings his phone and drops a bell notification, the same way a website inquiry does.
 //
@@ -37,6 +41,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as webpush from "jsr:@negrel/webpush@0.5.0";
 import { sendApns, apnsConfigured } from "../_shared/apns.ts";
+import { parseBark, type BarkLead } from "./bark.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -136,6 +141,18 @@ interface Lead {
   city: string;
   gigId: string;
   link: string; // raw tracking link from the email; resolved to the clean listing link later
+  // Bark only: the purchased lead's contact details and its full question-and-answer list.
+  bark?: BarkLead;
+}
+
+const SITE_NAMES: Record<string, string> = { gigsalad: "GigSalad", thebash: "The Bash", bark: "Bark" };
+
+function barkToLead(b: BarkLead | null): Lead | null {
+  if (!b) return null;
+  return {
+    source: "bark", site: "Bark", firstName: b.firstName, eventType: b.eventType, eventDate: b.eventDate,
+    times: b.time, city: b.city, gigId: "", link: b.link, bark: b,
+  };
 }
 
 // Subject: "🔔 New lead (12/10/2026 in Apex, NC)"
@@ -204,6 +221,7 @@ function parseBash(subject: string, html: string): Lead | null {
 // If it cannot be resolved, GigSalad keeps its tracking link (no login in it) and The Bash falls
 // back to the leads list, so a login token is never stored.
 async function resolveLink(lead: Lead): Promise<string> {
+  if (lead.source === "bark") return lead.link; // already clean, built from the Bark id
   if (!lead.link) return lead.source === "thebash" ? "https://www.thebash.com/leads" : "";
   try {
     const r = await fetch(lead.link, { redirect: "manual" });
@@ -220,11 +238,30 @@ async function resolveLink(lead: Lead): Promise<string> {
   }
 }
 
-// One entry per site. Bark will be added here.
+// One entry per site.
 const SOURCES = [
   { key: "gigsalad", query: 'from:leads@gigsalad.com subject:"New lead"', parse: (subj: string, payload: unknown) => parseGigSalad(subj, plainBody(payload)) },
   { key: "thebash", query: 'from:info@thebash.com subject:"Gig Alert"', parse: (subj: string, payload: unknown) => parseBash(subj, htmlBody(payload)) },
+  // Sent by his own Zap to himself. If the Zap's subject ever changes, change this too.
+  { key: "bark", query: 'from:michael@michaelbloemeke.com subject:"Bark purchased lead"', parse: (subj: string, payload: unknown) => barkToLead(parseBark(subj, plainBody(payload))) },
 ];
+
+// A Bark lead is a real person with an email and phone, and he may already have them in the CRM
+// (added by hand before this existed, or bought twice). Match against ACTIVE projects only, so a
+// past client who comes back through Bark still gets a fresh project.
+// deno-lint-ignore no-explicit-any
+async function activeMatch(sb: any, b: BarkLead): Promise<string | null> {
+  const email = b.email.toLowerCase();
+  const phone = b.phone.replace(/\D/g, "").slice(-10);
+  if (!email && phone.length < 10) return null;
+  const { data } = await sb.from("projects").select("id, contact_emails, contact_phones").eq("bucket", "active").is("deleted_at", null);
+  for (const p of data ?? []) {
+    const emails = String(p.contact_emails || "").toLowerCase();
+    const phones = String(p.contact_phones || "").split(/[,;\n]/).map((x: string) => x.replace(/\D/g, "").slice(-10));
+    if ((email && emails.includes(email)) || (phone.length === 10 && phones.includes(phone))) return p.id;
+  }
+  return null;
+}
 
 // ---- Phone push + bell notification, mirroring the inquiry function. Best-effort. ----
 function b64url(bytes: Uint8Array): string {
@@ -298,6 +335,7 @@ async function pushAndNotify(sb: any, title: string, body: string, projectId: st
 // deno-lint-ignore no-explicit-any
 async function clashNotes(sb: any, eventDate: string): Promise<string[]> {
   const notes: string[] = [];
+  if (!eventDate) return notes; // Bark buyers can skip the date
   for (const b of BLACKOUTS) {
     if (eventDate >= b.from && eventDate <= b.to) notes.push(`⚠️ DATE CLASH: this falls during ${b.label}.`);
   }
@@ -320,8 +358,21 @@ async function createProject(sb: any, lead: Lead, messageId: string): Promise<st
   const typeLine = lead.eventType ? `${lead.eventType} ` : "";
   const where = lead.city ? `in ${lead.city} ` : "";
   const when = [writtenDate(lead.eventDate), lead.times].filter(Boolean).join(", ");
+  const onWhen = lead.eventDate ? `on ${when}` : "(no date given)";
   const clashes = await clashNotes(sb, lead.eventDate);
-  const initial = [
+  const b = lead.bark;
+  const details = b ? (b.qa.find(([q]) => /additional details/i.test(q)) || [])[1] || "" : "";
+  const initial = b ? [
+    `Received from Bark on ${logDate()} (a lead you purchased).`,
+    "",
+    `Name: ${b.fullName}`,
+    b.email ? `Email: ${b.email}` : null,
+    b.phone ? `Phone: ${b.phone}` : null,
+    lead.city ? `Location: ${lead.city}` : null,
+    "",
+    ...b.qa.map(([q, a]) => `${q} ${a}`),
+    `\nOpen the lead on Bark: ${lead.link}`,
+  ].filter((l) => l !== null).join("\n") : [
     `Received from ${lead.site} on ${logDate()}.`,
     "",
     lead.firstName ? `First name: ${lead.firstName}` : null,
@@ -342,20 +393,22 @@ async function createProject(sb: any, lead: Lead, messageId: string): Promise<st
     bucket: "active",
     stage_id: "inquiry",
     event_type: crmEventType(lead.eventType),
-    event_date: lead.eventDate,
+    event_date: lead.eventDate || null,
     lead_date: todayEastern(),
     event_location: lead.city,
     event_start_time: lead.times,
-    number_of_guests: "",
-    age_of_guests: "",
+    number_of_guests: b?.guests ?? "",
+    age_of_guests: b?.ages ?? "",
     performance_style: "",
     booking_source: lead.site,
-    event_summary: `${lead.site} lead: ${typeLine}${where}on ${when}.`,
-    event_description: `${lead.firstName || "A client"} asked for a quote on ${lead.site} for a ${lead.eventType || "event"} ${where}on ${when}.`,
+    event_summary: `${lead.site} lead: ${typeLine}${where}${onWhen}.`,
+    event_description: b
+      ? `${b.fullName} posted on Bark for a ${lead.eventType || "event"} ${where}${onWhen}.${details ? ` Their note: "${details}"` : ""}`
+      : `${lead.firstName || "A client"} asked for a quote on ${lead.site} for a ${lead.eventType || "event"} ${where}${onWhen}.`,
     initial_inquiry: initial,
-    contact_names: lead.firstName,
-    contact_emails: "",
-    contact_phones: "",
+    contact_names: b ? b.fullName : lead.firstName,
+    contact_emails: b?.email ?? "",
+    contact_phones: b?.phone ?? "",
     project_notes: clashes.join("\n"),
     status: "open",
     flags: [],
@@ -372,7 +425,7 @@ async function createProject(sb: any, lead: Lead, messageId: string): Promise<st
     if (!error) {
       const today = todayEastern();
       const tasks = FOLLOW_UPS.map(([days, title]) => ({
-        id: crypto.randomUUID(), project_id: id, title: title.replace("{site}", lead.site), due_date: addDays(today, days), due_time: null, done: false, created_at: new Date().toISOString(),
+        id: crypto.randomUUID(), project_id: id, title: days === 0 && lead.source === "bark" ? "Respond: call, text, and email" : title.replace("{site}", lead.site), due_date: addDays(today, days), due_time: null, done: false, created_at: new Date().toISOString(),
       }));
       const { error: tErr } = await sb.from("tasks").insert(tasks);
       if (tErr) console.warn("[gig-leads] task insert failed:", tErr.message);
@@ -450,7 +503,7 @@ Deno.serve(async (req) => {
       if (!msg) { results.push({ id, error: "fetch failed" }); continue; }
       const subject = header(msg.payload?.headers, "Subject");
       const lead = src.parse(subject, msg.payload);
-      const siteName = src.key === "thebash" ? "The Bash" : "GigSalad";
+      const siteName = SITE_NAMES[src.key] ?? src.key;
 
       if (opts.dry) { results.push({ id, subject, lead, listing: lead ? await resolveLink(lead) : null }); continue; }
 
@@ -464,12 +517,20 @@ Deno.serve(async (req) => {
       const { error: claimErr } = await sb.from("lead_imports").insert({ message_id: id, source: src.key, status: "claimed", parsed: lead });
       if (claimErr) { results.push({ id, status: "already-claimed" }); continue; }
 
+      const dup = lead.bark ? await activeMatch(sb, lead.bark) : null;
+      if (dup) {
+        await sb.from("lead_imports").update({ status: "duplicate", project_id: dup }).eq("message_id", id);
+        results.push({ id, status: "duplicate", projectId: dup });
+        continue;
+      }
+
       const projectId = await createProject(sb, lead, id);
       await sb.from("lead_imports").update({ status: projectId ? "imported" : "failed", project_id: projectId }).eq("message_id", id);
       if (projectId) {
         const who = lead.firstName ? `${lead.firstName}: ` : "";
         const where = lead.city ? ` in ${lead.city}` : "";
-        const pushed = await pushAndNotify(sb, `New ${lead.site} lead!`, `${who}${lead.eventType || "Event"}${where}, ${writtenDate(lead.eventDate)}.`, projectId, id);
+        const date = lead.eventDate ? `, ${writtenDate(lead.eventDate)}` : "";
+        const pushed = await pushAndNotify(sb, `New ${lead.site} lead!`, `${who}${lead.eventType || "Event"}${where}${date}.`, projectId, id);
         results.push({ id, status: "imported", projectId, pushed });
       } else {
         results.push({ id, status: "failed" });
