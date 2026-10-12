@@ -11,7 +11,7 @@
 // Stage 2 (later) = a fully self-contained, double-clickable .app via electron-builder, which
 // needs the data API bundled to run without the repo/node22. Not done yet.
 
-const { app, BrowserWindow, ipcMain, nativeImage, screen, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeImage, screen } = require('electron')
 const path = require('path')
 const os = require('os')
 const http = require('http')
@@ -88,7 +88,10 @@ function createWindow() {
     // Matches --color-canvas in src/index.css, so the window does not flash a dark panel
     // before the app paints.
     backgroundColor: '#eef0f3',
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
+    // webviewTag: the gig-site lead viewer (GigSalad, The Bash, Bark) shows those sites INSIDE the
+    // CRM with a <webview>, because all three refuse to load in an iframe (X-Frame-Options /
+    // frame-ancestors). Added 2026-10-11 at Michael's request. See PreviewPage.tsx.
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), webviewTag: true },
   })
   win.loadURL(BASE_URL)
 
@@ -102,18 +105,6 @@ function createWindow() {
   // Space, so there is nothing to swipe to. A proposal page at that width is also what the client
   // actually sees, which is the point.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    // Gig-site lead links (the "Open this lead on GigSalad / The Bash / Bark" button) go to his
-    // real browser, where he is logged in to those sites. An in-app window has none of his
-    // logins, so it would only show a sign-in page. Added 2026-10-11.
-    try {
-      const host = new URL(url).hostname
-      if (/(^|\.)(gigsalad\.com|thebash\.com|bark\.com)$/i.test(host)) {
-        shell.openExternal(url)
-        return { action: 'deny' }
-      }
-    } catch {
-      /* not a URL: fall through to the normal in-app window */
-    }
     const display = screen.getDisplayMatching(win.getBounds())
     const { x, y, width, height } = display.workArea
     return {
@@ -130,6 +121,16 @@ function createWindow() {
     }
   })
 }
+
+// A link inside the gig-site viewer that wants a new window (target=_blank) loads in the same
+// viewer instead, so he never ends up with a small stray window. Only <webview> guests are touched.
+app.on('web-contents-created', (_e, contents) => {
+  if (contents.getType() !== 'webview') return
+  contents.setWindowOpenHandler(({ url }) => {
+    contents.loadURL(url)
+    return { action: 'deny' }
+  })
+})
 
 app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
