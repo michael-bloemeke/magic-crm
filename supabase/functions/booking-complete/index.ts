@@ -574,18 +574,20 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
         SalesItemLineDetail: { ItemRef: { value: item.Id }, Qty: 1, UnitPrice: fee },
       }];
 
-      // Card processing fee as its own visible line, so the client covers it rather than Michael
+      // Processing fee as its own visible line, so the client covers it rather than Michael
       // absorbing it out of the quote. A separate line rather than an inflated total, because the
       // client should be able to see what they are paying for. Mirrors createInvoiceForProject on
       // the Mac. Percentage lives in quickbooks_config, so changing it needs no redeploy.
       let processingFee = 0;
       if (feePct > 0) {
         processingFee = Math.round(fee * feePct) / 100; // fee * (pct/100), to 2dp
-        const feeItem = await ensureServiceItem(call, "Card Processing Fee");
+        // "Processing Fee", not "Card Processing Fee" (renamed 2026-10-13: a client paid by bank
+        // transfer and skipped the fee, reading it as card-only). See crm-quickbooks.mjs.
+        const feeItem = await ensureServiceItem(call, "Processing Fee");
         lines.push({
           DetailType: "SalesItemLineDetail",
           Amount: processingFee,
-          Description: `Card processing fee (${feePct}%)`,
+          Description: `Processing fee (${feePct}%)`,
           SalesItemLineDetail: { ItemRef: { value: feeItem.Id }, Qty: 1, UnitPrice: processingFee },
         });
       }
@@ -596,6 +598,10 @@ async function finishOne(sb: SupabaseClient, row: any): Promise<{ emailed: boole
           CustomerRef: { value: customer.Id },
           BillEmail: { Address: invoiceEmail },
           Line: lines,
+          // Card only; bank transfer (ACH) off so it needs Michael's OK (2026-10-13). Mirrors
+          // createInvoiceForProject on the Mac.
+          AllowOnlineCreditCardPayment: true,
+          AllowOnlineACHPayment: false,
         }),
       });
       const inv = created.Invoice;

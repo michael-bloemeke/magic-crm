@@ -162,7 +162,7 @@ export function InvoiceGenerateModal({ project, mode, billToName, billToEmail, o
                     onChange={(e) => setAddFee(e.target.checked)}
                     className="h-3.5 w-3.5 accent-[var(--color-brass)]"
                   />
-                  <span className="text-[12.5px] text-parchment">Pass card processing fee to client</span>
+                  <span className="text-[12.5px] text-parchment">Pass processing fee to client</span>
                 </label>
                 {addFee && (
                   <div className="mt-2 flex items-center gap-2 pl-6">

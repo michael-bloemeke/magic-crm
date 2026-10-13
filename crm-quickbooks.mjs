@@ -464,7 +464,10 @@ export async function refreshInvoiceStatus(projectId) {
 // opts: { amount, dueDate (YYYY-MM-DD), processingFeePercent }. Amount defaults to
 // the project's Quote (total fee) when not given, so partial invoices (e.g. a 50%
 // deposit) are just a lower amount. A processingFeePercent > 0 adds a separate
-// "Card Processing Fee" line so the client covers the card-processing cost.
+// "Processing Fee" line so the client covers the processing cost. It was "Card Processing Fee"
+// until 2026-10-13, when a client paid by bank transfer and skipped the fee on the grounds that it
+// only applied to cards. Michael's fix: call it a processing fee, full stop, and turn bank transfer
+// off as a payment option (see AllowOnlineACHPayment below).
 // The note that prints on every invoice, under "Note to customer". Kept here so it is written once
 // and not retyped per invoice. Michael, 2026-09-03.
 //
@@ -502,15 +505,24 @@ export async function createInvoiceForProject(projectId, opts = {}) {
   let processingFee = 0
   if (feePct && !Number.isNaN(feePct) && feePct > 0) {
     processingFee = Math.round(amount * feePct) / 100 // amount * (pct/100), 2 decimals
-    const feeItem = await ensureServiceItem('Card Processing Fee')
+    const feeItem = await ensureServiceItem('Processing Fee')
     lines.push({
       DetailType: 'SalesItemLineDetail',
       Amount: processingFee,
-      Description: `Card processing fee (${feePct}%)`,
+      Description: `Processing fee (${feePct}%)`,
       SalesItemLineDetail: { ItemRef: { value: feeItem.Id }, Qty: 1, UnitPrice: processingFee },
     })
   }
-  const body = { CustomerRef: { value: customer.Id }, Line: lines }
+  // PAYMENT OPTIONS: card only (Michael, 2026-10-13). Bank transfer (ACH) is OFF so nobody can pick
+  // it without asking him first; anyone who wants to pay another way reaches out, as the invoice
+  // email already tells them. Also switched off company-wide in QuickBooks' Sales settings, but set
+  // here explicitly so an invoice from this code never depends on that setting staying put.
+  const body = {
+    CustomerRef: { value: customer.Id },
+    Line: lines,
+    AllowOnlineCreditCardPayment: true,
+    AllowOnlineACHPayment: false,
+  }
 
   // TERMS: always "Due on receipt" unless a caller overrides it (Michael, 2026-09-03). Payment is
   // due up front to hold the date, so anything else on the invoice contradicts the agreement.
