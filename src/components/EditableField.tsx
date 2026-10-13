@@ -73,6 +73,12 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
   const base = [
     '-mx-2 w-[calc(100%+1rem)] rounded-md border bg-transparent px-2 py-1 text-[14px] leading-normal text-parchment transition-colors placeholder:text-faint/60 hover:bg-surface-2 focus:bg-surface-2 focus:outline-none',
     flag ? 'border-dashed border-[#ef4444]/45 focus:border-[#ef4444]' : 'border-transparent focus:border-line-strong',
+    // A prefix ("$") sits INSIDE the box, in front of the text, rather than beside it. It used to be
+    // a separate span to the left, but the box is pulled 0.5rem left (-mx-2, so its text lines up
+    // with the label), which put the box's edge right on top of the "$". The moment the box filled
+    // with its hover/focus background, or once anything was typed, the "$" disappeared under it.
+    // Michael, 2026-10-13: "I can't see the dollar sign at all."
+    prefix ? 'pl-[1.2rem]' : '',
   ].join(' ')
 
   return (
@@ -87,8 +93,7 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
           {label}
         </p>
       )}
-      <div className="flex items-start">
-        {prefix && <span className="mt-1 mr-0.5 text-[14px] text-muted">{prefix}</span>}
+      <div className="relative">
         {options ? (
           // Saves on change, not on blur: a dropdown has no "still typing" state to wait out.
           <select
@@ -143,6 +148,16 @@ export function EditableField({ label, value, onSave, multiline, type = 'text', 
             placeholder={placeholder}
             className={base}
           />
+        )}
+        {/* After the control in the DOM so it paints on top of the box's background. Positioned where
+            the label starts, which is where the text started before the prefix moved inside. */}
+        {prefix && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-[calc(0.25rem+1px)] text-[14px] leading-normal text-muted"
+          >
+            {prefix}
+          </span>
         )}
       </div>
     </div>
