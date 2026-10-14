@@ -29,6 +29,7 @@ const TIMEZONE = 'America/New_York' // Michael is in Durham, NC
 const GIGS_CALENDAR = 'Gigs'
 const WORK_CALENDAR = 'Work'
 const TASK_DURATION_MIN = 30 // a timed task blocks 30 min
+const GIG_DURATION_MIN = 120 // a timed gig blocks 2 hours from its earliest known time
 
 // ---- Connection -------------------------------------------------------------
 
@@ -190,8 +191,8 @@ function line(label, value) {
 
 function projectEventBody(project) {
   const booked = isProjectBooked(project)
-  // The show time rides in the TITLE because the event itself is all-day (see below), so the time is
-  // still readable at a glance in month view instead of being buried in the description.
+  // The time also rides in the TITLE, so it reads at a glance in month view, where a timed event
+  // draws as a dot and text rather than a block.
   const t = parseTime(project.arrivalTime) || parseTime(project.eventStartTime) || parseTime(project.showStartTime)
   const summary = `${booked ? '' : 'Inquiry: '}${project.client}${t ? ` · ${timeLabel(t)}` : ''}`
 
@@ -214,18 +215,21 @@ function projectEventBody(project) {
     reminders: { useDefault: true },
   }
 
-  // ALL-DAY on purpose, even when a time is known.
+  // TIMED WHEN A TIME IS KNOWN (Michael, 2026-10-14), ALL-DAY ONLY WHEN IT IS NOT.
   //
-  // Google Calendar's month view decides how an event LOOKS from its type, and nothing in the API
-  // overrides that: an all-day event draws as a filled coloured chip, a timed event draws as a small
-  // dot with text. Michael wanted gigs to stand out the way his tasks and his old HoneyBook events
-  // do (2026-08-20), and those are filled chips because they are all-day. A timed gig could never
-  // look like that while it stayed timed.
-  //
-  // The cost is that a gig no longer occupies a block in week/day view. The time is preserved in the
-  // title and in the description, so nothing is lost, but the day no longer LOOKS busy from 7pm.
-  body.start = { date: project.eventDate }
-  body.end = { date: shiftDate(project.eventDate, 1) }
+  // From 2026-08-20 every gig was all-day on purpose, so it drew as a filled chip in month view. The
+  // cost was that a gig never sat in its slot in Day or Week view, and once his tasks started
+  // landing in the all-day row too, Anna Leonard's show was buried up there with them: "I want it to
+  // be appearing as a scheduled event at the time." So a gig with a parseable arrival / event start /
+  // show start is now a block from that time, GIG_DURATION_MIN long. A gig with no time yet stays
+  // all-day so it still shows on its date. The time stays in the title as well.
+  if (t) {
+    body.start = { dateTime: dateTimeAt(project.eventDate, t), timeZone: TIMEZONE }
+    body.end = { dateTime: dateTimeAt(project.eventDate, t, GIG_DURATION_MIN), timeZone: TIMEZONE }
+  } else {
+    body.start = { date: project.eventDate }
+    body.end = { date: shiftDate(project.eventDate, 1) }
+  }
   return body
 }
 
