@@ -148,7 +148,7 @@ export function Notifications({ projects, inquiries, onDismissInquiry, statusNot
                   {inquiries.length > 0 && (
                     <section>
                       <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brass">
-                        New inquiries · {inquiries.length}
+                        Inquiries to review · {inquiries.length}
                       </p>
                       <div className="space-y-1.5">
                         {inquiries.map((i) => (

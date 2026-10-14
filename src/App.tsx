@@ -407,7 +407,14 @@ function App() {
   //
   // Unread mail is part of the bell and is derived from the live Gmail sync rather than stored, so
   // reading a message in Gmail drops it from the bell on the next sync with nothing to dismiss.
-  const bellCount = liveStatusNotifs.length + inquiries.length + inboxUnread
+  //
+  // ONE alert per new inquiry (Michael, 2026-10-13). A website inquiry produced two bell entries: the
+  // gold "New website inquiry" card (a `new-inquiry` notification row) AND a plain row in a separate
+  // "New inquiries" list fed from the inquiries table. He asked to keep only the gold one. So the
+  // plain list now shows only inquiries that never became a project (the possible-duplicate case,
+  // which has no gold card to stand in for it), and only those count toward the badge.
+  const reviewInquiries = inquiries.filter((i) => !i.projectId)
+  const bellCount = liveStatusNotifs.length + reviewInquiries.length + inboxUnread
 
   useEffect(() => {
     window.crm?.setBadge?.(taskAlerts + bellCount)
@@ -957,7 +964,7 @@ function App() {
   const notifications = (
     <Notifications
       projects={liveProjects}
-      inquiries={inquiries}
+      inquiries={reviewInquiries}
       onDismissInquiry={dismissInquiryNotif}
       statusNotifications={liveStatusNotifs}
       onDismissStatus={dismissStatusNotif}

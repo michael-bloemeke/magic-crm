@@ -18,7 +18,8 @@
 //      (gigsalad.com/g/.../a/<id>, thebash.com/leads/<id>). The Bash link is an AUTO-LOGIN link;
 //      only the /leads/<id> path is kept, never the login token, so it needs his normal login.
 //   4. Creates the project in `inquiry`, shaped like the website inquiry function's, with the
-//      site as booking_source and links_seeded=false so the CRM seeds the contact itself. The
+//      site as booking_source. Only Bark leads get a contact (links_seeded=false, so the CRM builds
+//      it); GigSalad and Bash leads carry no phone or email, so they get none (2026-10-13). The
 //      listing link sits at the bottom of initial_inquiry as "Open the lead on <Site>: <url>", which
 //      the CRM's Initial inquiry popup turns into an "Open this lead on <Site>" button.
 //   5. Adds four follow-up tasks (Michael's choice, 2026-10-11): day 0 respond on GigSalad, days
@@ -406,14 +407,21 @@ async function createProject(sb: any, lead: Lead, messageId: string): Promise<st
       ? `${b.fullName} posted on Bark for a ${lead.eventType || "event"} ${where}${onWhen}.${details ? ` Their note: "${details}"` : ""}`
       : `${lead.firstName || "A client"} asked for a quote on ${lead.site} for a ${lead.eventType || "event"} ${where}${onWhen}.`,
     initial_inquiry: initial,
-    contact_names: b ? b.fullName : lead.firstName,
+    // A contact only when there is a way to reach them. GigSalad and The Bash never email the
+    // client's phone or email (it only shows on the site once Michael replies), so those leads get
+    // NO contact: an empty card with just a first name is clutter (Michael, 2026-10-13: "I don't
+    // want you adding a contact that just has a name and no contact information"). He adds the
+    // contact himself once he reaches them. Bark leads carry the email and phone, so they get one.
+    contact_names: b ? b.fullName : "",
     contact_emails: b?.email ?? "",
     contact_phones: b?.phone ?? "",
     project_notes: clashes.join("\n"),
     status: "open",
     flags: [],
     activity_log: [`${logDate()}: New ${lead.site} lead, added to the CRM automatically.`],
-    links_seeded: false,
+    // false lets the CRM build the contact card from the fields above. true tells it there is
+    // nothing to build, so no empty contact appears.
+    links_seeded: !b,
   };
 
   // Same unique-id rule as the inquiry function: client_name is the CRM's identity key, so it is

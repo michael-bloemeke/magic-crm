@@ -42,12 +42,6 @@ const money = (n: number) => {
 const money2 = (n: number) =>
   ((n || 0) < 0 ? '-$' : '$') +
   Math.abs(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-// 'YYYY-MM' -> 'Jan 2026'. Used for the note that says which months an expense figure covers.
-const monthName = (key: string) => {
-  const m = /^(\d{4})-(\d{2})$/.exec(key || '')
-  if (!m) return key
-  return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-}
 const todayISO = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -212,25 +206,16 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
   // equivalent, so they stay on the CRM figure, which is what that basis means anyway.
   const goalValue = basis === 'received' && usingQuickBooks ? last12Received : last12Value
 
-  // Which months in the window the CRM still has to cover for. Named on the card so the blend is
-  // visible rather than a silent mixture of two ledgers.
-  const crmMonths = usingQuickBooks ? data.months.filter((m) => !qbByMonth.get(m.key)?.covered) : []
-  const blendNote = crmMonths.length
-    ? `${monthName(crmMonths[0].key)} to ${monthName(crmMonths[crmMonths.length - 1].key)} from your logged payments. QuickBooks starts ${monthName(expenses?.dataStartsMonth || '')}.`
-    : undefined
-
-  // Expenses, for the "after business expenses" line. Same per-month coverage rule: only months
-  // QuickBooks can vouch for are netted off, and the income they are netted against is those same
-  // months, so the two sides always describe one period.
-  const coveredMonths = qbMonths.filter((m) => m.covered)
-  const windowExpenses = coveredMonths.reduce((sum, m) => sum + m.expenses, 0)
-  const windowReceivedForExpenses = data.months
-    .filter((m) => qbByMonth.get(m.key)?.covered)
-    .reduce((sum, m) => sum + moneyFor(m), 0)
-  const expenseNote =
-    coveredMonths.length && coveredMonths.length < qbMonths.length
-      ? `${monthName(coveredMonths[0].month)} onward only. QuickBooks has no expenses before then.`
-      : undefined
+  // Expenses, for the "after business expenses" line: every expense QuickBooks has in the window,
+  // taken off the SAME 12-month received figure shown above it.
+  //
+  // ⚠️ DELIBERATELY SIMPLE (Michael, 2026-10-13). This used to net off only the months QuickBooks
+  // covered (Jan 2026 on) and carried two orange notes explaining the blend, so the green figure and
+  // the expenses did not add back up to the headline. He found that confusing and asked for one
+  // window: money received over the last 12 months, minus what QuickBooks says he spent. Months
+  // QuickBooks has no expenses for count as $0 spent until he logs them (he is adding his 2025
+  // expenses), so for now the figure runs a little high, and he knows it.
+  const windowExpenses = qbMonths.filter((m) => m.covered).reduce((sum, m) => sum + m.expenses, 0)
   // Month blocks fill toward the monthly goal (100% at goal or above), not relative
   // to the highest month.
   const monthlyGoal = Math.max(1, data.monthlyGoal)
@@ -274,7 +259,7 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
             hint={
               basis === 'received'
                 ? thisMonthQb?.covered
-                  ? 'money that hit your account this month, from QuickBooks'
+                  ? 'money that hit your account this month'
                   : 'money that hit your account this month'
                 : 'payments for gigs performed this month'
             }
@@ -294,20 +279,18 @@ function Overview({ onOpenProject }: { onOpenProject?: (id: string) => void }) {
             hint={
               basis === 'received'
                 ? usingQuickBooks
-                  ? 'money received over the last 12 months, from QuickBooks'
+                  ? 'money received over the last 12 months'
                   : 'money received over the last 12 months'
                 : 'payments by event month, last 12 months'
             }
-            note={basis === 'received' ? blendNote : undefined}
             onClick={() =>
               setBreakdown({ title: `Last 12 months · ${basisLabel}`, subtitle: itemSubtitle, items: itemsOf(data.last12) })
             }
           />
-          {coveredMonths.length > 0 && (
+          {usingQuickBooks && (
             <NetOfExpenses
-              received={windowReceivedForExpenses}
+              received={last12Received}
               expenses={windowExpenses}
-              periodNote={expenseNote}
               basis={basis}
             />
           )}
@@ -796,11 +779,10 @@ function Figure({
 // on business expenses." It sits UNDER the received figure rather than replacing it, because the
 // gross number is still the one he checks against his goals.
 //
-// ⚠️ TWO LEDGERS, AND THEY DO NOT COVER THE SAME PERIOD. The income is the CRM's logged payments;
-// the expenses are QuickBooks, which holds nothing before January 2026 while the CRM has payments
-// back to May 2025. When the periods differ this nets off only the months QuickBooks can vouch for
-// and says which ones, rather than quietly subtracting nine months of spending from twelve months
-// of income and flattering the answer by about three months of costs.
+// ONE WINDOW (Michael, 2026-10-13). The 12-month card takes every expense QuickBooks has off the same
+// 12-month received figure shown above it. It used to net off only the months QuickBooks covered,
+// with notes explaining the gap, and he found that more confusing than useful. Months with no
+// expenses logged in QuickBooks simply count as nothing spent until they are logged.
 //
 // It is always computed from RECEIVED, whichever basis the page is on, and says so. Netting
 // expenses off "money earned" (payments sorted into their gig's event month) would be comparing
@@ -824,8 +806,11 @@ function NetOfExpenses({
       <p className="mt-1 font-display text-[21px] leading-none tabular-nums" style={{ color: 'var(--color-umb-booked)' }}>
         {money2(received - expenses)}
       </p>
+      {/* Spelled out as a sum (Michael, 2026-10-13: "received less $71.20 of expenses" did not read as
+          a sentence). The received figure here is the same period as the expenses, which on the
+          12-month card is shorter than the headline above it; the period note says so. */}
       <p className="mt-1 text-[11px] leading-snug text-faint">
-        received less {money2(expenses)} of expenses, from QuickBooks
+        {money2(received)} received, minus {money2(expenses)} in business expenses
       </p>
       {/* On the EARNED basis this line's figure is bigger than the headline above it, which reads
           as a fault unless the mismatch is explained. It stays on the received basis on purpose:
