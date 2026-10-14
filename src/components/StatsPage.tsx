@@ -38,22 +38,47 @@ const isLost = (p: Project) => p.bucket === 'archived'
 const EVENT_TYPE_OPTIONS: EventType[] = ['Wedding', 'Corporate', 'Private Event', 'Bachelor(ette) Party', 'Other']
 
 // The canonical lead-source options (the audit dropdown). Stats bucket everything into these.
-const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'Other']
+// ⚠️ MUST stay identical to LEAD_SOURCES in mobile/supabase-data.js (the phone's New project
+// dropdown): a value not on this list is bucketed by normalizeSource below, so a mismatch is silent.
+// "AI" and "Repeat client" added 2026-10-14: Michael put an AI option on the website form on purpose
+// to measure ChatGPT-sourced leads, and both were landing in Other.
+const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'AI', 'Repeat client', 'Other']
 
 // Map a stored booking_source (canonical or legacy free-text) to one of the canonical options.
+//
+// The stored values are free text, much of it long HoneyBook-era notes like "The Bash (HoneyBook lead
+// source; Michael's note also says he 'called on Bark')" or "Client Referral - from Olivia ... (likely
+// the 'Bark - Olivia' client)". So it is NOT first-rule-wins: every keyword is located, and the one
+// that appears EARLIEST in the text decides, because the source is written first and the asides come
+// after it. That one change is what keeps the two examples above out of Bark.
+const SOURCE_KEYWORDS: Array<[RegExp, string]> = [
+  [/\bai\b|chatgpt|chat gpt|gemini|perplexity|claude|copilot/, 'AI'],
+  [/repeat|returning client|past client/, 'Repeat client'],
+  [/gigsalad|gig salad/, 'GigSalad'],
+  [/\bbash\b/, 'The Bash'],
+  [/\bbark\b/, 'Bark'],
+  [/instagram|tiktok|tik tok/, 'Instagram/TikTok'],
+  [/google|website|wix|online|\bweb\b|search|internet/, 'Google/Web'],
+  [/referral|referred|recommend/, 'Referral'],
+  [/live show|in person|in-person|saw michael|saw him|perform|went to|met michael|\bmet\b/, 'In Person'],
+  // Fellow magicians in Michael's referral network, named without the word "referral".
+  [/magician|jack kelly|kevin|evan driggs|gary goodman|steve vaught|wayne haarhaus/, 'Referral'],
+]
 function normalizeSource(raw: string): string {
   const s = (raw || '').toLowerCase().trim()
   if (!s) return 'Other'
   const exact = LEAD_SOURCES.find((o) => o.toLowerCase() === s)
   if (exact) return exact
-  if (s.includes('bark')) return 'Bark'
-  if (s.includes('gigsalad')) return 'GigSalad'
-  if (s.includes('bash')) return 'The Bash'
-  if (s.includes('instagram') || s.includes('tiktok') || s.includes('tik tok')) return 'Instagram/TikTok'
-  if (s.includes('google') || s.includes('website') || s.includes('wix') || s.includes('online') || s.includes('web') || s.includes('search')) return 'Google/Web'
-  if (s.includes('referral') || s.includes('referred')) return 'Referral'
-  if (s.includes('in person') || s.includes('in-person') || s.includes('saw michael') || s.includes('perform') || s.includes('met ')) return 'In Person'
-  return 'Other'
+  let best = 'Other'
+  let at = Infinity
+  for (const [re, bucket] of SOURCE_KEYWORDS) {
+    const m = re.exec(s)
+    if (m && m.index < at) {
+      at = m.index
+      best = bucket
+    }
+  }
+  return best
 }
 
 type Row = { k: string; n: number }

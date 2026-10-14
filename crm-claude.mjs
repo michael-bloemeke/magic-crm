@@ -2,14 +2,19 @@
 // headless print mode, run inside the business folder, so drafting uses Michael's existing Claude
 // Code login (his subscription, no separate API key) and can READ his files (CLAUDE.md, voice.md,
 // the templates, Project Records, and the Plaud recordings) to write on-voice, fully-customized
-// emails. Tools are limited to read-only (Read/Glob/Grep) so it can never edit or run anything.
+// emails, and to answer questions about a project. Tools are limited to read-only (Read/Glob/Grep)
+// so it can never edit or run anything, the project chat included.
 
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { RECORDS_DIR, loadAll, updateProjectField } from './crm-data-core.mjs'
+import { RECORDS_DIR, loadAll, loadTasks } from './crm-data-core.mjs'
+import { loadPayments } from './crm-finance.mjs'
+import { contactsForProject } from './crm-links.mjs'
+import { loadThreads } from './crm-comms.mjs'
+import { CRM_STORE, sb } from './crm-store.mjs'
 
 const CLAUDE_BIN = path.join(os.homedir(), '.local', 'bin', 'claude')
 // RECORDS_DIR is ".../The Award-Winning Magic of Michael Bloemeke/Project Records"; its parent is
@@ -54,9 +59,12 @@ function cleanup(text) {
 }
 
 function runClaude(prompt, opts = {}) {
-  const { systemPrompt = SYSTEM_PROMPT, allowWrite = false } = opts
-  // Read-only by default. The project chat passes allowWrite so it can edit data (e.g. activity log).
-  const tools = allowWrite ? ['Read', 'Glob', 'Grep', 'Edit', 'Write'] : ['Read', 'Glob', 'Grep']
+  const { systemPrompt = SYSTEM_PROMPT } = opts
+  // READ-ONLY, always. Every caller only reads. The project chat used to be given Edit/Write so it
+  // could "update the activity log", but the CRM's data lives in Supabase, not in these files, so any
+  // edit it made landed in a nightly backup and was thrown away at 3 AM. Michael, 2026-10-14: the
+  // chat is for answering questions; changes are made in the Claude app, not from inside the CRM.
+  const tools = ['Read', 'Glob', 'Grep']
   return new Promise((resolve, reject) => {
     // The prompt is delivered via STDIN (the reliable headless path). Passing it as a positional
     // argument makes Claude Code wait on stdin and warn "no stdin data received", so we pipe it.
@@ -65,7 +73,7 @@ function runClaude(prompt, opts = {}) {
       '--output-format',
       'text',
       '--permission-mode',
-      allowWrite ? 'acceptEdits' : 'default',
+      'default',
       '--no-session-persistence',
       '--add-dir',
       MEMORY_DIR,
@@ -204,12 +212,97 @@ export async function draftReply({ projectId, threadText }) {
 }
 
 const CHAT_SYSTEM_PROMPT =
-  "You are Claude, working inside Michael Bloemeke's magic-business CRM to help with ONE specific project (given below) unless he says otherwise. You can read AND edit his files in this folder. Follow the data conventions and rules in CLAUDE.md and magic-crm.md, especially the activity_log line format ('Month Day, Year: what happened', newest on top) and which files are safe to edit. NEVER use em-dashes or en-dashes. When you change a file, do it carefully and tell him in one short sentence what you changed (note he may need to refresh the CRM to see it). Reply in plain text, concise."
+  "You are Claude, answering Michael Bloemeke's questions about ONE project in his magic-business CRM (given below), and about his business generally when he asks. You are READ-ONLY: you cannot change anything, so never offer to, and never claim to have edited, logged or updated anything. If he asks for a change, tell him in one sentence to make it in the Claude app on his laptop. The project record, tasks, payments, contacts, booking-form answers and email threads below are LIVE from the CRM and outrank the backup files in 'Project Records', which can be a day old. For anything else, read the files in this folder: CLAUDE.md and the other business .md files, the 'Plaud recordings' folder (call transcripts, matched by the client's name in the filename), templates, and the memory folder. Plaud transcripts mishear words and can drop a 'not', so say when an answer rests on a transcript. Say plainly when you could not find something rather than guessing. NEVER use em-dashes or en-dashes. Reply in plain text, concise."
 
-// A per-project chat with read + write access (so it can do real work like appending to the
-// activity log). History is passed in for continuity since each call is a fresh headless run.
+// Everything the CRM knows about a project, as text, for the read-only chat. Pulled LIVE from the
+// in-memory cache (and Gmail), so the chat never answers from a stale nightly backup.
+//
+// Every section is best-effort: a Gmail hiccup or a missing table should cost that section, not
+// the whole answer.
+const SKIP_KEYS = new Set(['agreementHtml', 'bookingToken', 'salesCallGuide', 'salesCallGuideAt', '_storedStage'])
+function clip(v, n = 4000) {
+  const t = String(v ?? '').trim()
+  return t.length > n ? t.slice(0, n) + ' [...]' : t
+}
+async function fullProjectContext(projectId) {
+  const p = loadAll().projects.find((x) => x.id === projectId)
+  if (!p) throw new Error('Project not found.')
+  const out = []
+
+  out.push('PROJECT RECORD (live from the CRM):')
+  for (const [k, v] of Object.entries(p)) {
+    if (SKIP_KEYS.has(k) || v == null || v === '') continue
+    if (Array.isArray(v) && !v.length) continue
+    const shown = typeof v === 'object' ? JSON.stringify(v) : String(v)
+    if (!shown.trim()) continue
+    out.push(`- ${k}: ${clip(shown)}`)
+  }
+
+  try {
+    const contacts = contactsForProject(projectId) || []
+    if (contacts.length) {
+      out.push('', 'CONTACTS ON THIS PROJECT:')
+      for (const c of contacts) {
+        const bits = [c.name, (c.emails || []).join(', '), (c.phones || []).join(', '), c.relationship, c.notes]
+        out.push(`- ${bits.filter((b) => String(b || '').trim()).join(' | ')}`)
+      }
+    }
+  } catch { /* contacts are optional context */ }
+
+  try {
+    const tasks = loadTasks().filter((t) => t.projectId === projectId)
+    if (tasks.length) {
+      out.push('', 'TASKS:')
+      for (const t of tasks) out.push(`- [${t.done ? 'done' : 'open'}] ${t.title}${t.dueDate ? ` (due ${t.dueDate}${t.dueTime ? ' ' + t.dueTime : ''})` : ''}`)
+    }
+  } catch { /* tasks are optional context */ }
+
+  try {
+    const pays = loadPayments().filter((x) => x.projectId === projectId)
+    if (pays.length) {
+      out.push('', 'PAYMENTS LOGGED IN THE CRM (the quoted amounts; QuickBooks holds the exact deposits):')
+      for (const x of pays) out.push(`- $${x.amount} on ${x.dateReceived || 'date not set'}${x.method ? ` via ${x.method}` : ''}`)
+    }
+  } catch { /* payments are optional context */ }
+
+  if (CRM_STORE === 'supabase') {
+    try {
+      const { data } = await sb()
+        .from('booking_submissions')
+        .select('answers, submitted_at, signed_name, signed_at')
+        .eq('project_id', projectId)
+        .maybeSingle()
+      if (data) {
+        out.push('', `BOOKING FORM (submitted ${data.submitted_at || 'not yet'}${data.signed_at ? `, agreement signed by ${data.signed_name} at ${data.signed_at}` : ', not signed'}):`)
+        for (const a of Array.isArray(data.answers) ? data.answers : []) out.push(`- ${a.id}: ${clip(a.value, 1000)}`)
+      }
+    } catch { /* booking answers are optional context */ }
+  }
+
+  try {
+    const { threads = [] } = (await loadThreads(projectId)) || {}
+    if (threads.length) {
+      out.push('', 'EMAIL THREADS WITH THIS CLIENT (newest first, live from Gmail):')
+      let budget = 24000
+      for (const t of threads.slice(0, 8)) {
+        out.push('', `Thread: ${t.subject}`)
+        for (const m of t.messages || []) {
+          const line = `[${m.isDraft ? 'UNSENT DRAFT' : m.date}] ${m.fromName}: ${clip(m.body, 2500)}`
+          if (budget - line.length < 0) break
+          budget -= line.length
+          out.push(line)
+        }
+      }
+    }
+  } catch { /* email is optional context */ }
+
+  return { text: out.join('\n'), client: String(p.client || '') }
+}
+
+// A per-project chat that ANSWERS QUESTIONS and nothing else. History is passed in for continuity
+// since each call is a fresh headless run.
 export async function chat({ projectId, message, history }) {
-  const { text, client } = projectContext(projectId)
+  const { text, client } = await fullProjectContext(projectId)
   const convo = Array.isArray(history)
     ? history
         .slice(-12)
@@ -217,19 +310,13 @@ export async function chat({ projectId, message, history }) {
         .join('\n')
     : ''
   const prompt = [
-    'You are helping with THIS project (default scope unless I say otherwise):',
+    'Answer my question about THIS project (default scope unless I say otherwise).',
     '',
     text,
     '',
-    readHint(client),
+    `Also check the "Plaud recordings" folder (all subfolders) for any transcript or summary whose filename matches the client "${client}", and read it if the question could depend on what was said on a call.`,
     convo ? `\nConversation so far:\n${convo}\n` : '',
     `Michael: ${String(message || '')}`,
-    '',
-    'Do what I asked. If it changes data (like the activity log), follow the conventions in CLAUDE.md / magic-crm.md and edit the right file. Then reply with a short plain-text message about what you did or found.',
   ].join('\n')
-  return runClaude(prompt, { systemPrompt: CHAT_SYSTEM_PROMPT, allowWrite: true })
+  return runClaude(prompt, { systemPrompt: CHAT_SYSTEM_PROMPT })
 }
-
-
-// ---------------------------------------------------------------------------
-// Sales call guide

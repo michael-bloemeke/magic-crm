@@ -1661,7 +1661,11 @@ export function crmDataPlugin() {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => await deleteExpense(b.id))
       })
-      server.middlewares.use('/api/finance/expenses', (req, res, next) => {
+      // ⚠️ NOT '/api/finance/expenses'. That path is the QuickBooks monthly blend, registered
+      // earlier in this file, and Connect matches by prefix in registration order, so a second GET
+      // handler on the same path was never reached and the Expenses tab always loaded empty
+      // (found 2026-10-14). A distinct path, not a sub-path, for the same reason.
+      server.middlewares.use('/api/finance/recurring-expenses', (req, res, next) => {
         if (req.method !== 'GET') return next()
         res.setHeader('Content-Type', 'application/json')
         res.end(JSON.stringify({ expenses: loadExpenses() }))

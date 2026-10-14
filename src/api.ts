@@ -1216,7 +1216,7 @@ export type Expense = {
   createdAt: string
 }
 export async function loadExpenses(): Promise<Expense[]> {
-  const res = await fetch('/api/finance/expenses')
+  const res = await fetch('/api/finance/recurring-expenses')
   if (!res.ok) throw new Error(`Failed to load expenses (${res.status})`)
   return ((await res.json()).expenses ?? []) as Expense[]
 }

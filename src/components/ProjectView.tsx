@@ -66,7 +66,6 @@ type Props = {
   onPurge: () => void
   onLogCall: () => void
   onPaymentsChange?: (payments: Payment[]) => void
-  onProjectChanged?: () => void
   contacts: Contact[]
   links: ProjectLinks
   onOpenContact: (c: Contact) => void
@@ -99,7 +98,6 @@ export function ProjectView({
   onPurge,
   onLogCall,
   onPaymentsChange,
-  onProjectChanged,
   contacts,
   links,
   onOpenContact,
@@ -431,7 +429,7 @@ export function ProjectView({
 
       <NotesDrawer project={project} open={notesOpen} onClose={() => setNotesOpen(false)} onSaveField={onSaveField} />
 
-      <ProjectChat open={chatOpen} project={project} onClose={() => setChatOpen(false)} onProjectChanged={onProjectChanged} />
+      <ProjectChat open={chatOpen} project={project} onClose={() => setChatOpen(false)} />
 
       <EmailBuilderModal
         open={writeOpen}

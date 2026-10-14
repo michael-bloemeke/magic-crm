@@ -26,6 +26,7 @@ import {
   type FinanceSummary,
   type MileageData,
   type MonthMoney,
+  type MonthPoint,
   type Payment,
 } from '../api'
 

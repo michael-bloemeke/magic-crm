@@ -3,19 +3,18 @@ import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
 import { claudeChat, claudeStatus, type ClaudeChatMessage } from '../api'
 
-// A per-project chat with Claude (headless Claude Code, read + write). It is scoped to this project
-// by default, so Michael can say things like "add a note to the activity log that I left a voicemail"
-// and it edits the right file. The conversation is kept in component state for the session.
+// A per-project chat with Claude (headless Claude Code, READ-ONLY). It answers questions about this
+// project from the live CRM record, the client's emails, the call recordings and the business files.
+// It cannot change anything (Michael, 2026-10-14: changes are made in the Claude app, not from inside
+// the CRM). The conversation is kept in component state for the session.
 export function ProjectChat({
   open,
   project,
   onClose,
-  onProjectChanged,
 }: {
   open: boolean
   project: Project
   onClose: () => void
-  onProjectChanged?: () => void
 }) {
   const [messages, setMessages] = useState<ClaudeChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -58,7 +57,6 @@ export function ProjectChat({
     try {
       const reply = await claudeChat({ projectId: project.id, message: msg, history })
       setMessages((m) => [...m, { role: 'assistant', text: reply }])
-      onProjectChanged?.() // it may have edited project data (e.g. the activity log)
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
@@ -88,7 +86,7 @@ export function ProjectChat({
               <div className="min-w-0">
                 <h2 className="font-display text-[18px] text-parchment">Ask Claude</h2>
                 <p className="mt-0.5 truncate text-[12px] text-muted">
-                  Scoped to {project.client}. It can read and edit this project.
+                  Questions about {project.client}. It reads everything and changes nothing.
                 </p>
               </div>
               <button
@@ -106,8 +104,8 @@ export function ProjectChat({
             <div className="board-scroll min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
               {messages.length === 0 && (
                 <p className="px-1 py-6 text-center text-[12.5px] leading-relaxed text-faint">
-                  Ask me to do things for this project. For example: "add a note to the activity log that I called and left a
-                  voicemail," "draft a follow-up," or "what do we know about this event?"
+                  Ask anything about this project. For example: "what did they say about parking on the call?", "when did
+                  they last email?", or "summarize where this one stands."
                 </p>
               )}
               {messages.map((m, i) => (
@@ -142,7 +140,7 @@ export function ProjectChat({
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
                   }}
                   rows={2}
-                  placeholder="Ask Claude to do something for this project… (Cmd+Enter to send)"
+                  placeholder="Ask a question about this project… (Cmd+Enter to send)"
                   className="min-h-[2.5rem] flex-1 resize-y rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
                 />
                 <button

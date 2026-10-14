@@ -389,6 +389,94 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
   }
 }
 
+// ---------------------------------------------------------------------------
+// The contact card
+// ---------------------------------------------------------------------------
+//
+// A website inquiry gives a name, an email and a phone number, and that is a CONTACT, linked to the
+// new project, the moment it lands (Michael, 2026-10-14). This used to be left to the Mac app's
+// seeder (crm-links.mjs), which only runs while the desktop CRM is open, so an inquiry that arrived
+// while he was away and working from his phone had no contact card at all until he got home.
+//
+// THE REUSE RULE IS MICHAEL'S, and deliberately strict: an existing contact is reused only when the
+// NAME, the EMAIL and the PHONE all match it. Anything less creates a new contact. A same-name
+// stranger merged into a past client's card is worse than a duplicate he can tidy by hand. A detail
+// the form left blank is not compared, but a name alone is never enough to reuse.
+//
+// A project is THREE rows (projects, contacts, contact_links). The project is inserted already marked
+// links_seeded, and the caller puts that back to false if this throws, so the Mac seeder still picks
+// it up as before.
+
+// Mirrors formatPhone() in crm-phone.mjs: 10 digits -> (XXX) XXX-XXXX, 11 -> +X (XXX) XXX-XXXX,
+// anything else left exactly as typed.
+function formatPhone(raw: string): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  return s.replace(/\+?\(?\d[\d\s().\-]{7,}\d/g, (run) => {
+    const d = run.replace(/\D/g, "");
+    if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+    if (d.length === 11) return `+${d[0]} (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+    return run;
+  });
+}
+
+const normName = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const normEmail = (s: unknown) => String(s ?? "").trim().toLowerCase();
+// Compare phones on digits only, ignoring a leading US country code, so "919-239-9898" and
+// "+1 (919) 239-9898" are the same number.
+const normPhone = (s: unknown) => {
+  const d = String(s ?? "").replace(/\D/g, "");
+  return d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+};
+const asList = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : String(v ?? "").split(/[,;]/)).map((x) => String(x ?? "").trim()).filter(Boolean);
+
+// deno-lint-ignore no-explicit-any
+async function linkContact(supabase: any, projectId: string, inq: { name: string; email: string; phone: string }) {
+  const name = inq.name.trim();
+  const email = normEmail(inq.email);
+  const phone = normPhone(inq.phone);
+  if (!name && !email) return;
+
+  let contactId = "";
+  if (name && (email || phone)) {
+    const { data: existing, error } = await supabase.from("contacts").select("id, name, emails, phones");
+    if (error) throw new Error(`contact lookup: ${error.message}`);
+    // deno-lint-ignore no-explicit-any
+    const match = (existing || []).find((c: any) =>
+      normName(c.name) === normName(name) &&
+      (!email || asList(c.emails).some((e) => normEmail(e) === email)) &&
+      (!phone || asList(c.phones).some((p) => normPhone(p) === phone))
+    );
+    if (match) contactId = match.id;
+  }
+
+  if (!contactId) {
+    const now = new Date().toISOString();
+    const row = {
+      id: crypto.randomUUID(),
+      name: name || inq.email.trim(),
+      emails: inq.email.trim() ? [inq.email.trim()] : [],
+      phones: inq.phone.trim() ? [formatPhone(inq.phone)] : [],
+      type: "client",
+      relationship: "active",
+      engagement: "",
+      tags: [],
+      notes: "",
+      created_at: now,
+      updated_at: now,
+    };
+    const { error } = await supabase.from("contacts").insert(row);
+    if (error) throw new Error(`contact insert: ${error.message}`);
+    contactId = row.id;
+  }
+
+  const { error: linkErr } = await supabase
+    .from("contact_links")
+    .insert({ project_id: projectId, contact_id: contactId, position: 0 });
+  if (linkErr) throw new Error(`contact link: ${linkErr.message}`);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -448,12 +536,15 @@ Deno.serve(async (req) => {
       initial_inquiry: formSummary(inq, showTypes),
       contact_names: inq.name,
       contact_emails: inq.email,
-      contact_phones: inq.phone,
+      contact_phones: formatPhone(inq.phone),
       project_notes: "",
       status: "open",
       flags: [],
       activity_log: [activity],
-      links_seeded: false,
+      // TRUE from the start so the Mac seeder cannot race this function and make a second contact
+      // in the moment between the insert and the link. Put back to false below if linking fails, so
+      // the seeder still covers it.
+      links_seeded: true,
     };
 
     // Insert with a unique id: slug of the name, suffixed if that slug is already taken.
@@ -492,6 +583,17 @@ Deno.serve(async (req) => {
         .insert({ id, ...baseRow, client_name: displayName + suffix });
       if (!error) projectId = id;
       else console.warn("[inquiry] project insert final failure:", error.message);
+    }
+
+    // The contact card, linked to the project. Best-effort: a failure here must never cost the
+    // inquiry itself, and the Mac seeder covers anything left unlinked.
+    if (projectId) {
+      try {
+        await linkContact(supabase, projectId, inq);
+      } catch (e) {
+        console.warn("[inquiry] contact step failed:", e instanceof Error ? e.message : String(e));
+        await supabase.from("projects").update({ links_seeded: false }).eq("id", projectId);
+      }
     }
 
     // Store the raw submission in the inquiries table (record for the project page).

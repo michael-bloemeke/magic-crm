@@ -44,6 +44,14 @@ const LINKS_FILE = path.join(RECORDS_DIR, 'crm-links.json')
 function norm(s) {
   return String(s || '').trim().toLowerCase()
 }
+function normName(s) {
+  return norm(s).replace(/\s+/g, ' ')
+}
+// Phones compare on digits only, ignoring a leading US country code.
+function digits(s) {
+  const d = String(s || '').replace(/\D/g, '')
+  return d.length === 11 && d.startsWith('1') ? d.slice(1) : d
+}
 function list(v) {
   if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean)
   return String(v ?? '')
@@ -202,17 +210,34 @@ function seedLinksSupabase() {
   const projects = loadAll().projects
   const contacts = loadContacts() // normalized, from cache
 
-  const byEmail = new Map()
-  const byName = new Map()
+  // ⚠️ REUSE RULE (Michael, 2026-10-14): an existing contact is reused only when the NAME, the
+  // EMAIL and the PHONE all match it. A detail the project does not have is not compared, but a name
+  // alone is never enough. This used to reuse on any one email, or failing that on the name alone,
+  // which could fold a same-name stranger into a past client's card. The website inquiry edge
+  // function applies the same rule; keep the two in step.
+  const pool = []
   const reindexContact = (c) => {
-    for (const e of c.emails || []) {
-      const k = norm(e)
-      if (k && !byEmail.has(k)) byEmail.set(k, c.id)
-    }
-    const n = norm(c.name)
-    if (n && !byName.has(n)) byName.set(n, c.id)
+    pool.push({
+      id: c.id,
+      name: normName(c.name),
+      emails: list(c.emails).map(norm),
+      phones: list(c.phones).map(digits),
+    })
   }
   for (const c of contacts) reindexContact(c)
+  const findMatch = (name, emails, phones) => {
+    const n = normName(name)
+    const es = emails.map(norm)
+    const ps = phones.map(digits).filter(Boolean)
+    if (!n || (!es.length && !ps.length)) return null
+    const hit = pool.find(
+      (c) =>
+        c.name === n &&
+        (!es.length || es.some((e) => c.emails.includes(e))) &&
+        (!ps.length || ps.some((x) => c.phones.includes(x))),
+    )
+    return hit ? hit.id : null
+  }
 
   // seeded set = projects whose links_seeded flag is true (the definitive "initialized" record).
   const seeded = new Set(getCachedProjects().filter((p) => p.links_seeded).map((p) => p.id))
@@ -224,18 +249,7 @@ function seedLinksSupabase() {
     const names = list(p.contactNames)
     const name = names[0] || p.client || ''
 
-    let contactId = null
-    for (const e of emails) {
-      const id = byEmail.get(norm(e))
-      if (id) {
-        contactId = id
-        break
-      }
-    }
-    if (!contactId && name) {
-      const id = byName.get(norm(name))
-      if (id) contactId = id
-    }
+    let contactId = findMatch(name, emails, list(p.contactPhones))
     if (!contactId && (name || emails.length)) {
       // Create the contact synchronously in the cache; fire-and-forget the Supabase write.
       const row = buildSeedContactRow({
@@ -247,7 +261,7 @@ function seedLinksSupabase() {
       cacheUpsertContact(row)
       sbUpsertContact(row).catch((err) => console.error('[crm-links] seed upsertContact failed:', err?.message || err))
       // Index the new contact (mirror normalizeContact's phone form so lookups match a later read).
-      reindexContact({ id: row.id, name: row.name, emails: row.emails })
+      reindexContact({ id: row.id, name: row.name, emails: row.emails, phones: row.phones })
       contactId = row.id
     }
 

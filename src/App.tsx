@@ -1095,7 +1095,6 @@ function App() {
             onPurge={() => setPurgeTarget(fullProject)}
             onLogCall={() => setCallTarget(fullProject)}
             onPaymentsChange={(pmts) => syncPayments(fullProject.id, pmts)}
-            onProjectChanged={reloadProjects}
             contacts={contacts}
             links={links}
             onOpenContact={setContactPane}

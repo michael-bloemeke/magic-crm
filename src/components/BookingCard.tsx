@@ -289,7 +289,7 @@ export function BookingCard({
                 src: booking.url + (booking.url.indexOf('?') < 0 ? '?' : '&') + 'preview=1',
                 publicUrl: booking.url,
                 title: 'Booking form',
-                subtitle: project.projectName || project.clientName,
+                subtitle: project.client,
                 backLabel: 'Back to the project',
               })
             }

@@ -854,7 +854,7 @@ function receivedTotalForPayments(payments, projectId) {
 // The eight canonical lead sources. MUST stay identical to LEAD_SOURCES in
 // src/components/StatsPage.tsx, which is what buckets them on the Stats page: a value that is not
 // on this list falls into "Other" there, so an extra one here would silently vanish from the chart.
-export const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'Other']
+export const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'AI', 'Repeat client', 'Other']
 
 export async function createProject(input = {}, structure = { umbrellas: [] }) {
   const name = String(input.clientName == null ? '' : input.clientName).trim()

@@ -24,7 +24,9 @@ fi
 
 # Something may be stuck on the port (e.g. a leftover server from before a
 # restart or a folder move). Clear it so we can start cleanly.
-STALE=$(lsof -ti tcp:"$PORT" 2>/dev/null)
+# ⚠️ -sTCP:LISTEN matters: without it lsof also returns every BROWSER with a tab open on this
+# port, and kill -9 takes Michael's Firefox down with the stuck server.
+STALE=$(lsof -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null)
 if [ -n "$STALE" ]; then
   echo "Clearing a stuck server on port $PORT..."
   kill -9 $STALE 2>/dev/null
