@@ -16,6 +16,7 @@ import { CalendarPage } from './components/CalendarPage'
 import { FinancePage } from './components/FinancePage'
 import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
 import { ProposalsPage } from './components/ProposalsPage'
+import { PlaybookPage } from './components/PlaybookPage'
 import { PreviewPage, type PreviewTarget } from './components/PreviewPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
@@ -111,6 +112,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   proposals: { kicker: 'Proposals', title: 'Proposals and Booking Forms' },
   website: { kicker: 'Website', title: 'Website Analytics' },
   contacts: { kicker: 'Contacts', title: 'Contacts' },
+  playbook: { kicker: 'Library', title: 'Playbook' },
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
@@ -1312,6 +1314,8 @@ function App() {
                 <FinancePage projects={liveProjects} onOpenProject={openFull} />
               ) : page === 'stats' ? (
                 <StatsPage projects={liveProjects} onOpenProject={openFull} onSaveField={saveField} />
+              ) : page === 'playbook' ? (
+                <PlaybookPage />
               ) : page === 'proposals' ? (
                 <ProposalsPage onPreview={setPreview} />
               ) : page === 'website' ? (

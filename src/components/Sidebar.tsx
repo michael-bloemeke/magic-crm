@@ -11,6 +11,7 @@ export type Page =
   | 'website'
   | 'proposals'
   | 'contacts'
+  | 'playbook'
   | 'files'
   | 'completed'
   | 'archive'
@@ -167,6 +168,20 @@ const GROUPS: NavGroup[] = [
   {
     heading: 'Library',
     items: [
+      // The Playbook is REFERENCE, which is why it sits here rather than in Workspace. It is a page
+      // to read before a call, not a surface to work in. See PlaybookPage.tsx.
+      {
+        id: 'playbook',
+        label: 'Playbook',
+        enabled: true,
+        icon: icon(
+          <>
+            <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5.5A1.5 1.5 0 0 1 4 17.5z" />
+            <path d="M4 17.5A1.5 1.5 0 0 1 5.5 16H19" />
+            <path d="M8 8h7M8 11h5" />
+          </>,
+        ),
+      },
       {
         id: 'files',
         label: 'Files',
@@ -314,11 +329,9 @@ export function Sidebar({ page, onNavigate, taskAlerts, inboxUnread, onOpenSearc
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="mt-auto px-5 pb-5 pt-4">
-        <div className="mb-3 h-px bg-line" />
-        <p className="text-[11px] text-faint">Pipeline mirrors your HoneyBook + Notion stages.</p>
-      </div>
+      {/* The footer note "Pipeline mirrors your HoneyBook + Notion stages." was removed 2026-10-13
+          at Michael's request: he no longer uses HoneyBook or Notion for the pipeline, and the
+          line was not needed even when it was true. */}
     </aside>
   )
 }
