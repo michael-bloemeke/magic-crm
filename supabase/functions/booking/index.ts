@@ -189,7 +189,14 @@ function mirrorAnswers(answers: { id: string; value: string }[], project: Record
     if (!col) continue;
     const v = String(project[col] ?? "").trim();
     if (!v) continue;
-    out.set(f.id, f.type === "time" ? (to24h(v) || v) : v);
+    if (f.type === "time") {
+      // A time box can only hold a clock time. When the project field holds a note instead ("Space
+      // booked 5:00 PM to 11:00 PM..."), keep their own answer rather than blanking the box.
+      const t = to24h(v);
+      if (t) out.set(f.id, t);
+      continue;
+    }
+    out.set(f.id, v);
   }
   return [...out.entries()].map(([id, value]) => ({ id, value }));
 }

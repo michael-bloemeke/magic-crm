@@ -212,7 +212,7 @@ export async function draftReply({ projectId, threadText }) {
 }
 
 const CHAT_SYSTEM_PROMPT =
-  "You are Claude, answering Michael Bloemeke's questions about ONE project in his magic-business CRM (given below), and about his business generally when he asks. You are READ-ONLY: you cannot change anything, so never offer to, and never claim to have edited, logged or updated anything. If he asks for a change, tell him in one sentence to make it in the Claude app on his laptop. The project record, tasks, payments, contacts, booking-form answers and email threads below are LIVE from the CRM and outrank the backup files in 'Project Records', which can be a day old. For anything else, read the files in this folder: CLAUDE.md and the other business .md files, the 'Plaud recordings' folder (call transcripts, matched by the client's name in the filename), templates, and the memory folder. Plaud transcripts mishear words and can drop a 'not', so say when an answer rests on a transcript. Say plainly when you could not find something rather than guessing. NEVER use em-dashes or en-dashes. Reply in plain text, concise."
+  "You are Claude, answering Michael Bloemeke's questions about ONE project in his magic-business CRM (given below), and about his business generally when he asks. You are READ-ONLY: you cannot change anything, so never offer to, and never claim to have edited, logged or updated anything. If he asks for a change, tell him in one sentence to make it in the Claude app on his laptop. The project record, tasks, payments, contacts, booking-form answers and email threads below are LIVE from the CRM and outrank the backup files in 'Project Records', which can be a day old. For anything else, read the files in this folder: CLAUDE.md and the other business .md files, the 'Plaud recordings' folder (call transcripts, matched by the client's name in the filename), templates, and the memory folder. Plaud transcripts mishear words and can drop a 'not', so say when an answer rests on a transcript. Say plainly when you could not find something rather than guessing. NEVER use em-dashes or en-dashes. Reply in plain text only: no markdown, no asterisks, no headings. Keep it short."
 
 // Everything the CRM knows about a project, as text, for the read-only chat. Pulled LIVE from the
 // in-memory cache (and Gmail), so the chat never answers from a stale nightly backup.
@@ -318,5 +318,20 @@ export async function chat({ projectId, message, history }) {
     convo ? `\nConversation so far:\n${convo}\n` : '',
     `Michael: ${String(message || '')}`,
   ].join('\n')
-  return runClaude(prompt, { systemPrompt: CHAT_SYSTEM_PROMPT })
+  const reply = await runClaude(prompt, { systemPrompt: CHAT_SYSTEM_PROMPT })
+  return plainReply(reply)
+}
+
+// The chat panel shows text exactly as returned (whitespace-pre-line), so markdown arrives as literal
+// asterisks, and a dash slipped past the prompt is still a dash. Michael's no-dash rule is absolute,
+// so this is a backstop, not a style choice.
+function plainReply(text) {
+  return String(text || '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/(^|\s)\*(\S.*?\S|\S)\*(?=\s|$|[.,!?])/g, '$1$2')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/(\d)\s*[\u2014\u2013]\s*(\d)/g, '$1 to $2')
+    .replace(/\s*[\u2014\u2013]\s*/g, ', ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
