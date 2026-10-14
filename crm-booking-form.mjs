@@ -245,10 +245,13 @@ async function applyAnswers(projectId, answers) {
   const noteBlocks = BOOKING_FIELDS.filter((f) => f.key === 'projectNotesAppend')
     .map((f) => ({ label: f.label, value: String(byId[f.id] || '').trim() }))
     .filter((n) => n.value)
-  if (noteBlocks.length) {
-    const project = loadAll().projects.find((p) => p.id === projectId)
-    const existing = String(project?.projectNotes || '').trim()
-    const added = noteBlocks.map((n) => `${n.label}\n${n.value}`).join('\n\n')
+  // ⚠️ Since 2026-10-14 the `booking` edge function writes the answers onto the project the moment
+  // the client submits, notes included, so by the time anything here runs they are usually already
+  // there. Skip the append when the block is present, or every pull would stack a second copy.
+  const project = noteBlocks.length ? loadAll().projects.find((p) => p.id === projectId) : null
+  const existing = String(project?.projectNotes || '').trim()
+  const added = noteBlocks.map((n) => `${n.label}\n${n.value}`).join('\n\n')
+  if (noteBlocks.length && !existing.includes(added)) {
     await updateProjectField({
       id: projectId,
       field: 'projectNotes',

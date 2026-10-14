@@ -126,6 +126,141 @@ function escapeHtml(s: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
+// The form <-> project MIRROR (Michael, 2026-10-14)
+// ---------------------------------------------------------------------------
+//
+// "I want the booking form and the project details to basically mirror each other." Both ways:
+//
+//   PROJECT -> FORM. The form always opens on what is in the project RIGHT NOW. Before they submit,
+//   that is the prefill (it always was). After they submit and before they sign, it used to be their
+//   OWN saved answers, so an edit Michael made in the meantime never reached the form. Now the
+//   project wins for every mirrored question, because the project already holds their answers (see
+//   below) and anything different there is an edit he made since.
+//
+//   FORM -> PROJECT. The moment they submit, every answer is written onto the project. This used to
+//   be the Mac's job (pullSubmission in crm-booking-form.mjs), run by a sweep that was retired when
+//   the booking chain moved to the cloud on 2026-08-03, so from then on nothing ever did it. Monica
+//   Andrade's and Anna Leonard's answers had to be copied in by hand on 2026-10-13. Doing it HERE,
+//   in the function that receives the answers, needs no laptop and cannot be missed.
+//
+// Once they SIGN, the agreement is frozen and none of this applies: the booking_submissions row is
+// the record of what they agreed to, and a later edit to the project does not rewrite it.
+//
+// The live AGREEMENT follows the project too: the booking fee and the performance scope are re-read
+// from the project on every load (they were baked in when the link was issued), so the agreement can
+// never quote a different number from the one stated at the top of the same page.
+
+// Form question -> projects column. Mirrors the `key`s on BOOKING_FIELDS in crm-booking-form.mjs.
+// invoice_to has no project column, and the two free-text questions append to project_notes.
+const MIRROR: Record<string, string> = {
+  event_summary: "event_summary",
+  event_start_time: "event_start_time",
+  show_start_time: "show_start_time",
+  number_of_guests: "number_of_guests",
+  age_of_guests: "age_of_guests",
+  venue_address: "event_location",
+  venue_type: "venue_type",
+  indoors_or_outdoors: "indoors_or_outdoors",
+  av: "av",
+  vips: "vips",
+};
+const NOTE_IDS = ["unforgettable", "notes"];
+const MIRROR_COLUMNS = Object.values(MIRROR).join(", ");
+
+// <input type="time"> only accepts 24-hour "HH:MM", and the project stores "7:00 PM". Mirrors to24h()
+// in Website/book/index.html.
+function to24h(v: string): string {
+  const s = String(v ?? "").trim();
+  let m = /^(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?$/.exec(s);
+  if (m) {
+    let h = Number(m[1]) % 12;
+    if (m[3].toLowerCase() === "p") h += 12;
+    return String(h).padStart(2, "0") + ":" + (m[2] || "00");
+  }
+  m = /^(\d{1,2}):(\d{2})/.exec(s);
+  return m ? String(Number(m[1])).padStart(2, "0") + ":" + m[2] : "";
+}
+
+// Their saved answers, with every mirrored question replaced by what the project says now.
+function mirrorAnswers(answers: { id: string; value: string }[], project: Record<string, unknown>) {
+  const out = new Map(answers.map((a) => [a.id, a.value]));
+  for (const f of FIELDS) {
+    const col = MIRROR[f.id];
+    if (!col) continue;
+    const v = String(project[col] ?? "").trim();
+    if (!v) continue;
+    out.set(f.id, f.type === "time" ? (to24h(v) || v) : v);
+  }
+  return [...out.entries()].map(([id, value]) => ({ id, value }));
+}
+
+// The note block their free-text answers become in project_notes. Same shape the Mac used
+// ("<question>\n<answer>", blocks separated by a blank line), so old and new read alike.
+function noteBlock(answers: { id: string; value: string }[]): string {
+  const byId = new Map(answers.map((a) => [a.id, String(a.value ?? "").trim()]));
+  return FIELDS.filter((f) => NOTE_IDS.includes(f.id) && byId.get(f.id))
+    .map((f) => `${f.label}\n${byId.get(f.id)}`)
+    .join("\n\n");
+}
+
+function easternStamp(now: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0);
+  return `${MONTHS[get("month") - 1]} ${get("day")}, ${get("year")}`;
+}
+
+// Write their answers onto the project. Best-effort by design: the answers are already safe in
+// booking_submissions, so a failure here is logged and never costs the client their form.
+// deno-lint-ignore no-explicit-any
+async function writeAnswersToProject(sb: any, projectId: string, answers: { id: string; value: string }[], previous: { id: string; value: string }[] | null) {
+  const { data: proj, error } = await sb
+    .from("projects")
+    .select("project_notes, activity_log")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (error || !proj) throw new Error(error?.message || "project not found");
+
+  const byId = new Map(answers.map((a) => [a.id, String(a.value ?? "").trim()]));
+  const update: Record<string, unknown> = {};
+  const filled: string[] = [];
+  for (const f of FIELDS) {
+    const col = MIRROR[f.id];
+    const v = byId.get(f.id);
+    if (!col || !v) continue;
+    // Times are stored the way the CRM shows them ("7:00 PM"); everything else as typed.
+    update[col] = f.type === "time" ? prettyTime(v) : v;
+    filled.push(f.label);
+  }
+
+  // Their free-text answers go INTO the notes, never over Michael's own. On a resubmission the block
+  // they wrote last time is swapped for the new one rather than stacked under it.
+  const before = String(proj.project_notes ?? "");
+  let notes = before;
+  const oldBlock = previous ? noteBlock(previous) : "";
+  const newBlock = noteBlock(answers);
+  if (oldBlock && notes.includes(oldBlock)) notes = notes.replace(oldBlock, newBlock);
+  else if (newBlock && !notes.includes(newBlock)) notes = notes.trim() ? `${notes.trimEnd()}\n\n${newBlock}` : newBlock;
+  notes = notes.replace(/\n{3,}/g, "\n\n").trim();
+  if (notes !== before.trim()) {
+    update.project_notes = notes;
+    filled.push("Notes");
+  }
+
+  // One short line. The full list of questions read like a machine log (see crm-notes-writing-rules).
+  const line = `${easternStamp(new Date())}: ${previous ? "Client updated the booking form" : "Client submitted the booking form"}${filled.length ? ", and Event details were updated from it" : ""}.`;
+  const log = Array.isArray(proj.activity_log) ? proj.activity_log : [];
+  update.activity_log = [line, ...log];
+
+  const { error: upErr } = await sb.from("projects").update(update).eq("id", projectId);
+  if (upErr) throw new Error(upErr.message);
+}
+
+// ---------------------------------------------------------------------------
 // Filling the agreement
 // ---------------------------------------------------------------------------
 
@@ -141,10 +276,20 @@ function fillMarker(html: string, key: string, value: string): string {
 }
 
 // Render the stored agreement against a set of answers, and build the summary rows shown above it.
-function buildAgreement(agreementHtml: string, answers: { id: string; value: string }[], eventDateISO = "") {
+function buildAgreement(
+  agreementHtml: string,
+  answers: { id: string; value: string }[],
+  eventDateISO = "",
+  live: { fee?: string; scope?: string } = {},
+) {
   const byId = new Map(answers.map((a) => [a.id, a.value]));
   let html = String(agreementHtml || "");
   const summary: { label: string; value: string }[] = [];
+
+  // Michael's own facts, re-read from the project on every load so a quote or performance change made
+  // after the link went out reaches the agreement too. Left as issued when the project field is blank.
+  if (live.fee) html = fillMarker(html, "booking_fee", live.fee);
+  if (live.scope) html = fillMarker(html, "services_description", live.scope);
 
   // The event date is NOT one of the questions: Michael does not want a client to think the date is
   // theirs to change on this form. It comes off the project, is shown to them read-only, and is
@@ -314,16 +459,21 @@ Deno.serve(async (req) => {
     if (!row) return json({ submitted: false, signed: false, ...base });
     if (row.signed_at) return json({ submitted: true, signed: true, ...base });
 
-    const answers = Array.isArray(row.answers) ? row.answers : [];
-    // Their OWN answers, behind their own token, so they can go back and correct something rather
-    // than being cornered into signing a detail they spotted was wrong. These win over the prefill.
+    // Their own answers, behind their own token, so they can go back and correct something rather
+    // than being cornered into signing a detail they spotted was wrong. Every mirrored question reads
+    // what the PROJECT says now (see "The form <-> project MIRROR" above), which is their answer
+    // unless Michael has edited it since.
+    const answers = mirrorAnswers(Array.isArray(row.answers) ? row.answers : [], project);
     if (!project.agreement_html) return json({ submitted: true, signed: false, ...base, answers });
     return json({
       submitted: true,
       signed: false,
       ...base,
       answers,
-      agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || "")),
+      agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || ""), {
+        fee: quote.startsWith("$") ? quote : "",
+        scope: performanceStyle,
+      }),
     });
   }
 
@@ -346,7 +496,7 @@ Deno.serve(async (req) => {
   // what makes this safe to expose: an unknown token writes nothing.
   const { data: project, error: lookupErr } = await sb
     .from("projects")
-    .select("id, agreement_html, event_date")
+    .select("id, agreement_html, event_date, total_fee, performance_style")
     .eq("booking_token", token)
     .maybeSingle();
   if (lookupErr) return json({ error: "Lookup failed." }, 500);
@@ -406,6 +556,15 @@ Deno.serve(async (req) => {
     : [];
   if (!answers.length) return json({ error: "Nothing was filled in." }, 400);
 
+  // What they sent LAST time, if anything: needed to swap their old note block for the new one, and
+  // to refuse a resubmission once the agreement is signed (the signed record must never change).
+  const { data: prior } = await sb
+    .from("booking_submissions")
+    .select("answers, signed_at")
+    .eq("token", token)
+    .maybeSingle();
+  if (prior?.signed_at) return json({ error: "This agreement has already been signed." }, 409);
+
   const { error: writeErr } = await sb.from("booking_submissions").upsert(
     {
       project_id: project.id,
@@ -418,8 +577,22 @@ Deno.serve(async (req) => {
   );
   if (writeErr) return json({ error: "Could not save your answers." }, 500);
 
+  // FORM -> PROJECT. Their answers become the project's details right now.
+  try {
+    await writeAnswersToProject(sb, project.id, answers, Array.isArray(prior?.answers) ? prior.answers : null);
+  } catch (e) {
+    console.warn("[booking] could not copy answers onto the project:", e instanceof Error ? e.message : String(e));
+  }
+
   // Hand back the agreement so the page can move straight on to signing. If Michael's CRM never
   // stored one, the answers are still safely saved; the page just thanks them and he follows up.
   if (!project.agreement_html) return json({ ok: true, agreement: null });
-  return json({ ok: true, agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || "")) });
+  const feeNum = Number(project.total_fee);
+  return json({
+    ok: true,
+    agreement: buildAgreement(project.agreement_html, answers, String(project.event_date || ""), {
+      fee: Number.isFinite(feeNum) && feeNum > 0 ? "$" + Math.round(feeNum).toLocaleString("en-US") : "",
+      scope: String(project.performance_style || "").trim(),
+    }),
+  });
 });
