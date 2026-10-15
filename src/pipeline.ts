@@ -28,6 +28,11 @@ export type Project = {
   arrivalTime: string
   eventStartTime: string
   showStartTime: string
+  // PRIVATE (2026-10-15): when Michael leaves home for the gig and when he expects to be back. Booked
+  // gigs go on the calendar as a busy block between these two. Required before a project can move
+  // into a Booked stage.
+  leaveHomeTime: string
+  backHomeTime: string
   numberOfGuests: string
   ageOfGuests: string
   performanceStyle: string

@@ -269,6 +269,12 @@ export function ProjectDetailsBody({
           {shown('arrivalTime') && <EditableField label={lbl('arrivalTime', 'Arrival time')} value={project.arrivalTime} onSave={save('arrivalTime')} format={to12h} missing={miss('arrivalTime')} />}
           {shown('eventStartTime') && <EditableField label={lbl('eventStartTime', 'Event start')} value={project.eventStartTime} onSave={save('eventStartTime')} format={to12h} missing={miss('eventStartTime')} />}
           {shown('showStartTime') && <EditableField label={lbl('showStartTime', 'Show start')} value={project.showStartTime} onSave={save('showStartTime')} format={to12h} missing={miss('showStartTime')} />}
+          {/* PRIVATE to Michael (2026-10-15): the door-to-door window for the gig, travel, setup and
+              buffer included. Once booked, the gig goes on the calendar as a BUSY block between these
+              two, so nobody can book a call while he is out. Required before moving to a Booked
+              stage. Never shown to a client. A Back home earlier than Leave home means the next day. */}
+          <EditableField label="Leave home" placeholder="e.g. 3:45 PM" value={project.leaveHomeTime} onSave={save('leaveHomeTime')} format={to12h} />
+          <EditableField label="Back home" placeholder="e.g. 7:00 PM" value={project.backHomeTime} onSave={save('backHomeTime')} format={to12h} />
           {shown('totalFee') && <EditableField label={lbl('totalFee', 'Quote')} prefix="$" value={project.totalFee == null ? '' : String(project.totalFee)} onSave={save('totalFee')} missing={miss('totalFee')} />}
           {shown('numberOfGuests') && <EditableField label={lbl('numberOfGuests', 'Guest Count')} multiline value={project.numberOfGuests} onSave={save('numberOfGuests')} missing={miss('numberOfGuests')} />}
           {shown('ageOfGuests') && <EditableField label={lbl('ageOfGuests', 'Guest ages')} multiline value={project.ageOfGuests} onSave={save('ageOfGuests')} missing={miss('ageOfGuests')} />}

@@ -438,6 +438,10 @@ function normalize(p, bucket) {
     arrivalTime: str(p.arrival_time),
     eventStartTime: str(p.event_start_time),
     showStartTime: str(p.show_start_time),
+    // PRIVATE to Michael: when he leaves home and gets back (2026-10-15). They bound the busy
+    // calendar block once the gig is booked. Never on the booking form, contract or proposal.
+    leaveHomeTime: str(p.leave_home_time),
+    backHomeTime: str(p.back_home_time),
     numberOfGuests: str(p.number_of_guests),
     ageOfGuests: str(p.age_of_guests),
     performanceStyle: str(p.performance_style),
@@ -1033,6 +1037,8 @@ const EDITABLE_FIELDS = {
   arrivalTime: 'arrival_time',
   eventStartTime: 'event_start_time',
   showStartTime: 'show_start_time',
+  leaveHomeTime: 'leave_home_time',
+  backHomeTime: 'back_home_time',
   numberOfGuests: 'number_of_guests',
   ageOfGuests: 'age_of_guests',
   performanceStyle: 'performance_style',
@@ -1245,6 +1251,8 @@ export async function createProject(input = {}) {
       arrival_time: null,
       event_start_time: null,
       show_start_time: null,
+      leave_home_time: null,
+      back_home_time: null,
       number_of_guests: null,
       age_of_guests: null,
       performance_style: null,

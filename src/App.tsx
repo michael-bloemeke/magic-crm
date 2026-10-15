@@ -28,6 +28,7 @@ import { CompleteProjectModal, type CompletePayload } from './components/Complet
 import { NewProjectModal } from './components/NewProjectModal'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { DepositPaidModal } from './components/DepositPaidModal'
+import { GigTimesModal } from './components/GigTimesModal'
 import { CallLogModal, type CallLog } from './components/CallLogModal'
 import { Notifications } from './components/Notifications'
 import { SearchPalette } from './components/SearchPalette'
@@ -156,6 +157,8 @@ function App() {
   const [purgeTarget, setPurgeTarget] = useState<Project | null>(null)
   // The booked-stage move that's waiting on a payment (modal logs one, then proceeds).
   const [depositTarget, setDepositTarget] = useState<{ project: Project; stageId: string } | null>(null)
+  // Booked needs the private Leave home / Back home times first (2026-10-15); see GigTimesModal.
+  const [timesTarget, setTimesTarget] = useState<{ project: Project; stageId: string } | null>(null)
   // The project whose "Made a call" log flow is open.
   const [callTarget, setCallTarget] = useState<Project | null>(null)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -493,8 +496,15 @@ function App() {
     // Post Show is auto-only: projects can be moved OUT of it but never INTO it
     // manually (they arrive the day after the event). Silently ignore such a move.
     if (postshowIds.has(stageId)) return
-    // Any stage in the Booked category requires a recorded payment first; gate it
-    // through a modal that logs one, then proceeds to the chosen stage.
+    // Any stage in the Booked category needs, in this order:
+    //   1. the private Leave home / Back home times (Michael, 2026-10-15). They are the busy block on
+    //      his calendar, so a booked gig without them would leave the drive open for call bookings.
+    //   2. a recorded payment, gated through a modal that logs one.
+    // Each modal proceeds to the next check, then to the chosen stage.
+    if (bookedIds.has(stageId) && cur && (!cur.leaveHomeTime?.trim() || !cur.backHomeTime?.trim())) {
+      setTimesTarget({ project: cur, stageId })
+      return
+    }
     if (bookedIds.has(stageId) && !hasReceivedPayment(id)) {
       if (cur) setDepositTarget({ project: cur, stageId })
       return
@@ -599,6 +609,7 @@ function App() {
     !!deleteTarget ||
     !!purgeTarget ||
     !!depositTarget ||
+    !!timesTarget ||
     !!callTarget ||
     !!contactPickerProject ||
     !!deleteBlock ||
@@ -1425,6 +1436,7 @@ function App() {
           !archiveTarget &&
           !completeTarget &&
           !depositTarget &&
+          !timesTarget &&
           !deleteTarget &&
           !purgeTarget &&
           !callTarget &&
@@ -1488,6 +1500,24 @@ function App() {
         onCancel={() => setCompleteTarget(null)}
         onConfirm={(data) => completeTarget && finishComplete(completeTarget, data)}
         onPaymentsChange={(pmts) => completeTarget && syncPayments(completeTarget.id, pmts)}
+      />
+
+      <GigTimesModal
+        project={timesTarget?.project ?? null}
+        onCancel={() => setTimesTarget(null)}
+        onConfirm={(leaveHomeTime, backHomeTime) => {
+          const t = timesTarget
+          setTimesTarget(null)
+          if (!t) return
+          saveField(t.project.id, 'leaveHomeTime', leaveHomeTime)
+          saveField(t.project.id, 'backHomeTime', backHomeTime)
+          // Then the payment gate, exactly as if the times had been there all along.
+          if (!hasReceivedPayment(t.project.id)) {
+            setDepositTarget({ project: { ...t.project, leaveHomeTime, backHomeTime }, stageId: t.stageId })
+            return
+          }
+          doSetStage(t.project.id, t.stageId)
+        }}
       />
 
       <DepositPaidModal

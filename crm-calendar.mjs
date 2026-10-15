@@ -6,9 +6,9 @@
 // go on the "Gigs" calendar; tasks on "Work". Nothing is pushed until Michael connects and a sync
 // runs (auto after edits, or the manual "Sync now").
 //
-// - A gig is a TIMED block starting at its arrival time (falling back to event start, then show
-//   start), 2h long by default; if no time parses it becomes an all-day event. It carries the
-//   location + the times + basic details, and is prefixed "Inquiry: " until the project is booked.
+// - A gig that is NOT booked is an all-day FREE event (prefixed "Inquiry: "). A BOOKED gig is a
+//   timed BUSY block from Leave home to Back home (2026-10-15). It carries the location, the times
+//   and basic details.
 // - A task goes on the calendar ONLY when it has a time: a timed block with 10-min + at-time
 //   reminders. A task with no time stays in the CRM and never touches the calendar (2026-10-14).
 //   The CRM's own due reminders stay date-based regardless; these are just the calendar's reminders.
@@ -191,8 +191,8 @@ function line(label, value) {
 
 function projectEventBody(project) {
   const booked = isProjectBooked(project)
-  // The show time rides in the TITLE because the event itself is all-day (see below), so the time is
-  // still readable at a glance in month view instead of being buried in the description.
+  // The arrival / show time rides in the TITLE so it reads at a glance, including on the all-day
+  // (unbooked) version where the event itself carries no time.
   const t = parseTime(project.arrivalTime) || parseTime(project.eventStartTime) || parseTime(project.showStartTime)
   const summary = `${booked ? '' : 'Inquiry: '}${project.client}${t ? ` · ${timeLabel(t)}` : ''}`
 
@@ -203,6 +203,8 @@ function projectEventBody(project) {
   description += line('Arrival', project.arrivalTime)
   description += line('Event start', project.eventStartTime)
   description += line('Show start', project.showStartTime)
+  description += line('Leave home', project.leaveHomeTime)
+  description += line('Back home', project.backHomeTime)
   description += line('Location', project.eventLocation)
   description += line('Guests', project.numberOfGuests)
   description += line('Contact', [project.contactNames, project.contactPhones].filter(Boolean).join(' · '))
@@ -215,18 +217,31 @@ function projectEventBody(project) {
     reminders: { useDefault: true },
   }
 
-  // ALL-DAY on purpose, even when a time is known.
+  // HOW A GIG SITS ON THE CALENDAR (Michael, 2026-10-15). His booking calendar (TidyCal) reads this
+  // calendar's busy time, so the rule is about what a gig is allowed to BLOCK:
   //
-  // Google Calendar's month view decides how an event LOOKS from its type, and nothing in the API
-  // overrides that: an all-day event draws as a filled coloured chip, a timed event draws as a small
-  // dot with text. Michael wanted gigs to stand out the way his tasks and his old HoneyBook events
-  // do (2026-08-20), and those are filled chips because they are all-day. A timed gig could never
-  // look like that while it stayed timed.
+  //   - NOT BOOKED (any stage before Booked): ALL-DAY and FREE. It shows on its date so he can see
+  //     it, but it never stops a client booking a call, because it may never happen.
+  //   - BOOKED, with Leave home + Back home set: a TIMED, BUSY block from when he leaves the house
+  //     to when he walks back in (drive, setup and buffer included). Nobody can book a call over it,
+  //     and the rest of the day stays open.
+  //   - BOOKED without those times (only possible if a stage was set outside the CRM's gate):
+  //     all-day and BUSY, the safe failure, until the times are filled in.
   //
-  // The cost is that a gig no longer occupies a block in week/day view. The time is preserved in the
-  // title and in the description, so nothing is lost, but the day no longer LOOKS busy from 7pm.
-  body.start = { date: project.eventDate }
-  body.end = { date: shiftDate(project.eventDate, 1) }
+  // This replaced the 2026-08-20 rule that made every gig all-day (filled chips in month view).
+  const leave = parseTime(project.leaveHomeTime)
+  const back = parseTime(project.backHomeTime)
+  if (booked && leave && back) {
+    let span = back.h * 60 + back.m - (leave.h * 60 + leave.m)
+    if (span <= 0) span += 1440 // back home after midnight
+    body.start = { dateTime: dateTimeAt(project.eventDate, leave), timeZone: TIMEZONE }
+    body.end = { dateTime: dateTimeAt(project.eventDate, leave, span), timeZone: TIMEZONE }
+    body.transparency = 'opaque'
+  } else {
+    body.start = { date: project.eventDate }
+    body.end = { date: shiftDate(project.eventDate, 1) }
+    body.transparency = booked ? 'opaque' : 'transparent'
+  }
   return body
 }
 
