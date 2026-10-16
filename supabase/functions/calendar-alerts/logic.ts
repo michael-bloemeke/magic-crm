@@ -231,7 +231,7 @@ export function whenLabel(ms: number, nowMs: number): string {
 // Plain text for a push: dashes become hyphens, whitespace collapses, long titles are cut.
 // (Calendar spam arrives with a whole paragraph as its title.)
 export function clean(s: unknown, max = 90): string {
-  let t = String(s ?? "").replace(/[‒–—―−]/g, "-").replace(/\s+/g, " ").trim();
+  let t = String(s ?? "").replace(/[\u2012\u2013\u2014\u2015\u2212]/g, "-").replace(/\s+/g, " ").trim();
   if (t.length > max) t = t.slice(0, max - 3).trimEnd() + "...";
   return t;
 }

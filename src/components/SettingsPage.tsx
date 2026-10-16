@@ -14,6 +14,7 @@ import {
 import { EVENT_FIELDS, ESSENTIAL_FIELD_IDS, makeCustomFieldId, type CustomField } from '../eventFields'
 import { type CategoryDef } from '../pipeline'
 import { RichTextEditor } from './RichTextEditor'
+import { CalendarAlerts } from './CalendarAlerts'
 
 // The phases of the project page's Communication timeline that a pipeline stage can highlight.
 // (Post Show also highlights the Post Show section, which holds the tips and mileage figures.)
@@ -526,7 +527,7 @@ export function SettingsPage() {
           <div>
             <h2 className="font-display text-[17px] text-parchment">Google Calendar</h2>
             <p className="mt-0.5 text-[12px] text-muted">
-              Put your gigs on your <span className="text-parchment">Gigs</span> calendar and your tasks on your{' '}
+              Put your gigs on your <span className="text-parchment">Gigs</span> calendar and your timed tasks on your{' '}
               <span className="text-parchment">Work</span> calendar, automatically. Uses the same Google connection as your email.
             </p>
           </div>
@@ -581,14 +582,20 @@ export function SettingsPage() {
                   {calNote && <span className="text-[11.5px] text-muted">{calNote}</span>}
                 </div>
                 <p className="text-[11px] leading-relaxed text-faint">
-                  Gigs and tasks also sync automatically as you add or edit them. A gig that isn’t booked yet shows as “Inquiry: …”.
-                  Tasks with a time get 10-minute and at-time reminders; tasks with no time are all-day. Your in-app due reminders
-                  stay based on the date either way.
+                  Gigs and tasks also sync automatically as you add or edit them. A gig that isn’t booked yet shows all day as
+                  “Inquiry: …” and leaves the day free; a booked gig blocks the time from Leave home to Back home. A task goes on your
+                  Work calendar when it has a time, with 10-minute and at-time reminders, and a task without a time stays in the CRM.
+                  Your in-app due reminders stay based on the date either way.
                 </p>
               </>
             )}
             {cal?.error && <p className="text-[11.5px] text-[#dc2626]">{cal.error}</p>}
           </div>
+        </section>
+
+        {/* Calendar alerts: phone pushes about the Google Calendar, sent by the cloud every minute. */}
+        <section className={sectionCls('calendar')}>
+          <CalendarAlerts active={tab === 'calendar'} />
         </section>
 
         {/* Stage highlighting: which phase of the Communication timeline lights up per category */}
