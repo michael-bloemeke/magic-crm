@@ -333,6 +333,28 @@ async function pushAndNotify(sb: any, title: string, body: string, projectId: st
   return pushed;
 }
 
+// The stage ids of the Booked and Post Show categories in the live pipeline (pipeline_meta), found
+// with the same tests crm-data-core's normalizeStructure uses. Post Show always has its two fixed
+// stages. No structure at all means the default pipeline.
+// deno-lint-ignore no-explicit-any
+function bookedStageIds(structure: any): Set<string> {
+  const umbrellas = Array.isArray(structure?.umbrellas) && structure.umbrellas.length ? structure.umbrellas : null;
+  if (!umbrellas) return new Set(["deposit-sent", "deposit-paid", "thank-you-payment", "thank-you"]);
+  const ids = new Set(["thank-you-payment", "thank-you"]);
+  // deno-lint-ignore no-explicit-any
+  const booked = umbrellas.find((u: any) => u?.role === "booked" || u?.role === "last" || u?.id === "booked");
+  // deno-lint-ignore no-explicit-any
+  const postshow = umbrellas.find((u: any) => u?.role === "postshow" || u?.id === "post-show" || /post[\s-]*show/i.test(String(u?.label ?? "")));
+  for (const u of [booked, postshow]) {
+    for (const s of u?.stages ?? []) if (s?.id) ids.add(String(s.id).trim());
+  }
+  return ids;
+}
+
+// Booked = the same rule as isProjectBooked in crm-data-core.mjs: completed, sitting in any stage of
+// the Booked or Post Show category, or with its invoice paid. (This used to check only deposit-paid,
+// so a gig in Deposit Sent or Post Show never raised a clash.) Archived projects are left out, as in
+// the calendar sync that rule feeds: a dead deal does not hold the night.
 // deno-lint-ignore no-explicit-any
 async function clashNotes(sb: any, eventDate: string): Promise<string[]> {
   const notes: string[] = [];
@@ -340,13 +362,26 @@ async function clashNotes(sb: any, eventDate: string): Promise<string[]> {
   for (const b of BLACKOUTS) {
     if (eventDate >= b.from && eventDate <= b.to) notes.push(`⚠️ DATE CLASH: this falls during ${b.label}.`);
   }
-  const { data: booked } = await sb
+  const { data: sameDay } = await sb
     .from("projects")
-    .select("project_name, client_name")
+    .select("id, project_name, client_name, bucket, stage_id")
     .eq("event_date", eventDate)
-    .eq("stage_id", "deposit-paid")
+    .in("bucket", ["active", "completed"])
     .is("deleted_at", null);
-  for (const p of booked ?? []) {
+  if (!sameDay?.length) return notes;
+
+  const { data: meta } = await sb.from("pipeline_meta").select("structure").eq("id", 1).maybeSingle();
+  const stages = bookedStageIds(meta?.structure);
+  const { data: invoices } = await sb
+    .from("invoices")
+    .select("project_id, data")
+    .in("project_id", sameDay.map((p: { id: string }) => p.id));
+  const paid = new Set(
+    (invoices ?? []).filter((i: { data?: { paidAt?: string } }) => !!i?.data?.paidAt).map((i: { project_id: string }) => i.project_id),
+  );
+
+  for (const p of sameDay) {
+    if (p.bucket !== "completed" && !stages.has(p.stage_id) && !paid.has(p.id)) continue;
     notes.push(`⚠️ DATE CLASH: already booked that day (${p.project_name || p.client_name}). Check the times.`);
   }
   return notes;
