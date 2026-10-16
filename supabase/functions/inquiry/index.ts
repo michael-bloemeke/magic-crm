@@ -8,9 +8,11 @@
 //      refresh token, stored here as secrets).
 //   3. Fires a high-urgency lock-screen push to the phone (through _shared/push.ts, like every CRM
 //      alert) and records a `new-inquiry` bell notification.
+//   4. Sends the person who filled in the form Michael's "Thanks for reaching out!" email, from his own
+//      address (see sendAutoReply below).
 // It also stores the raw submission in the `inquiries` table for the project page's record.
 //
-// Steps 2 and 3 are best-effort: a mail/push failure never blocks the project from being created.
+// Steps 2 to 4 are best-effort: a mail/push failure never blocks the project from being created.
 // Public endpoint (verify_jwt=false): it's a contact form. A honeypot field drops bots and the
 // service-role client (auto-injected) bypasses RLS to write the rows.
 
@@ -311,6 +313,155 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
 }
 
 // ---------------------------------------------------------------------------
+// The "Thanks for reaching out!" email to the person who filled in the form
+// ---------------------------------------------------------------------------
+//
+// Jonah's email map (09-03 visit, sales.md "The doctor's office"): the moment the form comes in, the
+// lead gets a note from Michael's own address, written as though he typed it: what happens next, how
+// to grab a time on the calendar, the promo video, and the reviews. Michael approved this exact wording
+// on 2026-10-16, and it is email 1 on his Notion "14 Magic Emails" page. Change the two together.
+//
+// ⚠️ IT STAYS QUIET WHILE THE BOOKING PAGE IS AWAY. On trip days /thank-you swaps the calendar for an
+// away message that promises a personal follow-up by email, so "grab a time here" would contradict it.
+// AUTO_AWAY and AUTO_CALL_DAYS MUST MATCH the AWAY and CALL_DAYS lists in Website/thank-you.html. The
+// away version of this email is not written yet; until it is, Michael follows up by hand on those days.
+//
+// ⚠️ ONE PER ADDRESS PER DAY. The form is public, so without this anyone could make Michael's Gmail mail
+// a stranger again and again by resubmitting with their address. His own addresses are exempt so his
+// test submissions always get one.
+const AUTO_AWAY = [
+  { from: "2026-10-18", back: "2026-10-21" },
+  { from: "2026-10-25", back: "2026-11-09" },
+];
+const AUTO_CALL_DAYS = [1, 2, 3, 4, 5, 6]; // Monday to Saturday, matching TidyCal (0 = Sunday)
+const AUTO_FROM = "Michael Bloemeke <michael@michaelbloemeke.com>";
+const AUTO_SUBJECT = "Thanks for reaching out!";
+const OWN_ADDRESSES = ["michael@michaelbloemeke.com", "mchlbloemeke@gmail.com"];
+
+function easternISO(daysAhead: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: EASTERN, year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date(Date.now() + daysAhead * 86400000));
+}
+
+// The page's rule exactly: away when none of today and the next two days is a call day off a trip.
+function bookingPageAway(): boolean {
+  let open = false, trip = false;
+  for (let i = 0; i < 3 && !open; i++) {
+    const iso = easternISO(i);
+    const onTrip = AUTO_AWAY.some((t) => iso >= t.from && iso <= t.back);
+    const weekday = new Date(iso + "T12:00:00Z").getUTCDay();
+    if (!onTrip && AUTO_CALL_DAYS.includes(weekday)) open = true;
+    if (onTrip) trip = true;
+  }
+  return !open && trip;
+}
+
+// "2026-11-14" -> "Saturday, November 14" (with the year only when it is not this year). "" if unusable.
+function eventDatePhrase(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || "").trim());
+  if (!m) return "";
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return "";
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const wd = days[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()];
+  const thisYear = +todayEastern().slice(0, 4);
+  return `${wd}, ${months[mo - 1]} ${d}${y !== thisYear ? `, ${y}` : ""}`;
+}
+
+function firstName(full: string): string {
+  const f = String(full || "").trim().split(/\s+/)[0] || "";
+  if (!f || f.includes("@")) return "";
+  return f.charAt(0).toUpperCase() + f.slice(1);
+}
+
+function autoReplyBody(inq: Record<string, string>): string {
+  const first = firstName(inq.name);
+  const when = eventDatePhrase(inq.eventDate);
+  return [
+    first ? `Hi ${first}!` : "Hi there!",
+    "",
+    `Thanks for reaching out about your event${when ? ` on ${when}` : ""}!`,
+    "",
+    "The next step is a quick phone call to go over your event and figure out what will work best. If you haven't picked a time yet, you can grab one here:",
+    "https://michaelbloemeke.com/thank-you",
+    "",
+    "While you wait, take a peek at my promo video:",
+    "https://www.youtube.com/watch?v=uTaXL4lPcHQ",
+    "",
+    "And here's what people have said about the show:",
+    "https://michaelbloemeke.com/reviews",
+    "",
+    "Looking forward to it!",
+    "Michael Bloemeke",
+    "michaelbloemeke.com",
+    "919-239-9898",
+  ].join("\r\n");
+}
+
+// Returns what happened, for the response and the logs: sent | away | duplicate | no-email | failed.
+// deno-lint-ignore no-explicit-any
+async function sendAutoReply(sb: any, inq: Record<string, string>, inquiryId: string): Promise<string> {
+  const to = normEmail(inq.email);
+  // No whitespace allowed, so a crafted address can never smuggle in extra mail headers.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return "no-email";
+  if (bookingPageAway()) return "away";
+  try {
+    if (!OWN_ADDRESSES.includes(to)) {
+      const since = new Date(Date.now() - 86400000).toISOString();
+      const { count, error } = await sb
+        .from("inquiries")
+        .select("id", { count: "exact", head: true })
+        .neq("id", inquiryId)
+        .ilike("data->>email", to)
+        .gte("data->>submittedAt", since);
+      if (error) console.warn("[inquiry] auto-reply duplicate check failed:", error.message);
+      else if ((count ?? 0) > 0) return "duplicate";
+    }
+
+    const clientId = Deno.env.get("GMAIL_CLIENT_ID");
+    const clientSecret = Deno.env.get("GMAIL_CLIENT_SECRET");
+    const refreshToken = Deno.env.get("GMAIL_REFRESH_TOKEN");
+    if (!clientId || !clientSecret || !refreshToken) return "failed";
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
+    });
+    if (!tokenRes.ok) {
+      console.warn("[inquiry] auto-reply token refresh failed:", tokenRes.status, await tokenRes.text());
+      return "failed";
+    }
+    const { access_token } = await tokenRes.json();
+    if (!access_token) return "failed";
+
+    const headers = [
+      `From: ${AUTO_FROM}`,
+      `To: ${to}`,
+      `Subject: ${AUTO_SUBJECT}`,
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=UTF-8",
+    ].join("\r\n");
+    const raw = `${headers}\r\n\r\n${autoReplyBody(inq)}`;
+    const b64 = btoa(unescape(encodeURIComponent(raw)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw: b64 }),
+    });
+    if (!sendRes.ok) {
+      console.warn("[inquiry] auto-reply send failed:", sendRes.status, await sendRes.text());
+      return "failed";
+    }
+    return "sent";
+  } catch (e) {
+    console.warn("[inquiry] auto-reply error:", e instanceof Error ? e.message : String(e));
+    return "failed";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // The contact card
 // ---------------------------------------------------------------------------
 //
@@ -523,11 +674,20 @@ Deno.serve(async (req) => {
     const { error: inqErr } = await supabase.from("inquiries").insert({ id: inquiryId, data: inquiryData });
     if (inqErr) console.warn("[inquiry] inquiries insert failed:", inqErr.message);
 
-    // Email + phone push (both best-effort; neither blocks the response).
-    const emailed = await sendAlertEmail(inq, showTypes, projectId);
-    const pushed = await pushAndNotify(supabase, inq.name || inq.email, projectId, inquiryId);
+    // Alert email, the lead's thanks email, and the phone push (all best-effort; none blocks the
+    // response). They are independent, so they run side by side.
+    const [emailed, autoReply, pushed] = await Promise.all([
+      sendAlertEmail(inq, showTypes, projectId),
+      sendAutoReply(supabase, inq, inquiryId),
+      pushAndNotify(supabase, inq.name || inq.email, projectId, inquiryId),
+    ]);
+    if (projectId && autoReply === "sent") {
+      const line = `${logDate()}: "Thanks for reaching out!" email sent automatically.`;
+      const { error } = await supabase.from("projects").update({ activity_log: [activity, line] }).eq("id", projectId);
+      if (error) console.warn("[inquiry] activity log update failed:", error.message);
+    }
 
-    return json({ ok: true, projectId, emailed, pushed });
+    return json({ ok: true, projectId, emailed, autoReply, pushed });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
