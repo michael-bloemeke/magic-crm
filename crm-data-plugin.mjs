@@ -55,10 +55,12 @@ import {
   calendarStatus,
   sendCalendarInvite,
   listGigsEvents,
+  listCalendarEvents,
 } from './crm-calendar.mjs'
 import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
+import { loadCalendarAlerts, updateCalendarAlerts } from './crm-calendar-alerts.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
 import { importNewInquiries, listNotifications as listInquiryNotifications, dismissNotification as dismissInquiry, status as inquiriesStatus, inquiryFormForProject } from './crm-inquiries.mjs'
@@ -556,6 +558,24 @@ export function crmDataPlugin() {
           .catch((e) => {
             res.statusCode = 500
             res.end(JSON.stringify({ error: e?.message || 'Failed to load task schedules.' }))
+          })
+      })
+
+      // --- Calendar alerts (the cloud's calendar-alerts function reads these every minute) ---
+      server.middlewares.use('/api/calendar-alerts/update', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await updateCalendarAlerts(b.patch || {}))
+      })
+      server.middlewares.use('/api/calendar-alerts', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        Promise.resolve(loadCalendarAlerts())
+          .then((data) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(data))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: e?.message || 'Failed to load calendar alerts.' }))
           })
       })
 
@@ -1727,6 +1747,20 @@ export function crmDataPlugin() {
         if (req.method !== 'GET') return next()
         const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
         listGigsEvents(url.searchParams.get('from') || '', url.searchParams.get('to') || '')
+          .then((r) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(r))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ ok: false, events: [], error: String(e?.message || e) }))
+          })
+      })
+      // Work + Gigs, minus the CRM's own events: the Calendar page and the date-conflict flag.
+      server.middlewares.use('/api/calendar/events', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        listCalendarEvents(undefined, url.searchParams.get('from') || '', url.searchParams.get('to') || '')
           .then((r) => {
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(r))

@@ -593,48 +593,101 @@ export async function sendCalendarInvite({
   }
 }
 
-// ---- Reading the Gigs calendar (pull manual events into the CRM) ------------
+// ---- Reading Google calendars into the CRM (Calendar page + date-conflict flag) ----
 
-// List events on the "Gigs" Google calendar in [fromISO, toISO] (YYYY-MM-DD), EXCLUDING the events the
-// CRM itself created for its projects (those are already shown as CRM projects). What's left is what
-// Michael added by hand on his phone/Google. Feeds the CRM Calendar page + the date-conflict flag, so
-// a manual Gigs entry both shows up in the CRM and warns of a double-booking. Best-effort; never throws.
-export async function listGigsEvents(fromISO, toISO) {
-  if (!isCalendarConnected()) return { ok: false, events: [], reason: 'not-connected' }
+// A TidyCal booking on HIS booking page, by the two markers TidyCal writes (checked on a real
+// booking, 2026-10-16): the event's `source.url` is on tidycal.com, and its description carries the
+// tidycal.com "Reschedule or cancel" link. TidyCal writes his bookings as him, so an event someone
+// else organised is not one, even with a tidycal.com link in it: that is Michael booking a call on
+// THEIR page (Jeff Newman's, Kelvin's). Same rule as classify in calendar-alerts/logic.ts.
+function isTidyCalEvent(e) {
+  const org = e?.organizer
+  if (org && !org.self && !['michael@michaelbloemeke.com', 'mchlbloemeke@gmail.com'].includes(String(org.email || '').toLowerCase())) return false
+  let host = ''
   try {
-    const cal = api()
-    const calId = await resolveCalendarId(cal, GIGS_CALENDAR)
-    if (!calId) return { ok: false, events: [], error: `Calendar "${GIGS_CALENDAR}" not found in your account.` }
-    const crmEventIds = new Set(Object.values(readMap().projects || {}))
-    const res = await cal.events.list({
-      calendarId: calId,
-      timeMin: new Date(`${fromISO}T00:00:00Z`).toISOString(),
-      timeMax: new Date(`${toISO}T23:59:59Z`).toISOString(),
-      singleEvents: true, // expand recurring events into individual instances
-      orderBy: 'startTime',
-      maxResults: 2500,
-    })
-    const events = (res.data.items || [])
-      .filter((e) => e.status !== 'cancelled' && !crmEventIds.has(e.id))
-      .map((e) => {
-        const allDay = !!(e.start && e.start.date)
-        const date = allDay ? e.start.date : (e.start && e.start.dateTime ? e.start.dateTime.slice(0, 10) : '')
-        return {
-          id: e.id,
-          title: e.summary || '(untitled)',
-          date,
-          allDay,
-          startTime: !allDay && e.start && e.start.dateTime ? e.start.dateTime : '',
-          location: e.location || '',
-          htmlLink: e.htmlLink || '',
-        }
-      })
-      .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date))
-    return { ok: true, events }
+    host = new URL(String(e?.source?.url || '')).hostname.toLowerCase()
+  } catch {
+    host = ''
+  }
+  return host === 'tidycal.com' || host.endsWith('.tidycal.com') || /tidycal\.com/i.test(String(e?.description || ''))
+}
+
+// List the events on the named Google calendars in [fromISO, toISO] (YYYY-MM-DD), EXCLUDING the
+// events the CRM wrote itself (its gigs and timed tasks are already on the Calendar page as CRM
+// items). Excluded two ways: by the event-id map, and by the "Synced from Magic CRM" marker, so an
+// event survives neither a lost map entry nor a cold cache. What is left is what Michael or other
+// people put there: manual Gigs entries, meetings, TidyCal bookings, invites, Gmail reservations.
+// Declined and cancelled events are dropped. Each event carries the calendar it came from, so the
+// date-conflict flag can keep looking at Gigs only. Best-effort per calendar; never throws.
+export async function listCalendarEvents(names = [WORK_CALENDAR, GIGS_CALENDAR], fromISO, toISO) {
+  if (!isCalendarConnected()) return { ok: false, events: [], reason: 'not-connected' }
+  let map = { projects: {}, tasks: {} }
+  try {
+    map = readMap()
+  } catch {
+    // Cache not primed yet: the marker check below still keeps CRM events out.
+  }
+  const crmEventIds = new Set([...Object.values(map.projects || {}), ...Object.values(map.tasks || {})])
+  const events = []
+  const errors = []
+  let cal
+  try {
+    cal = api()
   } catch (e) {
-    console.error('[crm-calendar] listGigsEvents failed:', e?.message || e)
     return { ok: false, events: [], error: String(e?.message || e) }
   }
+  for (const name of names) {
+    try {
+      const calId = await resolveCalendarId(cal, name)
+      if (!calId) {
+        errors.push(`Calendar "${name}" not found in your account.`)
+        continue
+      }
+      let pageToken
+      do {
+        const res = await cal.events.list({
+          calendarId: calId,
+          timeMin: new Date(`${fromISO}T00:00:00Z`).toISOString(),
+          timeMax: new Date(`${toISO}T23:59:59Z`).toISOString(),
+          singleEvents: true, // expand recurring events into individual instances
+          orderBy: 'startTime',
+          maxResults: 2500,
+          pageToken,
+        })
+        for (const e of res.data.items || []) {
+          if (e.status === 'cancelled' || crmEventIds.has(e.id)) continue
+          if (String(e.description || '').includes(CRM_MARKER)) continue
+          if (e.eventType === 'workingLocation' || e.eventType === 'focusTime') continue
+          if ((e.attendees || []).some((a) => a.self && a.responseStatus === 'declined')) continue
+          const allDay = !!(e.start && e.start.date)
+          const date = allDay ? e.start.date : e.start && e.start.dateTime ? e.start.dateTime.slice(0, 10) : ''
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+          events.push({
+            id: e.id,
+            calendar: name,
+            title: e.summary || '(untitled)',
+            date,
+            allDay,
+            startTime: !allDay && e.start && e.start.dateTime ? e.start.dateTime : '',
+            location: e.location || '',
+            htmlLink: e.htmlLink || '',
+            booking: isTidyCalEvent(e),
+          })
+        }
+        pageToken = res.data.nextPageToken
+      } while (pageToken)
+    } catch (e) {
+      console.error(`[crm-calendar] listCalendarEvents(${name}) failed:`, e?.message || e)
+      errors.push(String(e?.message || e))
+    }
+  }
+  return { ok: errors.length === 0, events, ...(errors.length ? { errors } : {}) }
+}
+
+// The Gigs calendar alone. Kept for the old /api/calendar/gigs route; the CRM now asks for
+// /api/calendar/events, which covers Work as well.
+export async function listGigsEvents(fromISO, toISO) {
+  return listCalendarEvents([GIGS_CALENDAR], fromISO, toISO)
 }
 
 // Connection + calendar-availability status for the Settings UI.

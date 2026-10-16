@@ -274,10 +274,13 @@ export function selfResponse(e: GEvent): string | null {
 
 export function classify(e: GEvent): Kind {
   if (isCrm(e)) return "crm";
+  // Someone else organised it and Michael is on it. (Google only sends `self` when it is true.)
+  // This comes BEFORE the TidyCal check on purpose: when Michael books a call on someone else's
+  // TidyCal page (Jeff Newman's, Kelvin's), the description carries THEIR tidycal.com link, but it is
+  // their event, so it is an invite. His own bookings are written by TidyCal as him.
+  if (e.organizer && !e.organizer.self && !isMichael(e.organizer.email)) return "invite";
   if (isTidyCal(e)) return "booking";
   if (e.eventType === "fromGmail") return "gmail";
-  // Someone else organised it and Michael is on it. (Google only sends `self` when it is true.)
-  if (e.organizer && !e.organizer.self && !isMichael(e.organizer.email)) return "invite";
   // Any other booking tool writes the event the same way TidyCal does: as Michael, with the client
   // as a guest, and its own link in `source`. Google's own sources (Gmail) are not bookings.
   const host = hostOf(e.source?.url);

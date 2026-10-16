@@ -1330,18 +1330,81 @@ export type CalendarStatus = {
   workCalendar: boolean
   error?: string
 }
-// Manually-added events on the Google "Gigs" calendar (CRM-created project events excluded server-side),
-// pulled into the CRM for the Calendar page + the date-conflict flag.
-export type GigEvent = { id: string; title: string; date: string; allDay: boolean; startTime: string; location: string; htmlLink: string }
-export async function loadGigsEvents(from: string, to: string): Promise<GigEvent[]> {
+// Events on the Google "Work" and "Gigs" calendars that the CRM did NOT write (its own gigs and timed
+// tasks are excluded server-side, by event id and by the "Synced from Magic CRM" marker). Pulled in
+// for the Calendar page; the date-conflict flag uses the Gigs ones only. `booking` = a TidyCal
+// booking on Michael's own page.
+export type CalendarEvent = {
+  id: string
+  calendar: string // 'Work' | 'Gigs'
+  title: string
+  date: string // YYYY-MM-DD
+  allDay: boolean
+  startTime: string // RFC 3339 with offset, '' when all-day
+  location: string
+  htmlLink: string
+  booking: boolean
+}
+export async function loadCalendarEvents(from: string, to: string): Promise<CalendarEvent[]> {
   try {
-    const res = await fetch(`/api/calendar/gigs?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+    const res = await fetch(`/api/calendar/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
     if (!res.ok) return []
     const d = await res.json()
-    return Array.isArray(d?.events) ? (d.events as GigEvent[]) : []
+    return Array.isArray(d?.events) ? (d.events as CalendarEvent[]) : []
   } catch {
     return []
   }
+}
+
+// --- Calendar alerts ----------------------------------------------------------
+// Phone alerts about the Google Calendar, sent by the cloud (edge function `calendar-alerts`, every
+// minute, laptop shut or not). These are the settings it reads and the status it reports back.
+export const ALERT_KINDS = [
+  { id: 'booking', label: 'TidyCal bookings' },
+  { id: 'invite', label: 'Invites from other people' },
+  { id: 'own', label: 'Events you add yourself' },
+] as const
+export type CalendarAlertSettings = {
+  newEventEnabled: boolean
+  newEventKinds: string[]
+  digestEnabled: boolean
+  digestTime: string // "HH:MM", 24-hour, Eastern
+  digestDays: number[] // ISO days, 1 = Monday ... 7 = Sunday
+  digestCalendars: string[]
+  soonEnabled: boolean
+  soonMinutes: number
+  soonSkipFree: boolean
+}
+export type CalendarAlertStatus = {
+  lastRunAt: string
+  lastOkAt: string
+  lastError: string
+  lastErrorAt: string
+  failCount: number
+  lastDigestOn: string // YYYY-MM-DD, Eastern
+  lastDigestAt: string
+  lastAlertAt: string
+  lastAlertText: string
+  seededAt: string
+  calendars: string[] // every calendar name the cloud found in the Google account
+}
+export type CalendarAlertsData = { settings: CalendarAlertSettings; status: CalendarAlertStatus }
+
+export async function loadCalendarAlerts(): Promise<CalendarAlertsData> {
+  const res = await fetch('/api/calendar-alerts')
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `Could not load calendar alerts (${res.status})`)
+  return data as CalendarAlertsData
+}
+export async function saveCalendarAlerts(patch: Partial<CalendarAlertSettings>): Promise<CalendarAlertsData> {
+  const res = await fetch('/api/calendar-alerts/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ patch }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `Could not save (${res.status})`)
+  return data as CalendarAlertsData
 }
 
 export async function loadCalendarStatus(): Promise<CalendarStatus> {

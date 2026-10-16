@@ -80,8 +80,8 @@ import {
   loadPayments,
   loadContacts,
   loadLinks,
-  loadGigsEvents,
-  type GigEvent,
+  loadCalendarEvents,
+  type CalendarEvent,
   linkContact as apiLinkContact,
   unlinkContact as apiUnlinkContact,
   addContact as apiAddContact,
@@ -170,8 +170,9 @@ function App() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [links, setLinks] = useState<ProjectLinks>({})
-  // Manually-added Google "Gigs" calendar events, pulled in for the Calendar page + conflict detection.
-  const [gigEvents, setGigEvents] = useState<GigEvent[]>([])
+  // Google "Work" and "Gigs" events the CRM did not write, for the Calendar page. The date-conflict
+  // check uses the Gigs ones only (a meeting on a gig day is not a double-booking).
+  const [calEvents, setCalEvents] = useState<CalendarEvent[]>([])
   const [pendingContactId, setPendingContactId] = useState<string | null>(null)
   const [contactPane, setContactPane] = useState<Contact | null>(null) // a contact open in the side pane
   const [contactPickerProject, setContactPickerProject] = useState<Project | null>(null)
@@ -454,8 +455,8 @@ function App() {
       g.crm.push({ id: p.id, name: p.client, active: p.bucket === 'active' })
       byDate.set(p.eventDate, g)
     }
-    for (const e of gigEvents) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date)) continue
+    for (const e of calEvents) {
+      if (e.calendar !== 'Gigs' || !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) continue
       const g = byDate.get(e.date) ?? { crm: [], gigs: [] }
       g.gigs.push(e.title)
       byDate.set(e.date, g)
@@ -473,7 +474,7 @@ function App() {
       }
     }
     return info
-  }, [allProjects, gigEvents])
+  }, [allProjects, calEvents])
   const dateConflictIds = useMemo(() => new Set(dateConflictInfo.keys()), [dateConflictInfo])
   const hasReceivedPayment = (projectId: string) =>
     payments.some((p) => p.projectId === projectId && isReceivedPayment(p))
@@ -543,13 +544,13 @@ function App() {
   // The reload also re-syncs any open pane from the canonical record (so a moved
   // or edited project shows the server's fields, e.g. the new activity-log line).
   // Universal refresh: re-pull every data set the app reads on load, without a full reload.
-  // Pull the manually-added Google "Gigs" events over a wide window (last year through +2 years) so
-  // they show on the Calendar and feed the date-conflict check. Best-effort; empty if not connected.
+  // Pull the Google Work + Gigs events over a wide window (last year through +2 years) so they show on
+  // the Calendar and feed the date-conflict check. Best-effort; empty if not connected.
   const loadGigs = () => {
     const y = new Date().getFullYear()
     const from = `${y - 1}-01-01`
     const to = `${y + 2}-12-31`
-    loadGigsEvents(from, to).then(setGigEvents).catch(() => {})
+    loadCalendarEvents(from, to).then(setCalEvents).catch(() => {})
   }
 
   // Bumped on every Refresh press. ProjectView watches it so the Conversations box and the project's
@@ -1316,7 +1317,9 @@ function App() {
                 <CalendarPage
                   projects={liveProjects}
                   tasks={liveTasks}
-                  gigEvents={gigEvents}
+                  calendarEvents={calEvents}
+                  bookedIds={bookedIds}
+                  postshowIds={postshowIds}
                   onOpenProject={openFull}
                   onOpenProjectById={openProjectById}
                 />
