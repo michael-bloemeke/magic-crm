@@ -84,13 +84,13 @@ const BOOKED: Moment[] = [
   {
     when: 'Day 0, minutes later',
     action: { title: 'They book a slot', by: 'Them', detail: 'Only the next three days are offered.' },
-    email: { title: 'Booking confirmation', by: 'Automatic', seenAs: 'Calendar', detail: 'This is the calendar invite itself. Put the "what happens next" copy and the promo video link in the INVITE DESCRIPTION, since there is no personal email here.' },
+    email: { title: 'Booking confirmation', by: 'Automatic', seenAs: 'Calendar', detail: 'This is the calendar invite itself, set up in TidyCal (2026-10-15): who it is with, the date and time, the number you call, the promo video link, and a reschedule link. Written about you, not from you.' },
   },
-  { when: '24 hours before', email: { title: 'Call reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'Carries the promo video. TidyCal default, no setup needed.' } },
-  { when: '1 hour before', email: { title: 'Call reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'Carries the reviews. TidyCal default.' } },
+  { when: '24 hours before', email: { title: 'Call reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'TidyCal sends ONE message for both reminders: the date and time, the number you call, the promo video, and the reviews.' } },
+  { when: '1 hour before', email: { title: 'Call reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'The same message as the day before.' } },
   {
     when: 'The call',
-    action: { title: 'Sales call', by: 'You', detail: 'Book the follow-up before you hang up, on your own hidden decision-call page. Get the name of the person they run it by.' },
+    action: { title: 'Sales call', by: 'You', detail: 'Book the follow-up before you hang up, on your hidden Follow-Up Call page in TidyCal (Booking types, then the open-in-new-tab icon), with their name and email. Get the name of the person they run it by.' },
   },
   {
     when: 'Within the hour',
@@ -100,8 +100,8 @@ const BOOKED: Moment[] = [
     when: '48 hours before the follow-up',
     email: { title: 'The testimonial bump', by: 'You', detail: 'One review that matches their event. Name the person they run it by, and restate the follow-up time at the close.' },
   },
-  { when: '24 hours before', email: { title: 'Follow-up reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'Same flavour, with the call named differently. Call it the decision call.' } },
-  { when: '1 hour before', email: { title: 'Follow-up reminder', by: 'Automatic', seenAs: 'Calendar' } },
+  { when: '24 hours before', email: { title: 'Follow-up reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'Same flavour, for the Follow-Up Call: the date and time, a reply-with-questions line, and the reviews.' } },
+  { when: '1 hour before', email: { title: 'Follow-up reminder', by: 'Automatic', seenAs: 'Calendar', detail: 'The same message as the day before.' } },
   {
     when: 'The follow-up',
     action: { title: 'Follow-up call', by: 'You', detail: 'If they already said yes, keep it and run it as onboarding.' },
