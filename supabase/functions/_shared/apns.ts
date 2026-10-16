@@ -1,4 +1,4 @@
-// APNs (Apple Push Notification service) sender, shared by notify-cron and inquiry.
+// APNs (Apple Push Notification service) sender. Every CRM push reaches it through push.ts.
 //
 // WHY THIS EXISTS. The phone app became a native iOS app on 2026-09-20 because iOS Web Push was too
 // unreliable to run the business on: it only works from a Home Screen install, dies silently if the

@@ -11,18 +11,15 @@
 // project, emails Michael and fires its own push itself, server-side, the instant the form is
 // submitted. Task alarms are the only thing this function does now.
 //
-// It mirrors crm-webpush.mjs (Node `web-push`) using @negrel/webpush (Deno-native, RFC 8291
-// aes128gcm), reads every row of push_subscriptions with the service key, and prunes dead endpoints
-// on a 404/410. All config (VAPID keys, app URL, cron secret) lives in the service-role-only
-// `push_config` table so no edge-function secrets are needed.
+// Delivery to the phone (APNs for the native app, Web Push for the PWA, pruning dead devices) and the
+// app-icon count live in _shared/push.ts, shared with every other function that pushes. Config
+// (VAPID keys, app URL, cron secret) lives in the service-role-only `push_config` table; the APNs key
+// is a function secret (see _shared/apns.ts).
 //
 // Deno / TypeScript. Deployed via the Supabase connector; do NOT expect Node APIs here.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import * as webpush from "jsr:@negrel/webpush@0.5.0";
-// Native iOS delivery. See _shared/apns.ts: device tokens live in the SAME
-// push_subscriptions table under an apns:// endpoint, so both routes stay live at once.
-import { sendApns, apnsConfigured } from "../_shared/apns.ts";
+import { makePusher, badgeCount } from "../_shared/push.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,19 +32,6 @@ interface PushConfig {
   cron_secret: string;
 }
 
-interface WebPushSub {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-}
-
-interface PushPayload {
-  title: string;
-  body: string;
-  url: string;
-  tag?: string;
-  count?: number;
-}
-
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
@@ -57,45 +41,6 @@ function projectDisplayName(p: { project_name?: string | null; client_name?: str
   const pn = (p?.project_name ?? "").toString().trim();
   const cn = (p?.client_name ?? "").toString().trim();
   return pn || cn || "a client";
-}
-
-// base64url of a Uint8Array (JWK field encoding, no padding).
-function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-// base64url string -> Uint8Array (accepts standard or url-safe alphabet, with/without padding).
-function fromB64url(s: string): Uint8Array {
-  const norm = s.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = norm + "=".repeat((4 - (norm.length % 4)) % 4);
-  const bin = atob(padded);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-// Convert the raw base64url VAPID keys (the standard web-push format, also what push-vapid.json holds)
-// into the JWK pair @negrel/webpush's importVapidKeys() expects.
-//   publicKey base64url  = uncompressed EC point  0x04 || X(32) || Y(32)
-//   privateKey base64url = the 32-byte private scalar d
-// So the JWK is { kty:'EC', crv:'P-256', x, y (, d) }, all base64url. This is the well-known
-// raw<->JWK P-256 conversion; the same x/y must appear in both the public and private JWK.
-function vapidKeysToJwk(
-  publicKeyB64url: string,
-  privateKeyB64url: string,
-): { publicKey: JsonWebKey; privateKey: JsonWebKey } {
-  const pub = fromB64url(publicKeyB64url);
-  if (pub.length !== 65 || pub[0] !== 0x04) {
-    throw new Error(`unexpected VAPID public key length ${pub.length} (want 65-byte uncompressed point)`);
-  }
-  const x = b64url(pub.slice(1, 33));
-  const y = b64url(pub.slice(33, 65));
-  const d = b64url(fromB64url(privateKeyB64url));
-  const publicKey: JsonWebKey = { kty: "EC", crv: "P-256", x, y, ext: true };
-  const privateKey: JsonWebKey = { kty: "EC", crv: "P-256", x, y, d, ext: true };
-  return { publicKey, privateKey };
 }
 
 // ---------------------------------------------------------------------------
@@ -157,57 +102,6 @@ function taskAlarmUtcMs(dueDate: string, dueTime: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
-// Web push (aes128gcm, VAPID) via @negrel/webpush
-// ---------------------------------------------------------------------------
-
-// Send one payload to every push_subscriptions row; prune endpoints the push service says are gone
-// (404/410). Never throws on a single bad send. Returns how many were pushed / pruned.
-async function pushAll(
-  appServer: webpush.ApplicationServer,
-  subs: WebPushSub[],
-  payload: PushPayload,
-  prune: (endpoints: string[]) => Promise<void>,
-  apnsTokens: string[] = [],
-): Promise<{ pushed: number; pruned: number }> {
-  // (WARNING) TWO ROUTES, ONE CALL. Every caller below sends one payload and must reach every
-  // device Michael owns, whether it registered through the PWA (Web Push) or the native iOS app
-  // (APNs). Fanning out here rather than at each call site is what stops a notification type
-  // added later from silently supporting only one of them.
-  let apnsPushed = 0;
-  const apnsDead: string[] = [];
-  if (apnsTokens.length && apnsConfigured()) {
-    const r = await sendApns(apnsTokens, { title: payload.title, body: payload.body, badge: payload.count, url: payload.url });
-    apnsPushed = r.pushed;
-    apnsDead.push(...r.dead);
-  }
-  if (apnsDead.length) {
-    try { await prune(apnsDead); } catch { /* best-effort prune */ }
-  }
-
-  if (!subs.length) return { pushed: apnsPushed, pruned: apnsDead.length };
-  const body = JSON.stringify(payload);
-  const dead: string[] = [];
-  let pushed = 0;
-  await Promise.all(
-    subs.map(async (s) => {
-      try {
-        // High urgency so alerts break through on the lock screen (matches the phone's intent).
-        await appServer.subscribe(s).pushTextMessage(body, { urgency: webpush.Urgency.High });
-        pushed++;
-      } catch (e) {
-        const status = (e as { response?: Response })?.response?.status;
-        if (status === 404 || status === 410) dead.push(s.endpoint);
-        // Any other failure (timeout, 5xx, etc.) is swallowed: one bad send never fails the run.
-      }
-    }),
-  );
-  if (dead.length) {
-    try { await prune(dead); } catch { /* best-effort prune */ }
-  }
-  return { pushed: pushed + apnsPushed, pruned: dead.length + apnsDead.length };
-}
-
-// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 Deno.serve(async (req: Request): Promise<Response> => {
@@ -247,74 +141,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  // Build the VAPID application server once for this run.
-  let appServer: webpush.ApplicationServer;
-  try {
-    const jwk = vapidKeysToJwk(cfg.vapid_public, cfg.vapid_private);
-    const vapidKeys = await webpush.importVapidKeys(jwk, { extractable: false });
-    appServer = await webpush.ApplicationServer.new({
-      contactInformation: cfg.vapid_subject || "mailto:mchlbloemeke@gmail.com",
-      vapidKeys,
-    });
-  } catch (e) {
-    return json({ error: "vapid setup failed", detail: String((e as Error)?.message ?? e) }, 500);
-  }
-
-  // Read every subscription row (service key bypasses RLS), same as crm-webpush.mjs readSubs().
-  async function readSubs(): Promise<WebPushSub[]> {
-    const { data, error } = await sb.from("push_subscriptions").select("endpoint,subscription");
-    if (error || !Array.isArray(data)) return [];
-    return data
-      .map((r: { subscription?: unknown }) => (r && r.subscription ? (r.subscription as WebPushSub) : null))
-      .filter((s): s is WebPushSub => !!s && !!s.endpoint && !!s.keys?.p256dh && !!s.keys?.auth);
-  }
-  // The native half of the same table. readSubs() above filters these out on its own (they carry no
-  // p256dh/auth keys), so the two lists never overlap.
-  async function readApnsTokens(): Promise<string[]> {
-    const { data, error } = await sb.from("push_subscriptions").select("endpoint");
-    if (error || !Array.isArray(data)) return [];
-    return data
-      .map((r: { endpoint?: string }) => String(r?.endpoint ?? ""))
-      .filter((e) => e.startsWith("apns://"))
-      .map((e) => e.slice("apns://".length));
-  }
-  async function pruneSubs(endpoints: string[]): Promise<void> {
-    if (!endpoints.length) return;
-    await sb.from("push_subscriptions").delete().in("endpoint", endpoints);
-  }
-
-  const subs = await readSubs();
-  const apnsTokens = await readApnsTokens();
-
-  // Current unseen count is part of the phone's app-icon badge; compute once and reuse. (task-due +
-  // new-inquiry live in the same notifications table the bell reads.)
-  // The number on the app icon = TASKS DUE + BELL NOTIFICATIONS, matching what both apps show.
-  //
-  // The bell deliberately excludes task-due: a due task is counted once, on the Tasks badge. It used
-  // to be counted in both places, so a single overdue task read as two things needing attention.
-  async function badgeCount(): Promise<number> {
-    const { count: notifs } = await sb
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("seen", false)
-      .neq("kind", "task-due");
-
-    // Tasks due today or earlier, still open. Date-only compare, in Michael's timezone.
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/New_York",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-    const { count: dueTasks } = await sb
-      .from("tasks")
-      .select("id", { count: "exact", head: true })
-      .eq("done", false)
-      .neq("due_date", "")
-      .lte("due_date", today);
-
-    return (notifs ?? 0) + (dueTasks ?? 0);
-  }
+  // One pusher for the run. It reads push_subscriptions on the first alert, so a minute with nothing
+  // due never touches it, and a VAPID problem costs only the Web Push half, never the iPhone.
+  const pusher = makePusher(sb, cfg);
 
   let tasksFired = 0;
   let pushed = 0;
@@ -375,20 +204,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         // Push (best-effort). Body matches crm-push.mjs task-due: "<task title> — <who>", but using a
         // hyphen (no em-dash, per Michael's rule) as "<title> - <who>".
-        const count = (await badgeCount());
-        const r = await pushAll(
-          appServer,
-          subs,
-          {
-            title: "Task due",
-            body: who ? `${title} - ${who}` : title,
-            url: cfg.app_url,
-            tag: "task-due",
-            count,
-          },
-          pruneSubs,
-          apnsTokens,
-        );
+        const r = await pusher.send({
+          title: "Task due",
+          body: who ? `${title} - ${who}` : title,
+          tag: "task-due",
+          count: await badgeCount(sb),
+        });
         pushed += r.pushed;
         pruned += r.pruned;
 

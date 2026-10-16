@@ -45,7 +45,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import * as L from "./logic.ts";
 import { accessToken, getEvent, GoogleError, listCalendars, listEvents, type OAuthCfg } from "./google.ts";
-import { makePusher } from "./push.ts";
+import { makePusher } from "../_shared/push.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -146,7 +146,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const s: Sent = { type, title: t.title, body: t.body };
     sent.push(s);
     if (dry) return;
-    const r = await pusher.send(t.title, t.body, `cal-${type}-${key}`.slice(0, 80));
+    // No count: a calendar alert is not a task or a bell item, so it must not move the app icon.
+    const r = await pusher.send({ title: t.title, body: t.body, tag: `cal-${type}-${key}`.slice(0, 80) });
     s.pushed = r.pushed;
     last.alert = s;
   }

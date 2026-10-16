@@ -40,8 +40,7 @@
 // AUTH: the `x-cron-secret` header must match push_config.cron_secret, like notify-cron.
 // GMAIL: the same `email_config` OAuth client + refresh token the `gmail` function uses.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import * as webpush from "jsr:@negrel/webpush@0.5.0";
-import { sendApns, apnsConfigured } from "../_shared/apns.ts";
+import { makePusher, badgeCount } from "../_shared/push.ts";
 import { parseBark, type BarkLead } from "./bark.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -264,61 +263,15 @@ async function activeMatch(sb: any, b: BarkLead): Promise<string | null> {
   return null;
 }
 
-// ---- Phone push + bell notification, mirroring the inquiry function. Best-effort. ----
-function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function fromB64url(s: string): Uint8Array {
-  const norm = s.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(norm + "=".repeat((4 - (norm.length % 4)) % 4));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function vapidKeysToJwk(pubB64: string, privB64: string) {
-  const pub = fromB64url(pubB64);
-  const x = b64url(pub.slice(1, 33)), y = b64url(pub.slice(33, 65)), d = b64url(fromB64url(privB64));
-  return { publicKey: { kty: "EC", crv: "P-256", x, y, ext: true }, privateKey: { kty: "EC", crv: "P-256", x, y, d, ext: true } };
-}
-interface WebPushSub { endpoint: string; keys: { p256dh: string; auth: string } }
-
+// ---- Phone push + bell notification, the same way a website inquiry does. Best-effort. ----
 // deno-lint-ignore no-explicit-any
 async function pushAndNotify(sb: any, title: string, body: string, projectId: string, sourceId: string): Promise<number> {
   let pushed = 0;
   try {
     const { data: cfg } = await sb.from("push_config").select("vapid_public,vapid_private,vapid_subject,app_url").eq("id", 1).single();
-    const { data: subRows } = await sb.from("push_subscriptions").select("endpoint,subscription");
-    const subs: WebPushSub[] = (subRows ?? [])
-      .map((r: { subscription?: unknown }) => (r?.subscription ? (r.subscription as WebPushSub) : null))
-      .filter((s: WebPushSub | null): s is WebPushSub => !!s && !!s.endpoint && !!s.keys?.p256dh && !!s.keys?.auth);
-    const apnsTokens: string[] = (subRows ?? [])
-      .map((r: { endpoint?: string }) => String(r?.endpoint ?? ""))
-      .filter((e: string) => e.startsWith("apns://"))
-      .map((e: string) => e.slice("apns://".length));
-    const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("seen", false);
-    const badge = (count ?? 0) + 1;
-
-    if (cfg?.vapid_public && cfg?.vapid_private && subs.length) {
-      const vapidKeys = await webpush.importVapidKeys(vapidKeysToJwk(cfg.vapid_public, cfg.vapid_private), { extractable: false });
-      const appServer = await webpush.ApplicationServer.new({ contactInformation: cfg.vapid_subject || "mailto:mchlbloemeke@gmail.com", vapidKeys });
-      const payload = JSON.stringify({ title, body, url: cfg.app_url, tag: "new-inquiry", count: badge });
-      const dead: string[] = [];
-      await Promise.all(subs.map(async (s) => {
-        try { await appServer.subscribe(s).pushTextMessage(payload, { urgency: webpush.Urgency.High }); pushed++; }
-        catch (e) {
-          const status = (e as { response?: Response })?.response?.status;
-          if (status === 404 || status === 410) dead.push(s.endpoint);
-        }
-      }));
-      if (dead.length) { try { await sb.from("push_subscriptions").delete().in("endpoint", dead); } catch { /* best-effort */ } }
-    }
-    if (apnsTokens.length && apnsConfigured()) {
-      const r = await sendApns(apnsTokens, { title, body, badge, url: cfg?.app_url });
-      pushed += r.pushed;
-      if (r.dead.length) { try { await sb.from("push_subscriptions").delete().in("endpoint", r.dead); } catch { /* best-effort */ } }
-    }
+    // The app-icon number the phone itself shows (bell + tasks due), plus the bell row written below.
+    const r = await makePusher(sb, cfg).send({ title, body, tag: "new-inquiry", count: (await badgeCount(sb)) + 1 });
+    pushed = r.pushed;
     await sb.from("notifications").insert({
       id: "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       project_id: projectId,

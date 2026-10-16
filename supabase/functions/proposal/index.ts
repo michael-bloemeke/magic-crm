@@ -25,9 +25,8 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import * as webpush from "jsr:@negrel/webpush@0.5.0";
-// Native iOS delivery, beside Web Push. See _shared/apns.ts.
-import { sendApns, apnsConfigured, splitSubscriptions } from "../_shared/apns.ts";
+// Phone pushes: APNs for the native iOS app plus Web Push, shared by every CRM function.
+import { makePusher, badgeCount } from "../_shared/push.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -322,133 +321,10 @@ function newNotificationId(): string {
   return "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-// The phone push below is notify-cron's path, mirrored (two runtimes, no shared push module yet):
-// pushAll, its subscription read and prune, its VAPID key conversion and its badge count. If a
-// _shared/push.ts lands, switch this to it. Until then, a fix to pushAll in notify-cron belongs here too.
+// The push goes out through _shared/push.ts, the same path as every other CRM alert. (Until
+// 2026-10-16 this function had its own copy, which read push_subscriptions columns that do not exist
+// and never reached the iPhone.)
 //
-// Until 2026-10-16 this read s.auth and s.p256dh, columns push_subscriptions does not have (the keys
-// live inside `subscription`), had no APNs branch although the only device is the native iOS app, and
-// pruned on a regex over error text. The bell row was written; the phone never heard.
-
-interface WebPushSub {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-}
-
-interface PushPayload {
-  title: string;
-  body: string;
-  url: string;
-  tag?: string;
-  count?: number;
-}
-
-// base64url of a Uint8Array (JWK field encoding, no padding).
-function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-// base64url string -> Uint8Array (accepts standard or url-safe alphabet, with/without padding).
-function fromB64url(s: string): Uint8Array {
-  const norm = s.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = norm + "=".repeat((4 - (norm.length % 4)) % 4);
-  const bin = atob(padded);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-// Raw base64url VAPID keys -> the JWK pair @negrel/webpush's importVapidKeys() expects (same as
-// notify-cron: public key = 0x04 || X(32) || Y(32), private key = the 32-byte scalar d).
-function vapidKeysToJwk(
-  publicKeyB64url: string,
-  privateKeyB64url: string,
-): { publicKey: JsonWebKey; privateKey: JsonWebKey } {
-  const pub = fromB64url(publicKeyB64url);
-  if (pub.length !== 65 || pub[0] !== 0x04) {
-    throw new Error(`unexpected VAPID public key length ${pub.length} (want 65-byte uncompressed point)`);
-  }
-  const x = b64url(pub.slice(1, 33));
-  const y = b64url(pub.slice(33, 65));
-  const d = b64url(fromB64url(privateKeyB64url));
-  const publicKey: JsonWebKey = { kty: "EC", crv: "P-256", x, y, ext: true };
-  const privateKey: JsonWebKey = { kty: "EC", crv: "P-256", x, y, d, ext: true };
-  return { publicKey, privateKey };
-}
-
-// notify-cron's pushAll: one payload to every device, APNs for the native app and Web Push for the
-// PWA, pruning what Apple or the push service says is gone (APNs dead tokens, Web Push 404/410).
-// Never throws on a single bad send. The one difference: appServer may be null, because VAPID is only
-// needed for Web Push and a problem with it must never cost the APNs send.
-async function pushAll(
-  appServer: webpush.ApplicationServer | null,
-  subs: WebPushSub[],
-  payload: PushPayload,
-  prune: (endpoints: string[]) => Promise<void>,
-  apnsTokens: string[] = [],
-): Promise<{ pushed: number; pruned: number }> {
-  let apnsPushed = 0;
-  const apnsDead: string[] = [];
-  if (apnsTokens.length && apnsConfigured()) {
-    const r = await sendApns(apnsTokens, { title: payload.title, body: payload.body, badge: payload.count, url: payload.url });
-    apnsPushed = r.pushed;
-    apnsDead.push(...r.dead);
-  }
-  if (apnsDead.length) {
-    try { await prune(apnsDead); } catch { /* best-effort prune */ }
-  }
-
-  if (!appServer || !subs.length) return { pushed: apnsPushed, pruned: apnsDead.length };
-  const body = JSON.stringify(payload);
-  const dead: string[] = [];
-  let pushed = 0;
-  await Promise.all(
-    subs.map(async (s) => {
-      try {
-        // High urgency so alerts break through on the lock screen (matches the phone's intent).
-        await appServer.subscribe(s).pushTextMessage(body, { urgency: webpush.Urgency.High });
-        pushed++;
-      } catch (e) {
-        const status = (e as { response?: Response })?.response?.status;
-        if (status === 404 || status === 410) dead.push(s.endpoint);
-        // Any other failure (timeout, 5xx, etc.) is swallowed: one bad send never fails the run.
-      }
-    }),
-  );
-  if (dead.length) {
-    try { await prune(dead); } catch { /* best-effort prune */ }
-  }
-  return { pushed: pushed + apnsPushed, pruned: dead.length + apnsDead.length };
-}
-
-// The number on the app icon = TASKS DUE + BELL NOTIFICATIONS, exactly as notify-cron counts it. The
-// bell excludes task-due: a due task is counted once, on the Tasks badge.
-async function badgeCount(sb: ReturnType<typeof db>): Promise<number> {
-  const { count: notifs } = await sb
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("seen", false)
-    .neq("kind", "task-due");
-
-  // Tasks due today or earlier, still open. Date-only compare, in Michael's timezone.
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  const { count: dueTasks } = await sb
-    .from("tasks")
-    .select("id", { count: "exact", head: true })
-    .eq("done", false)
-    .neq("due_date", "")
-    .lte("due_date", today);
-
-  return (notifs ?? 0) + (dueTasks ?? 0);
-}
-
 // Best-effort, and deliberately so: a push that fails must never stop a client seeing their proposal.
 async function announceFirstView(sb: ReturnType<typeof db>, projectId: string, client: string) {
   try {
@@ -470,44 +346,12 @@ async function announceFirstView(sb: ReturnType<typeof db>, projectId: string, c
       .select("vapid_public,vapid_private,vapid_subject,app_url")
       .eq("id", 1)
       .maybeSingle();
-
-    // Every push_subscriptions row (service key bypasses RLS), split into the two routes. Web Push
-    // rows need their keys, which live inside `subscription`; APNs rows are apns://<token> endpoints.
-    const { data: rows } = await sb.from("push_subscriptions").select("endpoint,subscription");
-    const { apnsTokens, web } = splitSubscriptions((rows ?? []) as Array<{ endpoint: string; subscription?: unknown }>);
-    const subs = web
-      .map((r) => (r.subscription ? (r.subscription as WebPushSub) : null))
-      .filter((s): s is WebPushSub => !!s && !!s.endpoint && !!s.keys?.p256dh && !!s.keys?.auth);
-    if (!subs.length && !apnsTokens.length) return;
-
-    let appServer: webpush.ApplicationServer | null = null;
-    if (subs.length && cfg?.vapid_public && cfg?.vapid_private) {
-      try {
-        const vapidKeys = await webpush.importVapidKeys(vapidKeysToJwk(cfg.vapid_public, cfg.vapid_private), { extractable: false });
-        appServer = await webpush.ApplicationServer.new({
-          contactInformation: cfg.vapid_subject || "mailto:mchlbloemeke@gmail.com",
-          vapidKeys,
-        });
-      } catch (e) {
-        console.warn("[proposal] vapid setup failed:", e instanceof Error ? e.message : String(e));
-      }
-    }
-
-    const r = await pushAll(
-      appServer,
-      subs,
-      {
-        title: "Proposal opened",
-        body: client ? `${client} just opened their proposal.` : "A client just opened their proposal.",
-        url: cfg?.app_url ?? "",
-        tag: "proposal-viewed",
-        count: await badgeCount(sb),
-      },
-      async (endpoints) => {
-        if (endpoints.length) await sb.from("push_subscriptions").delete().in("endpoint", endpoints);
-      },
-      apnsTokens,
-    );
+    const r = await makePusher(sb, cfg).send({
+      title: "Proposal opened",
+      body: client ? `${client} just opened their proposal.` : "A client just opened their proposal.",
+      tag: "proposal-viewed",
+      count: await badgeCount(sb),
+    });
     console.log(`[proposal] first-view push for ${projectId}: pushed ${r.pushed}, pruned ${r.pruned}`);
   } catch (e) {
     console.warn("[proposal] push failed:", e instanceof Error ? e.message : String(e));

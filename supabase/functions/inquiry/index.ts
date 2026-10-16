@@ -6,9 +6,8 @@
 //      the CRM's own createProject() so the CRM reads it natively.
 //   2. Emails Michael a copy of the submission through Gmail (reusing the CRM's existing Gmail OAuth
 //      refresh token, stored here as secrets).
-//   3. Fires a high-urgency lock-screen push to the phone app and records a `new-inquiry` bell
-//      notification, mirroring notify-cron (VAPID web push via @negrel/webpush, config from the
-//      service-role-only push_config table, subscriptions from push_subscriptions).
+//   3. Fires a high-urgency lock-screen push to the phone (through _shared/push.ts, like every CRM
+//      alert) and records a `new-inquiry` bell notification.
 // It also stores the raw submission in the `inquiries` table for the project page's record.
 //
 // Steps 2 and 3 are best-effort: a mail/push failure never blocks the project from being created.
@@ -17,9 +16,8 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import * as webpush from "jsr:@negrel/webpush@0.5.0";
-// Native iOS delivery, beside Web Push. See _shared/apns.ts.
-import { sendApns, apnsConfigured } from "../_shared/apns.ts";
+// Phone pushes: APNs for the native iOS app plus Web Push, shared by every CRM function.
+import { makePusher, badgeCount } from "../_shared/push.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -168,37 +166,10 @@ function formSummary(inq: Record<string, string>, showTypes: string): string {
   return lines.join("\n");
 }
 
-// ---- VAPID key conversion helpers (copied from notify-cron; raw base64url <-> P-256 JWK) ----
-function b64url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function fromB64url(s: string): Uint8Array {
-  const norm = s.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = norm + "=".repeat((4 - (norm.length % 4)) % 4);
-  const bin = atob(padded);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-function vapidKeysToJwk(publicKeyB64url: string, privateKeyB64url: string): { publicKey: JsonWebKey; privateKey: JsonWebKey } {
-  const pub = fromB64url(publicKeyB64url);
-  if (pub.length !== 65 || pub[0] !== 0x04) {
-    throw new Error(`unexpected VAPID public key length ${pub.length}`);
-  }
-  const x = b64url(pub.slice(1, 33));
-  const y = b64url(pub.slice(33, 65));
-  const d = b64url(fromB64url(privateKeyB64url));
-  return {
-    publicKey: { kty: "EC", crv: "P-256", x, y, ext: true },
-    privateKey: { kty: "EC", crv: "P-256", x, y, d, ext: true },
-  };
-}
-
-interface WebPushSub { endpoint: string; keys: { p256dh: string; auth: string } }
-
-// ---- Push the phone + record the bell notification (best-effort). Mirrors notify-cron. ----
+// ---- Push the phone + record the bell notification (best-effort). ----
+// A new inquiry is the single most time-critical alert Michael gets. _shared/push.ts sends it to every
+// device he owns (APNs for the iPhone app, Web Push for the PWA), and the iPhone never waits on Web
+// Push being configured.
 // deno-lint-ignore no-explicit-any
 async function pushAndNotify(sb: any, lead: string, projectId: string | null, inquiryId: string): Promise<number> {
   let pushed = 0;
@@ -209,64 +180,14 @@ async function pushAndNotify(sb: any, lead: string, projectId: string | null, in
       .eq("id", 1)
       .single();
 
-    const { data: subRows } = await sb.from("push_subscriptions").select("endpoint,subscription");
-    const subs: WebPushSub[] = (subRows ?? [])
-      .map((r: { subscription?: unknown }) => (r && r.subscription ? (r.subscription as WebPushSub) : null))
-      .filter((s: WebPushSub | null): s is WebPushSub => !!s && !!s.endpoint && !!s.keys?.p256dh && !!s.keys?.auth);
-    // (WARNING) The native half of the SAME table. A new inquiry is the single most time-critical
-    // alert Michael gets, so it has to reach the iPhone whichever way that phone is registered.
-    // The filter above drops these rows on its own (an APNs row carries no p256dh/auth keys), so
-    // the two lists never overlap and nothing is sent twice.
-    const apnsTokens: string[] = (subRows ?? [])
-      .map((r: { endpoint?: string }) => String(r?.endpoint ?? ""))
-      .filter((e: string) => e.startsWith("apns://"))
-      .map((e: string) => e.slice("apns://".length));
-
-    const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("seen", false);
-    const badge = (count ?? 0) + 1;
-
-    if (cfg?.vapid_public && cfg?.vapid_private && subs.length) {
-      const vapidKeys = await webpush.importVapidKeys(vapidKeysToJwk(cfg.vapid_public, cfg.vapid_private), { extractable: false });
-      const appServer = await webpush.ApplicationServer.new({
-        contactInformation: cfg.vapid_subject || "mailto:mchlbloemeke@gmail.com",
-        vapidKeys,
-      });
-      const payload = JSON.stringify({
-        title: "New inquiry!",
-        body: lead ? `New website inquiry from ${lead}.` : "A new inquiry just came in through the website.",
-        url: cfg.app_url,
-        tag: "new-inquiry",
-        count: badge,
-      });
-      const dead: string[] = [];
-      await Promise.all(subs.map(async (s) => {
-        try {
-          await appServer.subscribe(s).pushTextMessage(payload, { urgency: webpush.Urgency.High });
-          pushed++;
-        } catch (e) {
-          const status = (e as { response?: Response })?.response?.status;
-          if (status === 404 || status === 410) dead.push(s.endpoint);
-        }
-      }));
-      if (dead.length) {
-        try { await sb.from("push_subscriptions").delete().in("endpoint", dead); } catch { /* best-effort */ }
-      }
-    }
-
-    // The native route. Deliberately OUTSIDE the VAPID guard above: web push being unconfigured or
-    // having no subscribers must never stop the iPhone being told a lead came in.
-    if (apnsTokens.length && apnsConfigured()) {
-      const r = await sendApns(apnsTokens, {
-        title: "New inquiry!",
-        body: lead ? `New website inquiry from ${lead}.` : "A new inquiry just came in through the website.",
-        badge,
-        url: cfg?.app_url,
-      });
-      pushed += r.pushed;
-      if (r.dead.length) {
-        try { await sb.from("push_subscriptions").delete().in("endpoint", r.dead); } catch { /* best-effort */ }
-      }
-    }
+    // The app-icon number the phone itself shows (bell + tasks due), plus the bell row written below.
+    const r = await makePusher(sb, cfg).send({
+      title: "New inquiry!",
+      body: lead ? `New website inquiry from ${lead}.` : "A new inquiry just came in through the website.",
+      tag: "new-inquiry",
+      count: (await badgeCount(sb)) + 1,
+    });
+    pushed = r.pushed;
 
     // Record the bell notification (also powers the unseen badge + dedups against notify-cron).
     try {
