@@ -329,6 +329,11 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
 // ⚠️ ONE PER ADDRESS PER DAY. The form is public, so without this anyone could make Michael's Gmail mail
 // a stranger again and again by resubmitting with their address. His own addresses are exempt so his
 // test submissions always get one.
+// ⚠️ PAUSED 2026-10-17. Michael took the booking calendar off the website while he travels (LA, then
+// China to November 9), so this email ("grab a time here") must not go out. Set this back to true
+// when /thank-you is the calendar again (relaunch = revert Website commit b7f85ee); the two go together.
+const AUTO_REPLY_ENABLED = false;
+
 const AUTO_AWAY = [
   { from: "2026-10-18", back: "2026-10-21" },
   { from: "2026-10-25", back: "2026-11-09" },
@@ -399,9 +404,10 @@ function autoReplyBody(inq: Record<string, string>): string {
   ].join("\r\n");
 }
 
-// Returns what happened, for the response and the logs: sent | away | duplicate | no-email | failed.
+// Returns what happened, for the response and the logs: sent | off | away | duplicate | no-email | failed.
 // deno-lint-ignore no-explicit-any
 async function sendAutoReply(sb: any, inq: Record<string, string>, inquiryId: string): Promise<string> {
+  if (!AUTO_REPLY_ENABLED) return "off";
   const to = normEmail(inq.email);
   // No whitespace allowed, so a crafted address can never smuggle in extra mail headers.
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return "no-email";
