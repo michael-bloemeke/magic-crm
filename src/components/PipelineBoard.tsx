@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { CATEGORY_COLORS, ORPHAN_STAGE_ID, type Project, type Umbrella } from '../pipeline'
 import { StageColumn } from './StageColumn'
@@ -99,8 +99,28 @@ export function PipelineBoard({
 }: Props) {
   let columnIndex = 0
 
+  // A category with ONE stage (Booked, since the two payment stages were merged) gets that stage
+  // stretched across the visible width of the board, with its cards in a grid, so every booked gig
+  // shows at once instead of in a narrow column that has to be scrolled (Michael, 2026-10-22).
+  // The width is the board's visible width, not the row's: the row is as wide as the widest
+  // category (Not Yet Booked, with seven stages), which runs well past the edge of the screen.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [visibleWidth, setVisibleWidth] = useState(0)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const measure = () => {
+      const cs = getComputedStyle(el)
+      setVisibleWidth(el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   return (
-    <div className="board-scroll min-h-0 flex-1 overflow-auto px-8 pb-8">
+    <div ref={scrollRef} className="board-scroll min-h-0 flex-1 overflow-auto px-8 pb-8">
       <div className="flex min-w-fit flex-col gap-7">
         {pipeline.map((umbrella, uIdx) => {
           const accentVar = umbrella.color
@@ -161,8 +181,9 @@ export function PipelineBoard({
                 )}
               </div>
 
-              {/* This category's stage columns (scroll right for more). */}
-              <div className="flex h-[380px] gap-4">
+              {/* This category's stage columns (scroll right for more). A one-stage category grows
+                  to fit its cards instead of holding the fixed column height. */}
+              <div className={['flex gap-4', umbrella.stages.length === 1 ? 'min-h-[380px]' : 'h-[380px]'].join(' ')}>
                 {umbrella.stages.map((stage, sIdx) => {
                   const isOrphan = stage.id === ORPHAN_STAGE_ID
                   const isLastBookedStage = umbrella.role === 'booked' && umbrella.stages.length === 1
@@ -190,6 +211,12 @@ export function PipelineBoard({
                       onMoveLeft={() => onReorderStage(stage.id, -1)}
                       onMoveRight={() => onReorderStage(stage.id, 1)}
                       onDelete={() => onDeleteStage(stage.id)}
+                      wideWidth={
+                        umbrella.stages.length === 1 && visibleWidth > 0
+                          ? // Leave room for the "+ Stage" button (120px plus the 16px gap) in edit mode.
+                            visibleWidth - (editMode && umbrella.role !== 'postshow' ? 136 : 0)
+                          : undefined
+                      }
                     />
                   )
                 })}

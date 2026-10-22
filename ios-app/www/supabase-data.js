@@ -851,10 +851,10 @@ function receivedTotalForPayments(payments, projectId) {
 // branch (all columns filled so normalize() reads it like an imported row). Only the name is required.
 // The slug must be unique (checked against the DB). Stage is clamped to a valid, non-Booked, non-Post
 // Show stage (a brand-new project has no payment yet), defaulting to Inquiry. Returns the app record.
-// The eight canonical lead sources. MUST stay identical to LEAD_SOURCES in
+// The canonical lead sources. MUST stay identical to LEAD_SOURCES in
 // src/components/StatsPage.tsx, which is what buckets them on the Stats page: a value that is not
 // on this list falls into "Other" there, so an extra one here would silently vanish from the chart.
-export const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'Other']
+export const LEAD_SOURCES = ['Google/Web', 'Bark', 'The Bash', 'GigSalad', 'In Person', 'Referral', 'Instagram/TikTok', 'AI', 'Repeat client', 'Other']
 
 export async function createProject(input = {}, structure = { umbrellas: [] }) {
   const name = String(input.clientName == null ? '' : input.clientName).trim()
@@ -904,7 +904,7 @@ export async function createProject(input = {}, structure = { umbrellas: [] }) {
     // is used to log a gig-site lead in the moment, on the phone, was guaranteed to leave the one
     // field the Stats page needs to attribute it empty. Defaults to 'Other' rather than null so a
     // project created here is always attributable to something, even if only to "not recorded".
-    // The eight canonical values are LEAD_SOURCES in src/components/StatsPage.tsx.
+    // The canonical values are LEAD_SOURCES in src/components/StatsPage.tsx.
     booking_source: LEAD_SOURCES.indexOf(String(input.bookingSource || '')) >= 0 ? String(input.bookingSource) : 'Other',
     event_summary: null,
     event_description: null,

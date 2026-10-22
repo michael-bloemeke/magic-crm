@@ -22,6 +22,10 @@ type Props = {
   onMoveLeft?: () => void
   onMoveRight?: () => void
   onDelete?: () => void
+  // Set when this is the only stage in its category: the column stretches to this width (the
+  // board's visible width), stays pinned left while the board scrolls sideways, grows to fit its
+  // cards, and lays them out in a grid. See PipelineBoard.
+  wideWidth?: number
 }
 
 export function StageColumn({
@@ -42,16 +46,19 @@ export function StageColumn({
   onMoveLeft,
   onMoveRight,
   onDelete,
+  wideWidth,
 }: Props) {
   const [isDragOver, setIsDragOver] = useState(false)
   const count = stage.projects.length
+  const wide = wideWidth !== undefined
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.04 * index, ease: [0.22, 1, 0.36, 1] }}
-      className="flex w-[244px] shrink-0 flex-col"
+      className={wide ? 'sticky left-0 flex shrink-0 flex-col' : 'flex w-[244px] shrink-0 flex-col'}
+      style={wide ? { width: wideWidth } : undefined}
     >
       {/* Column header */}
       <div className="mb-2.5 flex items-center justify-between gap-2 px-1">
@@ -137,7 +144,8 @@ export function StageColumn({
           if (id) onDropProject(id, stage.id)
         }}
         className={[
-          'group/col relative flex min-h-0 flex-1 flex-col rounded-xl border bg-surface/60 p-2 transition-colors duration-200',
+          'group/col relative flex flex-1 flex-col rounded-xl border bg-surface/60 p-2 transition-colors duration-200',
+          wide ? 'min-h-[340px]' : 'min-h-0',
           isDragOver ? 'border-brass-dim' : 'border-line hover:border-line-strong',
         ].join(' ')}
         style={{
@@ -147,7 +155,7 @@ export function StageColumn({
         }}
       >
         {/* Scrollable card area */}
-        <div className="board-scroll min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className={wide ? 'flex-1' : 'board-scroll min-h-0 flex-1 overflow-y-auto pr-1'}>
           {count === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
               <span
@@ -164,7 +172,7 @@ export function StageColumn({
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className={wide ? 'grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(236px,1fr))]' : 'flex flex-col gap-2'}>
               {stage.projects.map((project) => (
                 <ProjectCard
                   key={project.id}
