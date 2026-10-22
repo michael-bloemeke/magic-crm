@@ -319,7 +319,7 @@ export async function ensureProposal(projectId) {
 // Patch keys map straight onto the columns: hero_line, recommendation, packages, reviews, photos,
 // video_id, event_type, expires_at. Anything else is ignored rather than thrown, so a caller can
 // hand over a whole object without filtering it first.
-const WRITABLE = ['event_type', 'headline', 'hero_line', 'event_copy', 'recommendation', 'styles', 'styles_note', 'packages', 'reviews', 'clients', 'photos', 'video_id', 'video2_id', 'followup', 'expires_at']
+const WRITABLE = ['event_type', 'headline', 'hero_line', 'event_copy', 'recommendation', 'styles', 'styles_note', 'packages', 'reviews', 'clients', 'photos', 'video_id', 'video2_id', 'followup', 'followup_title', 'followup_text', 'expires_at']
 
 export async function saveProposal(projectId, patch) {
   const update = { updated_at: new Date().toISOString() }

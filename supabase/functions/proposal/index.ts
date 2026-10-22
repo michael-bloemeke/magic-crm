@@ -302,6 +302,8 @@ function normaliseStyles(raw: unknown): unknown[] {
       duration: clean(o.duration),
       description: clean(o.description),
       photo: safePhoto(o.photo),
+      // Optional second picture, stacked under the first (added 2026-10-22, SynergyLabs).
+      photo2: safePhoto(o.photo2),
     };
   }).filter((s) => s.name);
 }
@@ -455,6 +457,11 @@ Deno.serve(async (req) => {
     // normal: no call booked, and the step falls back to generic wording rather than an empty line.
     // Capped so a paste accident cannot push a paragraph into a one-line slot.
     followup: clean(prop.followup).slice(0, 90),
+    // Optional overrides for Next steps card 1, for a proposal with no follow-up call booked (added
+    // 2026-10-22, SynergyLabs: Michael emails instead because he is traveling). Empty means the
+    // page's standard "The follow-up call" wording.
+    followupTitle: clean(prop.followup_title).slice(0, 40),
+    followupText: clean(prop.followup_text).slice(0, 400),
     // Blank lines separate paragraphs, so Michael can write it the way he would write an email.
     recommendation: clean(prop.recommendation).split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
     styles: normaliseStyles(prop.styles),
