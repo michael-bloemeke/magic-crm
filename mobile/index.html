@@ -89,10 +89,17 @@
       .topbar .sub { font-size: 11px; color: var(--faint); margin-top: 1px; }
       .iconbtn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); }
       .iconbtn:active { background: var(--surface2); }
-      /* Back sits first in the header on every view. With nowhere to go (Home, nothing behind it) it
-         stays in place, dimmed, so the header never shifts sideways. */
-      #back-btn { color: var(--parchment); }
-      #back-btn:disabled { opacity: 0.3; }
+      /* The header is two rows: the menu, title, and actions, then Back on its own line beneath them.
+         Michael, 2026-10-23: the menu button belongs in the far-left corner, so Back moved out of that
+         row. It names where it goes ("Pipeline", the client's name) instead of being a bare arrow,
+         spans the full width so it is easy to hit, and only appears when there is somewhere to go. */
+      header.topbar { flex-direction: column; align-items: stretch; gap: 0; }
+      .topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .backbar { display: flex; align-items: center; gap: 3px; width: 100%; min-height: 38px; margin: 6px 0 -6px -4px;
+                 padding: 0 4px; color: var(--brass-bright); font-size: 15px; font-weight: 600; text-align: left; border-radius: 9px; }
+      .backbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .backbar svg { flex: none; }
+      .backbar:active { background: var(--surface2); }
 
       main { padding: 12px 14px 20px; }
       .section-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint); margin: 18px 4px 8px; display: flex; align-items: center; gap: 8px; }
@@ -567,9 +574,7 @@
 
     <div id="app" class="hidden">
       <header class="topbar">
-        <button class="iconbtn" id="back-btn" aria-label="Back" disabled>
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </button>
+        <div class="topbar-row">
         <button class="iconbtn" id="menu-btn" aria-label="Menu">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         </button>
@@ -585,6 +590,11 @@
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
           </button>
         </div>
+        </div>
+        <button class="backbar hidden" id="back-btn">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          <span id="back-label">Back</span>
+        </button>
       </header>
       <main id="view"><div class="spinner">Loading…</div></main>
     </div>

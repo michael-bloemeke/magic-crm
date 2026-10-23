@@ -3365,28 +3365,45 @@ function noteLoc(loc) {
     closeHomeSheet() // moving anywhere takes a Home list with it
   }
   LAST_LOC = loc
-  updateBackBtn(loc)
+  updateBackBtn()
 }
-function updateBackBtn(loc) {
+// Where Back would go right now, without going there: the newest entry that is not where he already
+// is and is not a project that has since disappeared. With nothing usable left, Home is the floor.
+function backTarget() {
+  for (var i = NAV_STACK.length - 1; i >= 0; i--) {
+    var e = NAV_STACK[i]
+    if (e.detail && !(SNAP && SNAP.projects.some(function (x) { return x.id === e.detail }))) continue
+    if (sameLoc(e, LAST_LOC)) continue
+    return { e: e, i: i }
+  }
+  var here = LAST_LOC || { tab: TAB, detail: DETAIL_ID }
+  if (here.tab === 'home' && !here.detail) return null
+  return { e: { tab: 'home', detail: null, y: 0 }, i: 0 }
+}
+// The label is the destination, the way iOS does it, so he knows where he is going before he taps.
+function backLabel(e) {
+  if (e.detail) {
+    var p = SNAP && SNAP.projects.find(function (x) { return x.id === e.detail })
+    return (p && p.client) || 'Project'
+  }
+  if (e.tab === 'home' && e.sheet && HOME_SHEETS[e.sheet]) return HOME_SHEETS[e.sheet].title
+  return PAGE_TITLES[e.tab] || 'Back'
+}
+function updateBackBtn() {
   var b = $('#back-btn'); if (!b) return
-  var atHome = loc ? (loc.tab === 'home' && !loc.detail) : (TAB === 'home' && !DETAIL_ID)
-  b.disabled = !NAV_STACK.length && atHome
+  var t = backTarget()
+  b.classList.toggle('hidden', !t)
+  if (!t) return
+  var label = backLabel(t.e)
+  b.querySelector('#back-label').textContent = label
+  b.setAttribute('aria-label', 'Back to ' + label)
 }
 function goBack() {
   closeDrawer()
-  var e = null
-  while (NAV_STACK.length) {
-    e = NAV_STACK.pop()
-    // Skip a project that no longer exists, and anything identical to where he already is.
-    if (e.detail && !(SNAP && SNAP.projects.some(function (x) { return x.id === e.detail }))) { e = null; continue }
-    if (sameLoc(e, LAST_LOC)) { e = null; continue }
-    break
-  }
-  // Nothing left to go back to: Home is the floor.
-  if (!e) {
-    if (TAB === 'home' && !DETAIL_ID) { updateBackBtn(); return }
-    e = { tab: 'home', detail: null, y: 0 }
-  }
+  var t = backTarget()
+  if (!t) { updateBackBtn(); return }
+  var e = t.e
+  NAV_STACK.length = t.i // drop the destination and anything skipped above it
   NAV_RESTORING = true
   try {
     TAB = e.tab

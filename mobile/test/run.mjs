@@ -501,7 +501,10 @@ console.log('\n== home: each tile opens its own list ==')
   // Go to Tasks, then Back: Home with the same list open again.
   sh.querySelector('.homesheet-go').dispatchEvent(new window.Event('click'))
   ok(__app.getTab() === 'tasks' && !document.querySelector('.home-sheet'), 'Go to Tasks lands on Tasks and the list goes with it')
-  ok(!document.querySelector('#back-btn').disabled, 'Back is live on Tasks')
+  ok(!document.querySelector('#back-btn').classList.contains('hidden'), 'Back shows on Tasks')
+  ok(document.querySelector('#back-label').textContent === 'Due today', 'and names where it goes', document.querySelector('#back-label').textContent)
+  const hdr = document.querySelector('header.topbar')
+  ok(hdr.querySelector('.topbar-row').firstElementChild.id === 'menu-btn', 'the menu button holds the far-left corner')
   __app.goBack()
   ok(__app.getTab() === 'home' && document.querySelector('.home-sheet .sheet-title').textContent.startsWith('Due today'),
      'Back returns to Home with the list he left from', document.querySelector('.home-sheet .sheet-title')?.textContent)
@@ -518,7 +521,7 @@ console.log('\n== home: each tile opens its own list ==')
      'Back from the project reopens the gigs list')
   document.querySelector('.home-sheet .sheet-x').dispatchEvent(new window.Event('click'))
   __app.getNav().length = 0; __app.render() // earlier tests leave history behind; start clean
-  ok(document.querySelector('#back-btn').disabled, 'Back is dimmed on Home with nothing behind it')
+  ok(document.querySelector('#back-btn').classList.contains('hidden'), 'Back is hidden on Home with nothing behind it')
 
   SNAP.projects = saved.projects; SNAP.tasks = saved.tasks
 }
@@ -529,6 +532,7 @@ console.log('\n== back button ==')
   __app.navigate('pipeline')
   __app.renderDetail('sarah-whitfield')
   __app.navigate('inbox')
+  ok(document.querySelector('#back-label').textContent === 'Sarah Whitfield', 'from Inbox, Back is labelled with the project he came from')
   __app.goBack()
   ok(__app.getDetail() === 'sarah-whitfield', 'Back from Inbox returns to the project he was on')
   __app.goBack()
