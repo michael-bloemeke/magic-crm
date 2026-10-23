@@ -630,6 +630,65 @@ console.log('\n== pipeline: one row per stage, in structure order ==')
   __app.setStageMap({ s2: { name: 'Proposal sent', umbrella: 'Selling', color: '#c9a227' } })
 }
 
+console.log('\n== shows ==')
+{
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  ok(!!document.querySelector('#drawer-nav button[data-page="shows"]'), 'Shows is in the menu')
+  __app.navigate('shows')
+  await settle()
+  ok(has('No shows yet'), 'the page starts blank')
+  ;[...document.querySelectorAll('#view .addbtn')].find((b) => b.textContent.includes('New show')).dispatchEvent(new window.Event('click'))
+  await settle()
+  const ns = document.querySelector('.sheet')
+  ns.querySelector('input').value = 'Corporate stand-up'
+  ;[...ns.querySelectorAll('.btn-gold')].find((b) => b.textContent === 'Add show').dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(CALLS.some((c) => c.name === 'createShow' && c.args[0] === 'Corporate stand-up'), 'New show creates it')
+  ok(__app.getTab() === 'show' && document.querySelector('#pagetitle').textContent === 'Corporate stand-up', 'and opens it as its own page, titled with its name')
+  const tabs = [...document.querySelectorAll('#ptabs .ptab-l')].map((x) => x.textContent)
+  ok(tabs.join('|') === 'Set List|Packing List', 'two tabs along the bottom: Set List, then Packing List', tabs.join('|'))
+  ok(document.querySelector('#ptabs .ptab.on .ptab-l').textContent === 'Set List', 'it opens on the Set List')
+  ok(!document.querySelector('#view textarea'), 'read-only until Edit')
+
+  const clickBtn = (label) => [...document.querySelectorAll('#view button')].find((b) => b.textContent.trim() === label).dispatchEvent(new window.Event('click'))
+  clickBtn('Edit'); await settle()
+  clickBtn('+ Add item'); clickBtn('+ Add item'); await settle()
+  const tas = [...document.querySelectorAll('#view textarea')]
+  tas[0].value = 'Cups and balls'; tas[0].dispatchEvent(new window.Event('input'))
+  tas[1].value = 'Card to wallet'; tas[1].dispatchEvent(new window.Event('input'))
+  ok(!!document.querySelector('#view .drag-h'), 'each row has a drag handle in Edit')
+  clickBtn('Done'); await settle()
+  const up = CALLS.filter((c) => c.name === 'updateShow').pop()
+  ok(up && up.args[1].setList.map((x) => x.text).join('|') === 'Cups and balls|Card to wallet', 'Done saves the set list in order', up && JSON.stringify(up.args[1]))
+  ok(has('Cups and balls') && !document.querySelector('#view textarea'), 'and goes back to read-only')
+
+  // Packing list: an item, a header, a blank line.
+  document.querySelectorAll('#ptabs .ptab')[1].dispatchEvent(new window.Event('click')); await settle()
+  ok(document.querySelector('#ptabs .ptab.on .ptab-l').textContent === 'Packing List', 'the Packing List tab opens')
+  clickBtn('Edit'); await settle()
+  clickBtn('+ Header'); clickBtn('+ Item'); clickBtn('+ Item'); clickBtn('+ Blank line'); clickBtn('+ Header'); await settle()
+  const pt = [...document.querySelectorAll('#view textarea')]
+  ;['Cups', 'Three cups', 'Wand', 'Cards'].forEach((v, i) => { pt[i].value = v; pt[i].dispatchEvent(new window.Event('input')) })
+  ok(document.querySelectorAll('#view .ed-blank').length === 1, 'a blank line shows as a placeholder while editing')
+  clickBtn('Done'); await settle()
+  const up2 = CALLS.filter((c) => c.name === 'updateShow').pop()
+  ok(up2 && up2.args[1].packingList.map((x) => x.type).join(',') === 'header,item,item,blank,header', 'items, headers and blank lines save in order', up2 && JSON.stringify(up2.args[1].packingList.map((x) => x.type)))
+  ok(document.querySelectorAll('#view .pack-item').length === 2 && document.querySelectorAll('#view .pack-head').length === 2 && document.querySelectorAll('#view .pack-blank').length === 1,
+     'read-only: items get checkboxes, headers do not, the blank line is a gap')
+  document.querySelector('#view .pack-item').dispatchEvent(new window.Event('click')); await settle()
+  ok(CALLS.some((c) => c.name === 'setPacked' && c.args[2] === true), 'a box can be ticked without editing')
+  ok(document.querySelector('#view .pack-item').classList.contains('done'), 'and it is crossed off, still on the list')
+  ok(has('1 of 2 packed'), 'the count follows')
+  clickBtn('Uncheck all'); await settle()
+  ok(CALLS.some((c) => c.name === 'uncheckAllPacked'), 'Uncheck all clears every box at once')
+  ok(!document.querySelector('#view .pack-item.done'), 'and nothing is ticked after')
+
+  __app.navigate('shows'); await settle()
+  ok(has('Corporate stand-up') && has('2 in the set list'), 'the show is listed with its counts')
+  __app.navigate('home')
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+}
+
 console.log('\n== el() never gets two top-level elements ==')
 {
   // el() returns ONLY the first top-level element of its HTML. A label-and-value pair written as one

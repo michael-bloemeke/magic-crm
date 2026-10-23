@@ -1,5 +1,6 @@
 // Fake data layer. Every read returns fixtures; every write records the call and resolves.
 export const CALLS = []
+export const SHOW_ROWS = []
 const rec = (name) => (...args) => { CALLS.push({ name, args }); return Promise.resolve({ ok: true }) }
 
 export const FIXTURE_THREADS = [
@@ -68,6 +69,20 @@ export const STUB = {
   gmailUnread: (q) => { CALLS.push({ name: 'gmailUnread', args: [q] }); return Promise.resolve({ count: 7, threads: FIXTURE_THREADS }) },
   sendEmail: (a) => { CALLS.push({ name: 'sendEmail', args: [a] }); return Promise.resolve({ ok: true }) },
   loadRawConfig: () => Promise.resolve({ signatureEnabled: true, signatureHtml: 'Michael Bloemeke<div>michaelbloemeke.com</div>' }),
+  // Shows: a tiny in-memory table, so the page can be driven end to end.
+  loadShows: () => { CALLS.push({ name: 'loadShows', args: [] }); return Promise.resolve(SHOW_ROWS.map((x) => JSON.parse(JSON.stringify(x)))) },
+  createShow: (name) => { CALLS.push({ name: 'createShow', args: [name] }); const s = { id: 'show-' + (SHOW_ROWS.length + 1), name, setList: [], packingList: [], createdAt: '', updatedAt: '' }; SHOW_ROWS.push(s); return Promise.resolve(JSON.parse(JSON.stringify(s))) },
+  updateShow: (id, patch) => {
+    CALLS.push({ name: 'updateShow', args: [id, patch] })
+    const s = SHOW_ROWS.find((x) => x.id === id)
+    if (patch.name != null) s.name = patch.name
+    if (patch.setList) s.setList = patch.setList.filter((x) => String(x.text).trim()).map((x) => ({ id: x.id, text: String(x.text).trim() }))
+    if (patch.packingList) s.packingList = patch.packingList.filter((x) => x.type === 'blank' || String(x.text).trim()).map((x) => ({ ...x, text: x.type === 'blank' ? '' : String(x.text).trim() }))
+    return Promise.resolve(JSON.parse(JSON.stringify(s)))
+  },
+  setPacked: (id, itemId, done) => { CALLS.push({ name: 'setPacked', args: [id, itemId, done] }); const s = SHOW_ROWS.find((x) => x.id === id); s.packingList = s.packingList.map((x) => (x.id === itemId ? { ...x, done } : x)); return Promise.resolve(JSON.parse(JSON.stringify(s))) },
+  uncheckAllPacked: (id) => { CALLS.push({ name: 'uncheckAllPacked', args: [id] }); const s = SHOW_ROWS.find((x) => x.id === id); s.packingList = s.packingList.map((x) => ({ ...x, done: false })); return Promise.resolve(JSON.parse(JSON.stringify(s))) },
+  deleteShow: (id) => { CALLS.push({ name: 'deleteShow', args: [id] }); const i = SHOW_ROWS.findIndex((x) => x.id === id); if (i >= 0) SHOW_ROWS.splice(i, 1); return Promise.resolve() },
   saveComposeDraft: (a) => { CALLS.push({ name: 'saveComposeDraft', args: [a] }); return Promise.resolve(a.id || 'draft-1') },
   deleteDraft: rec('deleteDraft'),
   loadProjectDrafts: (id) => { CALLS.push({ name: 'loadProjectDrafts', args: [id] }); return Promise.resolve(id === 'sarah-whitfield' ? [

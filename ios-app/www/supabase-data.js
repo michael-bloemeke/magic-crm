@@ -1224,6 +1224,72 @@ export async function saveEmailDraft({ projectId, kind, to, subject, body } = {}
   return { id, subject: row.subject, body: row.body, to: toArr }
 }
 
+// ---------- shows: set lists and packing lists (twin of crm-shows.mjs on the Mac) ----------
+//
+// One row per show in `shows`. set_list [{ id, text }]; packing_list [{ id, type: 'item' | 'header'
+// | 'blank', text, done }], where only an 'item' has a checkbox. Same normalising as the Mac, so a
+// show saved on either device reads the same on both. A checkmark and "Uncheck all" re-read the row
+// first, so a tick never rolls back a list edit saved on the other device a moment earlier.
+const SHOW_TYPES = ['item', 'header', 'blank']
+function cleanSetList(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((x) => ({ id: str(x && x.id) || uuid(), text: str(x && x.text).trim() }))
+    .filter((x) => x.text)
+}
+function cleanPackingList(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((x) => {
+      const type = SHOW_TYPES.includes(x && x.type) ? x.type : 'item'
+      return { id: str(x && x.id) || uuid(), type, text: type === 'blank' ? '' : str(x && x.text).trim(), done: type === 'item' ? !!(x && x.done) : false }
+    })
+    .filter((x) => x.type === 'blank' || x.text)
+}
+function showFromRow(r) {
+  return { id: str(r.id), name: str(r.name), setList: cleanSetList(r.set_list), packingList: cleanPackingList(r.packing_list), createdAt: str(r.created_at), updatedAt: str(r.updated_at) }
+}
+export async function loadShows() {
+  const { data, error } = await sb.from('shows').select('*').order('created_at', { ascending: true })
+  if (error) throw error
+  return (data || []).map(showFromRow)
+}
+export async function createShow(name) {
+  const n = str(name).trim()
+  if (!n) throw new Error('Give the show a name.')
+  const { data, error } = await sb.from('shows').insert({ name: n }).select('*').single()
+  if (error) throw error
+  return showFromRow(data)
+}
+// patch: { name?, setList?, packingList? }. Lists are replaced whole (that is what Done does).
+export async function updateShow(id, patch = {}) {
+  const row = { updated_at: new Date().toISOString() }
+  if (patch.name != null) {
+    const n = str(patch.name).trim()
+    if (!n) throw new Error('Give the show a name.')
+    row.name = n
+  }
+  if (patch.setList != null) row.set_list = cleanSetList(patch.setList)
+  if (patch.packingList != null) row.packing_list = cleanPackingList(patch.packingList)
+  const { data, error } = await sb.from('shows').update(row).eq('id', id).select('*').single()
+  if (error) throw error
+  return showFromRow(data)
+}
+export async function setPacked(id, itemId, done) {
+  const { data: cur, error } = await sb.from('shows').select('packing_list').eq('id', id).maybeSingle()
+  if (error) throw error
+  if (!cur) throw new Error('Show not found.')
+  return updateShow(id, { packingList: cleanPackingList(cur.packing_list).map((x) => (x.id === itemId && x.type === 'item' ? { ...x, done: !!done } : x)) })
+}
+export async function uncheckAllPacked(id) {
+  const { data: cur, error } = await sb.from('shows').select('packing_list').eq('id', id).maybeSingle()
+  if (error) throw error
+  if (!cur) throw new Error('Show not found.')
+  return updateShow(id, { packingList: cleanPackingList(cur.packing_list).map((x) => ({ ...x, done: false })) })
+}
+export async function deleteShow(id) {
+  const { error } = await sb.from('shows').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ---------- inquiries to review (the Mac bell's "Inquiries to review") ----------
 // Every website inquiry not yet dismissed, newest first. Dismissing sets data.dismissed, exactly as
 // the Mac's dismissNotification does, so clearing one on either device clears it on both.

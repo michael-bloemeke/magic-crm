@@ -12,6 +12,7 @@ export type Page =
   | 'proposals'
   | 'contacts'
   | 'playbook'
+  | 'shows'
   | 'files'
   | 'completed'
   | 'archive'
@@ -168,6 +169,17 @@ const GROUPS: NavGroup[] = [
   {
     heading: 'Library',
     items: [
+      // Shows: set lists and packing lists (2026-10-23). See ShowsPage.tsx.
+      {
+        id: 'shows',
+        label: 'Shows',
+        enabled: true,
+        icon: icon(
+          <>
+            <path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8-4.3-4.1 5.9-.9z" />
+          </>,
+        ),
+      },
       // The Playbook is REFERENCE, which is why it sits here rather than in Workspace. It is a page
       // to read before a call, not a surface to work in. See PlaybookPage.tsx.
       {

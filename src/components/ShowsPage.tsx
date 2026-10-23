@@ -109,6 +109,7 @@ export function ShowsPage() {
   if (current) {
     return (
       <ShowDetail
+        key={current.id}
         show={current}
         onBack={() => open(null)}
         onSaved={replace}
@@ -214,6 +215,9 @@ function ShowDetail({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Only the newest checkmark save may write its server copy back, so two quick taps never flicker
+  // the first box off again when an older reply lands late.
+  const packSeq = useRef(0)
 
   const startEdit = () => {
     setSetDraft(show.setList.map((x) => ({ ...x })))
@@ -263,10 +267,12 @@ function ShowDetail({
   const toggle = async (item: PackingItem) => {
     // Optimistic: the box flips now, the server copy follows.
     onSaved({ ...show, packingList: show.packingList.map((x) => (x.id === item.id ? { ...x, done: !x.done } : x)) })
+    const seq = ++packSeq.current
     try {
-      onSaved(await setPacked(show.id, item.id, !item.done))
+      const saved = await setPacked(show.id, item.id, !item.done)
+      if (seq === packSeq.current) onSaved(saved)
     } catch (e) {
-      onSaved(show)
+      if (seq === packSeq.current) onSaved(show)
       setErr((e as Error)?.message || 'Could not save that checkmark.')
     }
   }

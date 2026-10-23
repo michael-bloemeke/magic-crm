@@ -16,7 +16,7 @@
 //   crm-payments.json, crm-expenses.json, crm-mileage.json, crm-tasks.json,
 //   crm-emails.json, crm-notifications.json, crm-text-markers.json,
 //   crm-invoices.json, crm-contracts.json, crm-recipients.json, crm-inquiries.json,
-//   crm-config.json, crm-calendar-map.json
+//   crm-config.json, crm-calendar-map.json, crm-shows.json
 // After this, the backup covers ALL crm data (every crm-*.json now lives in Supabase).
 //
 // Run with Node 22:  /Users/michaelbloemeke/.local/node22/bin/node supabase/backup-export.mjs [targetDir]
@@ -46,6 +46,7 @@ import {
   getAllInquiries,
   getCalendarMap,
   getCrmConfig,
+  sb,
 } from '../crm-store.mjs'
 // Reuse the app's OWN record-year logic so completed/archived rows file into the SAME per-year
 // bucket the app would. Do NOT reinvent it.
@@ -679,6 +680,29 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
       _meta: meta,
     })
     written.push(`crm-calendar-map.json (${Object.keys(calendarMap?.projects || {}).length} projects, ${Object.keys(calendarMap?.tasks || {}).length} tasks)`)
+  }
+
+  // ---- 21. crm-shows.json (added 2026-10-23) ----
+  // { shows: [ { id, name, setList, packingList, createdAt, updatedAt } ], _meta }, oldest first. The
+  // Shows page (set lists and packing lists) lives only in Supabase, so this file is its backup.
+  {
+    const { data, error } = await sb().from('shows').select('*').order('created_at', { ascending: true })
+    if (error) throw error
+    const records = (data || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      setList: r.set_list || [],
+      packingList: r.packing_list || [],
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-shows.json'), {
+      fileName: 'crm-shows.json',
+      count: records.length,
+      fallbackPurpose: 'Shows page: each show with its set list and packing list (checkmarks included), mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-shows.json', { shows: records, _meta: meta })
+    written.push(`crm-shows.json (${records.length})`)
   }
 
   return { targetDir, written }

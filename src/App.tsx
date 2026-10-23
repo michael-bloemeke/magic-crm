@@ -7,6 +7,7 @@ import { PipelineFlow } from './components/PipelineFlow'
 import { PipelineCards } from './components/PipelineCards'
 import { ProjectDetail } from './components/ProjectDetail'
 import { ProjectView } from './components/ProjectView'
+import { ShowsPage } from './components/ShowsPage'
 import { ContactDetail } from './components/ContactDetail'
 import { ProjectContactPickerModal } from './components/ProjectContactPickerModal'
 import { HomePage } from './components/HomePage'
@@ -114,6 +115,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   website: { kicker: 'Website', title: 'Website Analytics' },
   contacts: { kicker: 'Contacts', title: 'Contacts' },
   playbook: { kicker: 'Library', title: 'Playbook' },
+  shows: { kicker: 'Library', title: 'Shows' },
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
@@ -1329,6 +1331,8 @@ function App() {
                 <StatsPage projects={liveProjects} onOpenProject={openFull} onSaveField={saveField} />
               ) : page === 'playbook' ? (
                 <PlaybookPage />
+              ) : page === 'shows' ? (
+                <ShowsPage />
               ) : page === 'proposals' ? (
                 <ProposalsPage onPreview={setPreview} />
               ) : page === 'website' ? (

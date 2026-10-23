@@ -18,6 +18,7 @@ import {
   saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment,
   SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule,
   loadInquiryReview, dismissInquiryReview,
+  loadShows, createShow, updateShow, setPacked, uncheckAllPacked, deleteShow,
   phoneApi, saveConfigPatch, loadRawConfig, loadQuickBooksMonths, loadBankBalances, deletePayment,
   EXPENSE_CADENCES, loadExpenses, addExpense, deleteExpense, loadMileage, addTrip, deleteTrip, setMileageRate,
   loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings,
@@ -38,7 +39,7 @@ var PAGE_TITLES = {
   home: 'Home', pipeline: 'Pipeline', completed: 'Completed', archived: 'Archived', deleted: 'Deleted',
   contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', finance: 'Finance', inbox: 'Inbox',
   proposals: 'Proposals and Booking Forms', calendar: 'Calendar', stats: 'Lead Stats', website: 'Website Analytics',
-  playbook: 'Playbook', files: 'Files', settings: 'Settings',
+  playbook: 'Playbook', files: 'Files', settings: 'Settings', shows: 'Shows', show: 'Show',
 }
 
 // Completed / Archived / Deleted are their own pages now (2026-08-06). They used to be a segmented
@@ -1031,6 +1032,7 @@ var PROJECT_TABS = [
 var PTAB = 'details' // which tab of the project view is showing
 
 function renderDetail(id, keepScroll) {
+  if (SHOW_EDIT) flushShowEdit() // opening a project from a show mid-edit keeps the edit
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
   noteLoc({ tab: TAB, detail: id, ptab: PTAB })
   DETAIL_ID = id
@@ -4615,7 +4617,8 @@ function setHeaderChrome(page) {
 }
 
 function render() {
-  noteLoc({ tab: TAB, detail: null })
+  if (TAB !== 'show') flushShowEdit() // leaving a show mid-edit saves the edit
+  noteLoc({ tab: TAB, detail: null, show: TAB === 'show' ? SHOW_ID : null })
   DETAIL_ID = null // a tab page is on screen now, so no project is
   if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
   removeProjectTabs() // any full page render means we are no longer inside a project
@@ -4636,10 +4639,370 @@ function render() {
   else if (TAB === 'playbook') renderPlaybook()
   else if (TAB === 'files') renderFiles()
   else if (TAB === 'settings') renderSettings()
-  var title = $('#pagetitle'); if (title) title.textContent = TAB === 'home' ? greetingText() : (PAGE_TITLES[TAB] || 'Bloom CRM')
+  else if (TAB === 'shows') renderShows()
+  else if (TAB === 'show') renderShow()
+  var title = $('#pagetitle'); if (title) title.textContent = TAB === 'home' ? greetingText() : TAB === 'show' ? ((showById(SHOW_ID) || {}).name || 'Show') : (PAGE_TITLES[TAB] || 'Bloom CRM')
   setHeaderChrome(TAB)
   updateCounts()
   updateDrawerActive()
+}
+
+// ================================ SHOWS ================================
+//
+// Set lists and packing lists. Michael, 2026-10-23: "a page to help me organize my packing list and my
+// show structures." Shows (in the menu, under Library) lists his shows; tapping one opens it as its
+// own page, the way a project opens from the pipeline, with two tabs along the bottom:
+//
+//   Set List      the running order, one block of text per trick, top to bottom. Read-only until
+//                 Edit; in Edit he can drag to reorder, rename, delete and add. Done saves.
+//   Packing List  the same kind of list, but every item has a checkbox he can tick WITHOUT editing,
+//                 and in Edit he can also add a header (bold, no checkbox) or a blank line, to break
+//                 it into groups. "Uncheck all" clears every box at once.
+//
+// His instructions on the look: no arrows, no flow-chart spacing, just a vertical list.
+//
+// ⚠️ The Mac has the same page (src/components/ShowsPage.tsx), on the same `shows` rows, so a box
+// ticked here is ticked there. Keep the two in step.
+var SHOWS = null          // the loaded list, or null before the first load
+var SHOW_ID = null        // the open show (TAB 'show')
+var SHOW_TAB = 'set'      // 'set' | 'pack'
+var SHOW_EDIT = false     // true while the open tab is in Edit
+var SHOW_DRAFT = null     // the list being edited, a copy, saved on Done
+var SHOW_PACK_SEQ = 0     // only the newest checkmark save may write its server copy back
+
+function showById(id) { return (SHOWS || []).find(function (s) { return s.id === id }) || null }
+function replaceShow(s) {
+  if (!SHOWS) SHOWS = []
+  var i = SHOWS.findIndex(function (x) { return x.id === s.id })
+  if (i >= 0) SHOWS[i] = s; else SHOWS.push(s)
+}
+function showsLoad(after) {
+  loadShows().then(function (rows) { SHOWS = rows; if (after) after() }).catch(function (e) {
+    if (SHOWS == null) SHOWS = []
+    toast(e.message || 'Could not load shows', 'err')
+    if (after) after()
+  })
+}
+function newShowItemId() {
+  try { return crypto.randomUUID() } catch (e) { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) }
+}
+
+// ---- the list of shows ----
+function renderShows() {
+  var v = $('#view'); v.innerHTML = ''
+  var head = el('<div class="tabhead"><span></span><button class="addbtn"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New show</button></div>')
+  head.querySelector('.addbtn').addEventListener('click', openNewShow)
+  v.appendChild(head)
+  var list = el('<div></div>')
+  v.appendChild(list)
+  function draw() {
+    if (TAB !== 'shows') return
+    list.innerHTML = ''
+    if (SHOWS == null) { list.appendChild(el('<div class="empty">Loading shows…</div>')); return }
+    if (!SHOWS.length) {
+      list.appendChild(el('<div class="empty" style="padding:40px 16px">No shows yet. Tap New show to add the first one. Each show gets a set list and a packing list.</div>'))
+      return
+    }
+    SHOWS.forEach(function (s) {
+      var items = s.packingList.filter(function (x) { return x.type === 'item' })
+      var packed = items.filter(function (x) { return x.done }).length
+      var c = el('<button class="card show-card"><div class="name"></div><div class="meta"></div></button>')
+      c.querySelector('.name').textContent = s.name
+      c.querySelector('.meta').textContent = s.setList.length + ' in the set list  ·  ' + (items.length ? packed + ' of ' + items.length + ' packed' : 'nothing to pack yet')
+      c.addEventListener('click', function () { openShow(s.id) })
+      list.appendChild(c)
+    })
+  }
+  draw()
+  // Always re-read in the background, so a show added on the Mac appears without a manual refresh.
+  showsLoad(draw)
+}
+function openNewShow() {
+  var sh = makeSheet('New show')
+  var inp = el('<input class="search" placeholder="Name the show">')
+  sh.body.appendChild(inp)
+  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Add show</button></div>')
+  bar.children[0].addEventListener('click', sh.close)
+  var go = function () {
+    var n = inp.value.trim()
+    if (!n) { inp.focus(); return }
+    doWrite(createShow(n), 'Show added', function (s) { replaceShow(s); sh.close(); openShow(s.id) })
+  }
+  bar.children[1].addEventListener('click', go)
+  inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go() })
+  sh.body.appendChild(bar)
+  setTimeout(function () { inp.focus() }, 60)
+}
+function openShow(id) {
+  SHOW_ID = id; SHOW_TAB = 'set'; SHOW_EDIT = false; SHOW_DRAFT = null
+  TAB = 'show'
+  render()
+  window.scrollTo(0, 0)
+}
+
+// Leaving a show (or its tab) mid-edit SAVES the edit rather than throwing it away. Done is still the
+// normal way out; this is the safety net for tapping the menu instead.
+function flushShowEdit() {
+  if (!SHOW_EDIT || !SHOW_ID || !SHOW_DRAFT) { SHOW_EDIT = false; SHOW_DRAFT = null; return }
+  var id = SHOW_ID, patch = SHOW_TAB === 'set' ? { setList: SHOW_DRAFT } : { packingList: SHOW_DRAFT }
+  SHOW_EDIT = false; SHOW_DRAFT = null
+  updateShow(id, patch).then(replaceShow).catch(function (e) { toast(e.message || 'Could not save the show', 'err') })
+}
+
+// ---- one show ----
+function renderShow() {
+  var v = $('#view'); v.innerHTML = ''
+  var s = showById(SHOW_ID)
+  if (!s) {
+    if (SHOWS == null) { v.appendChild(el('<div class="empty">Loading…</div>')); showsLoad(function () { if (TAB === 'show') render() }); return }
+    TAB = 'shows'; SHOW_ID = null; render(); return
+  }
+  var title = $('#pagetitle'); if (title) title.textContent = s.name
+  ensureShowTabs()
+
+  var top = el('<div class="show-top"><div class="show-acts"></div><button class="show-more" aria-label="Show options"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button></div>')
+  top.querySelector('.show-more').addEventListener('click', function () { openShowOptions(s) })
+  var acts = top.querySelector('.show-acts')
+  var items = s.packingList.filter(function (x) { return x.type === 'item' })
+  var packed = items.filter(function (x) { return x.done }).length
+  if (SHOW_EDIT) {
+    var done = el('<button class="btn-gold show-btn">Done</button>')
+    done.addEventListener('click', function () {
+      var patch = SHOW_TAB === 'set' ? { setList: SHOW_DRAFT } : { packingList: SHOW_DRAFT }
+      done.disabled = true; done.textContent = 'Saving…'
+      doWrite(updateShow(s.id, patch), 'Saved', function (saved) {
+        replaceShow(saved); SHOW_EDIT = false; SHOW_DRAFT = null; render()
+      }).catch(function () { done.disabled = false; done.textContent = 'Done' })
+    })
+    acts.appendChild(done)
+  } else {
+    var edit = el('<button class="btn-ghost show-btn">Edit</button>')
+    edit.addEventListener('click', function () {
+      SHOW_DRAFT = (SHOW_TAB === 'set' ? s.setList : s.packingList).map(function (x) { return Object.assign({}, x) })
+      SHOW_EDIT = true
+      render()
+    })
+    acts.appendChild(edit)
+    if (SHOW_TAB === 'pack' && items.length) {
+      var un = el('<button class="btn-ghost show-btn">Uncheck all</button>')
+      un.disabled = !packed
+      un.addEventListener('click', function () {
+        if (!confirm('Uncheck all ' + packed + ' packed item' + (packed === 1 ? '' : 's') + '?')) return
+        doWrite(uncheckAllPacked(s.id), 'All unchecked', function (saved) { replaceShow(saved); render() })
+      })
+      acts.appendChild(un)
+      acts.appendChild(el('<span class="show-count">' + packed + ' of ' + items.length + ' packed</span>'))
+    }
+  }
+  v.appendChild(top)
+
+  if (SHOW_TAB === 'set') {
+    if (SHOW_EDIT) v.appendChild(showEditor('set'))
+    else if (!s.setList.length) v.appendChild(el('<div class="empty" style="padding:36px 16px">The set list is empty. Tap Edit to add the first item.</div>'))
+    else {
+      var sl = el('<div class="show-list"></div>')
+      s.setList.forEach(function (it) {
+        var r = el('<div class="card show-line"></div>'); r.textContent = it.text
+        sl.appendChild(r)
+      })
+      v.appendChild(sl)
+    }
+    return
+  }
+
+  if (SHOW_EDIT) { v.appendChild(showEditor('pack')); return }
+  if (!s.packingList.length) { v.appendChild(el('<div class="empty" style="padding:36px 16px">The packing list is empty. Tap Edit to add items, headers and blank lines.</div>')); return }
+  var pl = el('<div class="show-list"></div>')
+  s.packingList.forEach(function (it) {
+    if (it.type === 'blank') { pl.appendChild(el('<div class="pack-blank" aria-hidden="true"></div>')); return }
+    if (it.type === 'header') { var hd = el('<div class="pack-head"></div>'); hd.textContent = it.text; pl.appendChild(hd); return }
+    var row = el('<button class="card pack-item' + (it.done ? ' done' : '') + '"><span class="pack-box"></span><span class="pack-t"></span></button>')
+    row.querySelector('.pack-t').textContent = it.text
+    row.setAttribute('aria-pressed', it.done ? 'true' : 'false')
+    row.addEventListener('click', function () { togglePacked(s, it) })
+    pl.appendChild(row)
+  })
+  v.appendChild(pl)
+}
+function togglePacked(s, it) {
+  // Optimistic: the box flips now, the server copy follows.
+  var next = !it.done
+  replaceShow(Object.assign({}, s, { packingList: s.packingList.map(function (x) { return x.id === it.id ? Object.assign({}, x, { done: next }) : x }) }))
+  if (TAB === 'show') render()
+  var seq = ++SHOW_PACK_SEQ
+  setPacked(s.id, it.id, next).then(function (saved) {
+    if (seq !== SHOW_PACK_SEQ) return
+    replaceShow(saved)
+    if (TAB === 'show' && SHOW_ID === s.id && !SHOW_EDIT) render()
+  }).catch(function (e) {
+    toast(e.message || 'Could not save that checkmark', 'err')
+    if (seq === SHOW_PACK_SEQ) { replaceShow(s); if (TAB === 'show' && SHOW_ID === s.id && !SHOW_EDIT) render() }
+  })
+}
+
+// The editor for whichever tab is open. Rows carry a drag handle, the text box (or a "Blank line"
+// placeholder) and a delete ×. New rows go at the bottom; drag them into place.
+function showEditor(kind) {
+  var wrap = el('<div class="show-edit editing"></div>')
+  var list = el('<div class="show-list"></div>')
+  wrap.appendChild(list)
+  function rowFor(it) {
+    var r = el('<div class="card ed-row"><span class="drag-h" aria-label="Drag to move"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span><div class="ed-body"></div><button class="ed-x" aria-label="Delete">&times;</button></div>')
+    r.dataset.id = it.id
+    var body = r.querySelector('.ed-body')
+    if (it.type === 'blank') {
+      body.appendChild(el('<span class="ed-blank">Blank line</span>'))
+    } else {
+      if (kind === 'pack' && it.type === 'item') body.appendChild(el('<span class="pack-box"></span>'))
+      var ta = document.createElement('textarea')
+      ta.rows = 1
+      ta.className = 'ed-text' + (it.type === 'header' ? ' ed-header' : '')
+      ta.placeholder = kind === 'set' ? 'Trick or title' : it.type === 'header' ? 'Header' : 'Something to pack'
+      ta.value = it.text || ''
+      var grow = function () { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px' }
+      ta.addEventListener('input', function () { it.text = ta.value; grow() })
+      // A packing line is one line: Enter adds the next item of the same kind instead of a newline.
+      ta.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && kind === 'pack') { e.preventDefault(); addRow(it.type === 'header' ? 'item' : it.type) }
+      })
+      body.appendChild(ta)
+      setTimeout(grow, 0)
+    }
+    r.querySelector('.ed-x').addEventListener('click', function () {
+      SHOW_DRAFT = SHOW_DRAFT.filter(function (x) { return x.id !== it.id })
+      r.remove()
+    })
+    return r
+  }
+  function addRow(type) {
+    var it = kind === 'set' ? { id: newShowItemId(), text: '' } : { id: newShowItemId(), type: type, text: '', done: false }
+    SHOW_DRAFT.push(it)
+    var r = rowFor(it)
+    list.appendChild(r)
+    var ta = r.querySelector('textarea')
+    var reveal = function () { if (r.scrollIntoView) r.scrollIntoView({ block: 'center', behavior: 'smooth' }) }
+    if (ta) setTimeout(function () { ta.focus(); reveal() }, 30)
+    else reveal()
+  }
+  SHOW_DRAFT.forEach(function (it) { list.appendChild(rowFor(it)) })
+  makeSortable(list, function (ids) {
+    var byId = {}; SHOW_DRAFT.forEach(function (x) { byId[x.id] = x })
+    SHOW_DRAFT = ids.map(function (id) { return byId[id] }).filter(Boolean)
+  })
+  var adds = el('<div class="show-adds"></div>')
+  var kinds = kind === 'set' ? [['item', '+ Add item']] : [['item', '+ Item'], ['header', '+ Header'], ['blank', '+ Blank line']]
+  kinds.forEach(function (k) {
+    var b = el('<button class="btn-ghost"></button>'); b.textContent = k[1]
+    b.addEventListener('click', function () { addRow(k[0]) })
+    adds.appendChild(b)
+  })
+  wrap.appendChild(adds)
+  wrap.appendChild(el('<p class="hint" style="margin:10px 2px 0">Drag the handle to move a line. Done saves.</p>'))
+  return wrap
+}
+
+// Drag to reorder, by the handle, with a finger or a mouse. The row follows the pointer and swaps
+// places with a neighbour once it passes that neighbour's middle; the page scrolls when the row is
+// held near the top or bottom edge, so a long list can be reordered end to end. `onDone` gets the
+// new order of data-id values.
+function makeSortable(list, onDone) {
+  list.addEventListener('pointerdown', function (e) {
+    var h = e.target.closest && e.target.closest('.drag-h')
+    if (!h || !list.contains(h)) return
+    var row = h.closest('.ed-row'); if (!row) return
+    e.preventDefault()
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+    var startPageY = e.clientY + window.scrollY
+    var lastClientY = e.clientY
+    row.classList.add('dragging')
+    try { h.setPointerCapture(e.pointerId) } catch (err) { /* older WebKit */ }
+    function place() {
+      var dy = (lastClientY + window.scrollY) - startPageY
+      row.style.transform = 'translateY(' + dy + 'px)'
+      var r = row.getBoundingClientRect(), mid = r.top + r.height / 2
+      var next = row.nextElementSibling, prev = row.previousElementSibling
+      var before = row.offsetTop
+      if (next && mid > next.getBoundingClientRect().top + next.offsetHeight / 2) list.insertBefore(next, row)
+      else if (prev && mid < prev.getBoundingClientRect().top + prev.offsetHeight / 2) list.insertBefore(row, prev)
+      else return
+      // The row moved in the layout; shift the anchor by the same amount so it stays under the finger.
+      startPageY += row.offsetTop - before
+      row.style.transform = 'translateY(' + ((lastClientY + window.scrollY) - startPageY) + 'px)'
+    }
+    var timer = setInterval(function () {
+      var edge = 90
+      if (lastClientY < edge) { window.scrollBy(0, -10); place() }
+      else if (lastClientY > window.innerHeight - edge - 70) { window.scrollBy(0, 10); place() }
+    }, 16)
+    function move(ev) { lastClientY = ev.clientY; place() }
+    function up() {
+      clearInterval(timer)
+      h.removeEventListener('pointermove', move)
+      h.removeEventListener('pointerup', up)
+      h.removeEventListener('pointercancel', up)
+      row.classList.remove('dragging')
+      row.style.transform = ''
+      onDone(Array.prototype.map.call(list.children, function (c) { return c.dataset.id }))
+    }
+    h.addEventListener('pointermove', move)
+    h.addEventListener('pointerup', up)
+    h.addEventListener('pointercancel', up)
+  })
+}
+
+// The two tabs along the bottom, in the same bar a project uses.
+var SHOW_TABS = [
+  ['set', 'Set List', '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>'],
+  ['pack', 'Packing List', '<rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M8.5 13.5l2 2 4-4"/>'],
+]
+function ensureShowTabs() {
+  removeProjectTabs()
+  var bar = el('<nav id="ptabs"></nav>')
+  SHOW_TABS.forEach(function (t) {
+    var b = el('<button class="ptab' + (SHOW_TAB === t[0] ? ' on' : '') + '"><span class="ptab-i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + t[2] + '</svg></span><span class="ptab-l">' + esc(t[1]) + '</span></button>')
+    b.addEventListener('click', function () {
+      if (SHOW_TAB === t[0]) return
+      flushShowEdit() // switching tabs mid-edit keeps the edit
+      SHOW_TAB = t[0]
+      render()
+      window.scrollTo(0, 0)
+    })
+    bar.appendChild(b)
+  })
+  document.body.appendChild(bar)
+  document.body.classList.add('has-ptabs')
+}
+
+function openShowOptions(s) {
+  var sh = makeSheet(s.name)
+  var ren = el('<button class="actrow"><span class="ar-l">Rename</span></button>')
+  ren.addEventListener('click', function () {
+    sh.body.innerHTML = ''
+    var inp = el('<input class="search">'); inp.value = s.name
+    sh.body.appendChild(inp)
+    var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+    bar.children[0].addEventListener('click', sh.close)
+    var go = function () {
+      var n = inp.value.trim()
+      if (!n) { inp.focus(); return }
+      doWrite(updateShow(s.id, { name: n }), 'Renamed', function (saved) { replaceShow(saved); sh.close(); render() })
+    }
+    bar.children[1].addEventListener('click', go)
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go() })
+    sh.body.appendChild(bar)
+    setTimeout(function () { inp.focus(); inp.select() }, 40)
+  })
+  var del = el('<button class="actrow"><span class="ar-l" style="color:var(--red)">Delete show</span></button>')
+  del.addEventListener('click', function () {
+    if (!confirm('Delete "' + s.name + '"?\n\nIts set list and packing list go with it. This cannot be undone.')) return
+    doWrite(deleteShow(s.id), 'Show deleted', function () {
+      SHOWS = (SHOWS || []).filter(function (x) { return x.id !== s.id })
+      SHOW_ID = null; SHOW_EDIT = false; SHOW_DRAFT = null
+      sh.close()
+      TAB = 'shows'; render()
+    })
+  })
+  sh.body.appendChild(ren); sh.body.appendChild(del)
 }
 
 // ---------- drawer navigation ----------
@@ -4703,7 +5066,8 @@ function openSearch() {
 function openDrawer() { var d = $('#drawer'); if (d) { d.classList.remove('hidden'); updateDrawerActive() } }
 function closeDrawer() { var d = $('#drawer'); if (d) d.classList.add('hidden') }
 function updateDrawerActive() {
-  document.querySelectorAll('#drawer-nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.page === TAB) })
+  var here = TAB === 'show' ? 'shows' : TAB
+  document.querySelectorAll('#drawer-nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.page === here) })
 }
 function navigate(page) {
   DETAIL_ID = null
@@ -4731,12 +5095,13 @@ var NAV_MAX = 50
 function sameLoc(a, b) {
   if (!a || !b) return false
   if (a.detail || b.detail) return a.detail === b.detail
+  if (a.tab === 'show' && b.tab === 'show') return a.show === b.show
   return a.tab === b.tab
 }
 function noteLoc(loc) {
   if (LAST_LOC && !sameLoc(LAST_LOC, loc)) {
     if (!NAV_RESTORING) {
-      var prev = { tab: LAST_LOC.tab, detail: LAST_LOC.detail, ptab: LAST_LOC.ptab, y: window.scrollY || 0, sheet: HOME_SHEET }
+      var prev = { tab: LAST_LOC.tab, detail: LAST_LOC.detail, ptab: LAST_LOC.ptab, show: LAST_LOC.show || null, y: window.scrollY || 0, sheet: HOME_SHEET }
       NAV_STACK.push(prev)
       if (NAV_STACK.length > NAV_MAX) NAV_STACK.shift()
     }
@@ -4745,7 +5110,7 @@ function noteLoc(loc) {
   LAST_LOC = loc
   updateBackBtn()
   // Remembered so a relaunch opens where he left off, like the Mac does.
-  try { localStorage.setItem('crm-last-loc', JSON.stringify({ tab: loc.tab, detail: loc.detail || null, ptab: loc.ptab || '', at: Date.now() })) } catch (e) { /* private mode */ }
+  try { localStorage.setItem('crm-last-loc', JSON.stringify({ tab: loc.tab, detail: loc.detail || null, ptab: loc.ptab || '', show: loc.show || null, at: Date.now() })) } catch (e) { /* private mode */ }
 }
 // Where Back would go right now, without going there: the newest entry that is not where he already
 // is and is not a project that has since disappeared. With nothing usable left, Home is the floor.
@@ -4753,6 +5118,7 @@ function backTarget() {
   for (var i = NAV_STACK.length - 1; i >= 0; i--) {
     var e = NAV_STACK[i]
     if (e.detail && !(SNAP && SNAP.projects.some(function (x) { return x.id === e.detail }))) continue
+    if (e.tab === 'show' && !showById(e.show)) continue // a show deleted since
     if (sameLoc(e, LAST_LOC)) continue
     return { e: e, i: i }
   }
@@ -4762,6 +5128,7 @@ function backTarget() {
 }
 // The label is the destination, the way iOS does it, so he knows where he is going before he taps.
 function backLabel(e) {
+  if (e.tab === 'show') return (showById(e.show) || {}).name || 'Show'
   if (e.detail) {
     var p = SNAP && SNAP.projects.find(function (x) { return x.id === e.detail })
     return (p && p.client) || 'Project'
@@ -4786,6 +5153,7 @@ function goBack() {
   NAV_RESTORING = true
   try {
     TAB = e.tab
+    if (e.tab === 'show') { SHOW_ID = e.show; SHOW_EDIT = false; SHOW_DRAFT = null }
     if (e.detail) { if (e.ptab) PTAB = e.ptab; renderDetail(e.detail) }
     else render()
   } finally { NAV_RESTORING = false }
@@ -6850,7 +7218,10 @@ function enterApp() {
   var saved = null
   try { saved = JSON.parse(localStorage.getItem('crm-last-loc') || 'null') } catch (e) { saved = null }
   if (saved && (!saved.at || Date.now() - saved.at > 24 * 3600e3)) saved = null
-  if (saved && saved.tab && PAGE_TITLES[saved.tab] && !saved.detail) TAB = saved.tab
+  if (saved && saved.tab && PAGE_TITLES[saved.tab] && !saved.detail) {
+    TAB = saved.tab
+    if (TAB === 'show') { if (saved.show) SHOW_ID = saved.show; else TAB = 'shows' }
+  }
   loadAndRender().then(function (r) {
     if (r !== 'ok' || !saved || !saved.detail) return
     var p = (SNAP.projects || []).find(function (x) { return x.id === saved.detail })
