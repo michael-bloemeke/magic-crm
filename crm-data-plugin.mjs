@@ -60,6 +60,7 @@ import {
 import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
+import { loadShows, createShow, updateShow, setPacked, uncheckAll, deleteShow } from './crm-shows.mjs'
 import { loadCalendarAlerts, updateCalendarAlerts } from './crm-calendar-alerts.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
@@ -533,6 +534,40 @@ export function crmDataPlugin() {
           for (const tid of taskIds) void removeTaskEvent(tid)
           return result
         })
+      })
+
+      // --- Shows: set lists and packing lists (crm-shows.mjs) ---
+      server.middlewares.use('/api/shows/add', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ show: await createShow(b.name) }))
+      })
+      server.middlewares.use('/api/shows/update', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ show: await updateShow(b.id, b.patch || {}) }))
+      })
+      server.middlewares.use('/api/shows/pack', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ show: await setPacked(b.id, b.itemId, !!b.done) }))
+      })
+      server.middlewares.use('/api/shows/uncheck-all', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ show: await uncheckAll(b.id) }))
+      })
+      server.middlewares.use('/api/shows/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await deleteShow(b.id))
+      })
+      server.middlewares.use('/api/shows', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        Promise.resolve(loadShows())
+          .then((shows) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ shows }))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: e?.message || 'Failed to load shows.' }))
+          })
       })
 
       // --- Recurring task schedules (materialised by a Postgres job, editable here) ---

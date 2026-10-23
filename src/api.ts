@@ -1780,3 +1780,40 @@ export function describeSchedule(s: TaskSchedule): string {
   const days = [...s.daysOfWeek].sort().map((n) => DAY_LABELS[n - 1]).join(', ')
   return `Every ${days || '(no day set)'} at ${time}`
 }
+
+// --- Shows: set lists and packing lists (crm-shows.mjs; the phone shares the same `shows` rows) ---
+export type SetListItem = { id: string; text: string }
+export type PackingItemType = 'item' | 'header' | 'blank'
+export type PackingItem = { id: string; type: PackingItemType; text: string; done: boolean }
+export type Show = {
+  id: string
+  name: string
+  setList: SetListItem[]
+  packingList: PackingItem[]
+  createdAt: string
+  updatedAt: string
+}
+
+export async function loadShows(): Promise<Show[]> {
+  const res = await fetch('/api/shows')
+  if (!res.ok) throw new Error(`Failed to load shows (${res.status})`)
+  return ((await res.json()).shows ?? []) as Show[]
+}
+export async function createShow(name: string): Promise<Show> {
+  return (await postJsonStrict<{ show: Show }>('/api/shows/add', { name }, 'Could not add the show')).show
+}
+export async function updateShow(
+  id: string,
+  patch: { name?: string; setList?: SetListItem[]; packingList?: PackingItem[] },
+): Promise<Show> {
+  return (await postJsonStrict<{ show: Show }>('/api/shows/update', { id, patch }, 'Could not save the show')).show
+}
+export async function setPacked(id: string, itemId: string, done: boolean): Promise<Show> {
+  return (await postJsonStrict<{ show: Show }>('/api/shows/pack', { id, itemId, done }, 'Could not save that checkmark')).show
+}
+export async function uncheckAllPacked(id: string): Promise<Show> {
+  return (await postJsonStrict<{ show: Show }>('/api/shows/uncheck-all', { id }, 'Could not uncheck the list')).show
+}
+export async function deleteShow(id: string): Promise<void> {
+  await postJsonStrict('/api/shows/delete', { id }, 'Could not delete the show')
+}
