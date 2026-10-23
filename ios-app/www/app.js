@@ -18,7 +18,7 @@ import {
   saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment,
   SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule,
   loadInquiryReview, dismissInquiryReview,
-  loadShows, createShow, updateShow, setPacked, uncheckAllPacked, deleteShow,
+  loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow,
   phoneApi, saveConfigPatch, loadRawConfig, loadQuickBooksMonths, loadBankBalances, deletePayment,
   EXPENSE_CADENCES, loadExpenses, addExpense, deleteExpense, loadMileage, addTrip, deleteTrip, setMileageRate,
   loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings,
@@ -4706,10 +4706,18 @@ function renderShows() {
     SHOWS.forEach(function (s) {
       var items = s.packingList.filter(function (x) { return x.type === 'item' })
       var packed = items.filter(function (x) { return x.done }).length
-      var c = el('<button class="card show-card"><div class="name"></div><div class="meta"></div></button>')
+      var c = el('<div class="card show-card"><button class="show-open"><div class="name"></div><div class="meta"></div></button><button class="show-dup" aria-label="Duplicate"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg>Duplicate</button></div>')
       c.querySelector('.name').textContent = s.name
       c.querySelector('.meta').textContent = s.setList.length + ' in the set list  ·  ' + (items.length ? packed + ' of ' + items.length + ' packed' : 'nothing to pack yet')
-      c.addEventListener('click', function () { openShow(s.id) })
+      c.querySelector('.show-open').addEventListener('click', function () { openShow(s.id) })
+      // Duplicate (2026-10-23): an exact copy named "Copy of <name>", added at the end of the list,
+      // which is where it stays after a reload (shows are listed oldest first).
+      var dup = c.querySelector('.show-dup')
+      dup.addEventListener('click', function () {
+        dup.disabled = true
+        doWrite(duplicateShow(s.id), 'Copied', function (copy) { replaceShow(copy); draw() })
+          .catch(function () { dup.disabled = false })
+      })
       list.appendChild(c)
     })
   }
