@@ -3,7 +3,7 @@
   "appName": "Bloom CRM",
   "webDir": "www",
   "ios": {
-    "contentInset": "always",
+    "contentInset": "never",
     "backgroundColor": "#16265a"
   },
   "server": {

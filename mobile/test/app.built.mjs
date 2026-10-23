@@ -3378,7 +3378,6 @@ function backLabel(e) {
     var p = SNAP && SNAP.projects.find(function (x) { return x.id === e.detail })
     return (p && p.client) || 'Project'
   }
-  if (e.tab === 'home' && e.sheet && HOME_SHEETS[e.sheet]) return HOME_SHEETS[e.sheet].title
   return PAGE_TITLES[e.tab] || 'Back'
 }
 function updateBackBtn() {
