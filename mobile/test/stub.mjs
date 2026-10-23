@@ -12,6 +12,18 @@ export const FIXTURE_THREADS = [
 ]
 
 export const STUB = {
+  // phone-api: only the proposal status the project card reads; everything else resolves ok.
+  phoneApi: (action, body = {}) => {
+    CALLS.push({ name: 'phoneApi', args: [action, body] })
+    if (action === 'proposal-status') {
+      if (body.projectId === 'sarah-whitfield') return Promise.resolve({ ok: true, exists: true, status: 'live', state: 'live', stateReason: 'Up now. The link works.',
+        url: 'https://michaelbloemeke.com/proposal/?t=ABC', openUrl: 'https://michaelbloemeke.com/proposal/?t=ABC&preview=1', headline: 'Gala', gaps: [],
+        views: 6, firstViewedAt: '2026-09-11T10:00:00Z', lastViewedAt: '2026-09-18T10:00:00Z', expiresAt: '', emailDraftedAt: '2026-09-10T11:00:00Z', packageCount: 2 })
+      return Promise.resolve({ ok: true, exists: false, status: 'none', gaps: [], views: 0 })
+    }
+    return Promise.resolve({ ok: true })
+  },
+  EXPENSE_CADENCES: ['monthly', 'quarterly', 'yearly', 'weekly', 'one-time'],
   loadEverything: () => Promise.resolve({}),
   dataChangedSinceLastLoad: () => Promise.resolve(false),
   getSession: () => Promise.resolve(null),
@@ -55,6 +67,12 @@ export const STUB = {
   gmailMarkRead: rec('gmailMarkRead'),
   gmailUnread: (q) => { CALLS.push({ name: 'gmailUnread', args: [q] }); return Promise.resolve({ count: 7, threads: FIXTURE_THREADS }) },
   sendEmail: (a) => { CALLS.push({ name: 'sendEmail', args: [a] }); return Promise.resolve({ ok: true }) },
+  loadRawConfig: () => Promise.resolve({ signatureEnabled: true, signatureHtml: 'Michael Bloemeke<div>michaelbloemeke.com</div>' }),
+  saveComposeDraft: (a) => { CALLS.push({ name: 'saveComposeDraft', args: [a] }); return Promise.resolve(a.id || 'draft-1') },
+  deleteDraft: rec('deleteDraft'),
+  loadProjectDrafts: (id) => { CALLS.push({ name: 'loadProjectDrafts', args: [id] }); return Promise.resolve(id === 'sarah-whitfield' ? [
+    { id: 'draft-9', projectId: id, kind: 'custom', to: ['sarah@duke.edu'], subject: 'Quick question', body: '<p>Half written</p>', format: 'html', threadId: '', threadSubject: '', attachments: [], updatedAt: '2026-10-22T15:00:00Z' },
+  ] : []) },
   loadProposalsOverview: () => { CALLS.push({ name: 'loadProposalsOverview', args: [] }); return Promise.resolve({
     items: [
       { projectId: 'sarah-whitfield', projectName: 'Sarah Whitfield', eventType: 'Gala', eventDate: '2026-10-04',

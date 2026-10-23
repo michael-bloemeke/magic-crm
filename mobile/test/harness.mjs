@@ -33,8 +33,14 @@ window.scrollTo = () => {}
 globalThis.scrollTo = () => {}
 
 let src = fs.readFileSync(path.join(MOB, 'app.js'), 'utf8')
+// Every name app.js imports from the data layer, read off its own import statement, so a new import
+// can never be forgotten here. Names the stub does not define get a harmless resolving default.
+const IMPORTED = (src.match(/import\s*\{([\s\S]*?)\}\s*from\s*'\.\/supabase-data\.js'/) || ['', ''])[1]
+  .split(',').map((x) => x.trim()).filter(Boolean)
 src = src.replace(/import\s*\{[\s\S]*?\}\s*from\s*'\.\/supabase-data\.js'\n?/, '')
          .replace(/import\s*\{[^}]*\}\s*from\s*'\.\/config\.js'\n?/, '')
+         // The template library is plain data, so the test loads the real one rather than a stub.
+         .replace("from './email-templates.js'", "from '../email-templates.js'")
 // boot() fires on DOMContentLoaded and would go to the network; the harness drives the render
 // functions directly instead, so that listener is dropped.
 src = src.replace("document.addEventListener('DOMContentLoaded', boot)", "")
@@ -44,7 +50,7 @@ const tail = [
   "  submittedSection, openCompose, openTaskEditor, mapsLinks, fmtTime, countdownText,",
   "  fmtPhoneDisplay, projectEmails, mailWhen, updateCounts, refreshUnreadMail, taskCard, mailRow,",
   "  renderProposals, proposalCard, openPreview, copyText, renderPipeline, projectCard,",
-  "  buildClientMailQueries, activeProjectEmails,",
+  "  buildClientMailQueries, activeProjectEmails, openContactSheet, openSearch, openScheduleSheet,",
   "  renderHome, openHomeSheet, goBack, homeData, getNav: () => NAV_STACK, getTab: () => TAB, getDetail: () => DETAIL_ID,",
   "  bookingTab, proposalSection, emailToProjectIndex, openNewProject,",
   "  refreshNativePushToken, registerNativePush, updatePushButton,",
@@ -53,7 +59,10 @@ const tail = [
   "  getPtab: () => PTAB, getStage: () => STAGE, setStageMap: (m) => { STAGE = m },",
   "}",
 ].join("\n")
-fs.writeFileSync(OUT, "import { STUB } from './stub.mjs'\nconst { " + STUBNAMES() + " } = STUB\n" + src + "\n" + tail + "\n")
+const header = "import { STUB } from './stub.mjs'\n" +
+  "const __S = new Proxy(STUB, { get: (t, k) => (k in t ? t[k] : (...a) => Promise.resolve({ ok: true })) })\n" +
+  "const { " + [...new Set([...STUBNAMES().split(',').map((x) => x.trim()), ...IMPORTED])].filter((n) => n !== 'VAPID_PUBLIC_KEY').concat(['VAPID_PUBLIC_KEY']).join(', ') + " } = __S\n"
+fs.writeFileSync(OUT, header + src + "\n" + tail + "\n")
 
 function STUBNAMES() {
   return [

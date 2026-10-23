@@ -154,6 +154,16 @@ function projectFromRow(p) {
     // When it was soft-deleted. The Deleted page counts the 30-day window down from this.
     deletedAt: str(p.deleted_at),
     activityLog: Array.isArray(p.activity_log) ? p.activity_log.map(String) : [],
+    // Added 2026-10-23 for parity with the Mac: Post Show tips, Stats (lead date, sign-off), the
+    // Booked-stage gig-times gate, the Initial inquiry window, and the archive tooltip.
+    tipsMethod: str(p.tips_method),
+    leadDate: str(p.lead_date),
+    signedOff: !!p.stat_signed_off,
+    leaveHomeTime: str(p.leave_home_time),
+    backHomeTime: str(p.back_home_time),
+    initialInquiry: str(p.initial_inquiry),
+    whyArchived: str(p.why_archived),
+    createdAt: str(p.created_at),
   }
 }
 
@@ -207,7 +217,7 @@ const NOTIF_LABELS = {
 export async function loadProjects() {
   const { data, error } = await sb
     .from('projects')
-    .select('id,client_name,project_name,bucket,stage_id,status,event_type,event_date,arrival_time,event_start_time,show_start_time,event_location,venue_type,indoors_or_outdoors,number_of_guests,age_of_guests,performance_style,total_fee,total_fee_text,tips,mileage,vips,av,booking_source,event_summary,event_description,project_notes,contact_names,contact_emails,contact_phones,flags,archive_reason,completed_date,deleted_at,activity_log')
+    .select('id,client_name,project_name,bucket,stage_id,status,event_type,event_date,arrival_time,event_start_time,show_start_time,event_location,venue_type,indoors_or_outdoors,number_of_guests,age_of_guests,performance_style,total_fee,total_fee_text,tips,tips_method,mileage,vips,av,booking_source,event_summary,event_description,project_notes,contact_names,contact_emails,contact_phones,flags,archive_reason,why_archived,completed_date,deleted_at,activity_log,lead_date,stat_signed_off,leave_home_time,back_home_time,initial_inquiry,created_at')
   if (error) throw error
   return (data || []).map(projectFromRow)
 }
@@ -342,6 +352,11 @@ export function computeFinance(projects, payments, config) {
   const quote = (p) => (typeof p.totalFee === 'number' ? p.totalFee : 0)
   const tipOf = (p) => (typeof p.tips === 'number' ? p.tips : 0)
 
+  // The Mac computes finance over LIVE projects only (crm-finance.mjs): anything in Deleted is gone
+  // from every figure, its payments and tips included. The phone used to count them.
+  const deletedIds = new Set(projects.filter((p) => p.bucket === 'deleted').map((p) => p.id))
+  projects = projects.filter((p) => p.bucket !== 'deleted')
+  payments = payments.filter((pm) => !deletedIds.has(pm.projectId))
   const byId = new Map(projects.map((p) => [p.id, p]))
   const projName = (id) => (byId.get(id) ? byId.get(id).client : '(unassigned)')
   const eventMonthOf = (pm) => mKey(byId.get(pm.projectId) ? byId.get(pm.projectId).eventDate : '')
@@ -435,6 +450,7 @@ export function computeFinance(projects, payments, config) {
     expectedItems,
     goals,
     monthlyGoal: config.monthlyGoal,
+    months,
     hasPayments: payments.length > 0,
   }
 }
@@ -580,7 +596,18 @@ const PROJECT_FIELD_COLUMNS = {
   vips: 'vips',
   av: 'av',
   eventSummary: 'event_summary',
+  // Added 2026-10-23 for parity with the Mac (all text columns).
+  leadDate: 'lead_date',
+  eventType: 'event_type',
+  archiveReason: 'archive_reason',
+  tipsMethod: 'tips_method',
+  leaveHomeTime: 'leave_home_time',
+  backHomeTime: 'back_home_time',
+  initialInquiry: 'initial_inquiry',
 }
+// Numeric and boolean columns, written the way coerceFieldValue in crm-data-core.mjs writes them.
+const NUMERIC_FIELD_COLUMNS = { tips: 'tips', mileage: 'mileage' }
+const BOOLEAN_FIELD_COLUMNS = { signedOff: 'stat_signed_off' }
 // The QUOTE is not in the map above because total_fee is a NUMERIC column with a total_fee_text
 // companion for legacy non-numeric values, so it cannot be written like the text fields. It gets
 // its own branch in updateProjectField.
@@ -609,6 +636,20 @@ export async function updateProjectField(id, col, value) {
     if (error) throw error
     return { ok: true, id, field: col, column: 'total_fee', value: numeric != null ? numeric : raw }
   }
+  if (NUMERIC_FIELD_COLUMNS[col]) {
+    const raw = String(value == null ? '' : value).trim().replace(/[$,]/g, '')
+    const n = raw === '' ? null : Number(raw)
+    if (n !== null && !Number.isFinite(n)) throw new Error('Enter a number.')
+    const { error } = await sb.from('projects').update({ [NUMERIC_FIELD_COLUMNS[col]]: n }).eq('id', id)
+    if (error) throw error
+    return { ok: true, id, field: col, column: NUMERIC_FIELD_COLUMNS[col], value: n }
+  }
+  if (BOOLEAN_FIELD_COLUMNS[col]) {
+    const b = value === true || String(value).toLowerCase() === 'true'
+    const { error } = await sb.from('projects').update({ [BOOLEAN_FIELD_COLUMNS[col]]: b }).eq('id', id)
+    if (error) throw error
+    return { ok: true, id, field: col, column: BOOLEAN_FIELD_COLUMNS[col], value: b }
+  }
   const column = PROJECT_FIELD_COLUMNS[col]
   if (!column) throw new Error(`Field not editable on phone: ${col}`)
   let stored = value == null ? '' : String(value)
@@ -624,7 +665,7 @@ export async function updateProjectField(id, col, value) {
 // same allowed set. A dated (non-pending) payment is what the Booked-stage gate looks for. Returns the
 // app payment record so the Money tab can be refreshed / patched.
 export async function addPayment({ projectId, amount, dateReceived, type, method, note, pending } = {}) {
-  if (!projectId) throw new Error('Project id is required.')
+  // A payment may stand on its own (the Finance page's Payments tab allows "(none)", as the Mac does).
   const isPending = !!pending
   const amtNum = num(amount)
   const numeric = Number.isFinite(amtNum) ? amtNum : null
@@ -706,6 +747,9 @@ export async function updateContact(id, patch = {}) {
   if ('tags' in patch) row.tags = toList(patch.tags)
   if ('emails' in patch) row.emails = toList(patch.emails)
   if ('phones' in patch) row.phones = toList(patch.phones).map((p) => formatPhoneField(p))
+  // The Mac's Type and Engagement chips (2026-10-23). Stored lower-case, the way the Mac stores them.
+  if ('type' in patch) row.type = ['client', 'vendor', 'associate', 'other'].includes(String(patch.type).toLowerCase()) ? String(patch.type).toLowerCase() : 'client'
+  if ('engagement' in patch) row.engagement = ['', 'emailed', 'collaborated'].includes(patch.engagement) ? patch.engagement : ''
   const { error } = await sb.from('contacts').update(row).eq('id', id)
   if (error) throw error
   return { ok: true, id, patch: row }
@@ -1068,8 +1112,11 @@ export async function loadEmails() {
 // Send an email as Michael via the send-email Edge Function (cloud Gmail; works with the Mac off).
 // supabase-js attaches the logged-in session JWT, which the function verifies. The function also flips
 // the matching draft in `emails` to sent. Returns { ok, id, emailId, sentAt }.
-export async function sendEmail({ to, subject, body, projectId, kind } = {}) {
-  const { data, error } = await sb.functions.invoke('send-email', { body: { to, subject, body, projectId, kind } })
+// threadId replies inside that Gmail conversation; emailId completes one saved draft row (otherwise a
+// new sent row is written, so a draft the Mac is still writing is never overwritten); html sends a
+// formatted body; signature:false leaves the Settings signature off this one email.
+export async function sendEmail({ to, subject, body, html, projectId, kind, threadId, emailId, signature } = {}) {
+  const { data, error } = await sb.functions.invoke('send-email', { body: { to, subject, body, html, projectId, kind, threadId, emailId, signature } })
   if (error) {
     let msg = error.message || 'Could not send.'
     try { const j = await error.context.json(); if (j && j.error) msg = j.error } catch (_) { /* keep msg */ }
@@ -1177,6 +1224,151 @@ export async function saveEmailDraft({ projectId, kind, to, subject, body } = {}
   return { id, subject: row.subject, body: row.body, to: toArr }
 }
 
+// ---------- inquiries to review (the Mac bell's "Inquiries to review") ----------
+// Every website inquiry not yet dismissed, newest first. Dismissing sets data.dismissed, exactly as
+// the Mac's dismissNotification does, so clearing one on either device clears it on both.
+export async function loadInquiryReview() {
+  const { data, error } = await sb.from('inquiries').select('id,data')
+  if (error) throw error
+  return (data || []).filter((r) => r.data && !r.data.dismissed).map((r) => ({
+    id: str(r.id), name: str(r.data.name), email: str(r.data.email), eventDate: str(r.data.eventDate), projectId: str(r.data.projectId),
+    at: str(r.data.importedAt || r.data.submittedAt), note: str(r.data.note),
+  })).sort((a, b) => b.at.localeCompare(a.at))
+}
+export async function dismissInquiryReview(id) {
+  const { data: row, error: e1 } = await sb.from('inquiries').select('data').eq('id', id).maybeSingle()
+  if (e1) throw e1
+  if (!row) return
+  const { error } = await sb.from('inquiries').update({ data: { ...(row.data || {}), dismissed: true } }).eq('id', id)
+  if (error) throw error
+}
+
+// ---------- recurring tasks (task_schedules), a port of crm-task-schedules.mjs ----------
+//
+// Every recurrence is a ROW; one Postgres job (materialize_scheduled_tasks, every minute, Eastern
+// time) creates the tasks. Never add a bespoke cron job. Same normalisation as the Mac, so a schedule
+// saved from either device reads the same on both.
+export const SCHEDULE_FREQUENCIES = ['daily', 'weekly', 'monthly']
+export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] // index 0 = ISO day 1
+const schedHhmm = (v, fallback = '07:00') => {
+  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2}):(\d{1,2})$/)
+  if (!m) return fallback
+  const h = Number(m[1]), min = Number(m[2])
+  if (h > 23 || min > 59) return fallback
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+function schedFromRow(r) {
+  return {
+    id: str(r.id), title: str(r.title), projectId: str(r.project_id), frequency: str(r.frequency),
+    daysOfWeek: Array.isArray(r.days_of_week) ? r.days_of_week.map(Number) : [],
+    dayOfMonth: r.day_of_month == null ? null : Number(r.day_of_month),
+    runTime: str(r.run_time), dueTime: str(r.due_time), active: !!r.active, lastCreatedOn: str(r.last_created_on), createdAt: str(r.created_at),
+  }
+}
+function schedToRow(input) {
+  const f = SCHEDULE_FREQUENCIES.includes(String(input.frequency || '').toLowerCase()) ? String(input.frequency).toLowerCase() : 'weekly'
+  const dows = [...new Set((Array.isArray(input.daysOfWeek) ? input.daysOfWeek : []).map(Number).filter((n) => n >= 1 && n <= 7))].sort()
+  const dom = Number(input.dayOfMonth)
+  return {
+    title: String(input.title || '').trim(),
+    project_id: String(input.projectId || '').trim(),
+    frequency: f,
+    days_of_week: f === 'weekly' ? dows : [],
+    day_of_month: f === 'monthly' ? (dom >= 1 && dom <= 31 ? dom : 1) : null,
+    run_time: schedHhmm(input.runTime),
+    due_time: String(input.dueTime || '').trim(),
+    active: input.active === undefined ? true : !!input.active,
+  }
+}
+export async function loadTaskSchedules() {
+  const { data, error } = await sb.from('task_schedules').select('*').order('title')
+  if (error) throw error
+  return (data || []).map(schedFromRow)
+}
+export async function saveTaskSchedule(id, input) {
+  let base = {}
+  if (id) {
+    const { data: cur, error: readErr } = await sb.from('task_schedules').select('*').eq('id', id).maybeSingle()
+    if (readErr) throw readErr
+    if (!cur) throw new Error('Schedule not found.')
+    base = schedFromRow(cur)
+  }
+  const row = schedToRow({ ...base, ...input })
+  if (!row.title) throw new Error('A title is required.')
+  if (row.frequency === 'weekly' && !row.days_of_week.length) throw new Error('Pick at least one day of the week.')
+  const q = id ? sb.from('task_schedules').update(row).eq('id', id) : sb.from('task_schedules').insert(row)
+  const { data, error } = await q.select('*').single()
+  if (error) throw error
+  return schedFromRow(data)
+}
+// Stops FUTURE tasks only; the tasks it already created stay on the list.
+export async function deleteTaskSchedule(id) {
+  const { error } = await sb.from('task_schedules').delete().eq('id', id)
+  if (error) throw error
+}
+export function describeSchedule(s) {
+  const [h, m] = String(s.runTime || '07:00').split(':').map(Number)
+  const time = `${h % 12 === 0 ? 12 : h % 12}:${String(m || 0).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+  if (s.frequency === 'daily') return `Every day at ${time}`
+  if (s.frequency === 'monthly') {
+    const d = s.dayOfMonth ?? 1
+    const suffix = d % 10 === 1 && d !== 11 ? 'st' : d % 10 === 2 && d !== 12 ? 'nd' : d % 10 === 3 && d !== 13 ? 'rd' : 'th'
+    return `Monthly on the ${d}${suffix} at ${time}`
+  }
+  const days = [...s.daysOfWeek].sort().map((n) => DAY_LABELS[n - 1]).join(', ')
+  return `Every ${days || '(no day set)'} at ${time}`
+}
+
+// ---------- the composer's drafts and attachments (Mac parity, 2026-10-23) ----------
+//
+// A draft is an `emails` row with status 'draft', kind 'custom', HTML body: exactly what the Mac's
+// "New email" composer autosaves, so a draft started on either device opens on the other. Saved BY ID,
+// never by "the latest draft of this kind", so two drafts can never overwrite each other.
+export async function saveComposeDraft({ id, projectId, to, subject, html, threadId, threadSubject, attachments } = {}) {
+  if (!projectId) throw new Error('Project id is required.')
+  const toArr = Array.isArray(to) ? to : String(to || '').split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+  const nowIso = new Date().toISOString()
+  const row = {
+    project_id: projectId, kind: 'custom', to: toArr, subject: String(subject || '') || '(no subject)', body: String(html || ''), format: 'html',
+    status: 'draft', updated_at: nowIso, thread_id: threadId || '', thread_subject: threadSubject || '',
+    attachments: (attachments || []).map((a) => ({ source: 'cloud', name: a.name, id: a.path, size: a.size || undefined })),
+  }
+  if (id) {
+    const { error } = await sb.from('emails').update(row).eq('id', id).neq('status', 'sent')
+    if (error) throw error
+    return id
+  }
+  const newId = uuid()
+  const { error } = await sb.from('emails').insert({ id: newId, created_at: nowIso, ...row })
+  if (error) throw error
+  return newId
+}
+// Only ever a DRAFT: the status guard means a sent receipt can never be removed from here.
+export async function deleteDraft(id) {
+  if (!id) return
+  const { error } = await sb.from('emails').delete().eq('id', id).eq('status', 'draft')
+  if (error) throw error
+}
+export async function loadProjectDrafts(projectId) {
+  const { data, error } = await sb.from('emails').select('id,project_id,kind,to,subject,body,format,status,thread_id,thread_subject,attachments,updated_at')
+    .eq('project_id', projectId).eq('status', 'draft').order('updated_at', { ascending: false })
+  if (error) throw error
+  return (data || []).map((e) => ({
+    id: str(e.id), projectId: str(e.project_id), kind: str(e.kind), to: Array.isArray(e.to) ? e.to.map(String) : [],
+    subject: str(e.subject), body: str(e.body), format: str(e.format) || 'text', threadId: str(e.thread_id), threadSubject: str(e.thread_subject),
+    attachments: (Array.isArray(e.attachments) ? e.attachments : []).filter((a) => a && a.source === 'cloud' && a.id).map((a) => ({ name: str(a.name), path: str(a.id), size: Number(a.size) || 0 })),
+    updatedAt: str(e.updated_at),
+  }))
+}
+// A one-off attachment picked from the phone. Kept apart from the Files library, under its own folder.
+export async function uploadEmailAttachment(file) {
+  const name = String(file.name || 'file').replace(/[\\/]/g, '-')
+  const path = 'email-attachments/' + uuid() + '/' + name
+  const { error } = await sb.storage.from('crm-files').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false })
+  if (error) throw error
+  return { name, path, size: file.size || 0, type: file.type || '' }
+}
+
 // Contact links: { [projectId]: [contactId, ...] }. Powers "linked projects" on a contact and
 // contacts-on-a-project. Mirrors crm-links.
 //
@@ -1207,6 +1399,231 @@ export async function reloadPaymentsFinance(projects, config) {
   const payments = (data || []).map(paymentFromRow)
   const finance = computeFinance(projects, payments, config)
   return { payments, finance }
+}
+
+
+// ============================================================================
+// PARITY WITH THE MAC (2026-10-23). Michael: "I want there to be no gaps between the two apps."
+// Each function below is the phone's version of one Mac endpoint in crm-data-plugin.mjs, writing the
+// same rows the same way, so the Mac picks the change up on its next data_version poll.
+// ============================================================================
+
+// The phone's server-side half (supabase/functions/phone-api). Everything that needs a secret the
+// phone must never hold: QuickBooks, Google Calendar, calendar-alert status.
+export async function phoneApi(action, body = {}) {
+  const { data, error } = await sb.functions.invoke('phone-api', { body: { action, ...body } })
+  if (error) {
+    let msg = error.message || 'phone-api failed'
+    try { const j = await error.context.json(); if (j && j.error) msg = j.error } catch (_) { /* keep msg */ }
+    throw new Error(msg)
+  }
+  if (data && data.ok === false && data.error) throw new Error(data.error)
+  return data
+}
+
+// crm_config is ONE row of settings that the Mac also writes (goals, signature, field labels, tags,
+// archive reasons...). A blind write of a partial object would wipe everything else in it, so every
+// change reads the current row and merges, exactly like the Mac's saveConfig.
+export async function saveConfigPatch(patch = {}) {
+  const { data, error } = await sb.from('crm_config').select('id,data').eq('id', 1).single()
+  if (error) throw error
+  const merged = { ...((data && data.data) || {}), ...patch }
+  const { error: e2 } = await sb.from('crm_config').update({ data: merged }).eq('id', 1)
+  if (e2) throw e2
+  return merged
+}
+export async function loadRawConfig() {
+  const { data, error } = await sb.from('crm_config').select('data').eq('id', 1).single()
+  if (error) throw error
+  return (data && data.data) || {}
+}
+
+// ---------- QuickBooks months + bank balances (cached like the Mac: 15 minutes) ----------
+const FIFTEEN_MIN = 15 * 60 * 1000
+let qboCache = { at: 0, data: null }
+export async function loadQuickBooksMonths(force = false) {
+  if (!force && qboCache.data && Date.now() - qboCache.at < FIFTEEN_MIN) return qboCache.data
+  let data
+  try { data = await phoneApi('finance-qbo') } catch (e) { data = { ok: false, connected: false, reason: String(e && e.message || e) } }
+  qboCache = { at: Date.now(), data }
+  return data
+}
+let bankCache = { at: 0, data: null }
+export async function loadBankBalances(force = false) {
+  if (!force && bankCache.data && Date.now() - bankCache.at < FIFTEEN_MIN) return bankCache.data
+  let data
+  try {
+    const r = await sb.functions.invoke('bank-balances', { body: {} })
+    if (r.error) throw r.error
+    data = r.data
+  } catch (e) {
+    data = { ok: false, connected: false, accounts: [], generatedAt: '', reason: String(e && e.message || e) }
+  }
+  bankCache = { at: Date.now(), data }
+  return data
+}
+
+// ---------- payments ----------
+export async function deletePayment(id) {
+  const { error } = await sb.from('payments').delete().eq('id', id)
+  if (error) throw error
+  return { ok: true }
+}
+
+// ---------- recurring business expenses (the Mac's Expenses tab) ----------
+export const EXPENSE_CADENCES = ['monthly', 'quarterly', 'yearly', 'weekly', 'one-time']
+function expenseFromRow(r) {
+  return { id: str(r.id), name: str(r.name), amount: amountOf({ amount: r.amount, amount_text: r.amount_text }), cadence: str(r.cadence) || 'monthly',
+    category: str(r.category), note: str(r.note), createdAt: isoZ(r.created_at) }
+}
+export async function loadExpenses() {
+  const { data, error } = await sb.from('expenses').select('*')
+  if (error) throw error
+  return (data || []).map(expenseFromRow).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+}
+export async function addExpense({ name, amount, cadence, category } = {}) {
+  const n = Number(String(amount == null ? '' : amount).replace(/[^0-9.\-]/g, ''))
+  const row = { id: uuid(), name: String(name || 'Expense'), amount: Number.isFinite(n) ? n : null, amount_text: Number.isFinite(n) ? null : String(amount),
+    cadence: EXPENSE_CADENCES.includes(cadence) ? cadence : 'monthly', category: String(category || ''), note: '', created_at: new Date().toISOString() }
+  const { error } = await sb.from('expenses').insert(row)
+  if (error) throw error
+  return expenseFromRow(row)
+}
+export async function deleteExpense(id) {
+  const { error } = await sb.from('expenses').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ---------- mileage (the Mac's Mileage tab) ----------
+function tripFromRow(r) {
+  return { id: str(r.id), date: str(r.date), miles: amountOf({ amount: r.miles, amount_text: r.miles_text }), purpose: str(r.purpose),
+    projectId: str(r.project_id), createdAt: isoZ(r.created_at) }
+}
+export async function loadMileage() {
+  const [t, s] = await Promise.all([
+    sb.from('mileage_trips').select('*'),
+    sb.from('crm_settings').select('mileage_rate_per_mile').eq('id', 1).maybeSingle(),
+  ])
+  if (t.error) throw t.error
+  const rate = s.data && Number(s.data.mileage_rate_per_mile) > 0 ? Number(s.data.mileage_rate_per_mile) : 0.7
+  return { trips: (t.data || []).map(tripFromRow), rate }
+}
+export async function addTrip({ date, miles, purpose, projectId } = {}) {
+  const n = Number(String(miles == null ? '' : miles).replace(/[^0-9.\-]/g, ''))
+  const row = { id: uuid(), date: String(date || ''), miles: Number.isFinite(n) ? n : null, miles_text: Number.isFinite(n) ? null : String(miles),
+    purpose: String(purpose || ''), project_id: String(projectId || ''), created_at: new Date().toISOString() }
+  const { error } = await sb.from('mileage_trips').insert(row)
+  if (error) throw error
+  return tripFromRow(row)
+}
+export async function deleteTrip(id) {
+  const { error } = await sb.from('mileage_trips').delete().eq('id', id)
+  if (error) throw error
+}
+export async function setMileageRate(rate) {
+  const r = Number(rate) > 0 ? Number(rate) : 0.7
+  const { error } = await sb.from('crm_settings').upsert({ id: 1, mileage_rate_per_mile: r }, { onConflict: 'id' })
+  if (error) throw error
+  return r
+}
+
+
+// Live website analytics: the same website-analytics function the Mac's Website page reads (GA4 +
+// Search Console). Cached for a minute, as the Mac does.
+let analyticsCache = { at: 0, data: null }
+export async function loadAnalytics(force = false) {
+  if (!force && analyticsCache.data && Date.now() - analyticsCache.at < 60 * 1000) return analyticsCache.data
+  const { data, error } = await sb.functions.invoke('website-analytics', { body: {} })
+  if (error) throw error
+  analyticsCache = { at: Date.now(), data }
+  return data
+}
+
+
+// Calendar-alert settings: the one row the calendar-alerts function reads (id 1). RLS lets the phone
+// read and write it; the status row beside it is service-only and comes through phone-api.
+export async function sbCalendarAlertSettings() {
+  const { data, error } = await sb.from('calendar_alert_settings').select('*').eq('id', 1).maybeSingle()
+  if (error) throw error
+  return data || { id: 1, new_event_enabled: true, new_event_kinds: ['booking', 'invite'], digest_enabled: false, digest_time: '07:00', digest_days: [1, 2, 3, 4, 5, 6, 7], digest_calendars: ['Work'], soon_enabled: false, soon_minutes: 15, soon_skip_free: true }
+}
+export async function saveCalendarAlertSettings(patch = {}) {
+  const cur = await sbCalendarAlertSettings()
+  const row = { ...cur, ...patch, id: 1, updated_at: new Date().toISOString() }
+  const { error } = await sb.from('calendar_alert_settings').upsert(row, { onConflict: 'id' })
+  if (error) throw error
+  return row
+}
+
+
+// ---------- Files (the Mac's Files page, in the private crm-files Storage bucket) ----------
+export async function listFiles() {
+  const { data, error } = await sb.storage.from('crm-files').list('', { limit: 500, sortBy: { column: 'name', order: 'asc' } })
+  if (error) throw error
+  // A folder comes back with id null. The only folder is email-attachments/ (one-off uploads from the
+  // composer), which is not part of the Files library.
+  return (data || []).filter((f) => f.name && f.id && !f.name.startsWith('.')).map((f) => ({
+    name: f.name, size: (f.metadata && f.metadata.size) || 0, updatedAt: f.updated_at || f.created_at || '', type: (f.metadata && f.metadata.mimetype) || '',
+  }))
+}
+export async function fileUrl(name) {
+  const { data, error } = await sb.storage.from('crm-files').createSignedUrl(name, 60 * 60)
+  if (error) throw error
+  return data.signedUrl
+}
+export async function uploadFile(file) {
+  const name = String(file.name || 'file').replace(/[\\/]/g, '-')
+  const { error } = await sb.storage.from('crm-files').upload(name, file, { contentType: file.type || 'application/octet-stream', upsert: true })
+  if (error) throw error
+  return name
+}
+export async function deleteFile(name) {
+  const { error } = await sb.storage.from('crm-files').remove([name])
+  if (error) throw error
+}
+
+
+// The website form behind a project, from the inquiries table (the Mac's inquiryFormForProject).
+const INQUIRY_LABELS = [['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['eventDate', 'Event date'], ['eventTime', 'Event time'], ['venue', 'Venue / location'],
+  ['guests', 'Guest count'], ['ages', 'Guest ages'], ['showTypes', 'Performance interest'], ['source', 'How they heard'], ['message', 'Message']]
+export async function loadInquiryForm(projectId) {
+  const { data, error } = await sb.from('inquiries').select('data').eq('data->>projectId', projectId)
+  if (error) throw error
+  let rec = null
+  for (const r of data || []) { const v = r.data || {}; if (v.form && (!rec || String(v.importedAt || '') > String(rec.importedAt || ''))) rec = v }
+  if (!rec) return null
+  const fields = INQUIRY_LABELS.map(([k, label]) => ({ key: k, label, value: Array.isArray(rec.form[k]) ? rec.form[k].join(', ') : rec.form[k] })).filter((x) => x.value)
+  return { submittedAt: rec.form.submittedAt || rec.importedAt || '', formLocation: rec.form.formLocation || '', fields }
+}
+// The QuickBooks invoice record a booking produced (invoices.data), for the Booking card's invoice line.
+export async function loadInvoice(projectId) {
+  const { data, error } = await sb.from('invoices').select('data').eq('project_id', projectId).maybeSingle()
+  if (error) throw error
+  return (data && data.data) || null
+}
+
+
+// A standalone contact (the Contacts page's "New contact"), and deleting one. Deleting removes its
+// project links with it (contact_links cascades), the same as the Mac.
+export async function createContact({ name, email, phone, type } = {}) {
+  const now = new Date().toISOString()
+  const row = { id: uuid(), name: String(name || 'New contact'), emails: email ? [String(email)] : [], phones: phone ? [formatPhoneField(String(phone))] : [],
+    type: ['client', 'vendor', 'associate', 'other'].includes(type) ? type : 'client', relationship: '', engagement: '', tags: [], notes: '', created_at: now, updated_at: now }
+  const { error } = await sb.from('contacts').insert(row)
+  if (error) throw error
+  return row
+}
+export async function deleteContact(id) {
+  const { error } = await sb.from('contacts').delete().eq('id', id)
+  if (error) throw error
+}
+
+
+// One project's activity log, re-read after a server-side action wrote a line to it.
+export async function reloadProjectLog(projectId) {
+  const { data, error } = await sb.from('projects').select('activity_log').eq('id', projectId).maybeSingle()
+  if (error) throw error
+  return data && Array.isArray(data.activity_log) ? data.activity_log.map(String) : null
 }
 
 // ---------- web push ----------
@@ -1351,7 +1768,7 @@ export async function readyToBookOnPhone(project, variantId) {
 
   const { error } = await sb
     .from('projects')
-    .update({ booking_token: token, agreement_html: html, agreement_variant: chosen.variant })
+    .update({ booking_token: token, agreement_html: html, agreement_variant: chosen.variant, booking_sent_at: new Date().toISOString() })
     .eq('id', project.id)
   if (error) throw error
 
@@ -1361,8 +1778,8 @@ export async function readyToBookOnPhone(project, variantId) {
 // How far the client has got, read live. Mirrors liveProgress() on the desktop.
 export async function loadBookingProgress(projectId) {
   const [{ data: proj }, { data: row }] = await Promise.all([
-    sb.from('projects').select('booking_viewed_at, agreement_variant, booking_token').eq('id', projectId).maybeSingle(),
-    sb.from('booking_submissions').select('submitted_at, signed_at, signed_name, answers').eq('project_id', projectId).maybeSingle(),
+    sb.from('projects').select('booking_viewed_at, agreement_variant, booking_token, booking_sent_at').eq('id', projectId).maybeSingle(),
+    sb.from('booking_submissions').select('submitted_at, signed_at, signed_name, answers, complete_error').eq('project_id', projectId).maybeSingle(),
   ])
   const viewedAt = proj?.booking_viewed_at || ''
   const submittedAt = row?.submitted_at || ''
@@ -1373,6 +1790,9 @@ export async function loadBookingProgress(projectId) {
     signedName: row?.signed_name || '',
     variant: proj?.agreement_variant || '',
     linkOut: !!proj?.booking_token,
+    token: proj?.booking_token || '',
+    sentAt: proj?.booking_sent_at || '',
+    completeError: row?.complete_error || '',
     // What the client actually TYPED on the booking form, verbatim, as [{id, value}].
     //
     // Michael, 2026-09-21: "I need to be able to see the PDF of their completed booking form...

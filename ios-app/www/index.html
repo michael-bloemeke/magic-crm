@@ -20,6 +20,12 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
     <title>Bloom CRM</title>
+    <!-- The Mac's two typefaces (Fraunces for titles and big numbers, Hanken Grotesk for everything
+         else), loaded exactly the way the Mac app loads them. Offline, the stacks below fall back to
+         Georgia and the system font, so nothing breaks without a connection. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" />
     <style>
       /* App color system (phone). Deliberately the SAME palette as the desktop's src/index.css, so
          the two apps stop looking like different products.
@@ -89,17 +95,17 @@
       .topbar .sub { font-size: 11px; color: var(--faint); margin-top: 1px; }
       .iconbtn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); }
       .iconbtn:active { background: var(--surface2); }
-      /* The header is two rows: the menu, title, and actions, then Back on its own line beneath them.
-         Michael, 2026-10-23: the menu button belongs in the far-left corner, so Back moved out of that
-         row. It names where it goes ("Pipeline", the client's name) instead of being a bare arrow,
-         spans the full width so it is easy to hit, and only appears when there is somewhere to go. */
-      header.topbar { flex-direction: column; align-items: stretch; gap: 0; }
-      .topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-      .backbar { display: flex; align-items: center; gap: 3px; width: 100%; min-height: 38px; margin: 6px 0 -6px -4px;
-                 padding: 0 4px; color: var(--brass-bright); font-size: 15px; font-weight: 600; text-align: left; border-radius: 9px; }
-      .backbar span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .backbar svg { flex: none; }
-      .backbar:active { background: var(--surface2); }
+      /* Back lives in the header's right-hand group, just left of Refresh (Michael, 2026-10-23), with
+         the menu button keeping the far-left corner. It names where it goes ("Pipeline", a client's
+         name), is the same height and border as the icon buttons beside it, and only appears when
+         there is somewhere to go. A long destination trims with an ellipsis, and so does the page
+         title, so the header always stays one line. */
+      .backpill { display: inline-flex; align-items: center; gap: 2px; height: 34px; max-width: 36vw; padding: 0 10px 0 6px;
+                  border-radius: 9px; border: 1px solid var(--line); color: var(--brass-bright); font-size: 14px; font-weight: 600; }
+      .backpill span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .backpill svg { flex: none; }
+      .backpill:active { background: var(--surface2); }
+      .topbar-title h1, .topbar-title .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
       main { padding: 12px 14px 20px; }
       .section-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--faint); margin: 18px 4px 8px; display: flex; align-items: center; gap: 8px; }
@@ -558,6 +564,434 @@
       #login .signinbtn:disabled { opacity: 0.6; }
       #login .err { color: var(--red); font-size: 12.5px; margin-top: 12px; min-height: 16px; }
       .spinner { color: var(--faint); text-align: center; padding: 40px; font-size: 13px; }
+
+      /* ============================================================================================
+         THE BRAND GROUND (2026-10-23). Michael: "I want my phone app to look a lot more like" the Mac.
+         This is the Mac's own approach (src/index.css, "THE BRAND GROUND"), ported: the header band and
+         the page ground go navy, text sitting directly on the navy goes light, the accent goes GOLD on
+         navy, and anything that paints a card resets every token to the light palette for its own
+         subtree, so nothing inside a card had to change. Sheets, the drawer and the toast live outside
+         #view and keep the light palette on their own.
+
+         Same token names as the Mac (--parchment = body text, --brass = accent), same values.
+         ============================================================================================ */
+      :root { --font-display: 'Fraunces', Georgia, 'Times New Roman', serif; --navy: #16265a; }
+      body { font-family: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+      html, body { background: var(--navy); }
+      /* A fixed layer rather than background-attachment: fixed, which iOS ignores. */
+      body::before { content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+        background: linear-gradient(180deg, #18295f 0%, #0c1638 100%); }
+      /* Home gets the Mac's lighter navy and the damask, the same as Home on the Mac. */
+      body[data-page="home"]::before { background: url('./damask.webp') top left / 360px 360px repeat, linear-gradient(180deg, #2f4383 0%, #1e2f68 100%); }
+
+      :is(header.topbar, #view, #login) {
+        --parchment: #f4f5f7; --muted: #d3d5da; --faint: #b0b3bd;
+        --line: rgba(255, 255, 255, 0.14); --line-strong: rgba(255, 255, 255, 0.26);
+        --brass: #e3c279; --brass-bright: #f0d69b; --brass-dim: rgba(227, 194, 121, 0.72);
+        --green: #6ee7a5; --amber: #f0b866; --red: #ff8a80; --teal: #7dd3e8; --violet: #c4b5fd;
+        --ink-on-accent: #16265a;
+        color: var(--parchment);
+      }
+      /* ⚠️ ANYTHING THAT PAINTS A SURFACE IS A CARD, AND A CARD IS STILL LIGHT. The list is every rule in
+         this sheet that paints a light background. A new card class needs adding here, or its dark text
+         inherits the light-on-navy palette and vanishes. */
+      :is(header.topbar, #view, #login) :is(.card, .search, .btn-ghost, .seg, .msg, .addform, .field-input,
+        .stagesel, .stat, .pagenote, .actrow, .phead, .dayof, .emailcard, .bk-gate, .pdfchip, .pdfframe,
+        .statcard, .psection-head, .panel, .tabs, .fin-card, .fin-month, .cal-grid, .chartcard, .cal-grid, .pb-card, .box, input, select, textarea) {
+        --bg: #eef0f3; --surface: #ffffff; --surface2: #f5f7f9; --surface3: #eaedf1;
+        --parchment: #14171b; --muted: #545b64; --faint: #858d97;
+        --line: rgba(15, 22, 32, 0.11); --line-strong: rgba(15, 22, 32, 0.18);
+        --brass: #2563eb; --brass-bright: #1a4fd0; --brass-dim: #a9c2f6;
+        --green: #15803d; --amber: #b45309; --red: #dc2626; --teal: #0e7490; --violet: #7c3aed;
+        --ink-on-accent: #ffffff;
+        color: var(--parchment);
+      }
+      /* Cards lift off the navy the way the Mac's do. Nested surfaces stay flat. */
+      #view :is(.card, .stat, .statcard, .phead, .dayof, .emailcard, .panel, .fin-card, .chartcard, .pb-card, .box) { box-shadow: 0 14px 30px -18px rgba(4, 8, 24, 0.75); }
+      #view :is(.card, .stat, .statcard, .phead, .dayof, .panel, .fin-card, .chartcard, .pb-card, .box) :is(.card, .stat, .statcard, .emailcard, .box) { box-shadow: none; }
+      /* A filled gold button on navy needs navy text; inside a card the accent is blue again. */
+      #view .btn-gold { color: var(--ink-on-accent); }
+
+      /* The header band: navy, a hairline under it, a date line above a serif title. */
+      header.topbar { background: linear-gradient(180deg, rgba(24, 41, 95, 0.97) 0%, rgba(22, 38, 90, 0.97) 100%);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.16); padding-bottom: 12px; }
+      .hdr-eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .hdr-eyebrow #updated:not(:empty) { color: var(--brass); }
+      .hdr-eyebrow #hdr-date:not(:empty) + #updated:not(:empty)::before { content: '  ·  '; color: var(--faint); }
+      .topbar-title h1 { font-family: var(--font-display); font-weight: 500; font-size: 24px; line-height: 1.12; letter-spacing: -0.01em; margin-top: 1px; }
+      header.topbar .iconbtn { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.18); color: #e9ecf2; }
+      header.topbar .iconbtn:active { background: rgba(255, 255, 255, 0.18); }
+      header.topbar .backpill { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.18); }
+
+      /* Serif for the big numbers, as on the Mac. */
+      .statcard .n, .stat .big { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
+      .section-label { color: var(--brass); }
+
+      /* The project tab bar is navy too, so the screen is framed top and bottom in the same colour. */
+      #ptabs { background: rgba(14, 24, 60, 0.94); border-top-color: rgba(255, 255, 255, 0.14); }
+      #ptabs .ptab { color: #b0b3bd; }
+      #ptabs .ptab.on { color: #f0d69b; }
+
+      /* The login screen wears the ground too. */
+      #login { background: transparent; }
+
+      /* The drawer, dressed as the Mac sidebar. */
+      .drawer-panel { background: #f5f7f9; }
+      .drawer-brand { display: flex; align-items: center; gap: 10px; padding: 4px 16px 14px; border-bottom: none; }
+      .db-mark { flex: none; width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line-strong); background: #fff;
+        display: grid; place-items: center; font-family: var(--font-display); font-style: italic; font-size: 22px; color: #2563eb; }
+      .db-text { display: flex; flex-direction: column; min-width: 0; }
+      .db-name { font-family: var(--font-display); font-size: 17px; font-weight: 500; color: var(--parchment); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .db-sub { font-size: 11.5px; letter-spacing: 0.01em; color: var(--faint); }
+      .drawer-search { display: flex; align-items: center; gap: 9px; margin: 0 12px 6px; padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--line-strong); background: #fff; color: var(--faint); font-size: 14.5px; text-align: left; }
+      .drawer-group { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint); padding: 14px 14px 4px; }
+      .drawer-group:first-child { padding-top: 4px; }
+      .drawer-nav { gap: 1px; padding-top: 4px; }
+      .drawer-nav button { padding: 10px 14px; color: #3a414a; }
+      .drawer-nav button svg { width: 19px; height: 19px; }
+      .drawer-nav button.on { background: #e6ebf3; color: #1a4fd0; }
+      .drawer-nav button.on svg { color: #2563eb; }
+
+      /* ---- Playbook (mirrors the Mac's PlaybookPage) ---- */
+      .pb-card { background: var(--surface2); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+      .pb-h { font-family: var(--font-display); font-weight: 500; font-size: 19px; margin: 0; color: var(--parchment); }
+      .pb-h1 { font-size: 21px; }
+      .pb-blurb { font-size: 13.5px; line-height: 1.55; color: var(--muted); margin: 6px 0 12px; }
+      .pb-quote { border-left: 2px solid var(--brass-dim); padding-left: 12px; font-style: italic; font-size: 13.5px; line-height: 1.55; margin: 10px 0 6px; }
+      .pb-src { font-size: 12px; color: var(--faint); margin: 0; line-height: 1.5; }
+      .pb-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+      .pb-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; }
+      .pb-tile b { display: block; font-size: 14px; }
+      .pb-tile p { margin: 5px 0 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+      .pb-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--muted); margin-bottom: 12px; }
+      .pb-legend span { display: inline-flex; align-items: center; gap: 6px; }
+      .pb-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+      .pb-legend i.pb-legend-cal { width: 20px; height: 12px; border-radius: 4px; background: color-mix(in oklab, #2563eb 10%, #fff); border: 1px solid color-mix(in oklab, #2563eb 32%, var(--line)); }
+      .pb-legend-note { color: var(--faint); }
+      .pb-scroll { overflow-x: auto; margin: 0 -16px; padding: 0 12px 6px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+      .pb-scroll::-webkit-scrollbar { display: none; }
+      .pb-track { display: flex; min-width: max-content; }
+      .pb-col { width: 214px; flex: none; padding: 0 5px; display: flex; flex-direction: column; }
+      .pb-above { min-height: 104px; display: flex; flex-direction: column; justify-content: flex-end; }
+      .pb-below { min-height: 112px; }
+      .pb-blk { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; }
+      .pb-blk.pb-cal { background: color-mix(in oklab, #2563eb 10%, #fff); border-color: color-mix(in oklab, #2563eb 32%, var(--line)); }
+      .pb-bh { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+      .pb-bh b { font-size: 13px; line-height: 1.3; }
+      .pb-blk p { margin: 4px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+      .pb-blk p.pb-calnote { color: #2563eb; font-weight: 600; font-size: 10.5px; }
+      .pb-pill { flex: none; border: 1px solid; border-radius: 999px; padding: 0 6px; font-size: 9.5px; font-weight: 600; line-height: 1.6; }
+      .pb-rail { position: relative; margin: 8px -5px; border-top: 2px solid var(--line-strong); padding: 10px 5px 0; text-align: center; }
+      .pb-dot { position: absolute; top: -7px; left: 50%; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; border: 2px solid var(--surface2); }
+      .pb-when { font-size: 11.5px; font-weight: 600; letter-spacing: 0.1em; color: var(--faint); }
+
+      /* ---- Finance (mirrors the Mac's FinancePage) ---- */
+      .fin-tabs { display: flex; overflow-x: auto; margin-bottom: 14px; scrollbar-width: none; }
+      .fin-tabs::-webkit-scrollbar { display: none; }
+      .fin-tabs .segb { flex: 1 0 auto; }
+      .fin-intro { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: 0 2px 12px; }
+      .fin-intro b { color: var(--parchment); font-weight: 600; }
+      .fin-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 2px 14px; }
+      .fin-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+      .fin-check input { width: 17px; height: 17px; accent-color: #e3c279; }
+      .fin-basis { margin: 0; }
+      .fin-card { background: var(--surface2); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+      .fin-cap { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint); margin-bottom: 8px; }
+      .fin-caprow { display: flex; align-items: center; gap: 8px; }
+      .fin-caprow > span:first-child { flex: 1; }
+      .fin-asof { font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 400; }
+      .fin-fig { display: block; width: 100%; text-align: left; padding: 4px; margin: -4px; border-radius: 10px; }
+      .fin-fig:active { background: var(--surface3); }
+      .fin-l { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint); }
+      .fin-n { font-family: var(--font-display); font-size: 30px; line-height: 1.05; color: var(--brass); font-variant-numeric: tabular-nums; margin-top: 3px; }
+      .fin-n2 { font-family: var(--font-display); font-size: 22px; line-height: 1.1; color: var(--green); font-variant-numeric: tabular-nums; margin-top: 3px; }
+      .fin-h { font-size: 11.5px; color: var(--faint); line-height: 1.4; margin-top: 3px; }
+      .fin-net { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+      .fin-sec { display: flex; align-items: center; gap: 10px; margin: 20px 2px 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.2em; color: var(--brass); }
+      .fin-sec > span:first-child { flex: none; }
+      .fin-sec-r { margin-left: auto; letter-spacing: 0.02em; text-transform: none; color: var(--muted); font-weight: 500; }
+      .fin-edit { font-size: 11.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 7px; padding: 3px 9px; }
+      .fin-goal-link { margin-left: auto; font-size: 11.5px; letter-spacing: 0; text-transform: none; font-weight: 500; color: var(--faint); text-decoration: underline; text-underline-offset: 3px; }
+      .fin-monthly-edit { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; letter-spacing: 0; text-transform: none; color: var(--faint); font-weight: 500; }
+      .fin-monthly-edit input { width: 90px; padding: 5px 8px; font-size: 13px; }
+      .fin-goals { display: flex; flex-direction: column; gap: 12px; margin: 0 2px; }
+      .goal-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; margin-bottom: 5px; color: var(--muted); }
+      .goal-top b { color: var(--parchment); }
+      .goal-bar { height: 10px; border-radius: 99px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+      .goal-bar span { display: block; height: 100%; background: linear-gradient(90deg, #4f7cf0, #2563eb); border-radius: 99px; }
+      .fin-foot { font-size: 11.5px; color: var(--faint); margin: 8px 2px 0; line-height: 1.45; }
+      .fin-goaledit .goal-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); }
+      .fin-goaledit .goal-row input { flex: 1; }
+      .linkbtn { color: var(--brass-bright); font-size: 13px; font-weight: 600; padding: 4px 0; }
+      .faint { color: var(--faint); }
+      .fin-months { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .fin-month { position: relative; overflow: hidden; text-align: left; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface2);
+        --parchment: #14171b; --faint: #858d97; color: #14171b; }
+      .fin-fill { position: absolute; left: 0; right: 0; bottom: 0; background: color-mix(in oklab, #15803d 28%, transparent); }
+      .fin-ml { position: relative; display: block; font-size: 11.5px; letter-spacing: 0.01em; color: #858d97; }
+      .fin-mv { position: relative; display: block; font-family: var(--font-display); font-size: 17px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+      .fin-bank .acct { padding: 10px 0; border-top: 1px solid var(--line); }
+      .fin-bank .acct:first-child { border-top: none; padding-top: 2px; }
+      .acct-n { font-size: 12.5px; font-weight: 600; }
+      .acct-v { font-family: var(--font-display); font-size: 26px; color: var(--brass); margin-top: 2px; font-variant-numeric: tabular-nums; }
+      .fin-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .fin-pair .fin-card { margin-bottom: 12px; }
+      .fin-pair .fin-n { font-size: 24px; }
+      .fin-form label { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint); margin-bottom: 8px; }
+      .fin-form label .field-input { margin-top: 4px; text-transform: none; letter-spacing: normal; font-weight: 400; }
+      .ff-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .fin-list { padding: 4px 12px; }
+      .fl-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+      .fl-row:first-child { border-top: none; }
+      .fl-main { flex: 1; min-width: 0; }
+      .fl-top { display: flex; justify-content: space-between; gap: 10px; }
+      .fl-name { font-weight: 600; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .fl-amt { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--brass-bright); flex: none; }
+      .fl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin-top: 3px; }
+      .fl-meta .pill { margin: 0; font-size: 10.5px; }
+      .bd-list { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      .bd-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; font-size: 14px; }
+      .bd-row:nth-child(even) { background: var(--surface2); }
+      .bd-link .bd-name { color: var(--brass-bright); }
+      .bd-amt { font-variant-numeric: tabular-nums; font-weight: 600; flex: none; }
+      .bd-foot { display: flex; justify-content: space-between; padding: 12px 4px 0; font-size: 13px; color: var(--muted); }
+
+      /* ---- Calendar ---- */
+      .cal-head { display: flex; align-items: center; gap: 8px; margin: 2px 2px 10px; }
+      .cal-title { flex: 1; text-align: center; font-family: var(--font-display); font-size: 22px; }
+      .cal-head .iconbtn { background: rgba(255,255,255,0.10); color: #e9ecf2; }
+      .cal-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); margin: 0 2px 10px; }
+      .cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+      .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+      .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); background: #fff; border-radius: 16px; padding: 6px; gap: 2px; }
+      .cal-wd { text-align: center; font-size: 10.5px; font-weight: 700; color: #858d97; padding: 4px 0 6px; letter-spacing: 0.01em; }
+      .cal-day { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0 7px; border-radius: 10px; min-height: 48px; color: #14171b; }
+      .cal-day.out { color: #b9bfc7; }
+      .cal-day.sel { background: #eaf0fd; }
+      .cal-n { font-size: 14.5px; font-weight: 600; width: 26px; height: 26px; line-height: 26px; border-radius: 50%; text-align: center; font-variant-numeric: tabular-nums; }
+      .cal-day.today .cal-n { background: #2563eb; color: #fff; }
+      .cal-dots { display: flex; gap: 2px; align-items: center; min-height: 6px; }
+      .cal-dots i { width: 6px; height: 6px; border-radius: 50%; display: block; }
+      .cal-dots b { font-size: 9px; line-height: 6px; color: #858d97; }
+      .cal-item { gap: 10px; }
+      .cal-bar { width: 4px; align-self: stretch; border-radius: 2px; flex: none; }
+      .cal-time { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+
+      /* ---- Stats ---- */
+      .stats-seg { display: flex; overflow-x: auto; margin-bottom: 10px; scrollbar-width: none; }
+      .stats-seg::-webkit-scrollbar { display: none; }
+      .stats-seg .segb { flex: 1 0 auto; white-space: nowrap; }
+      .fin-ctrl .stats-seg { margin-bottom: 0; flex: 1; }
+      .fin-edit.on { color: var(--brass); border-color: var(--brass-dim); }
+      .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
+      .sbars { display: flex; flex-direction: column; gap: 10px; }
+      .sbar-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; margin-bottom: 4px; }
+      .sbar-top span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+      .sbar-top i { font-style: normal; color: var(--faint); }
+      .sbar-track { height: 8px; border-radius: 99px; background: var(--surface3); overflow: hidden; }
+      .sbar-track span { display: block; height: 100%; border-radius: 99px; }
+      .mbars { display: flex; align-items: flex-end; gap: 6px; height: 160px; overflow-x: auto; padding-bottom: 2px; }
+      .mbar { flex: 1 0 34px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; height: 100%; }
+      .mbar-n { font-size: 10px; color: var(--muted); }
+      .mbar-b { width: 100%; background: #2563eb; border-radius: 4px 4px 0 0; min-height: 4px; }
+      .mbar-l { font-size: 9px; color: var(--faint); white-space: nowrap; }
+      .audit { padding: 12px; }
+      .audit.signed { opacity: 0.6; }
+      .audit-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+      .audit-name { font-weight: 600; font-size: 14px; text-align: left; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .audit-sign { flex: none; font-size: 12px; font-weight: 600; border: 1px solid var(--brass-dim); color: var(--brass-bright); border-radius: 8px; padding: 5px 10px; }
+      .audit.signed .audit-sign { border-color: transparent; background: color-mix(in oklab, var(--green) 18%, transparent); color: var(--green); }
+      .audit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .audit-f span { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: var(--faint); margin-bottom: 3px; }
+      .audit-f .field-input { padding: 7px 8px; font-size: 13px; }
+      .f-empty { border-color: #ef4444 !important; background: rgba(239, 68, 68, 0.10) !important; }
+      .f-warn { border-color: #eab308 !important; background: rgba(234, 179, 8, 0.12) !important; }
+
+      /* ---- Website ---- */
+      .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6ee7a5; margin-right: 4px; box-shadow: 0 0 0 3px rgba(110, 231, 165, 0.25); }
+      .kv4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .kv4 > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; }
+      .kv4 span { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: var(--faint); }
+      .kv4 b { display: block; font-family: var(--font-display); font-weight: 500; font-size: 22px; margin-top: 2px; }
+      .kv4 i { font-style: normal; font-size: 11px; color: var(--faint); }
+      .spark { width: 100%; height: 60px; display: block; }
+      .wrow { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+      .wrow > span:not(.wq) { flex: none; min-width: 44px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .wq { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wq i { font-style: normal; }
+      .whead { border-top: none; font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint); }
+      .acc-badge { display: inline-flex; align-items: center; gap: 6px; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; font-size: 11.5px; color: var(--muted); background: var(--surface); }
+      .acc-badge i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+      .quick { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+      .quick b { font-weight: 500; color: var(--brass); font-size: 12.5px; }
+      .tool-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+      .look { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; font-size: 13px; }
+      .look i { font-style: normal; font-size: 12px; color: var(--faint); }
+      .tool-note { font-size: 11.5px; line-height: 1.5; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0 0; }
+
+      /* ---- Settings ---- */
+      .setf { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+      .setf .field-input { flex: 1; min-width: 0; padding: 8px 10px; font-size: 13.5px; }
+      .setf-b { flex: none; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 600; color: var(--faint); }
+      .setf-b.on { border-color: var(--brass-dim); color: var(--brass-bright); background: var(--surface3); }
+      .setf-core { flex: none; font-size: 11px; color: var(--faint); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; }
+      .setf-x { flex: none; width: 32px; height: 32px; border-radius: 8px; color: var(--faint); font-size: 18px; }
+      .sig-tools { display: flex; gap: 6px; margin-bottom: 6px; }
+      .sig-tools button { border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; font-size: 13px; background: var(--surface); }
+      .sig-edit { min-height: 110px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; padding: 10px; font-size: 14px; line-height: 1.5; outline: none; }
+      .sig-edit img { max-width: 100%; height: auto; }
+      .alert-block { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 10px; }
+      .ab-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+      .ab-top b { font-size: 14px; }
+      .ab-in { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 6px; }
+      .day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+      .day-chips button { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--muted); }
+      .day-chips button.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+      /* ---- Files ---- */
+      .files-up { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 20px; text-align: center; color: var(--brass-bright); border-style: dashed; cursor: pointer; }
+      .files-up b { color: var(--parchment); }
+      .file-badge { flex: none; width: 38px; height: 38px; border-radius: 9px; background: color-mix(in oklab, #2563eb 12%, #fff); color: #1a4fd0; font-size: 10px; font-weight: 800; display: grid; place-items: center; }
+
+      /* ---- project page parity ---- */
+      .etype { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: 0.01em; border: 1px solid; border-radius: 999px; padding: 2px 9px; }
+      .etype-btn { padding: 0; }
+      .phead-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+      .conflict { margin-top: 10px; border: 1px solid rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.08); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; color: #b91c1c; }
+      .conflict b { display: block; font-size: 12.5px; letter-spacing: 0.1em; margin-bottom: 2px; }
+      .phead-cn { text-align: left; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 0; }
+      .ctype { font-size: 11px; font-weight: 700; letter-spacing: 0.01em; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
+      .actrow.off .ar-l { color: var(--faint); }
+      .call-q { font-size: 16px; font-weight: 600; margin: 4px 0 14px; }
+      .inq-links { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+      .inq-kv > div { padding: 8px 0; border-top: 1px solid var(--line); }
+      .inq-kv span { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: 0.1em; color: var(--faint); }
+      .inq-kv b { font-weight: 500; white-space: pre-wrap; }
+      .ps-card { margin-top: 16px; }
+      .ps-f { display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; color: var(--faint); margin-bottom: 8px; }
+      .ps-f .field-input { margin-top: 4px; text-transform: none; letter-spacing: normal; font-weight: 400; }
+      .tag-item { padding: 10px 0; border-top: 1px solid var(--line); }
+      .tagchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+      .tagchip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; background: var(--surface3); border-radius: 999px; padding: 3px 4px 3px 10px; }
+      .tagchip button { width: 20px; height: 20px; border-radius: 50%; color: var(--faint); }
+      .tagin { width: 110px; padding: 5px 9px; font-size: 13px; }
+      .tagsugg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; font-size: 11.5px; }
+      .tagsugg button { border: 1px dashed var(--line-strong); border-radius: 999px; padding: 2px 9px; font-size: 11.5px; color: var(--muted); }
+
+      .prop-link { margin-top: 10px; font-size: 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .prop-gaps { margin-top: 10px; border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.06); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; color: #b91c1c; }
+      .prop-gaps b { display: block; font-size: 10.5px; letter-spacing: 0.1em; margin-bottom: 3px; }
+      .prop-small { display: flex; gap: 16px; margin-top: 8px; }
+    
+      /* ---- the composer (Mac parity, 2026-10-23) ---- */
+      .compose-sheet .sheet-card { max-height: 94vh; }
+      .cmp-tools { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+      .cmp-pick { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface2); text-align: left; font: inherit; color: var(--parchment); }
+      .cmp-pick-l { font-size: 12px; font-weight: 600; color: var(--muted); flex: none; }
+      .cmp-pick-v { font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .rte-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+      .rte-bar button { padding: 6px 10px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface2); color: var(--parchment); font: inherit; font-size: 13px; min-width: 36px; }
+      .rte { min-height: 200px; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--line); background: #fff; color: #222; font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.5; outline: none; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+      .rte:focus { border-color: var(--brass); }
+      .rte p { margin: 0 0 12px; }
+      .rte img { max-width: 100%; height: auto; }
+      .rte a { color: #1155cc; text-decoration: underline; }
+      .rte ul, .rte ol { margin: 0 0 12px; padding-left: 22px; }
+      /* A placeholder still to fill. Red, like the Mac, and big enough to tap. */
+      .rte .merge-field { color: #c62828; background: rgba(198, 40, 40, 0.09); border-radius: 5px; padding: 1px 3px; cursor: pointer; }
+      .cmp-check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; color: var(--parchment); }
+      .cmp-check input { width: 18px; height: 18px; accent-color: var(--brass); }
+      .cmp-att { margin-top: 12px; }
+      .cmp-att-list { display: flex; flex-wrap: wrap; gap: 6px; }
+      .cmp-att-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 6px 6px 10px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface2); font-size: 12.5px; }
+      .cmp-att-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+      .cmp-att-s { color: var(--faint); flex: none; }
+      .cmp-att-chip button { border: 0; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; padding: 0 4px; }
+      .cmp-status { margin-top: 10px; font-size: 12.5px; color: var(--muted); min-height: 1em; }
+      .cmp-status.bad { color: var(--red); }
+      .cmp-discard { display: block; margin: 12px auto 0; border: 0; background: transparent; color: var(--red); font: inherit; font-size: 13px; padding: 6px 10px; }
+      .tpl-group { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 13px 4px; border: 0; border-bottom: 1px solid var(--line); background: transparent; font: inherit; font-weight: 600; font-size: 14.5px; color: var(--parchment); text-align: left; }
+      .tpl-group svg { transition: transform .15s; color: var(--faint); }
+      .tpl-group.open svg { transform: rotate(90deg); }
+      .tpl-list { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 10px; }
+    
+      /* ---- pipeline cards: the Mac card's details (2026-10-23) ---- */
+      .card .meta .etype { font-size: 11px; padding: 1px 8px; margin-right: 4px; vertical-align: 1px; }
+      .card .card-loc { font-size: 12px; color: var(--faint); margin-top: 3px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+      .cmark-pay { color: #2563eb; background: rgba(37, 99, 235, 0.12); }
+      .cmark-conflict { color: var(--red); background: rgba(220, 38, 38, 0.11); }
+    
+      /* ---- Records filters and the trash (Mac parity, 2026-10-23) ---- */
+      .rec-filters { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 2px; margin: 4px 0 2px; scrollbar-width: none; }
+      .rec-filters::-webkit-scrollbar { display: none; }
+      .rec-sel { max-width: 170px; padding-right: 28px !important; text-overflow: ellipsis; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23858d97' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: right 10px center !important; }
+      .rec-sel, .rec-sort { flex: none; appearance: none; -webkit-appearance: none; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface2); color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 500; }
+      .rec-sel.on { border-color: var(--brass-dim); color: var(--brass-bright); background: var(--surface3); }
+      .rec-count { font-size: 12px; color: var(--faint); margin: 6px 2px 2px; font-variant-numeric: tabular-nums; }
+      .del-row { display: flex; align-items: stretch; gap: 8px; }
+      .del-row .card { flex: 1; min-width: 0; }
+      .del-restore { flex: none; align-self: center; padding: 9px 12px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.85); background: #ffffff; color: #14171b; font: inherit; font-size: 13px; font-weight: 600; }
+      .del-urgent .pill.del { color: var(--red); border-color: color-mix(in oklab, var(--red) 50%, var(--line)); background: color-mix(in oklab, var(--red) 10%, transparent); }
+    
+      /* ---- Contacts (Mac parity, 2026-10-23) ---- */
+      .ctop { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+      .ctop .search { flex: 1; margin-bottom: 0; }
+      .ctop .addbtn { flex: none; }
+      .crow-extra { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; align-items: center; }
+      .tagchip-ro { padding: 1px 8px !important; font-size: 11.5px; }
+      .clinks { font-size: 11.5px; color: var(--faint); margin-left: 2px; }
+      .relchip.on-plain { background: var(--brass) !important; color: #fff; border-color: var(--brass); }
+    
+      /* ---- global search ---- */
+      .srch-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 11px 12px; margin-bottom: 6px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); text-align: left; font: inherit; color: var(--parchment); }
+      .srch-n { font-weight: 600; font-size: 14.5px; }
+      .srch-m { font-size: 12.5px; color: var(--muted); }
+    
+      /* ---- recurring tasks ---- */
+      .sched { margin-top: 26px; }
+      .sched-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 0 2px 8px; }
+      .sched-t { font-family: var(--font-display); font-size: 19px; color: var(--parchment); }
+      .sched-row { display: flex; align-items: center; gap: 10px; }
+      .sched-row.paused { opacity: .6; }
+      .sched-b { flex: 1; min-width: 0; }
+      .sched-acts { display: flex; gap: 6px; flex: none; }
+      .sched-acts button { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface2); color: var(--parchment); font: inherit; font-size: 12.5px; }
+    
+      /* ---- Home: money tile and daily duties ---- */
+      .duty-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+      .duty-top .btn-ghost { padding: 7px 14px; flex: none; }
+      .duty { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .duty-main { flex: 1; display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 13px; border: 1px solid var(--line); background: var(--surface2); font: inherit; font-size: 15.5px; color: var(--parchment); text-align: left; }
+      .duty.on .duty-main { background: var(--surface3); }
+      .duty.on .duty-l { color: var(--muted); text-decoration: line-through; }
+      .duty-box { width: 26px; height: 26px; flex: none; border-radius: 7px; border: 2px solid var(--line-strong); display: flex; align-items: center; justify-content: center; color: #fff; }
+      .duty.on .duty-box { background: var(--brass); border-color: var(--brass); }
+      .duty-rm { flex: none; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--red); font-size: 20px; }
+    
+      .inq-row { display: flex; align-items: center; gap: 10px; }
+      .inq-main { flex: 1; min-width: 0; text-align: left; background: transparent; border: 0; padding: 0; font: inherit; color: inherit; }
+      .inq-x { flex: none; padding: 7px 11px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface2); color: var(--muted); font: inherit; font-size: 12.5px; }
+    
+      /* ---- iPad and other wide screens (2026-10-23) ----
+         The same app, laid out for the room: content in a centred column instead of stretched edge to
+         edge, more tiles across, pipeline cards at a readable width, and sheets as centred panels
+         rather than full-width drawers from the bottom. Phones are untouched (below 768px). */
+      @media (min-width: 768px) {
+        #view { max-width: 880px; margin-left: auto; margin-right: auto; }
+        header.topbar { padding-left: max(16px, calc((100vw - 880px) / 2 + 14px)); padding-right: max(16px, calc((100vw - 880px) / 2 + 14px)); }
+        .statgrid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .prow-strip > .card { flex: 0 0 calc(50% - 6px); }
+        .prow-one .prow-strip > .card { flex-basis: calc(50% - 6px); }
+        .sheet { align-items: center; justify-content: center; padding: 24px; }
+        .sheet-card { max-width: 640px; border-radius: 20px; border: 1px solid var(--line-strong); padding-bottom: 20px; }
+        .sheet-card.sheet-full { max-width: 760px; }
+        #fab { right: max(16px, calc((100vw - 880px) / 2 - 70px)); }
+      }
+      @media (min-width: 1100px) {
+        .prow-strip > .card, .prow-one .prow-strip > .card { flex-basis: calc(33.333% - 6px); }
+      }
     </style>
   </head>
   <body>
@@ -574,27 +1008,25 @@
 
     <div id="app" class="hidden">
       <header class="topbar">
-        <div class="topbar-row">
         <button class="iconbtn" id="menu-btn" aria-label="Menu">
           <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         </button>
         <div class="topbar-title">
+          <div class="hdr-eyebrow"><span id="hdr-date"></span><span id="updated">Loading…</span></div>
           <h1 id="pagetitle">Home</h1>
-          <div class="sub" id="updated">Loading…</div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px">
           <button class="iconbtn hidden" id="enable-push" aria-label="Turn on notifications" title="Turn on notifications">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           </button>
+          <button class="backpill hidden" id="back-btn">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            <span id="back-label">Back</span>
+          </button>
           <button class="iconbtn" id="refresh" aria-label="Refresh">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
           </button>
         </div>
-        </div>
-        <button class="backbar hidden" id="back-btn">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-          <span id="back-label">Back</span>
-        </button>
       </header>
       <main id="view"><div class="spinner">Loading…</div></main>
     </div>
@@ -602,63 +1034,35 @@
     <div id="drawer" class="hidden">
       <div class="drawer-backdrop" id="drawer-backdrop"></div>
       <aside class="drawer-panel">
-        <div class="drawer-brand">Bloom CRM</div>
+        <!-- The Mac sidebar's brand block, menu groups and icons, so the two apps read as one product. -->
+        <div class="drawer-brand"><span class="db-mark">M</span><span class="db-text"><span class="db-name">Michael Bloemeke</span><span class="db-sub">Award-Winning Magic</span></span></div>
+        <button class="drawer-search" id="drawer-search"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search</button>
         <nav class="drawer-nav" id="drawer-nav">
-          <button data-page="home">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
-            Home
-          </button>
-          <button data-page="pipeline">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>
-            Pipeline
-            <span class="navcount" id="nav-count-active"></span>
-          </button>
-          <button data-page="proposals">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l4 4v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M15 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
-            Proposals
-          </button>
-          <button data-page="completed">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="M9 11l3 3L22 4"/></svg>
-            Completed
-            <span class="navcount" id="nav-count-completed"></span>
-          </button>
-          <button data-page="archived">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
-            Archived
-            <span class="navcount" id="nav-count-archived"></span>
-          </button>
-          <button data-page="deleted">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/></svg>
-            Deleted
-            <span class="navcount" id="nav-count-deleted"></span>
-          </button>
-          <button data-page="contacts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Contacts
-          </button>
-          <button data-page="tasks">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-            Tasks
-            <span class="navbadge hidden" id="nav-badge-tasks"></span>
-          </button>
-          <button data-page="alerts">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-            Alerts
-            <span class="navbadge hidden" id="nav-badge-alerts"></span>
-          </button>
-          <button data-page="inbox">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-            Inbox
-            <span class="navbadge hidden" id="nav-badge-inbox"></span>
-          </button>
-          <button data-page="money">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            Money
-          </button>
+          <div class="drawer-group">Workspace</div>
+          <button data-page="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"/><path d="M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9"/></svg><span class="dn-l">Home</span></button>
+          <button data-page="pipeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/></svg><span class="dn-l">Pipeline</span><span class="navcount" id="nav-count-active"></span></button>
+          <button data-page="proposals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v4h4"/><path d="M8.5 12.5h7M8.5 16.5h4.5"/></svg><span class="dn-l">Proposals</span></button>
+          <button data-page="inbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h5l2 3h4l2-3h5"/><path d="M5 5h14l2 7v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5z"/></svg><span class="dn-l">Inbox</span><span class="navbadge hidden" id="nav-badge-inbox"></span></button>
+          <button data-page="tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h10M4 12h10M4 17.5h6"/><path d="M17.5 5.5l1.6 1.6 2.4-3"/></svg><span class="dn-l">Tasks</span><span class="navbadge hidden" id="nav-badge-tasks"></span></button>
+          <button data-page="alerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dn-l">Alerts</span><span class="navbadge hidden" id="nav-badge-alerts"></span></button>
+          <button data-page="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg><span class="dn-l">Calendar</span></button>
+          <button data-page="finance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 3 3 7-7"/><path d="M16 8h4v4"/></svg><span class="dn-l">Finance</span></button>
+          <button data-page="stats"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="dn-l">Stats</span></button>
+          <button data-page="website"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.6 2.6 15.4 0 18M12 3c-2.6 2.6-2.6 15.4 0 18"/></svg><span class="dn-l">Website</span></button>
+          <button data-page="contacts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6M17.5 20a5.5 5.5 0 0 0-2.7-4.7"/></svg><span class="dn-l">Contacts</span></button>
+          <div class="drawer-group">Library</div>
+          <button data-page="playbook"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5.5A1.5 1.5 0 0 1 4 17.5z"/><path d="M4 17.5A1.5 1.5 0 0 1 5.5 16H19"/><path d="M8 8h7M8 11h5"/></svg><span class="dn-l">Playbook</span></button>
+          <button data-page="files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="dn-l">Files</span></button>
+          <div class="drawer-group">Records</div>
+          <button data-page="completed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 12l2.5 2.5L16 9"/></svg><span class="dn-l">Completed</span><span class="navcount" id="nav-count-completed"></span></button>
+          <button data-page="archived"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg><span class="dn-l">Archive</span><span class="navcount" id="nav-count-archived"></span></button>
+          <button data-page="deleted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"/></svg><span class="dn-l">Deleted</span><span class="navcount" id="nav-count-deleted"></span></button>
+          <div class="drawer-group">System</div>
+          <button data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="dn-l">Settings</span></button>
         </nav>
         <div class="drawer-foot">
           <button id="drawer-logout">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
             Log out
           </button>
         </div>

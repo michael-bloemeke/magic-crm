@@ -25,6 +25,8 @@ const FILES = [
   'supabase-data.js',
   'icon-192.png',
   'icon-512.png',
+  'damask.webp',
+  'email-templates.js',
   'vendor/supabase-js.js',
   'vendor/node-process.js',
   'vendor/node-buffer.js',

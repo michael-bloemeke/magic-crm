@@ -72,10 +72,10 @@
 //   - PROPOSALS OPEN INSIDE THE CRM. Preview used to hand off to Firefox. It now frames the real
 //     page in a full-screen pane with a Back button, the same as PreviewPage.tsx on the Mac.
 // Bumping the cache name forces every client to drop the old shell on activate.
-var CACHE = 'mcrm-v26'
+var CACHE = 'mcrm-v27'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
-  './manifest.webmanifest', './icon-192.png', './icon-512.png',
+  './manifest.webmanifest', './icon-192.png', './icon-512.png', './damask.webp', './email-templates.js',
   // Vendored supabase-js + its Node shims. Part of the shell now: the app cannot start without them,
   // and they are ours rather than a CDN's, so they belong in the offline cache like everything else.
   './vendor/supabase-js.js', './vendor/node-process.js', './vendor/node-buffer.js',

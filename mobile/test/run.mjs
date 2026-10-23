@@ -219,7 +219,8 @@ const toIn = compose.querySelector('input[type=email]')
 ok(toIn.value === 'sarah@duke.edu', 'it is addressed back to the sender', toIn.value)
 const subIn = [...compose.querySelectorAll('input.search')].find((i) => i.type !== 'email')
 ok(subIn.value === 'Re: Magic for the gala', 'the subject is not double-prefixed', subIn.value)
-compose.querySelector('textarea').value = 'I will be there at 7.'
+ok(!!compose.querySelector('[data-crm-signature]'), 'Settings has the signature on, so a new email starts with it ticked')
+compose.querySelector('.rte').insertAdjacentHTML('afterbegin', '<p>I will be there at 7.</p>')
 CALLS.length = 0
 const sendBtn = [...compose.querySelectorAll('.btn-gold')].find((b) => b.textContent === 'Send')
 sendBtn.dispatchEvent(new window.Event('click'))
@@ -227,8 +228,64 @@ ok(sendBtn.disabled === true, 'Send disables itself so a double tap cannot send 
 await settle()
 const sent = CALLS.find((c) => c.name === 'sendEmail')
 ok(!!sent, 'sendEmail was called')
-ok(sent && sent.args[0].to === 'sarah@duke.edu', 'to the right person')
+ok(sent && sent.args[0].to.join(',') === 'sarah@duke.edu', 'to the right person', sent && sent.args[0].to)
+ok(sent && !!sent.args[0].threadId, 'a reply carries its threadId, so it lands IN the conversation')
+ok(sent && sent.args[0].html.includes('I will be there at 7.') && sent.args[0].html.includes('data-crm-signature'), 'the HTML body goes out with the signature block in it')
 ok(CALLS.some((c) => c.name === 'gmailMarkRead'), 'replying DOES mark the thread read')
+document.querySelectorAll('.sheet').forEach((s) => s.remove())
+
+console.log('\n== templates ==')
+__app.openCompose({ project: PROJECT })
+await settle()
+let c3 = document.querySelector('.sheet')
+;[...c3.querySelectorAll('.cmp-pick')].find((b) => b.textContent.includes('Template')).dispatchEvent(new window.Event('click'))
+await settle()
+const tplSheet = [...document.querySelectorAll('.sheet')].pop()
+ok(tplSheet.textContent.includes('Ghostbusters') && tplSheet.textContent.includes('Misc'), 'the Mac\'s template folders are offered')
+;[...tplSheet.querySelectorAll('.actrow')].find((b) => b.textContent.includes('Back to the Future')).dispatchEvent(new window.Event('click'))
+await settle()
+const subj3 = [...c3.querySelectorAll('input.search')].find((i) => i.type !== 'email')
+ok(subj3.value === 'You Made A Great Call', 'picking a template fills the subject', subj3.value)
+const rte3 = c3.querySelector('.rte')
+ok(rte3.textContent.includes('Hello Sarah,'), 'the client\'s first name fills itself in', rte3.textContent.slice(0, 40))
+ok(!!rte3.querySelector('span.merge-field[data-note]'), 'write-in placeholders stay as red chips')
+ok(!!rte3.querySelector('img[data-crm-gif="back-to-the-future"]'), 'the GIF comes with it, tagged for embedding')
+ok(!!rte3.querySelector('[data-crm-signature]'), 'the signature survives the template swap')
+c3.querySelector('input[type=email]').value = 'sarah@duke.edu'
+CALLS.length = 0
+const send3 = [...c3.querySelectorAll('.btn-gold')].find((b) => b.textContent === 'Send')
+send3.dispatchEvent(new window.Event('click'))
+await settle()
+ok(!CALLS.some((c) => c.name === 'sendEmail'), 'unfilled placeholders stop the first Send')
+ok(c3.querySelector('.cmp-status').textContent.includes('the event'), 'and say which ones', c3.querySelector('.cmp-status').textContent)
+// Fill one by tapping it.
+rte3.querySelector('span.merge-field[data-note]').dispatchEvent(new window.Event('click', { bubbles: true }))
+await settle()
+const fill = [...document.querySelectorAll('.sheet')].pop()
+fill.querySelector('input.search').value = 'the gala'
+;[...fill.querySelectorAll('.btn-gold')].find((b) => b.textContent === 'Use this').dispatchEvent(new window.Event('click'))
+await settle()
+ok(rte3.textContent.includes('after the gala'), 'tapping a chip fills it with real words', rte3.textContent.slice(0, 120))
+send3.dispatchEvent(new window.Event('click'))
+await settle()
+send3.dispatchEvent(new window.Event('click'))
+await settle()
+ok(CALLS.some((c) => c.name === 'sendEmail'), 'a second Send goes out as-is, like the Mac')
+document.querySelectorAll('.sheet').forEach((s) => s.remove())
+
+console.log('\n== drafts ==')
+__app.openCompose({ project: PROJECT })
+await settle()
+const c4 = document.querySelector('.sheet')
+CALLS.length = 0
+c4.querySelector('.rte').insertAdjacentHTML('afterbegin', '<p>Thinking out loud</p>')
+c4.querySelector('.rte').dispatchEvent(new window.Event('input'))
+await new Promise((r) => setTimeout(r, 900))
+await settle()
+const sv = CALLS.find((c) => c.name === 'saveComposeDraft')
+ok(!!sv, 'a project email autosaves as a draft')
+ok(sv && sv.args[0].projectId === 'sarah-whitfield' && sv.args[0].html.includes('Thinking out loud'), 'with its project and its HTML')
+ok(c4.textContent.includes('Discard draft'), 'and offers Discard once it exists')
 document.querySelectorAll('.sheet').forEach((s) => s.remove())
 
 console.log('\n== compose validation ==')
@@ -250,6 +307,7 @@ await settle()
 const mq = CALLS.find((c) => c.name === 'gmailList')
 ok(mq && mq.args[0] === '(from:sarah@duke.edu OR to:sarah@duke.edu)', 'the query is parenthesised so OR binds correctly', mq && mq.args[0])
 ok(has('Write'), 'there is a Write button on the project')
+ok(has('Quick question') && has('Drafts'), 'saved drafts show on the project Email tab')
 __app.setPtab('email')
 __app.renderDetail('bare-project')
 await settle()
@@ -343,9 +401,9 @@ __app.setTab('pipeline'); __app.setPtab('booking')
 __app.renderDetail('sarah-whitfield')
 await settle()
 ok(has('Proposal'), 'the proposal section appears on the Booking tab')
-ok(has('6 views'), 'with its view count')
+ok(has('Opened 6×'), 'with its view count')
 ok(has('Live'), 'and its link state')
-const pvBtn = [...document.querySelectorAll('#view button.do-go')].find(b => b.textContent === 'Preview')
+const pvBtn = [...document.querySelectorAll('#view button.do-go')].find(b => b.textContent === 'Open preview')
 ok(!!pvBtn, 'it has a Preview button')
 pvBtn.dispatchEvent(new window.Event('click'))
 await settle()
@@ -360,8 +418,8 @@ __app.renderDetail('bare-project')
 await settle()
 // Not a text search: "Proposal sent" is this project's STAGE and appears in the header regardless.
 // The question is whether the proposal CARD was drawn.
-const propSectionLabels = [...document.querySelectorAll('#view .section-label')].map(e => e.textContent.trim())
-ok(!propSectionLabels.includes('Proposal'), 'a project with no proposal gets no empty section', JSON.stringify(propSectionLabels))
+// As on the Mac's ProposalCard: a project with no proposal offers to start one, rather than hiding.
+ok([...document.querySelectorAll('#view button')].some((b) => b.textContent === 'Start a proposal'), 'a project with no proposal offers Start a proposal')
 __app.setPtab('booking'); __app.renderDetail('sarah-whitfield')
 await settle()
 ok([...document.querySelectorAll('#view .section-label')].map(e => e.textContent.trim()).includes('Proposal'),
@@ -474,7 +532,8 @@ console.log('\n== home: each tile opens its own list ==')
   document.querySelectorAll('.sheet').forEach((x) => x.remove())
   __app.setDetail(null); __app.setTab('home'); __app.render()
   await settle()
-  ok(document.querySelectorAll('.statcard').length === 4, 'Home shows the four tiles')
+  ok(document.querySelectorAll('.statcard').length === 6, 'Home shows the four tiles plus the Mac\'s money and daily-duties tiles')
+  ok(!!document.querySelector('.statcard.s-duty') && document.querySelector('.statcard.s-duty .n').textContent === '0/3', 'daily duties start at 0 of the three defaults')
   ok(!has('Needs attention') && !has('Next 7 days') && !document.querySelector('#view .card'), 'and nothing under them')
   const tile = (label) => [...document.querySelectorAll('.statcard')].find((c) => c.textContent.includes(label))
   ok(tile('Overdue tasks').querySelector('.n').textContent === '1', 'the overdue tile counts one')
@@ -569,6 +628,41 @@ console.log('\n== pipeline: one row per stage, in structure order ==')
   ok(rows[2].classList.contains('prow-one') && !rows[0].classList.contains('prow-one'), 'a lone project takes the full row')
   SNAP.projects = saved.projects; SNAP.structure = saved.structure
   __app.setStageMap({ s2: { name: 'Proposal sent', umbrella: 'Selling', color: '#c9a227' } })
+}
+
+console.log('\n== el() never gets two top-level elements ==')
+{
+  // el() returns ONLY the first top-level element of its HTML. A label-and-value pair written as one
+  // string silently loses the value; that left every field on the contact sheet blank and the booking
+  // gate with labels and no values (found 2026-10-23). This scans every el('...') literal in app.js.
+  const src = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8')
+  const VOID = new Set(['input', 'br', 'img', 'hr', 'meta', 'link', 'source', 'col', 'wbr'])
+  const bad = []
+  src.split('\n').forEach((line, i) => {
+    for (const m of line.matchAll(/\bel\(/g)) {
+      const rest = line.slice(m.index + 3)
+      let depth = 1, j = 0, q = null
+      while (j < rest.length && depth > 0) {
+        const c = rest[j]
+        if (q) { if (c === '\\') { j += 2; continue } if (c === q) q = null }
+        else if (c === "'" || c === '"' || c === '`') q = c
+        else if (c === '(') depth++
+        else if (c === ')') depth--
+        j++
+      }
+      const html = [...rest.slice(0, j - 1).matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((x) => x[1]).join('')
+      if (!html.includes('<')) continue
+      let d = 0, top = 0
+      for (const t of html.matchAll(/<(\/?)([a-zA-Z0-9]+)[^>]*?(\/?)>/g)) {
+        if (t[1]) { d--; continue }
+        if (d === 0) top++
+        if (VOID.has(t[2].toLowerCase()) || t[3]) continue
+        d++
+      }
+      if (top > 1) bad.push(i + 1)
+    }
+  })
+  ok(bad.length === 0, 'every el() call builds exactly one element', bad.join(', '))
 }
 
 console.log('\n' + (fails ? 'FAILURES: ' + fails : 'ALL PASS'))
