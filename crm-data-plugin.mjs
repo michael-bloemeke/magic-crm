@@ -60,7 +60,7 @@ import {
 import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
-import { loadShows, createShow, updateShow, setPacked, uncheckAll, deleteShow } from './crm-shows.mjs'
+import { loadShows, createShow, updateShow, setPacked, uncheckAll, duplicateShow, deleteShow } from './crm-shows.mjs'
 import { loadCalendarAlerts, updateCalendarAlerts } from './crm-calendar-alerts.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
@@ -552,6 +552,10 @@ export function crmDataPlugin() {
       server.middlewares.use('/api/shows/uncheck-all', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => ({ show: await uncheckAll(b.id) }))
+      })
+      server.middlewares.use('/api/shows/duplicate', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ show: await duplicateShow(b.id) }))
       })
       server.middlewares.use('/api/shows/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()

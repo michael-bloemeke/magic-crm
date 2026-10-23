@@ -98,6 +98,22 @@ export async function uncheckAll(id) {
   return updateShow(id, { packingList: cleanPackingList(cur.packing_list).map((x) => ({ ...x, done: false })) })
 }
 
+// An exact copy, named "Copy of <name>" (Michael's wording, 2026-10-23): the same set list and the
+// same packing list, checkmarks and all. Every line gets a fresh id so the two never share one.
+export async function duplicateShow(id) {
+  const { data: cur, error: e1 } = await sb().from('shows').select('*').eq('id', id).maybeSingle()
+  if (e1) throw e1
+  if (!cur) throw new Error('Show not found.')
+  const row = {
+    name: `Copy of ${str(cur.name).trim()}`,
+    set_list: cleanSetList(cur.set_list).map((x) => ({ ...x, id: randomUUID() })),
+    packing_list: cleanPackingList(cur.packing_list).map((x) => ({ ...x, id: randomUUID() })),
+  }
+  const { data, error } = await sb().from('shows').insert(row).select('*').single()
+  if (error) throw error
+  return fromRow(data)
+}
+
 export async function deleteShow(id) {
   if (!id) throw new Error('Show id is required.')
   const { error } = await sb().from('shows').delete().eq('id', id)

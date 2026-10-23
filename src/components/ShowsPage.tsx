@@ -3,6 +3,7 @@ import { motion, Reorder, useDragControls } from 'motion/react'
 import {
   createShow,
   deleteShow,
+  duplicateShow,
   loadShows,
   setPacked,
   uncheckAllPacked,
@@ -104,6 +105,21 @@ export function ShowsPage() {
     }
   }
 
+  // Duplicate (2026-10-23): an exact copy named "Copy of <name>". It goes at the END, the same place
+  // it will be after a reload (shows are listed oldest first), so nothing jumps around later.
+  const [copying, setCopying] = useState<string | null>(null)
+  const duplicate = async (s: Show) => {
+    setCopying(s.id)
+    try {
+      const copy = await duplicateShow(s.id)
+      setShows((prev) => [...(prev ?? []), copy])
+    } catch (e) {
+      setErr((e as Error)?.message || 'Could not duplicate the show.')
+    } finally {
+      setCopying(null)
+    }
+  }
+
   const current = openId && shows ? shows.find((s) => s.id === openId) ?? null : null
 
   if (current) {
@@ -167,22 +183,35 @@ export function ShowsPage() {
               const items = s.packingList.filter((x) => x.type === 'item')
               const packed = items.filter((x) => x.done).length
               return (
-                <button
+                <div
                   key={s.id}
-                  type="button"
-                  onClick={() => open(s.id)}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-5 py-4 text-left transition-all hover:-translate-y-0.5 hover:border-line-strong"
+                  className="flex items-center gap-3 rounded-xl border border-line bg-surface pr-3 transition-all hover:-translate-y-0.5 hover:border-line-strong"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate font-display text-[18px] leading-snug text-parchment">{s.name}</p>
-                    <p className="mt-1 text-[12px] text-muted">
-                      {s.setList.length} in the set list · {items.length ? `${packed} of ${items.length} packed` : 'nothing to pack yet'}
-                    </p>
-                  </div>
-                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 6l6 6-6 6" />
-                  </svg>
-                </button>
+                  <button type="button" onClick={() => open(s.id)} className="flex min-w-0 flex-1 items-center justify-between gap-4 px-5 py-4 text-left">
+                    <div className="min-w-0">
+                      <p className="truncate font-display text-[18px] leading-snug text-parchment">{s.name}</p>
+                      <p className="mt-1 text-[12px] text-muted">
+                        {s.setList.length} in the set list · {items.length ? `${packed} of ${items.length} packed` : 'nothing to pack yet'}
+                      </p>
+                    </div>
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 6l6 6-6 6" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void duplicate(s)}
+                    disabled={copying === s.id}
+                    title="Make an exact copy of this show"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12px] font-semibold text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-50"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M5 15V5a1 1 0 0 1 1-1h10" />
+                    </svg>
+                    {copying === s.id ? 'Copying…' : 'Duplicate'}
+                  </button>
+                </div>
               )
             })}
           </div>

@@ -82,6 +82,7 @@ export const STUB = {
   },
   setPacked: (id, itemId, done) => { CALLS.push({ name: 'setPacked', args: [id, itemId, done] }); const s = SHOW_ROWS.find((x) => x.id === id); s.packingList = s.packingList.map((x) => (x.id === itemId ? { ...x, done } : x)); return Promise.resolve(JSON.parse(JSON.stringify(s))) },
   uncheckAllPacked: (id) => { CALLS.push({ name: 'uncheckAllPacked', args: [id] }); const s = SHOW_ROWS.find((x) => x.id === id); s.packingList = s.packingList.map((x) => ({ ...x, done: false })); return Promise.resolve(JSON.parse(JSON.stringify(s))) },
+  duplicateShow: (id) => { CALLS.push({ name: 'duplicateShow', args: [id] }); const s = SHOW_ROWS.find((x) => x.id === id); const c = JSON.parse(JSON.stringify({ ...s, id: 'show-' + (SHOW_ROWS.length + 1), name: 'Copy of ' + s.name })); SHOW_ROWS.push(c); return Promise.resolve(JSON.parse(JSON.stringify(c))) },
   deleteShow: (id) => { CALLS.push({ name: 'deleteShow', args: [id] }); const i = SHOW_ROWS.findIndex((x) => x.id === id); if (i >= 0) SHOW_ROWS.splice(i, 1); return Promise.resolve() },
   saveComposeDraft: (a) => { CALLS.push({ name: 'saveComposeDraft', args: [a] }); return Promise.resolve(a.id || 'draft-1') },
   deleteDraft: rec('deleteDraft'),

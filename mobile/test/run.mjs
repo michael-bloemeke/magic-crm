@@ -685,6 +685,11 @@ console.log('\n== shows ==')
 
   __app.navigate('shows'); await settle()
   ok(has('Corporate stand-up') && has('2 in the set list'), 'the show is listed with its counts')
+  ;[...document.querySelectorAll('#view .show-dup')][0].dispatchEvent(new window.Event('click')); await settle()
+  ok(CALLS.some((c) => c.name === 'duplicateShow'), 'Duplicate copies the show')
+  const names = [...document.querySelectorAll('#view .show-card .name')].map((x) => x.textContent)
+  ok(names.join('|') === 'Corporate stand-up|Copy of Corporate stand-up', 'the copy is named "Copy of ..." and listed after it', names.join('|'))
+  ok([...document.querySelectorAll('#view .show-card .meta')][1].textContent.includes('2 in the set list'), 'with the same set list')
   __app.navigate('home')
   document.querySelectorAll('.sheet').forEach((x) => x.remove())
 }

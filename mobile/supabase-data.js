@@ -1285,6 +1285,20 @@ export async function uncheckAllPacked(id) {
   if (!cur) throw new Error('Show not found.')
   return updateShow(id, { packingList: cleanPackingList(cur.packing_list).map((x) => ({ ...x, done: false })) })
 }
+// An exact copy named "Copy of <name>": both lists, checkmarks and all, every line with a fresh id.
+export async function duplicateShow(id) {
+  const { data: cur, error: e1 } = await sb.from('shows').select('*').eq('id', id).maybeSingle()
+  if (e1) throw e1
+  if (!cur) throw new Error('Show not found.')
+  const row = {
+    name: `Copy of ${str(cur.name).trim()}`,
+    set_list: cleanSetList(cur.set_list).map((x) => ({ ...x, id: uuid() })),
+    packing_list: cleanPackingList(cur.packing_list).map((x) => ({ ...x, id: uuid() })),
+  }
+  const { data, error } = await sb.from('shows').insert(row).select('*').single()
+  if (error) throw error
+  return showFromRow(data)
+}
 export async function deleteShow(id) {
   const { error } = await sb.from('shows').delete().eq('id', id)
   if (error) throw error

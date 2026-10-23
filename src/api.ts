@@ -1814,6 +1814,9 @@ export async function setPacked(id: string, itemId: string, done: boolean): Prom
 export async function uncheckAllPacked(id: string): Promise<Show> {
   return (await postJsonStrict<{ show: Show }>('/api/shows/uncheck-all', { id }, 'Could not uncheck the list')).show
 }
+export async function duplicateShow(id: string): Promise<Show> {
+  return (await postJsonStrict<{ show: Show }>('/api/shows/duplicate', { id }, 'Could not duplicate the show')).show
+}
 export async function deleteShow(id: string): Promise<void> {
   await postJsonStrict('/api/shows/delete', { id }, 'Could not delete the show')
 }
