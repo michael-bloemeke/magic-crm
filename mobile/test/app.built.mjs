@@ -4887,50 +4887,86 @@ function showEditor(kind) {
 
 // Drag to reorder, by the handle, with a finger or a mouse. The row follows the pointer and swaps
 // places with a neighbour once it passes that neighbour's middle; the page scrolls when the row is
-// held near the top or bottom edge, so a long list can be reordered end to end. `onDone` gets the
-// new order of data-id values.
+// held near the top or bottom edge, so a long list can be reordered end to end. Letting go snaps the
+// row into its slot. `onDone` gets the new order of data-id values.
+//
+// FIXED 2026-10-23 after Michael found rows freezing half way between two others on his iPhone,
+// mostly when dragging UP. Two causes, both fixed here:
+//   1. Moving up used to move the DRAGGED ROW itself in the page. On iOS that drops the pointer
+//      capture on the handle, so the "finger lifted" event went somewhere else and the drag never
+//      ended: the row stayed lifted and offset. Now only the NEIGHBOURS are ever moved, and the
+//      move/lift events are heard on the whole document, so the end of a drag cannot be missed.
+//   2. One swap per finger movement meant a quick drag could end a slot or two short of where the
+//      row was showing. Now every swap the position calls for happens at once.
 function makeSortable(list, onDone) {
+  var drag = null
+  function place() {
+    if (!drag) return
+    var row = drag.row
+    for (var guard = 0; guard < 500; guard++) {
+      row.style.transform = 'translateY(' + ((drag.y + window.scrollY) - drag.anchor) + 'px)'
+      var r = row.getBoundingClientRect(), mid = r.top + r.height / 2
+      var next = row.nextElementSibling, prev = row.previousElementSibling
+      var before = row.offsetTop
+      if (next && mid >= next.getBoundingClientRect().top + next.offsetHeight / 2) list.insertBefore(next, row)
+      else if (prev && mid <= prev.getBoundingClientRect().top + prev.offsetHeight / 2) list.insertBefore(prev, row.nextElementSibling)
+      else return
+      // The row's slot moved; shift the anchor by the same amount so it stays under the finger.
+      drag.anchor += row.offsetTop - before
+    }
+  }
+  function onMove(ev) {
+    if (!drag || ev.pointerId !== drag.pid) return
+    if (ev.cancelable) ev.preventDefault()
+    drag.y = ev.clientY
+    place()
+  }
+  function onUp(ev) {
+    if (!drag || ev.pointerId !== drag.pid) return
+    // The lift position counts: the last movement can arrive WITH the lift rather than before it.
+    if (ev.type === 'pointerup' && typeof ev.clientY === 'number') { drag.y = ev.clientY; place() }
+    finish()
+  }
+  function finish() {
+    if (!drag) return
+    var d = drag; drag = null
+    clearInterval(d.timer)
+    document.removeEventListener('pointermove', onMove, true)
+    document.removeEventListener('pointerup', onUp, true)
+    document.removeEventListener('pointercancel', onUp, true)
+    window.removeEventListener('blur', finish)
+    document.removeEventListener('visibilitychange', finish)
+    list.classList.remove('sorting')
+    // Snap: glide from where the finger left it into its slot.
+    var row = d.row
+    row.style.transition = 'transform 140ms ease-out'
+    row.style.transform = ''
+    setTimeout(function () { row.style.transition = ''; row.classList.remove('dragging') }, 160)
+    onDone(Array.prototype.map.call(list.children, function (c) { return c.dataset.id }))
+  }
   list.addEventListener('pointerdown', function (e) {
     var h = e.target.closest && e.target.closest('.drag-h')
     if (!h || !list.contains(h)) return
     var row = h.closest('.ed-row'); if (!row) return
     e.preventDefault()
+    finish() // a drag that somehow never ended is closed before a new one starts
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
-    var startPageY = e.clientY + window.scrollY
-    var lastClientY = e.clientY
+    row.style.transition = ''
+    drag = { row: row, pid: e.pointerId, y: e.clientY, anchor: e.clientY + window.scrollY, timer: 0 }
     row.classList.add('dragging')
-    try { h.setPointerCapture(e.pointerId) } catch (err) { /* older WebKit */ }
-    function place() {
-      var dy = (lastClientY + window.scrollY) - startPageY
-      row.style.transform = 'translateY(' + dy + 'px)'
-      var r = row.getBoundingClientRect(), mid = r.top + r.height / 2
-      var next = row.nextElementSibling, prev = row.previousElementSibling
-      var before = row.offsetTop
-      if (next && mid > next.getBoundingClientRect().top + next.offsetHeight / 2) list.insertBefore(next, row)
-      else if (prev && mid < prev.getBoundingClientRect().top + prev.offsetHeight / 2) list.insertBefore(row, prev)
-      else return
-      // The row moved in the layout; shift the anchor by the same amount so it stays under the finger.
-      startPageY += row.offsetTop - before
-      row.style.transform = 'translateY(' + ((lastClientY + window.scrollY) - startPageY) + 'px)'
-    }
-    var timer = setInterval(function () {
+    list.classList.add('sorting')
+    try { h.setPointerCapture(e.pointerId) } catch (err) { /* not needed: the document listens */ }
+    document.addEventListener('pointermove', onMove, true)
+    document.addEventListener('pointerup', onUp, true)
+    document.addEventListener('pointercancel', onUp, true)
+    window.addEventListener('blur', finish)
+    document.addEventListener('visibilitychange', finish)
+    drag.timer = setInterval(function () {
+      if (!drag) return
       var edge = 90
-      if (lastClientY < edge) { window.scrollBy(0, -10); place() }
-      else if (lastClientY > window.innerHeight - edge - 70) { window.scrollBy(0, 10); place() }
+      if (drag.y < edge) { window.scrollBy(0, -10); place() }
+      else if (drag.y > window.innerHeight - edge - 70) { window.scrollBy(0, 10); place() }
     }, 16)
-    function move(ev) { lastClientY = ev.clientY; place() }
-    function up() {
-      clearInterval(timer)
-      h.removeEventListener('pointermove', move)
-      h.removeEventListener('pointerup', up)
-      h.removeEventListener('pointercancel', up)
-      row.classList.remove('dragging')
-      row.style.transform = ''
-      onDone(Array.prototype.map.call(list.children, function (c) { return c.dataset.id }))
-    }
-    h.addEventListener('pointermove', move)
-    h.addEventListener('pointerup', up)
-    h.addEventListener('pointercancel', up)
   })
 }
 
