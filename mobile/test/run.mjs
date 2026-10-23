@@ -457,5 +457,114 @@ ok(__app.countdownText(d(12)) === 'in 12 days', 'countdown future')
 ok(__app.countdownText(d(-3)) === '3 days ago', 'countdown past')
 ok(__app.projectEmails(PROJECT).join() === 'sarah@duke.edu', 'projectEmails reads the project column')
 
+console.log('\n== home: each tile opens its own list ==')
+{
+  // Known task states relative to TODAY, whatever day the suite runs.
+  const today = d(0)
+  const GIG = { ...PROJECT, id: 'gig-soon', client: 'Gig Soon', eventDate: d(3), contactEmails: '' }
+  const FAR = { ...PROJECT, id: 'gig-far', client: 'Gig Far Off', eventDate: d(20), contactEmails: '' }
+  const saved = { projects: SNAP.projects, tasks: SNAP.tasks }
+  SNAP.projects = [...saved.projects, GIG, FAR]
+  SNAP.tasks = [
+    { id: 'h1', projectId: 'gig-soon', title: 'Old overdue thing', dueDate: d(-5), dueTime: '', done: false },
+    { id: 'h2', projectId: 'gig-soon', title: 'Today with no time', dueDate: today, dueTime: '', done: false },
+    { id: 'h3', projectId: 'gig-soon', title: 'Tomorrow thing', dueDate: d(1), dueTime: '', done: false },
+    { id: 'h4', projectId: 'gig-soon', title: 'Done yesterday', dueDate: d(-1), dueTime: '', done: true },
+  ]
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('home'); __app.render()
+  await settle()
+  ok(document.querySelectorAll('.statcard').length === 4, 'Home shows the four tiles')
+  ok(!has('Needs attention') && !has('Next 7 days') && !document.querySelector('#view .card'), 'and nothing under them')
+  const tile = (label) => [...document.querySelectorAll('.statcard')].find((c) => c.textContent.includes(label))
+  ok(tile('Overdue tasks').querySelector('.n').textContent === '1', 'the overdue tile counts one')
+
+  tile('Overdue tasks').dispatchEvent(new window.Event('click'))
+  let sh = document.querySelector('.home-sheet')
+  ok(!!sh && __app.getTab() === 'home', 'tapping a tile opens a list on Home instead of leaving it')
+  ok(sh.textContent.includes('Old overdue thing') && !sh.textContent.includes('Today with no time') && !sh.textContent.includes('Tomorrow thing'),
+     'the overdue list holds overdue tasks only', sh.textContent.slice(0, 200))
+  ok(sh.querySelectorAll('.homesheet-go').length === 2 && [...sh.querySelectorAll('.homesheet-go')].every((b) => b.textContent === 'Go to Tasks'),
+     'Go to Tasks sits at the top and the bottom')
+  ok(sh.querySelectorAll('.taskrow .check').length === 1 && sh.querySelectorAll('.taskrow .taskdel').length === 1, 'each task can be completed or deleted')
+  sh.querySelector('.taskrow .check').dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(!document.querySelector('.home-sheet').textContent.includes('Old overdue thing'), 'completing it takes it off the list')
+  document.querySelector('.home-sheet .sheet-x').dispatchEvent(new window.Event('click'))
+  ok(!document.querySelector('.home-sheet') && tile('Overdue tasks').querySelector('.n').textContent === '0', 'closing repaints the tile')
+
+  tile('Due today').dispatchEvent(new window.Event('click'))
+  sh = document.querySelector('.home-sheet')
+  ok(sh.textContent.includes('Today with no time') && !sh.textContent.includes('Tomorrow thing') && !sh.textContent.includes('Done yesterday'),
+     'the due-today list is today only, no more, no less', sh.textContent.slice(0, 200))
+
+  // Go to Tasks, then Back: Home with the same list open again.
+  sh.querySelector('.homesheet-go').dispatchEvent(new window.Event('click'))
+  ok(__app.getTab() === 'tasks' && !document.querySelector('.home-sheet'), 'Go to Tasks lands on Tasks and the list goes with it')
+  ok(!document.querySelector('#back-btn').disabled, 'Back is live on Tasks')
+  __app.goBack()
+  ok(__app.getTab() === 'home' && document.querySelector('.home-sheet .sheet-title').textContent.startsWith('Due today'),
+     'Back returns to Home with the list he left from', document.querySelector('.home-sheet .sheet-title')?.textContent)
+  document.querySelector('.home-sheet .sheet-x').dispatchEvent(new window.Event('click'))
+
+  tile('Gigs next 7 days').dispatchEvent(new window.Event('click'))
+  sh = document.querySelector('.home-sheet')
+  ok(sh.textContent.includes('Gig Soon') && !sh.textContent.includes('Gig Far Off'), 'the gigs list is the next 7 days only')
+  ok([...sh.querySelectorAll('.homesheet-go')].every((b) => b.textContent === 'View all gigs'), 'with View all gigs as the way through')
+  ;[...sh.querySelectorAll('.card')].find((c) => c.textContent.includes('Gig Soon')).dispatchEvent(new window.Event('click'))
+  ok(__app.getDetail() === 'gig-soon' && !document.querySelector('.home-sheet'), 'tapping a gig opens its project')
+  __app.goBack()
+  ok(__app.getDetail() === null && __app.getTab() === 'home' && document.querySelector('.home-sheet .sheet-title').textContent.startsWith('Gigs next 7 days'),
+     'Back from the project reopens the gigs list')
+  document.querySelector('.home-sheet .sheet-x').dispatchEvent(new window.Event('click'))
+  __app.getNav().length = 0; __app.render() // earlier tests leave history behind; start clean
+  ok(document.querySelector('#back-btn').disabled, 'Back is dimmed on Home with nothing behind it')
+
+  SNAP.projects = saved.projects; SNAP.tasks = saved.tasks
+}
+
+console.log('\n== back button ==')
+{
+  __app.setDetail(null); __app.setTab('home'); __app.render()
+  __app.navigate('pipeline')
+  __app.renderDetail('sarah-whitfield')
+  __app.navigate('inbox')
+  __app.goBack()
+  ok(__app.getDetail() === 'sarah-whitfield', 'Back from Inbox returns to the project he was on')
+  __app.goBack()
+  ok(__app.getDetail() === null && __app.getTab() === 'pipeline', 'then to the pipeline he opened it from')
+  __app.goBack()
+  ok(__app.getTab() === 'home', 'then Home')
+  __app.renderDetail('sarah-whitfield'); __app.renderDetail('sarah-whitfield', true)
+  __app.goBack()
+  ok(__app.getTab() === 'home' && __app.getDetail() === null, 're-rendering the same page is not a step to go back through')
+}
+
+console.log('\n== pipeline: one row per stage, in structure order ==')
+{
+  const saved = { projects: SNAP.projects, structure: SNAP.structure }
+  const mk = (id, stageId, date) => ({ ...PROJECT, id, client: id, stageId, eventDate: date, contactEmails: '' })
+  SNAP.structure = { umbrellas: [
+    { id: 'u1', label: 'First contact', role: 'first', stages: [{ id: 'inq', name: 'Inquiry' }, { id: 'ans', name: 'Answered Inquiry' }, { id: 'fup', name: 'Follow Up Sent' }] },
+    { id: 'u2', label: 'Booked', role: 'booked', stages: [{ id: 'bk', name: 'Booked' }] },
+  ] }
+  __app.setStageMap({
+    inq: { name: 'Inquiry', umbrella: 'First contact' }, ans: { name: 'Answered Inquiry', umbrella: 'First contact' },
+    fup: { name: 'Follow Up Sent', umbrella: 'First contact' }, bk: { name: 'Booked', umbrella: 'Booked' },
+  })
+  SNAP.projects = [mk('Fup B', 'fup', '2026-12-01'), mk('Inq Late', 'inq', '2026-12-20'), mk('Inq Early', 'inq', '2026-11-02'),
+    mk('Inq Undated', 'inq', ''), mk('Booked One', 'bk', '2026-11-09')]
+  __app.setDetail(null); __app.setTab('pipeline'); __app.renderPipeline()
+  const rows = [...document.querySelectorAll('.prow')]
+  ok(rows.map((r) => r.querySelector('.prow-name').textContent).join('|') === 'Inquiry|Follow Up Sent|Booked',
+     'stages run down the page in structure order, empty ones left out', rows.map((r) => r.querySelector('.prow-name').textContent).join('|'))
+  const inqNames = [...rows[0].querySelectorAll('.prow-strip > .card .name')].map((n) => n.textContent)
+  ok(inqNames.join('|') === 'Inq Early|Inq Late|Inq Undated', 'inside a stage, soonest first and undated last', inqNames.join('|'))
+  ok(rows[0].querySelector('.prow-count').textContent === '3', 'each stage shows its count')
+  ok(rows[2].classList.contains('prow-one') && !rows[0].classList.contains('prow-one'), 'a lone project takes the full row')
+  SNAP.projects = saved.projects; SNAP.structure = saved.structure
+  __app.setStageMap({ s2: { name: 'Proposal sent', umbrella: 'Selling', color: '#c9a227' } })
+}
+
 console.log('\n' + (fails ? 'FAILURES: ' + fails : 'ALL PASS'))
 process.exit(fails ? 1 : 0)

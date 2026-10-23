@@ -396,32 +396,52 @@ function umbrellaColor(u, i) {
   return ramp[i % ramp.length]
 }
 
-// Active projects: one collapsible, color-coded section per pipeline umbrella, in structure order.
+// Active projects: one collapsible, color-coded section per pipeline umbrella, in structure order,
+// and inside each one a ROW PER STAGE, in the stage order the structure defines.
+//
+// Michael, 2026-10-23: the board used to list every project in a category straight down the page
+// with the stages mixed together, so "who is at Follow Up Sent" meant reading every pill. Now each
+// stage is its own labelled row and its projects scroll sideways, the phone version of the desktop
+// columns. Inside a stage, soonest event first, undated last (same rule as the desktop's
+// byEventDateAsc). Empty stages are left out: on a phone an empty row is only scrolling.
 function drawActive(list, items) {
-  var groups = {}
+  var umbrellas = SNAP.structure.umbrellas || []
+  var groups = {} // umbrella label -> { stageId -> [projects] }
+  var seenStages = {} // umbrella label -> stage ids in first-seen order (for stages not in the structure)
   items.forEach(function (p) {
     var si = stageInfo(p.stageId)
     var key = si.umbrella || 'Other'
-    ;(groups[key] = groups[key] || []).push(p)
+    var g = groups[key] = groups[key] || {}
+    var sid = p.stageId || ''
+    if (!g[sid]) { g[sid] = []; (seenStages[key] = seenStages[key] || []).push(sid) }
+    g[sid].push(p)
   })
-  var umbrellas = SNAP.structure.umbrellas || []
   var order = umbrellas.map(function (u) { return u.label })
   Object.keys(groups).forEach(function (k) { if (order.indexOf(k) < 0) order.push(k) })
   order.forEach(function (label, i) {
-    var g = groups[label]; if (!g || !g.length) return
+    var g = groups[label]; if (!g) return
     var u = umbrellas.find(function (x) { return x.label === label })
-    list.appendChild(stageSection(label, umbrellaColor(u, i), g))
+    var stageOrder = ((u && u.stages) || []).map(function (st) { return st.id })
+    ;(seenStages[label] || []).forEach(function (sid) { if (stageOrder.indexOf(sid) < 0) stageOrder.push(sid) })
+    var rows = stageOrder.filter(function (sid) { return g[sid] && g[sid].length }).map(function (sid) {
+      return { name: stageName(sid) || 'No stage', projects: g[sid].slice().sort(byEventDateAsc) }
+    })
+    list.appendChild(stageSection(label, umbrellaColor(u, i), rows))
   })
+}
+function byEventDateAsc(a, b) {
+  return (a.eventDate || '9999-99-99').localeCompare(b.eventDate || '9999-99-99')
 }
 
 // A collapsible pipeline section: a colored header (tinted by the section color) + count + chevron,
-// with the projects (each carrying a matching colored left edge) below. Collapse persists per session.
-function stageSection(label, color, projects) {
+// with one row per stage below. Collapse persists per session.
+function stageSection(label, color, rows) {
+  var total = rows.reduce(function (n, r) { return n + r.projects.length }, 0)
   var wrap = el('<div class="psection"></div>')
-  var head = el('<button class="psection-head"><span class="psection-bar"></span><span class="psection-name">' + esc(label) + '</span><span class="psection-count">' + projects.length + '</span><span class="psection-chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>')
+  var head = el('<button class="psection-head"><span class="psection-bar"></span><span class="psection-name">' + esc(label) + '</span><span class="psection-count">' + total + '</span><span class="psection-chev"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span></button>')
   head.style.setProperty('--sec', color)
   var body = el('<div class="psection-body"></div>')
-  projects.forEach(function (p) { body.appendChild(projectCard(p, color)) })
+  rows.forEach(function (r) { body.appendChild(stageRow(r.name, color, r.projects)) })
   function apply() {
     var col = !!COLLAPSED[label]
     body.style.display = col ? 'none' : ''
@@ -432,6 +452,19 @@ function stageSection(label, color, projects) {
   wrap.appendChild(head)
   wrap.appendChild(body)
   return wrap
+}
+
+// One stage: its name and count, then its projects in a sideways-scrolling strip. A single project
+// takes the full width; with more than one, each card is a little narrower than the screen so the
+// next one peeks in from the right, which is what tells you the row scrolls.
+function stageRow(name, color, projects) {
+  var row = el('<div class="prow' + (projects.length === 1 ? ' prow-one' : '') + '"></div>')
+  row.style.setProperty('--sec', color)
+  row.appendChild(el('<div class="prow-head"><span class="prow-name">' + esc(name) + '</span><span class="prow-count">' + projects.length + '</span></div>'))
+  var strip = el('<div class="prow-strip"></div>')
+  projects.forEach(function (p) { strip.appendChild(projectCard(p, color)) })
+  row.appendChild(strip)
+  return row
 }
 
 // Completed / archived records: newest first by event date (fallback completed date), grouped by year.
@@ -856,16 +889,13 @@ var PTAB = 'details' // which tab of the project view is showing
 
 function renderDetail(id, keepScroll) {
   var p = SNAP.projects.find(function (x) { return x.id === id }); if (!p) return renderPipeline()
+  noteLoc({ tab: TAB, detail: id, ptab: PTAB })
   DETAIL_ID = id
   removeFab()
   var v = $('#view'); v.innerHTML = ''
   var pt = $('#pagetitle'); if (pt) pt.textContent = p.client || 'Project'
-  // Back goes to the page this project actually lives on, not always Pipeline: opening a completed
-  // project and being dumped into the active board on the way out is disorienting.
-  var backPage = pageForBucket(p.bucket)
-  var back = el('<button class="back"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' + esc(PAGE_TITLES[backPage] || 'Pipeline') + '</button>')
-  back.addEventListener('click', function () { navigate(backPage) })
-  v.appendChild(back)
+  // No back link in the page any more: the header's back button (2026-10-23) returns to whatever
+  // was on screen before, which is what this link was approximating with "the page it lives on".
 
   v.appendChild(projectHeader(p))
 
@@ -2726,7 +2756,7 @@ function openThread(t, project, after) {
     body.innerHTML = ''
     if (project) {
       var go = el('<button class="btn-ghost" style="width:100%;margin-bottom:12px">Open ' + esc(project.client) + '</button>')
-      go.addEventListener('click', function () { close(); navigate(pageForBucket(project.bucket)); renderDetail(project.id) })
+      go.addEventListener('click', function () { close(); closeDrawer(); TAB = pageForBucket(project.bucket); renderDetail(project.id) })
       body.appendChild(go)
     }
     th.messages.forEach(function (m) {
@@ -3271,6 +3301,8 @@ function startMailCount() {
 }
 
 function render() {
+  noteLoc({ tab: TAB, detail: null })
+  DETAIL_ID = null // a tab page is on screen now, so no project is
   if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
   removeProjectTabs() // any full page render means we are no longer inside a project
   if (TAB === 'home') renderHome()
@@ -3303,6 +3335,69 @@ function navigate(page) {
   window.scrollTo(0, 0)
 }
 
+// ---------- the back button ----------
+//
+// Michael, 2026-10-23: one back button, in the same place at the top of every view, that returns to
+// whatever was on screen before. It used to exist only inside a project, and there it went to the
+// page the project lives on rather than the page he came from.
+//
+// A "location" is the tab plus the open project (if any). Every render notes where it is; when that
+// differs from the last place rendered, the last place goes on the stack. Re-rendering the same
+// place (a write, a background refresh, switching tabs inside a project) is not a move and pushes
+// nothing. Each entry also keeps the scroll position and, on Home, which of the four lists was open,
+// so going back lands exactly where he left.
+var NAV_STACK = []
+var LAST_LOC = null
+var NAV_RESTORING = false
+var NAV_MAX = 50
+function sameLoc(a, b) {
+  if (!a || !b) return false
+  if (a.detail || b.detail) return a.detail === b.detail
+  return a.tab === b.tab
+}
+function noteLoc(loc) {
+  if (LAST_LOC && !sameLoc(LAST_LOC, loc)) {
+    if (!NAV_RESTORING) {
+      var prev = { tab: LAST_LOC.tab, detail: LAST_LOC.detail, ptab: LAST_LOC.ptab, y: window.scrollY || 0, sheet: HOME_SHEET }
+      NAV_STACK.push(prev)
+      if (NAV_STACK.length > NAV_MAX) NAV_STACK.shift()
+    }
+    closeHomeSheet() // moving anywhere takes a Home list with it
+  }
+  LAST_LOC = loc
+  updateBackBtn(loc)
+}
+function updateBackBtn(loc) {
+  var b = $('#back-btn'); if (!b) return
+  var atHome = loc ? (loc.tab === 'home' && !loc.detail) : (TAB === 'home' && !DETAIL_ID)
+  b.disabled = !NAV_STACK.length && atHome
+}
+function goBack() {
+  closeDrawer()
+  var e = null
+  while (NAV_STACK.length) {
+    e = NAV_STACK.pop()
+    // Skip a project that no longer exists, and anything identical to where he already is.
+    if (e.detail && !(SNAP && SNAP.projects.some(function (x) { return x.id === e.detail }))) { e = null; continue }
+    if (sameLoc(e, LAST_LOC)) { e = null; continue }
+    break
+  }
+  // Nothing left to go back to: Home is the floor.
+  if (!e) {
+    if (TAB === 'home' && !DETAIL_ID) { updateBackBtn(); return }
+    e = { tab: 'home', detail: null, y: 0 }
+  }
+  NAV_RESTORING = true
+  try {
+    TAB = e.tab
+    if (e.detail) { if (e.ptab) PTAB = e.ptab; renderDetail(e.detail) }
+    else render()
+  } finally { NAV_RESTORING = false }
+  window.scrollTo(0, e.y || 0)
+  if (e.sheet && TAB === 'home' && !DETAIL_ID) openHomeSheet(e.sheet)
+  updateBackBtn()
+}
+
 // ---------- Home dashboard ----------
 function greetingText() {
   var h = new Date().getHours()
@@ -3315,22 +3410,32 @@ function addDays(dateStr, n) {
   d.setDate(d.getDate() + n)
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
 }
-function statCard(n, label, page, cls) {
-  var c = el('<button class="statcard ' + (cls || '') + '"><div class="n">' + esc(n) + '</div><div class="l">' + esc(label) + '</div></button>')
-  c.addEventListener('click', function () { navigate(page) })
-  return c
-}
-function renderHome() {
-  var v = $('#view'); v.innerHTML = ''
+// The four numbers Home is built around, computed once so a tile and the list it opens can never
+// disagree about what they are counting.
+function homeData() {
   var today = todayStr()
   var open = (SNAP.tasks || []).filter(function (t) { return !t.done })
-  var overdue = open.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'overdue' })
-  var dueToday = open.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'due' })
+  var byDue = function (a, b) { return ((a.dueDate || '') + ' ' + (a.dueTime || '')).localeCompare((b.dueDate || '') + ' ' + (b.dueTime || '')) }
   var end7 = addDays(today, 7)
-  var gigs = (SNAP.projects || []).filter(function (p) {
-    return p.bucket === 'active' && p.eventDate && p.eventDate >= today && p.eventDate <= end7
-  }).sort(function (a, b) { return a.eventDate < b.eventDate ? -1 : 1 })
-  var alerts = (SNAP.notifications || []).length
+  return {
+    overdue: open.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'overdue' }).sort(byDue),
+    dueToday: open.filter(function (t) { return dueState(t.dueDate, t.dueTime) === 'due' }).sort(byDue),
+    gigs: (SNAP.projects || []).filter(function (p) {
+      return p.bucket === 'active' && p.eventDate && p.eventDate >= today && p.eventDate <= end7
+    }).sort(function (a, b) { return a.eventDate < b.eventDate ? -1 : 1 }),
+  }
+}
+function statCard(n, label, kind, cls) {
+  var c = el('<button class="statcard ' + (cls || '') + '"><div class="n">' + esc(n) + '</div><div class="l">' + esc(label) + '</div></button>')
+  c.addEventListener('click', function () { openHomeSheet(kind) })
+  return c
+}
+// Home is the greeting and the four tiles, nothing under them (Michael, 2026-10-23). Each tile opens
+// its own list in place instead of jumping to another page; the list has a button through to the
+// full page for when he wants more than the answer to the tile's question.
+function renderHome() {
+  var v = $('#view'); v.innerHTML = ''
+  var d = homeData()
 
   v.appendChild(el('<div class="greeting">' + esc(greetingText()) +
     '<span class="sub2">' + esc(new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })) + '</span></div>'))
@@ -3341,30 +3446,102 @@ function renderHome() {
   // unread emails." Money is still a tap away in the drawer; this tile now answers a question he
   // asked for. It reads 0 until the five-minute poll has run once, which is honest: it is a count
   // of what the app has actually seen.
-  grid.appendChild(statCard(String(UNREAD_MAIL), 'Unread email', 'inbox', 's-mail'))
-  grid.appendChild(statCard(String(overdue.length), 'Overdue tasks', 'tasks', 's-over'))
-  grid.appendChild(statCard(String(dueToday.length), 'Due today', 'tasks', 's-due'))
-  grid.appendChild(statCard(String(gigs.length), 'Gigs next 7 days', 'pipeline', 's-gigs'))
+  grid.appendChild(statCard(String(UNREAD_MAIL), 'Unread email', 'mail', 's-mail'))
+  grid.appendChild(statCard(String(d.overdue.length), 'Overdue tasks', 'overdue', 's-over'))
+  grid.appendChild(statCard(String(d.dueToday.length), 'Due today', 'today', 's-due'))
+  grid.appendChild(statCard(String(d.gigs.length), 'Gigs next 7 days', 'gigs', 's-gigs'))
   v.appendChild(grid)
+}
 
-  var attention = overdue.concat(dueToday)
-  if (attention.length) {
-    v.appendChild(sectionLabel('Needs attention · ' + attention.length))
-    attention.forEach(function (t) { v.appendChild(taskCard(t, true)) })
+// ---- the four Home lists ----
+//
+// A full-height sheet per tile, with the way through to the full page at the top AND the bottom, so
+// it is in reach whether he has just opened the list or just reached the end of it.
+var HOME_SHEET = null // which list is open, so Back can reopen it after he leaves Home from inside one
+var HOME_SHEETS = {
+  mail: { title: 'Unread email', go: 'inbox', goLabel: 'Open Inbox' },
+  overdue: { title: 'Overdue tasks', go: 'tasks', goLabel: 'Go to Tasks' },
+  today: { title: 'Due today', go: 'tasks', goLabel: 'Go to Tasks' },
+  gigs: { title: 'Gigs next 7 days', go: 'pipeline', goLabel: 'View all gigs' },
+}
+function closeHomeSheet() {
+  document.querySelectorAll('.home-sheet').forEach(function (x) { x.remove() })
+  HOME_SHEET = null
+}
+function openHomeSheet(kind) {
+  var cfg = HOME_SHEETS[kind]; if (!cfg) return
+  closeHomeSheet()
+  HOME_SHEET = kind
+  var sheet = el(
+    '<div class="sheet home-sheet"><div class="sheet-card sheet-tall sheet-full">' +
+      '<div class="sheet-head"><div class="sheet-title"></div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var titleEl = sheet.querySelector('.sheet-title')
+  var body = sheet.querySelector('.sheet-body')
+  // Closing repaints Home underneath, so a tile reflects anything done in its list.
+  var close = function () {
+    sheet.remove()
+    if (HOME_SHEET === kind) HOME_SHEET = null
+    if (TAB === 'home' && !DETAIL_ID) render()
   }
-  if (gigs.length) {
-    v.appendChild(sectionLabel('Next 7 days · ' + gigs.length))
-    gigs.forEach(function (p) { v.appendChild(projectCard(p)) })
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+
+  function goBtn() {
+    var b = el('<button class="btn-ghost homesheet-go">' + esc(cfg.goLabel) + '</button>')
+    // Navigate BEFORE removing the sheet, so the history records that this list was open and Back
+    // from the full page brings him back to it.
+    b.addEventListener('click', function () { navigate(cfg.go) })
+    return b
   }
-  if (!attention.length && !gigs.length) {
-    v.appendChild(el('<div class="empty" style="padding:38px 10px">Nothing needs you right now. Enjoy it.</div>'))
+  function setTitle(n) { titleEl.textContent = cfg.title + (n == null ? '' : '  ·  ' + n) }
+
+  function draw() {
+    body.innerHTML = ''
+    body.appendChild(goBtn())
+    var list = el('<div class="homesheet-list"></div>')
+    body.appendChild(list)
+    body.appendChild(goBtn())
+    if (kind === 'mail') return fillMail(list)
+    var d = homeData()
+    if (kind === 'gigs') {
+      setTitle(d.gigs.length)
+      if (!d.gigs.length) list.appendChild(el('<div class="empty">No gigs in the next 7 days.</div>'))
+      // Tapping a gig opens its project; the sheet goes with the move (see noteLoc).
+      d.gigs.forEach(function (p) { list.appendChild(projectCard(p)) })
+      return
+    }
+    var tasks = kind === 'overdue' ? d.overdue : d.dueToday
+    setTitle(tasks.length)
+    if (!tasks.length) list.appendChild(el('<div class="empty">' + (kind === 'overdue' ? 'Nothing overdue.' : 'Nothing due today.') + '</div>'))
+    tasks.forEach(function (t) { list.appendChild(taskCard(t, true, draw)) })
   }
-  if (alerts) {
-    v.appendChild(sectionLabel('Alerts'))
-    var ac = el('<button class="card"><div class="row1"><span class="name" style="font-size:14.5px">' + alerts + ' new alert' + (alerts > 1 ? 's' : '') + '</span><span class="fee" style="color:var(--faint);font-variant-numeric:normal">View</span></div></button>')
-    ac.addEventListener('click', function () { navigate('alerts') })
-    v.appendChild(ac)
+
+  // The same query the Inbox's Unread view runs, so this list is exactly what the tile counts.
+  function fillMail(list) {
+    setTitle(null)
+    var q = buildClientMailQueries('is:unread')
+    if (!q.length) { setTitle(0); list.appendChild(el('<div class="empty">Nothing unread from a client.</div>')); return }
+    list.appendChild(el('<div class="empty">Loading mail…</div>'))
+    mailFetch(q, 25, function (err, threads) {
+      if (!sheet.isConnected) return // closed while it was in flight
+      list.innerHTML = ''
+      if (err) { list.appendChild(mailError(err, function () { mailForget(); draw() })); return }
+      setTitle(threads.length)
+      if (!threads.length) { list.appendChild(el('<div class="empty">Nothing unread from a client.</div>')); return }
+      var ix = emailToProjectIndex()
+      threads.forEach(function (t) {
+        list.appendChild(mailRow(t, ix, function () { mailForget(); refreshUnreadMail(); draw() }))
+      })
+    })
   }
+
+  draw()
+  document.body.appendChild(sheet)
 }
 
 // ---------- Contacts ----------
@@ -3776,6 +3953,7 @@ function wireUI() {
   if (wired) return
   wired = true
   var mb = $('#menu-btn'); if (mb) mb.addEventListener('click', openDrawer)
+  var bb = $('#back-btn'); if (bb) bb.addEventListener('click', goBack)
   var bd = $('#drawer-backdrop'); if (bd) bd.addEventListener('click', closeDrawer)
   document.querySelectorAll('#drawer-nav button').forEach(function (b) {
     b.addEventListener('click', function () { navigate(b.dataset.page) })
