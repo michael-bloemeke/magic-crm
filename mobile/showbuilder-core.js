@@ -1,20 +1,23 @@
 // THE SHOW BUILDER'S RULES, in one place, for the phone AND the Mac (2026-10-24).
 //
-// Michael folded his standalone Show Builder app into the CRM: "make a new page called Show Builder
-// ... I can pick a show. I can move nodes around to create the flow of the show. I can open up any
-// trick ... and I do want it to work on my phone."
+// The CRM's Show Builder is a copy of Michael's standalone Show Builder app, built into the CRM with
+// its own data. The standalone app stays a separate project; the two never sync. He asked for "a new
+// page called Show Builder ... I can pick a show. I can move nodes around to create the flow of the
+// show. I can open up any trick ... and I do want it to work on my phone."
 //
 // This file is pure logic with no imports, so it runs in the phone app (mobile/app.js), in the Mac's
 // server (crm-showbuilder.mjs imports it from here), and in the tests. Everything that decides what a
 // show IS lives here: the saved shape of each document, the running order, the runtime, the props
 // list, and how the phone rewires the canvas when he reorders a show with his thumb.
 //
-// The Mac's canvas is the original app's React Flow code, moved into src/showbuilder/. Its own
+// The Mac's canvas is the standalone app's React Flow code, copied into src/showbuilder/. Its own
 // showUtils.ts keeps the order and duration functions it always had; the copies below are the same
 // code. ⚠️ Change getShowOrder or parseDurationMinutes in one, change both.
 //
-// DATA SHAPE. Exactly the old app's JSON files, one per row in the `show_builder` table (`data` is
-// the file). See show builder/CLAUDE.md for the original spec. In short:
+// DATA SHAPE. It started as the JSON the standalone app writes to its files (its spec is in
+// show builder/CLAUDE.md as of 2026-10-24), but THIS file defines it for the CRM from now on, since
+// the app may change in its own direction. One document per row in the `show_builder` table (`data`
+// is the document). In short:
 //   show   { id, name, createdAt, updatedAt, showProps: string[], nodes: Node[], edges: Edge[] }
 //   trick  { id, name, description, script, source, props: [{name, reusable}], duration, notes,
 //            tagIds, preferredWidth?, preferredHeight?, createdAt, updatedAt }
@@ -23,7 +26,7 @@
 //   tag    { id, name, color?, ... }
 //   audio  { id, displayName, originalFilename, storedFilename, mimeType, size, ... }
 // A node is { id, type: 'editable' | 'music' | 'other', position: {x, y}, data: { trickId | musicId |
-// otherId, width?, height? } }. 'editable' is a TRICK node (the old app's name for it). An edge is
+// otherId, width?, height? } }. 'editable' is a TRICK node (the standalone app's name for it). An edge is
 // React Flow's { id, source, sourceHandle, target, targetHandle, markerEnd }.
 
 export const CANVAS_W = 2400
@@ -31,7 +34,7 @@ export const CANVAS_H = 1500
 export const KINDS = ['show', 'trick', 'tag', 'music', 'other', 'audio']
 export const DEFAULT_OTHER_COLOR = '#7a8aa0'
 
-// Default node sizes, from the old app's EditableNode.tsx.
+// Default node sizes, from the standalone app's EditableNode.tsx.
 const SIZE = { editable: [130, 130], music: [130, 70], other: [130, 130] }
 
 const str = (v) => (v == null ? '' : String(v))
@@ -43,7 +46,7 @@ export function newId(prefix) {
 }
 
 // ---------------------------------------------------------------------------
-// Normalising, so every reader sees the canonical shape (ported from the old app's main process)
+// Normalising, so every reader sees the canonical shape (ported from the standalone app's main process)
 // ---------------------------------------------------------------------------
 
 // Props: [{ name, reusable }]. Older files held plain strings or one comma/newline string.
@@ -157,7 +160,7 @@ export function normalizeDoc(kind, raw) {
   throw new Error('Unknown Show Builder kind: ' + kind)
 }
 
-// How each library is sorted, as the old app did: shows newest first, everything else A to Z.
+// How each library is sorted, as the standalone app does: shows newest first, everything else A to Z.
 export function sortDocs(kind, docs) {
   const out = docs.slice()
   if (kind === 'show') out.sort((a, b) => str(b.updatedAt).localeCompare(str(a.updatedAt)))
@@ -167,7 +170,7 @@ export function sortDocs(kind, docs) {
 }
 
 // ---------------------------------------------------------------------------
-// Durations (same as the old app's showUtils.ts)
+// Durations (same as the standalone app's showUtils.ts)
 // ---------------------------------------------------------------------------
 
 // Accepts "3:30" (m:ss), "1:02:30", "3 min", "30 sec", "1 hr 5 min", "5" (minutes). Minutes, or 0.
@@ -202,7 +205,7 @@ export function formatDuration(minutes) {
 }
 
 // ---------------------------------------------------------------------------
-// Running order (same as the old app's getShowOrder)
+// Running order (same as the standalone app's getShowOrder)
 // ---------------------------------------------------------------------------
 
 // Follow the arrows. Ties, and nodes with no arrows at all, go by the order they were added. Nodes in
@@ -293,14 +296,14 @@ export function arrow(a, b, lib) {
 }
 
 // ---------------------------------------------------------------------------
-// Show Info: runtime, props, flow (same rules as the old app's ShowInfo.tsx)
+// Show Info: runtime, props, flow (same rules as the standalone app's ShowInfo.tsx)
 // ---------------------------------------------------------------------------
 
 const normName = (s) => str(s).trim().toLowerCase()
 
 export function showInfo(show, lib) {
   const order = getShowOrder(show.nodes || [], show.edges || [])
-  // Music is a cue, not a slot in the show: it adds no runtime and no props (the old app's choice).
+  // Music is a cue, not a slot in the show: it adds no runtime and no props (the standalone app's choice).
   const flow = order.filter((n) => n.type !== 'music')
   let total = 0, unassigned = 0
   const groups = new Map()

@@ -1,12 +1,13 @@
 // The Show Builder's data calls, inside the CRM (2026-10-24).
 //
-// In the standalone app these were `window.showBuilder.*`, Electron IPC into a main process that
-// read and wrote JSON files in ~/Documents/Show Builder/. Inside the CRM the same methods, with the
+// In the standalone app these are `window.showBuilder.*`, Electron IPC into a main process that
+// reads and writes JSON files in ~/Documents/Show Builder/. Inside the CRM the same methods, with the
 // same names and the same shapes, go to /api/show-builder/* (crm-data-plugin.mjs ->
-// crm-showbuilder.mjs -> Supabase), which is what lets the phone see and edit the same shows.
+// crm-showbuilder.mjs -> Supabase), which is what lets the phone see and edit the same shows. Nothing
+// here touches the standalone app's folder: the two are separate.
 //
-// Kept deliberately as a drop-in: every screen in this folder is the old app's own code with
-// `window.showBuilder` swapped for `sbApi`. Nothing else about them changed.
+// Kept deliberately as a drop-in: every screen in this folder started as the standalone app's code
+// with `window.showBuilder` swapped for `sbApi`.
 
 import { useEffect } from 'react'
 import type { Show, ShowSummary, Trick, Tag, AudioFile, Music, Other } from './types'
@@ -27,7 +28,7 @@ const get = <T,>(kind: string, id: string) => call<{ doc: T | null }>('get', { k
 const save = <T,>(kind: string, doc: T) => call<{ doc: T }>('save', { kind, doc }).then((r) => r.doc)
 const del = (kind: string, id: string) => call<{ ok: boolean }>('delete', { kind, id }).then(() => undefined)
 
-// The old app opened a native macOS picker from the main process. Here it is a hidden file input,
+// The standalone app opens a native macOS picker from the main process. Here it is a hidden file input,
 // clicked synchronously so it still counts as the click that asked for it.
 function pickFile(accept: string): Promise<File | null> {
   return new Promise((resolve) => {

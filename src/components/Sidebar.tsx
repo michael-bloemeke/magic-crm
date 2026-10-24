@@ -181,8 +181,8 @@ const GROUPS: NavGroup[] = [
           </>,
         ),
       },
-      // Show Builder: the standalone Show Builder app, folded in as a page (2026-10-24). Its nodes
-      // canvas, tricks, music and "other" libraries. See src/showbuilder/App.tsx.
+      // Show Builder (2026-10-24): a copy of the standalone Show Builder app, built in as a page, with
+      // its own data. The standalone app carries on separately. See src/showbuilder/App.tsx.
       {
         id: 'showbuilder',
         label: 'Show Builder',

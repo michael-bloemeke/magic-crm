@@ -5064,12 +5064,13 @@ function openShowOptions(s) {
 
 // ============================== SHOW BUILDER ==============================
 //
-// The standalone Show Builder app, folded into the CRM (2026-10-24). Michael: "make a new page called
+// A copy of Michael's standalone Show Builder app, built into the CRM (2026-10-24) with its own data.
+// The standalone app stays a separate project; the two never sync. Michael: "make a new page called
 // Show Builder ... I can pick a show. I can move nodes around to create the flow of the show. I can
 // open up any trick. And I can edit the prop list, the script, everything, the runtime ... this is a
 // huge thing because I want to work on this on the go."
 //
-// The Mac page is the old app itself (React Flow canvas, src/showbuilder/). A 2400 x 1500 canvas of
+// The Mac page is the standalone app's own code (React Flow canvas, src/showbuilder/). A 2400 x 1500 canvas of
 // draggable boxes and hand-drawn arrows does not fit a phone, so the phone is built around the same
 // data, rearranged for a thumb:
 //

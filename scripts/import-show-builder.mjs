@@ -8,11 +8,15 @@
 // `show_builder` row per file, keeping each file's id and JSON exactly. Audio files go to the private
 // `show-builder` storage bucket at audio/<storedFilename>.
 //
-// SAFE TO RE-RUN: every write is an upsert by id. It only READS the local folder and never changes or
-// deletes anything in it. That folder stays as it was, a frozen copy of the app's last state.
+// It only READS the local folder and never changes or deletes anything in it.
 //
-// Run from magic-crm/:  ~/.local/node22/bin/node scripts/import-show-builder.mjs
-// Add --dry to print what would be written without writing it.
+// ⚠️ ALREADY RUN, ONCE, ON 2026-10-24. DO NOT RUN IT AGAIN. Since then the CRM's Show Builder and the
+// standalone app are two SEPARATE things that each go their own way (Michael, 2026-10-24: "I want
+// these to be two different things ... I want everything to just be self-contained within the CRM").
+// Every write here is an upsert by the SAME ids, so a second run would copy the app's versions back
+// over whatever he has since changed in the CRM. It refuses to write without --force for that reason.
+//
+// Run from magic-crm/:  ~/.local/node22/bin/node scripts/import-show-builder.mjs --dry
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -22,6 +26,11 @@ import { normalizeDoc, cleanShow } from '../crm-showbuilder.mjs'
 
 const ROOT = path.join(os.homedir(), 'Documents', 'Show Builder')
 const DRY = process.argv.includes('--dry')
+if (!DRY && !process.argv.includes('--force')) {
+  console.error('This import already ran on 2026-10-24. Running it again would overwrite CRM edits with the standalone app\'s copies.')
+  console.error('Use --dry to look, or --force only if Michael has asked for the app\'s data to be copied in again.')
+  process.exit(1)
+}
 
 function readJsonFiles(dir, suffix) {
   if (!fs.existsSync(dir)) return []

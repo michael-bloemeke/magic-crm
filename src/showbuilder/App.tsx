@@ -17,10 +17,11 @@ type View =
   | { name: 'music' }
   | { name: 'others' }
 
-// THE SHOW BUILDER PAGE (2026-10-24). This is the standalone Show Builder app's own App.tsx, moved
-// into the CRM as a page: same home screen, canvas, libraries and sidebars. The only changes are the
-// name, the .sbx wrapper that scopes its stylesheet, and its data, which now lives in Supabase (see
-// sbApi.ts) so the phone can open the same shows.
+// THE SHOW BUILDER PAGE (2026-10-24). A copy of the standalone Show Builder app's App.tsx, built into
+// the CRM as a page: same home screen, canvas, libraries and sidebars. The changes are the name, the
+// .sbx wrapper that scopes its stylesheet, and its data, which lives in the CRM's database (see
+// sbApi.ts) so the phone can open the same shows. The standalone app stays a separate project with
+// its own files; the two do not sync.
 export function ShowBuilderApp() {
   const [view, setView] = useState<View>({ name: 'home' })
 

@@ -706,11 +706,15 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
   }
 
   // ---- 22. crm-show-builder.json (added 2026-10-24) ----
-  // The folded-in Show Builder app: { show: [...], trick: [...], tag, music, other, audio, _meta },
-  // each document exactly as stored (the old app's JSON files). The AUDIO itself is binary and too big
-  // for this git-backed folder, so it is mirrored instead into the folder the old app kept it in,
-  // ~/Documents/Show Builder/audio/<storedFilename>, downloading only files not already there and
-  // never deleting anything. That folder already held every file uploaded before the move.
+  // The CRM's Show Builder: { show: [...], trick: [...], tag, music, other, audio, _meta }, each
+  // document exactly as stored. The AUDIO itself is binary and too big for this git-backed folder, so
+  // it is mirrored into the CRM's own magic-crm/backups/show-builder-audio/ (git-ignored), downloading
+  // only files not already there and never deleting anything.
+  //
+  // ⚠️ NEVER into ~/Documents/Show Builder/. That folder belongs to Michael's standalone Show Builder
+  // app, which he keeps as its own separate project (2026-10-24: "I don't want the new shows that I
+  // create or the audio files or anything like that to be crossing over into the Show Builder app
+  // folder. I want everything to just be self-contained within the CRM.")
   {
     const kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio']
     const out = {}
@@ -724,12 +728,12 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-show-builder.json'), {
       fileName: 'crm-show-builder.json',
       count: total,
-      fallbackPurpose: 'Show Builder: every show (nodes and arrows), trick, tag, music cue, other item and audio-file record, mirrored from Supabase. Audio files themselves are mirrored to ~/Documents/Show Builder/audio/.',
+      fallbackPurpose: 'The CRM Show Builder: every show (nodes and arrows), trick, tag, music cue, other item and audio-file record, mirrored from Supabase. The audio files themselves are mirrored to magic-crm/backups/show-builder-audio/.',
     })
     writeJson(targetDir, 'crm-show-builder.json', { ...out, _meta: meta })
     written.push(`crm-show-builder.json (${out.show.length} shows, ${out.trick.length} tricks)`)
     try {
-      const audioDir = path.join(os.homedir(), 'Documents', 'Show Builder', 'audio')
+      const audioDir = path.join(DIR, '..', 'backups', 'show-builder-audio')
       fs.mkdirSync(audioDir, { recursive: true })
       let fetched = 0
       for (const a of out.audio) {
@@ -741,7 +745,7 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
         fs.writeFileSync(path.join(audioDir, `${a.id}.audio.json`), JSON.stringify(a, null, 2))
         fetched++
       }
-      written.push(`show builder audio: ${out.audio.length} on file, ${fetched} newly copied to ~/Documents/Show Builder/audio`)
+      written.push(`show builder audio: ${out.audio.length} on file, ${fetched} newly copied to magic-crm/backups/show-builder-audio`)
     } catch (e) {
       // Never let the audio copy fail the backup of everything else.
       written.push(`show builder audio NOT mirrored: ${e?.message || e}`)
