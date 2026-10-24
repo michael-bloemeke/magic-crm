@@ -2948,10 +2948,36 @@ function mailFetch(q, max, cb) {
   var hit = MAIL_CACHE[key]
   if (hit && Date.now() - hit.at < MAIL_TTL_MS) { cb(null, hit.threads); return }
   gmailList({ q: q, max: max })
-    .then(function (threads) { MAIL_CACHE[key] = { at: Date.now(), threads: threads }; cb(null, threads) })
+    .then(function (threads) { threads = keepReadHere(threads); MAIL_CACHE[key] = { at: Date.now(), threads: threads }; cb(null, threads) })
     .catch(function (e) { cb(e) })
 }
 function mailForget() { MAIL_CACHE = {} }
+
+// ---- opening a thread marks it read (Michael, 2026-10-24) ----
+//
+// "If I open up the email, then it should be marked as read." Wherever it is opened: the Inbox, a
+// project's Email tab, or Home's unread list. Gmail's search can lag a few seconds behind the label
+// change, so a list fetched straight after could still call the thread unread and bounce the count
+// back up. READ_HERE remembers, for this session, the newest message time he opened each thread at;
+// anything at or before that is read. A NEW message is newer, so it still shows as unread.
+var READ_HERE = {} // threadId -> newest message time opened
+function readHere(t) { var at = READ_HERE[t.threadId]; return at != null && (Number(t.ts) || 0) <= at }
+function keepReadHere(threads) {
+  ;(threads || []).forEach(function (t) { if (t.unread && readHere(t)) t.unread = false })
+  return threads
+}
+function markThreadRead(t, th) {
+  var newest = Number(t.ts) || 0
+  ;((th && th.messages) || []).forEach(function (m) { if ((Number(m.ts) || 0) > newest) newest = Number(m.ts) })
+  READ_HERE[t.threadId] = newest
+  var was = t.unread
+  t.unread = false
+  // Even a thread the list already showed as read gets the call: the list can be a few minutes old.
+  gmailMarkRead(t.threadId).catch(function () {}) // a failed mark is not worth an error; the next fetch shows it unread again
+  if (UNREAD_THREADS) UNREAD_THREADS = keepReadHere(UNREAD_THREADS).filter(function (x) { return x.unread })
+  tallyUnread()
+  if (was) mailForget()
+}
 
 // "3:42 PM" today, "Sep 14" this year, "Sep 14 2024" beyond. Same shape Mail uses, for the same
 // reason: the older a message is, the less its time of day matters.
@@ -3080,6 +3106,8 @@ function renderInbox() {
     if (TAB !== 'inbox') return // he navigated away while it was in flight
     list.innerHTML = ''
     if (err) { list.appendChild(mailError(err, function () { mailForget(); renderInbox() })); return }
+    // A thread he just opened can still come back from Gmail's search for a few seconds.
+    if (INBOX_UNREAD_ONLY) threads = threads.filter(function (t) { return t.unread })
     if (!threads.length) {
       list.appendChild(el('<div class="empty">' + (INBOX_UNREAD_ONLY ? 'Nothing unread from a client.' : 'No mail with anyone on your active projects yet.') + '</div>'))
       return
@@ -3136,9 +3164,8 @@ function mailError(err, retry) {
 
 // ---- reading one thread ----
 //
-// Opening does NOT mark read. Michael's unread count is a real signal about what he still owes an
-// answer to, and glancing at a thread to see who it is from should not quietly spend it. "Mark
-// read" is a button, and replying marks it read on his behalf because a reply settles the question.
+// Opening it marks it read, and there is no Mark read button (Michael, 2026-10-24, reversing the
+// 2026-09 choice to keep reading and marking separate). Replying still marks it read too.
 function openThread(t, project, after) {
   var sheet = el(
     '<div class="sheet"><div class="sheet-card sheet-tall">' +
@@ -3158,6 +3185,9 @@ function openThread(t, project, after) {
 
   gmailThread(t.threadId).then(function (th) {
     body.innerHTML = ''
+    // Marked once it has actually loaded, so a thread that failed to open is not spent.
+    if (t.unread) dirty = true
+    markThreadRead(t, th)
     if (project) {
       var go = el('<button class="btn-ghost" style="width:100%;margin-bottom:12px">Open ' + esc(project.client) + '</button>')
       go.addEventListener('click', function () { close(); closeDrawer(); TAB = pageForBucket(project.bucket); renderDetail(project.id) })
@@ -3184,14 +3214,7 @@ function openThread(t, project, after) {
         after: after,
       })
     })
-    var mk = el('<button class="btn-ghost">' + (t.unread ? 'Mark read' : 'Read') + '</button>')
-    if (!t.unread) mk.disabled = true
-    mk.addEventListener('click', function () {
-      doWrite(gmailMarkRead(t.threadId), 'Marked read', function () {
-        t.unread = false; mailForget(); dirty = true; close()
-      })
-    })
-    bar.appendChild(mk); bar.appendChild(rep)
+    bar.appendChild(rep)
     body.appendChild(bar)
   }).catch(function (e) {
     body.innerHTML = ''
@@ -4453,7 +4476,9 @@ function alertCard(n) {
   // border + sparkle + gold title so it visibly stands out from routine alerts (contract/invoice/task).
   var isInquiry = n.kind === 'new-inquiry'
   var cardStyle = isInquiry
-    ? ' style="border-color:var(--brass);box-shadow:0 0 0 1px var(--brass);background:color-mix(in oklab, var(--brass) 12%, transparent)"'
+    // The tint is mixed into the card's own colour, never into transparent: this card sits on top of
+    // the red Dismiss button of its swipe row, and a see-through card showed it (fixed 2026-10-24).
+    ? ' style="border-color:var(--brass);box-shadow:0 0 0 1px var(--brass);background:color-mix(in oklab, var(--brass) 12%, var(--surface))"'
     : ''
   var titleText = isInquiry ? ('✨ New inquiry') : (n.label || 'Update')
   var titleStyle = isInquiry
@@ -4611,21 +4636,9 @@ function refreshUnreadMail() {
   var before = UNREAD_MAIL
   UNREAD_INFLIGHT = withTimeout(gmailUnread(queries), 20000)
     .then(function (r) {
-      var threads = (r.threads || []).filter(function (t) { return t.unread })
-      UNREAD_THREADS = threads
+      UNREAD_THREADS = keepReadHere(r.threads || []).filter(function (t) { return t.unread })
       UNREAD_AT = Date.now()
-      UNREAD_MAIL = threads.length
-      setTabCount('nav-badge-inbox', UNREAD_MAIL)
-      // The same fetch also answers "which clients are waiting on me", which is the version of this
-      // question that is actually useful on the pipeline. Matching happens here, against contacts
-      // the phone already holds, so it costs nothing extra.
-      var ix = emailToProjectIndex()
-      var by = {}
-      threads.forEach(function (t) {
-        var pid = ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || ''
-        if (pid) by[pid] = (by[pid] || 0) + 1
-      })
-      UNREAD_BY_PROJECT = by
+      tallyUnread(true)
       if (UNREAD_MAIL !== before) reloadWidgets()
       // Repaint only the list pages, and only when nothing is being typed into or edited: a
       // background repaint that throws away a half-written search box is worse than a stale mark.
@@ -4636,6 +4649,24 @@ function refreshUnreadMail() {
   // A mail hiccup must never break the CRM: callers that care catch; the timer ignores it.
   UNREAD_INFLIGHT.catch(function () {})
   return UNREAD_INFLIGHT
+}
+// The count, the tab badge, and the per-client marks, from UNREAD_THREADS. `quiet` leaves the tile
+// and the widgets to the caller (the poll repaints them itself).
+function tallyUnread(quiet) {
+  var threads = UNREAD_THREADS || []
+  UNREAD_MAIL = threads.length
+  setTabCount('nav-badge-inbox', UNREAD_MAIL)
+  // The same list also answers "which clients are waiting on me", which is the version of this
+  // question that is actually useful on the pipeline. Matching happens here, against contacts
+  // the phone already holds, so it costs nothing extra.
+  var ix = emailToProjectIndex()
+  var by = {}
+  threads.forEach(function (t) {
+    var pid = ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || ''
+    if (pid) by[pid] = (by[pid] || 0) + 1
+  })
+  UNREAD_BY_PROJECT = by
+  if (!quiet) { paintMailTile(); reloadWidgets() }
 }
 // Just the tile's number, for when a full repaint would disturb an open sheet.
 function paintMailTile() {
@@ -5458,8 +5489,8 @@ function openHomeSheet(kind) {
       if (!threads.length) { list.appendChild(el('<div class="empty">Nothing unread from a client.</div>')); return }
       var ix = emailToProjectIndex()
       threads.forEach(function (t) {
-        // Reading one marks it read; the list and the tile drop it straight away, then re-check.
-        list.appendChild(mailRow(t, ix, function () { UNREAD_MAIL = (UNREAD_THREADS || []).filter(function (x) { return x.unread }).length; paintMailTile(); paint(); refreshUnreadMail() }))
+        // Opening one marks it read; the list and the tile drop it as soon as the thread is closed.
+        list.appendChild(mailRow(t, ix, function () { paintMailTile(); paint() }))
       })
     }
     if (UNREAD_THREADS) paint()

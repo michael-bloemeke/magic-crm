@@ -3,7 +3,7 @@ const SD = new URL('.', import.meta.url).pathname
 process.argv[2] = SD + 'app.built.mjs'
 await import('./harness.mjs')
 const { __app } = await import('./app.built.mjs')
-const { CALLS } = await import('./stub.mjs')
+const { CALLS, FIXTURE_THREADS } = await import('./stub.mjs')
 
 let fails = 0
 const ok = (cond, label, extra) => {
@@ -201,14 +201,33 @@ const inbound = rows.find((x) => x.textContent.includes('Magic for the gala'))
 ok(!inbound.querySelector('.mailto'), 'an inbound thread is not marked To')
 ok(inbound.querySelector('.mailfrom').textContent.includes('Sarah Whitfield'), 'and still shows the sender')
 
-console.log('\n== reading a thread does not mark it read ==')
+console.log('\n== opening a thread marks it read (2026-10-24) ==')
 CALLS.length = 0
-document.querySelector('.mailrow').dispatchEvent(new window.Event('click'))
+document.querySelector('.mailrow.unread').dispatchEvent(new window.Event('click'))
 await settle()
 ok(!!document.querySelector('.sheet'), 'the thread opens')
 ok(document.querySelector('.sheet').textContent.includes('What time would you arrive'), 'the body is readable')
-ok(!CALLS.some((c) => c.name === 'gmailMarkRead'), 'opening a thread does NOT mark it read')
-ok(document.querySelector('.sheet').textContent.includes('Mark read'), 'marking read is an explicit button')
+const marked = CALLS.find((c) => c.name === 'gmailMarkRead')
+ok(!!marked && marked.args[0] === FIXTURE_THREADS[0].threadId, 'opening it marks that thread read in Gmail')
+ok(!document.querySelector('.sheet').textContent.includes('Mark read'), 'there is no Mark read button any more')
+ok(FIXTURE_THREADS[0].unread === false, 'and the app treats it as read straight away')
+// Gmail's search can still call it unread for a few seconds; the app must not believe that.
+FIXTURE_THREADS[0].unread = true
+__app.mailForget()
+document.querySelector('.sheet .sheet-x').dispatchEvent(new window.Event('click'))
+await settle()
+ok(!document.querySelector('.mailrow.unread'), 'closing it repaints the Inbox with the thread no longer bold, even if Gmail lags')
+// A NEW message in that thread is newer than what he read, so it is unread again.
+FIXTURE_THREADS[0].ts += 60000; FIXTURE_THREADS[0].unread = true // Gmail hands back fresh objects; the stub reuses one
+__app.mailForget(); __app.renderInbox(); await settle()
+ok(!!document.querySelector('.mailrow.unread'), 'a newer message in the same thread shows as unread again')
+FIXTURE_THREADS[0].ts -= 60000
+__app.forgetReadHere(); __app.mailForget(); __app.renderInbox(); await settle()
+// Open it again for the reply below, then put the fixture back so later sections see it unread.
+document.querySelector('.mailrow.unread').dispatchEvent(new window.Event('click'))
+await settle()
+FIXTURE_THREADS[0].unread = true
+__app.forgetReadHere(); __app.mailForget()
 
 console.log('\n== replying ==')
 ;[...document.querySelectorAll('.sheet .btn-gold')].find((b) => b.textContent === 'Reply').dispatchEvent(new window.Event('click'))
@@ -748,6 +767,16 @@ console.log('\n== home-screen widgets ==')
   ok(got.set && /widget-feed$/.test(got.set.url) && !!got.set.key, 'and hands the key and the feed address to the widgets', JSON.stringify(got.set))
   window.Capacitor = saved
   __app.navigate('home')
+}
+
+console.log('\n== alert cards are solid over their Dismiss button ==')
+{
+  // Michael, 2026-10-24: a new-inquiry card was tinted into TRANSPARENT, so the red Dismiss button
+  // of its swipe row showed through it.
+  const row = __app.alertCard({ id: 'n1', kind: 'new-inquiry', projectId: 'sarah-whitfield', projectName: 'Sarah Whitfield', createdAt: new Date().toISOString() })
+  const card = row.querySelector('.swipe-fg .card') || row.querySelector('.card')
+  const style = card.getAttribute('style') || ''
+  ok(/background:/.test(style) && !/transparent/.test(style), 'the new-inquiry card has a solid background', style)
 }
 
 console.log('\n== el() never gets two top-level elements ==')
