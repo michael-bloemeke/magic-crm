@@ -32,7 +32,7 @@ private var shared: UserDefaults? { UserDefaults(suiteName: appGroup) }
 
 struct FeedTask: Codable, Hashable { let id: String; let title: String; let projectId: String; let project: String; let due: String; let when: String; let state: String }
 struct FeedGig: Codable, Hashable { let id: String; let name: String; let eventType: String; let date: String; let dateLabel: String; let countdown: String; let location: String; let fee: String; let stage: String }
-struct FeedMail: Codable, Hashable { let threadId: String; let from: String; let fromEmail: String; let subject: String; let snippet: String; let ts: Double; let projectId: String; let project: String }
+struct FeedMail: Codable, Hashable { let threadId: String; let from: String; let fromEmail: String; let outbound: Bool?; let subject: String; let snippet: String; let ts: Double; let projectId: String; let project: String }
 struct TaskCounts: Codable, Hashable { let overdue: Int; let today: Int; let total: Int }
 struct Feed: Codable {
     let generatedAt: String
@@ -398,6 +398,8 @@ struct MailRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
                 Circle().fill(blue).frame(width: 7, height: 7)
+                // Mail he sent to a client: the row names the client, marked "To", like the app's Inbox.
+                if m.outbound == true { Text("To").font(.system(size: 10, weight: .bold)).foregroundStyle(faint) }
                 Text(m.from).font(.system(size: 13, weight: .semibold)).foregroundStyle(ink).lineLimit(1)
                 if !m.project.isEmpty && m.project != m.from {
                     Text(m.project).font(.system(size: 10.5, weight: .medium)).foregroundStyle(blue).lineLimit(1)
@@ -448,7 +450,7 @@ struct MailWidget: Widget {
             MailView(entry: e).containerBackground(for: .widget) { Ground() }
         }
         .configurationDisplayName("Unread email")
-        .description("Unread email from anyone on an active project.")
+        .description("Unread email to or from anyone on an active project.")
         .supportedFamilies([.systemLarge])
     }
 }

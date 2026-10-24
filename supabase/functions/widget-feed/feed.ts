@@ -7,7 +7,9 @@
 //          project before showing tasks that are more general."
 //   GIGS   the "Gigs next 7 days" cards from the app's Home: name, type of event, date, address, the
 //          quote, and the pipeline stage. Soonest first.
-//   MAIL   "unread emails that have come from... any of the contacts in any of my active projects."
+//   MAIL   unread email to OR from anyone on an active project: the same list as the app's Home
+//          "Unread email" tile (changed 2026-10-24 from "from" only, after the widget showed none while
+//          the tile showed his 3 unread invoice emails, which he had SENT to clients).
 //
 // Everything here mirrors a rule the phone app already applies, so a widget never disagrees with the
 // app it opens: tasks of a DELETED project are hidden (renderTasks), due state uses the due TIME as
@@ -134,14 +136,17 @@ export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<s
       const auth = { Authorization: `Bearer ${token}` }
       const api = (path: string) => `https://gmail.googleapis.com/gmail/v1/users/me/${path}`
       const queries: string[] = []
-      for (let i = 0; i < addrs.length; i += 12) queries.push(`is:unread from:{${addrs.slice(i, i + 12).join(' ')}}`)
+      for (let i = 0; i < addrs.length; i += 12) {
+        const g = addrs.slice(i, i + 12).join(' ')
+        queries.push(`is:unread (from:{${g}} OR to:{${g}})`)
+      }
       const lists = await Promise.all(queries.map(async (q) => {
         const r = await fetch(api(`messages?q=${encodeURIComponent(q)}&maxResults=25`), { headers: auth })
         return r.ok ? await r.json() : { messages: [] }
       }))
       const ids = [...new Set(lists.flatMap((l: any) => (l.messages || []).map((m: any) => m.id)))].slice(0, 40)
       const metas = await Promise.all(ids.map(async (id) => {
-        const r = await fetch(api(`messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`), { headers: auth })
+        const r = await fetch(api(`messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`), { headers: auth })
         return r.ok ? await r.json() : null
       }))
       const byThread = new Map<string, any>()
@@ -151,10 +156,18 @@ export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<s
         const h = (n: string) => str(hs.find((x: any) => str(x.name).toLowerCase() === n.toLowerCase())?.value)
         const fromRaw = h('From')
         const em = (/<([^>]+)>/.exec(fromRaw)?.[1] || fromRaw).trim().toLowerCase()
-        const name = fromRaw.replace(/<[^>]+>/, '').replace(/"/g, '').trim() || em
-        const p = emailToProject.get(em)
+        let name = fromRaw.replace(/<[^>]+>/, '').replace(/"/g, '').trim() || em
+        let p = emailToProject.get(em)
+        // THE NAME ON THE ROW IS THE CLIENT, never Michael (the app's mailRow rule). When the sender is
+        // not a client, the client is a recipient: show them, marked "To".
+        let outbound = false
+        if (!p) {
+          const tos = h('To').split(',').map((x) => (/<([^>]+)>/.exec(x)?.[1] || x).trim().toLowerCase()).filter(Boolean)
+          const hit = tos.find((x) => emailToProject.has(x))
+          if (hit) { p = emailToProject.get(hit); name = nameOf(p); outbound = true }
+        }
         const row = {
-          threadId: str(m.threadId), from: name, fromEmail: em, subject: h('Subject') || '(no subject)',
+          threadId: str(m.threadId), from: name, fromEmail: em, outbound, subject: h('Subject') || '(no subject)',
           snippet: str(m.snippet).replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'),
           ts: Number(m.internalDate) || 0, projectId: p ? str(p.id) : '', project: p ? nameOf(p) : '',
         }
