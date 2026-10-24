@@ -25,7 +25,7 @@
 // check the closure again. Deliberately a manual, visible step rather than an automatic one.
 import { createClient } from './vendor/supabase-js.js'
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js'
-import { normalizeDoc, sortDocs } from './showbuilder-core.js'
+import { normalizeDoc, sortDocs, packingId } from './showbuilder-core.js'
 
 // supabase-js persists the session in localStorage (persistSession + autoRefreshToken default on), so
 // login is once-per-device and the token silently refreshes. That gives us the "log in, then it just
@@ -1966,7 +1966,7 @@ export async function saveNativePushToken(token) {
 // cue, "other" item and audio file; `data` is the document, shaped by showbuilder-core.js, which the
 // Mac's server uses too. Audio files live in the private `show-builder` bucket at audio/<storedFilename>.
 //
-// Same cascades as the Mac (and the old app): deleting a TAG takes it off every trick, deleting an
+// Same cascades as the Mac (and the standalone app): deleting a TAG takes it off every trick, deleting an
 // AUDIO file removes the file and clears it from any music cue that used it.
 const SB_BUCKET = 'show-builder'
 
@@ -1997,8 +1997,17 @@ export async function sbMutateShow(id, fn) {
   return sbSave('show', fn(cur))
 }
 
+// A show's packing ticks, changed from the newest saved copy (a tick on the Mac or another phone is
+// kept). The document is created the first time a box is ticked.
+export async function sbMutatePacking(showId, fn) {
+  const id = packingId(showId)
+  const cur = (await sbGet('packing', id)) || normalizeDoc('packing', { id, showId, checked: [] })
+  return sbSave('packing', fn(cur))
+}
+
 export async function sbDelete(kind, id) {
   id = String(id)
+  if (kind === 'show') await sb.from('show_builder').delete().eq('kind', 'packing').eq('id', packingId(id))
   if (kind === 'audio') {
     const meta = await sbGet('audio', id)
     if (meta && meta.storedFilename) await sb.storage.from(SB_BUCKET).remove(['audio/' + meta.storedFilename])
@@ -2014,7 +2023,7 @@ export async function sbDelete(kind, id) {
 
 const SB_AUDIO_EXT = { mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac' }
 
-// An audio file picked on the phone: uploaded as-is, recorded like the old app's <id>.audio.json.
+// An audio file picked on the phone: uploaded as-is, recorded like the standalone app's <id>.audio.json.
 export async function sbUploadAudio(file) {
   const name = String(file.name || 'audio')
   const ext = (name.match(/\.([a-z0-9]+)$/i) || ['', ''])[1].toLowerCase()
