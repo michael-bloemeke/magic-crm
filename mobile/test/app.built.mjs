@@ -5938,7 +5938,13 @@ function sbCanvasView(v, s) {
     var p = pts[ev.pointerId]
     if (edgeEl) {
       // A finger on an arrow: a tap offers to delete it; a drag pans, like the background.
-      gesture = { type: 'pan', edge: { source: edgeEl.dataset.source, target: edgeEl.dataset.target }, sx: p.x, sy: p.y, cx: cam.x, cy: cam.y, moved: false, pid: ev.pointerId }
+      // Every arrow under the finger, not just the top one: two arrows between the same two boxes
+      // (there and back) are drawn on top of each other, and the lower one must be reachable too.
+      var under = (document.elementsFromPoint ? document.elementsFromPoint(ev.clientX, ev.clientY) : [edgeEl])
+        .filter(function (x) { return x.classList && x.classList.contains('sb-edge-hit') })
+      var seen = {}, edges = []
+      under.forEach(function (x) { var k = x.dataset.source + '>' + x.dataset.target; if (!seen[k]) { seen[k] = 1; edges.push({ source: x.dataset.source, target: x.dataset.target }) } })
+      gesture = { type: 'pan', edge: edges, sx: p.x, sy: p.y, cx: cam.x, cy: cam.y, moved: false, pid: ev.pointerId }
     } else if (nodeEl) {
       var n = show.nodes.find(function (x) { return x.id === nodeEl.dataset.id })
       gesture = { type: 'node', id: n.id, el: nodeEl, sx: p.x, sy: p.y, ox: n.position.x, oy: n.position.y, moved: false, pid: ev.pointerId }
@@ -5978,7 +5984,7 @@ function sbCanvasView(v, s) {
     }
     gesture = null
     SB_BUSY = false
-    if (g && g.type === 'pan' && g.edge && !g.moved && !SB_CONNECT) { sbArrowSheet(s.id, g.edge, svg); return }
+    if (g && g.type === 'pan' && g.edge && !g.moved && !SB_CONNECT) { sbSwallowClick(); sbArrowSheet(s.id, g.edge, svg); return }
     if (!g || g.type === 'pinch' || g.type === 'pan') return
     g.el.classList.remove('dragging')
     if (g.moved && !SB_CONNECT) {
@@ -5997,6 +6003,7 @@ function sbCanvasView(v, s) {
       sbChangeShow(s.id, function (cur) { return connectNodes(cur, from, g.id, lib) }, 'Arrow added')
       return
     }
+    sbSwallowClick()
     sbNodeSheet(s.id, g.id)
   }
   wrap.addEventListener('pointerup', up)
@@ -6004,28 +6011,46 @@ function sbCanvasView(v, s) {
   paintHint()
 }
 
-// The sheet a tapped arrow opens: which two items it joins, and Delete. The arrow is lit while it is open.
-function sbArrowSheet(showId, edge, svg) {
-  var s = sbShow(showId); if (!s) return
+// A tap on the canvas opens its sheet as the finger lifts, and the browser then sends that same tap
+// as a "click" a moment later. With the sheet already up, the click lands on its dark backdrop, which
+// closes it: a short sheet (an arrow's) vanished before it could be seen (found 2026-10-24 testing
+// with real touch input). So the one click that follows a canvas tap is swallowed.
+function sbSwallowClick() {
+  var h = function (e) { e.stopPropagation(); e.preventDefault(); off() }
+  var off = function () { document.removeEventListener('click', h, true) }
+  document.addEventListener('click', h, true)
+  setTimeout(off, 700)
+}
+
+// The sheet a tapped arrow opens: which two items it joins, and Delete. When arrows overlap (a there
+// and a back between the same two boxes), it lists each one under the finger with its own Delete. The
+// arrows in question are lit while it is open.
+function sbArrowSheet(showId, edges, svg) {
+  edges = Array.isArray(edges) ? edges : [edges]
+  var s = sbShow(showId); if (!s || !edges.length) return
   var lib = sbLib()
   var nameOf = function (id) { var n = s.nodes.find(function (x) { return x.id === id }); var it = n && nodeItem(n, lib); return it ? it.name : 'an empty slot' }
-  var lit = svg ? svg.querySelectorAll('path.sb-edge') : []
-  Array.prototype.forEach.call(lit, function (p) { if (p.dataset.source === edge.source && p.dataset.target === edge.target) p.classList.add('sel') })
-  var unlight = function () { Array.prototype.forEach.call(lit, function (p) { p.classList.remove('sel') }) }
-  var sh = makeSheet('Arrow')
+  var same = function (a, b) { return a.source === b.source && a.target === b.target }
+  var lit = svg ? Array.prototype.slice.call(svg.querySelectorAll('path.sb-edge')) : []
+  lit.forEach(function (p) { if (edges.some(function (e) { return same(e, p.dataset) })) p.classList.add('sel') })
+  var unlight = function () { lit.forEach(function (p) { p.classList.remove('sel') }) }
+  var sh = makeSheet(edges.length === 1 ? 'Arrow' : edges.length + ' arrows here')
   sh.sheet.querySelector('.sheet-x').addEventListener('click', unlight)
   sh.sheet.addEventListener('click', function (e) { if (e.target === sh.sheet) unlight() })
-  var line = el('<div class="sb-arrow-what"><span class="sb-arrow-from"></span><span class="sb-arrow-to"></span></div>')
-  line.querySelector('.sb-arrow-from').textContent = 'From ' + nameOf(edge.source)
-  line.querySelector('.sb-arrow-to').textContent = 'to ' + nameOf(edge.target)
-  sh.body.appendChild(line)
-  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost">Cancel</button><button class="btn-ghost sb-danger">Delete arrow</button></div>')
-  bar.children[0].addEventListener('click', function () { unlight(); sh.close() })
-  bar.children[1].addEventListener('click', function () {
-    sh.close()
-    sbChangeShow(showId, function (cur) { return Object.assign({}, cur, { edges: cur.edges.filter(function (x) { return !(x.source === edge.source && x.target === edge.target) }) }) }, 'Arrow deleted')
+  var del = function (edge) {
+    sh.close(); unlight()
+    sbChangeShow(showId, function (cur) { return Object.assign({}, cur, { edges: cur.edges.filter(function (x) { return !same(x, edge) }) }) }, 'Arrow deleted')
+  }
+  edges.forEach(function (edge, i) {
+    var row = el('<div class="sb-arrow-pick"><div class="sb-arrow-what"><span class="sb-arrow-from"></span><span class="sb-arrow-to"></span></div><button class="btn-ghost sb-danger">Delete arrow</button></div>')
+    row.querySelector('.sb-arrow-from').textContent = 'From ' + nameOf(edge.source)
+    row.querySelector('.sb-arrow-to').textContent = 'to ' + nameOf(edge.target)
+    row.querySelector('button').addEventListener('click', function () { del(edge) })
+    sh.body.appendChild(row)
   })
-  sh.body.appendChild(bar)
+  var cancel = el('<button class="btn-ghost" style="width:100%;margin-top:12px">Cancel</button>')
+  cancel.addEventListener('click', function () { unlight(); sh.close() })
+  sh.body.appendChild(cancel)
 }
 
 // ---- the libraries ----

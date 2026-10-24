@@ -880,7 +880,7 @@ console.log('\n== show builder: the phone ==')
 
   ok(document.querySelectorAll('path.sb-edge-hit').length === 3, 'every arrow has a finger-sized tap area')
   CALLS.length = 0
-  __app.sbArrowSheet('sh-family', { source: 'n1', target: 'n2' }, document.querySelector('.sb-edges'))
+  __app.sbArrowSheet('sh-family', [{ source: 'n1', target: 'n2' }], document.querySelector('.sb-edges'))
   await settle()
   const arrowSheet = document.querySelector('.sheet')
   ok(arrowSheet && arrowSheet.textContent.includes('From Cups and Balls') && arrowSheet.textContent.includes('to Rope Routine'), 'tapping an arrow says which two items it joins')
@@ -889,6 +889,16 @@ console.log('\n== show builder: the phone ==')
   const delArrow = CALLS.find((c) => c.name === 'sbMutateShow')
   ok(delArrow && delArrow.args[1].edges.length === 2 && !delArrow.args[1].edges.some((e) => e.source === 'n1' && e.target === 'n2'), 'Delete arrow removes just that arrow')
   ok(delArrow && delArrow.args[1].nodes.length === 5, 'and leaves every box where it was')
+  sbFixtureReset(SNAPSHOT); await __app.sbLoad(); __app.renderBShow(); await settle()
+  // Two arrows on top of each other (there and back): both are offered, each with its own Delete.
+  CALLS.length = 0
+  __app.sbArrowSheet('sh-family', [{ source: 'n2', target: 'n3' }, { source: 'n1', target: 'n2' }], document.querySelector('.sb-edges'))
+  await settle()
+  const both = document.querySelector('.sheet')
+  ok(both && both.querySelectorAll('.sb-arrow-pick').length === 2 && both.textContent.includes('2 arrows here'), 'overlapping arrows are listed separately')
+  both.querySelectorAll('.sb-arrow-pick button')[0].dispatchEvent(new window.Event('click')); await settle()
+  const delOne = CALLS.find((c) => c.name === 'sbMutateShow')
+  ok(delOne && delOne.args[1].edges.length === 2 && !delOne.args[1].edges.some((e) => e.source === 'n2' && e.target === 'n3') && delOne.args[1].edges.some((e) => e.source === 'n1' && e.target === 'n2'), 'and deleting one keeps the other')
   sbFixtureReset(SNAPSHOT); await __app.sbLoad()
 
   __app.setSbView('pack'); __app.renderBShow(); await settle()
