@@ -1,6 +1,6 @@
 import { STUB } from './stub.mjs'
 const __S = new Proxy(STUB, { get: (t, k) => (k in t ? t[k] : (...a) => Promise.resolve({ ok: true })) })
-const { loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail, addTask, updateTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage, reloadPaymentsFinance, savePushSubscription, saveNativePushToken, createProject, archiveProject, completeProject, restoreProject, deleteProject, LEAD_SOURCES, updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen, loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl, gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview, saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment, SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule, loadInquiryReview, dismissInquiryReview, loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow, phoneApi, saveConfigPatch, loadRawConfig, loadQuickBooksMonths, loadBankBalances, deletePayment, EXPENSE_CADENCES, loadExpenses, addExpense, deleteExpense, loadMileage, addTrip, deleteTrip, setMileageRate, loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings, listFiles, fileUrl, uploadFile, deleteFile, loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog, sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls, VAPID_PUBLIC_KEY } = __S
+const { loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail, addTask, updateTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage, reloadPaymentsFinance, savePushSubscription, saveNativePushToken, createProject, archiveProject, completeProject, restoreProject, deleteProject, LEAD_SOURCES, updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen, loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl, gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview, saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment, SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule, loadInquiryReview, dismissInquiryReview, loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow, phoneApi, saveConfigPatch, loadRawConfig, loadQuickBooksMonths, loadBankBalances, deletePayment, EXPENSE_CADENCES, loadExpenses, addExpense, deleteExpense, loadMileage, addTrip, deleteTrip, setMileageRate, loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings, listFiles, fileUrl, uploadFile, deleteFile, loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog, sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls, addHomeListItem, deleteHomeListItem, VAPID_PUBLIC_KEY } = __S
 /* Bloom CRM mobile. Logs in with Supabase Auth and reads LIVE data straight from the database (RLS
    lets the logged-in user read everything; the publishable key alone reads nothing). Login is
    once-per-device (supabase-js persists the session). Read-only for now: the view renders live data;
@@ -6606,9 +6606,10 @@ function statCard(n, label, kind, cls) {
   c.addEventListener('click', function () { openHomeSheet(kind) })
   return c
 }
-// Home is the greeting and the tiles, nothing under them (Michael, 2026-10-23). Each tile opens
-// its own list in place instead of jumping to another page; the list has a button through to the
-// full page for when he wants more than the answer to the tile's question.
+// Home is the greeting, the tiles, and under them the "On my plate" list (added 2026-10-24; until
+// then it was the tiles alone, his call on 2026-10-23). Each tile opens its own list in place instead
+// of jumping to another page; the list has a button through to the full page for when he wants more
+// than the answer to the tile's question.
 function renderHome() {
   var v = $('#view'); v.innerHTML = ''
   var d = homeData()
@@ -6637,8 +6638,57 @@ function renderHome() {
   dt.addEventListener('click', openDutiesSheet)
   grid.appendChild(dt)
   v.appendChild(grid)
+  v.appendChild(plateCard())
 }
 function money0(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('en-US') }
+
+// ---- On my plate (the Mac's HomeList) ----
+// The big things he is working on, in the space under the tiles (Michael, 2026-10-24): "the major
+// elements of my business that I'm working on that still need to be done." Add and delete only: no
+// due date, no checkbox, no rename, and NOT a task. The same `home_list` rows as the Mac's Home, so
+// an item added on one shows up on the other. A `.card`, so it keeps the card's dark text on navy.
+var PLATE_X = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+function plateCard() {
+  var items = SNAP.homeList || []
+  var card = el('<div class="card plate"><div class="plate-head"><span class="plate-title">On my plate</span></div><div class="plate-list"></div></div>')
+  if (items.length) card.querySelector('.plate-head').appendChild(el('<span class="plate-n">' + items.length + '</span>'))
+  var list = card.querySelector('.plate-list')
+  if (SNAP.homeListError && !items.length) list.appendChild(el('<div class="plate-empty">Could not load the list. Tap Refresh to try again.</div>'))
+  else if (!items.length) list.appendChild(el('<div class="plate-empty">Nothing on your plate yet. Add the first thing below.</div>'))
+  items.forEach(function (x) {
+    var row = el('<div class="plate-row"><span class="plate-text"></span><button class="taskdel" aria-label="Delete">' + PLATE_X + '</button></div>')
+    row.querySelector('.plate-text').textContent = x.text
+    row.querySelector('.taskdel').addEventListener('click', function () {
+      // Asks first, like deleting a task on the phone.
+      if (!confirm('Delete "' + x.text + '"?')) return
+      doWrite(deleteHomeListItem(x.id), 'Deleted', function () {
+        SNAP.homeList = (SNAP.homeList || []).filter(function (y) { return y.id !== x.id })
+        if (TAB === 'home' && !DETAIL_ID) render()
+      }).catch(function () { /* doWrite already said so */ })
+    })
+    list.appendChild(row)
+  })
+  var add = el('<div class="addrow plate-add"><input class="search" placeholder="Add an item…" enterkeyhint="done" style="margin:0"><button class="btn-gold" style="flex:none">Add</button></div>')
+  var inp = add.querySelector('input'), btn = add.querySelector('button')
+  var busy = false
+  var go = function () {
+    var t = inp.value.trim()
+    if (!t || busy) return
+    busy = true; btn.disabled = true
+    doWrite(addHomeListItem(t), null, function (item) {
+      SNAP.homeList = (SNAP.homeList || []).concat([item])
+      if (TAB === 'home' && !DETAIL_ID) {
+        render()
+        // Back into the box, for the next one.
+        var again = document.querySelector('#view .plate-add input'); if (again) again.focus()
+      }
+    }).catch(function () { /* doWrite already said so; the text stays in the box */ }).then(function () { busy = false; btn.disabled = false })
+  }
+  btn.addEventListener('click', go)
+  inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go() })
+  card.appendChild(add)
+  return card
+}
 
 // ---- daily duties (the Mac's DailyDuties) ----
 // Things he does every day. The list persists; the ticks reset every morning. Kept on the device,

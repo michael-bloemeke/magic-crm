@@ -571,7 +571,8 @@ console.log('\n== home: each tile opens its own list ==')
   await settle()
   ok(document.querySelectorAll('.statcard').length === 6, 'Home shows the four tiles plus the Mac\'s money and daily-duties tiles')
   ok(!!document.querySelector('.statcard.s-duty') && document.querySelector('.statcard.s-duty .n').textContent === '0/3', 'daily duties start at 0 of the three defaults')
-  ok(!has('Needs attention') && !has('Next 7 days') && !document.querySelector('#view .card'), 'and nothing under them')
+  ok(!has('Needs attention') && !has('Next 7 days') && document.querySelectorAll('#view .card').length === 1 && !!document.querySelector('#view .card.plate'),
+     'and under them only the On my plate list')
   const tile = (label) => [...document.querySelectorAll('.statcard')].find((c) => c.textContent.includes(label))
   ok(tile('Overdue tasks').querySelector('.n').textContent === '1', 'the overdue tile counts one')
 
@@ -621,6 +622,62 @@ console.log('\n== home: each tile opens its own list ==')
   ok(document.querySelector('#back-btn').classList.contains('hidden'), 'Back is hidden on Home with nothing behind it')
 
   SNAP.projects = saved.projects; SNAP.tasks = saved.tasks
+}
+
+console.log('\n== home: On my plate ==')
+{
+  // Michael, 2026-10-24: a plain list under the tiles. Add and delete only: no due date, no checkbox,
+  // no rename. The rows are the Mac's too (home_list).
+  const savedConfirm = globalThis.confirm // the harness answers every confirm() with yes
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('home')
+  SNAP.homeList = []; SNAP.homeListError = ''
+  __app.render(); await settle()
+  let card = document.querySelector('#view .card.plate')
+  ok(!!card && !!card.previousElementSibling && card.previousElementSibling.classList.contains('statgrid'), 'the list sits under the tiles')
+  ok(card.querySelector('.plate-title').textContent === 'On my plate', 'titled On my plate')
+  ok(card.textContent.includes('Nothing on your plate yet'), 'an empty list says so')
+  ok(!card.querySelector('.check') && !card.querySelector('input[type="date"]') && !card.querySelector('input[type="checkbox"]'), 'no checkbox and no due date')
+
+  SNAP.homeList = [{ id: 'hl-a', text: 'Website booking flow', createdAt: '' }, { id: 'hl-b', text: 'Keynote demo reel', createdAt: '' }]
+  __app.render(); await settle()
+  card = document.querySelector('#view .card.plate')
+  const rows = () => [...document.querySelectorAll('#view .plate-row .plate-text')].map((x) => x.textContent)
+  ok(rows().join('|') === 'Website booking flow|Keynote demo reel', 'items show in the order they were added', rows().join('|'))
+  ok(card.querySelector('.plate-n').textContent === '2', 'with a count')
+  ok(!card.querySelector('[contenteditable]') && card.querySelectorAll('.plate-row input').length === 0, 'an item cannot be renamed in place')
+
+  CALLS.length = 0
+  card.querySelector('.plate-add input').value = '  Pricing page refresh  '
+  card.querySelector('.plate-add button').dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(CALLS.some((c) => c.name === 'addHomeListItem' && c.args[0] === 'Pricing page refresh'), 'Add sends the trimmed text', JSON.stringify(CALLS))
+  ok(rows().join('|') === 'Website booking flow|Keynote demo reel|Pricing page refresh', 'the new item lands at the bottom', rows().join('|'))
+  ok(document.querySelector('#view .plate-add input').value === '' && document.querySelector('#view .plate-n').textContent === '3', 'the box empties and the count goes up')
+
+  CALLS.length = 0
+  document.querySelector('#view .plate-add input').value = '   '
+  document.querySelector('#view .plate-add button').dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(!CALLS.some((c) => c.name === 'addHomeListItem'), 'a blank entry is not added')
+
+  globalThis.confirm = () => false
+  document.querySelector('#view .plate-row .taskdel').dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(!CALLS.some((c) => c.name === 'deleteHomeListItem') && rows().length === 3, 'cancelling the delete keeps the item')
+  globalThis.confirm = () => true
+  document.querySelector('#view .plate-row .taskdel').dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(CALLS.some((c) => c.name === 'deleteHomeListItem' && c.args[0] === 'hl-a'), 'confirming deletes that item by id')
+  ok(rows().join('|') === 'Keynote demo reel|Pricing page refresh', 'and it leaves the list', rows().join('|'))
+
+  SNAP.homeList = []; SNAP.homeListError = 'boom'
+  __app.render(); await settle()
+  ok(document.querySelector('#view .plate').textContent.includes('Could not load the list'), 'a failed read says so instead of looking empty')
+
+  globalThis.confirm = savedConfirm
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+  SNAP.homeList = []; SNAP.homeListError = ''
 }
 
 console.log('\n== back button ==')

@@ -377,14 +377,15 @@ function HomeList() {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // A refresh that started before an add or a delete would put the old list back, so it is dropped.
-  const lastEditAt = useRef(0)
+  // Bumped by every add and delete. A refresh that started before one would put the old list back,
+  // so its answer is dropped if the count moved while it was out.
+  const editSeq = useRef(0)
 
   const refresh = useCallback(() => {
-    const startedAt = Date.now()
+    const seqAtStart = editSeq.current
     loadHomeList()
       .then((fresh) => {
-        if (lastEditAt.current <= startedAt) setItems(fresh)
+        if (editSeq.current === seqAtStart) setItems(fresh)
       })
       .catch(() => setItems((prev) => prev ?? []))
   }, [])
@@ -412,7 +413,7 @@ function HomeList() {
     if (!t || busy) return
     setBusy(true)
     setError('')
-    lastEditAt.current = Date.now()
+    editSeq.current++
     try {
       const item = await addHomeListItem(t)
       setItems((prev) => [...(prev ?? []), item])
@@ -420,7 +421,7 @@ function HomeList() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not add that.')
     } finally {
-      lastEditAt.current = Date.now()
+      editSeq.current++
       setBusy(false)
     }
   }
@@ -428,23 +429,23 @@ function HomeList() {
   // Straight away, like deleting a task on the Mac.
   const remove = async (id: string) => {
     setError('')
-    lastEditAt.current = Date.now()
+    editSeq.current++
     setItems((prev) => (prev ?? []).filter((x) => x.id !== id))
     try {
       await deleteHomeListItem(id)
+      editSeq.current++
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not delete that.')
-      lastEditAt.current = 0
-      refresh()
-      return
+      editSeq.current++
+      refresh() // puts the item back, since it is still there
     }
-    lastEditAt.current = Date.now()
   }
 
   return (
     <section className="mt-8 rounded-2xl border border-line bg-surface p-5">
       <div className="mb-3 flex items-center gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">On my plate</h3>
+        {/* text-muted, not the band headings' brass-dim: inside a white card brass-dim is a pale blue. */}
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">On my plate</h3>
         {items && items.length > 0 && (
           <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-faint">
             {items.length}

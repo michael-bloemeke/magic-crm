@@ -16,7 +16,7 @@
 //   crm-payments.json, crm-expenses.json, crm-mileage.json, crm-tasks.json,
 //   crm-emails.json, crm-notifications.json, crm-text-markers.json,
 //   crm-invoices.json, crm-contracts.json, crm-recipients.json, crm-inquiries.json,
-//   crm-config.json, crm-calendar-map.json, crm-shows.json, crm-show-builder.json
+//   crm-config.json, crm-calendar-map.json, crm-shows.json, crm-show-builder.json, crm-home-list.json
 // After this, the backup covers ALL crm data (every crm-*.json now lives in Supabase).
 //
 // Run with Node 22:  /Users/michaelbloemeke/.local/node22/bin/node supabase/backup-export.mjs [targetDir]
@@ -750,6 +750,22 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
       // Never let the audio copy fail the backup of everything else.
       written.push(`show builder audio NOT mirrored: ${e?.message || e}`)
     }
+  }
+
+  // ---- 23. crm-home-list.json (added 2026-10-24) ----
+  // { items: [ { id, text, createdAt } ], _meta }, oldest first. The "On my plate" list on Home (the
+  // big things he is working on) lives only in Supabase, so this file is its backup.
+  {
+    const { data, error } = await sb().from('home_list').select('*').order('created_at', { ascending: true })
+    if (error) throw error
+    const records = (data || []).map((r) => ({ id: r.id, text: r.text, createdAt: r.created_at }))
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-home-list.json'), {
+      fileName: 'crm-home-list.json',
+      count: records.length,
+      fallbackPurpose: 'Home page "On my plate" list: the big things Michael is working on, mirrored from Supabase.',
+    })
+    writeJson(targetDir, 'crm-home-list.json', { items: records, _meta: meta })
+    written.push(`crm-home-list.json (${records.length})`)
   }
 
   return { targetDir, written }

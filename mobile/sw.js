@@ -73,7 +73,8 @@
 //     page in a full-screen pane with a Back button, the same as PreviewPage.tsx on the Mac.
 // Bumping the cache name forces every client to drop the old shell on activate.
 // v28 (2026-10-24): the Show Builder page, and showbuilder-core.js joins the shell.
-var CACHE = 'mcrm-v28'
+// v29 (2026-10-24): "On my plate" under the Home tiles (the home_list table, shared with the Mac).
+var CACHE = 'mcrm-v29'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png', './damask.webp', './email-templates.js', './showbuilder-core.js',

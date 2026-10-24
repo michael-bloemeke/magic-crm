@@ -147,6 +147,9 @@ export const STUB = {
   uncheckAllPacked: (id) => { CALLS.push({ name: 'uncheckAllPacked', args: [id] }); const s = SHOW_ROWS.find((x) => x.id === id); s.packingList = s.packingList.map((x) => ({ ...x, done: false })); return Promise.resolve(JSON.parse(JSON.stringify(s))) },
   duplicateShow: (id) => { CALLS.push({ name: 'duplicateShow', args: [id] }); const s = SHOW_ROWS.find((x) => x.id === id); const c = JSON.parse(JSON.stringify({ ...s, id: 'show-' + (SHOW_ROWS.length + 1), name: 'Copy of ' + s.name })); SHOW_ROWS.push(c); return Promise.resolve(JSON.parse(JSON.stringify(c))) },
   deleteShow: (id) => { CALLS.push({ name: 'deleteShow', args: [id] }); const i = SHOW_ROWS.findIndex((x) => x.id === id); if (i >= 0) SHOW_ROWS.splice(i, 1); return Promise.resolve() },
+  // Home's "On my plate": add hands back the new row, delete records the id.
+  addHomeListItem: (text) => { CALLS.push({ name: 'addHomeListItem', args: [text] }); return Promise.resolve({ id: 'hl-new-' + CALLS.length, text: String(text).trim(), createdAt: '' }) },
+  deleteHomeListItem: (id) => { CALLS.push({ name: 'deleteHomeListItem', args: [id] }); return Promise.resolve({ ok: true }) },
   saveComposeDraft: (a) => { CALLS.push({ name: 'saveComposeDraft', args: [a] }); return Promise.resolve(a.id || 'draft-1') },
   deleteDraft: rec('deleteDraft'),
   loadProjectDrafts: (id) => { CALLS.push({ name: 'loadProjectDrafts', args: [id] }); return Promise.resolve(id === 'sarah-whitfield' ? [
