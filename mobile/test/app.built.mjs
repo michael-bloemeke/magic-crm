@@ -320,6 +320,7 @@ function swipeRow(inner, actionLabel, onAction) {
 function doWrite(promise, okMsg, after) {
   return promise.then(function (r) {
     if (okMsg) toast(okMsg)
+    reloadWidgets() // the home-screen widgets show tasks and gigs, so a change should reach them
     if (after) after(r)
     return r
   }).catch(function (e) {
@@ -6181,6 +6182,30 @@ function settingsNotifications(v) {
   card.appendChild(b)
   card.appendChild(el('<p class="fin-h" style="margin-top:10px">The Mac\'s own ntfy alerts are a separate switch on the Mac.</p>'))
   v.appendChild(card)
+  if (widgetBridge()) v.appendChild(settingsWidgets())
+}
+// Home-screen widgets: whether they are connected, and a way to reconnect or cut them off. The key
+// they use is read-only, but it does show task titles and client names, so it can be revoked here.
+function settingsWidgets() {
+  var wb = widgetBridge()
+  var card = el('<div class="fin-card" style="margin-top:14px"><div class="pb-h" style="font-size:17px">Home-screen widgets</div>' +
+    '<p class="fin-h">Tasks, gigs in the next 7 days, and unread client email. To add one, press and hold your home screen, tap Edit, then Add Widget, and choose Bloom CRM.</p>' +
+    '<div class="setf" style="margin-top:10px"><span class="wq">Status</span><b class="wstat">Checking…</b></div></div>')
+  var stat = card.querySelector('.wstat')
+  wb.hasKey().then(function (r) {
+    stat.textContent = r && r.has ? 'Connected' : 'Not connected'
+    stat.style.color = r && r.has ? 'var(--green)' : 'var(--brass-bright)'
+  }).catch(function () { stat.textContent = 'Unknown' })
+  var row = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Disconnect</button><button class="btn-gold">Reconnect</button></div>')
+  row.children[1].addEventListener('click', function () {
+    connectWidgets(true).then(function (ok) { toast(ok ? 'Widgets connected' : 'Could not connect the widgets', ok ? undefined : 'err'); renderSettings() })
+  })
+  row.children[0].addEventListener('click', function () {
+    if (!confirm('Disconnect the home-screen widgets?\n\nThey stop showing CRM data until you tap Reconnect.')) return
+    doWrite(phoneApi('widget-revoke', {}).then(function () { return wb.clearKey() }), 'Widgets disconnected', function () { renderSettings() })
+  })
+  card.appendChild(row)
+  return card
 }
 
 
@@ -7029,6 +7054,68 @@ function startAutoRefresh() {
   })
 }
 
+// ---------- home-screen widgets (native app only, 2026-10-24) ----------
+//
+// The iPhone widgets (ios-app/ios/App/BloomWidgets) read a small feed from the widget-feed function
+// with a READ-ONLY widget key. The widgets cannot use this app's sign-in (refreshing it from their
+// own process would sign the app out), so this signed-in app asks phone-api for a key once and hands
+// it to them through the WidgetBridge plugin (App/WidgetBridge.swift), which keeps it in the App
+// Group the widgets share. After that this file only does two things: tells the widgets to refresh
+// when the CRM changes or the app goes to the background, and opens the right page when a widget is
+// tapped (bloomcrm://tasks, gigs, inbox, project/<id>, project/<id>/email).
+// Every call here is a no-op in a browser and in the PWA, which have no WidgetBridge.
+var WIDGET_FEED_URL = 'https://yfmacqvcmkogvkcxfjkr.supabase.co/functions/v1/widget-feed'
+var WIDGET_PENDING_LINK = null
+var WIDGET_RELOAD_AT = 0
+function widgetBridge() {
+  if (!isNativeApp()) return null
+  var C = window.Capacitor
+  return (C.Plugins && C.Plugins.WidgetBridge) || (typeof C.registerPlugin === 'function' ? C.registerPlugin('WidgetBridge') : null)
+}
+function connectWidgets(force) {
+  var wb = widgetBridge(); if (!wb) return Promise.resolve(false)
+  return wb.hasKey().then(function (r) {
+    if (r && r.has && !force) return true
+    return phoneApi('widget-token', { label: 'iPhone widgets' }).then(function (res) {
+      if (!res || !res.token) throw new Error('No widget key came back.')
+      return wb.setKey({ key: res.token, url: WIDGET_FEED_URL }).then(function () { return true })
+    })
+  }).catch(function () { return false })
+}
+// Throttled: the widgets refetch on every reload, and a burst of edits should cost one fetch.
+function reloadWidgets(now) {
+  var wb = widgetBridge(); if (!wb) return
+  if (!now && Date.now() - WIDGET_RELOAD_AT < 20000) return
+  WIDGET_RELOAD_AT = Date.now()
+  try { wb.reload() } catch (e) { /* a widget refresh is never worth an error */ }
+}
+function handleWidgetLink(url) {
+  var m = /^bloomcrm:\/\/([^/?#]+)(?:\/([^/?#]+))?(?:\/([^/?#]+))?/.exec(String(url || ''))
+  if (!m) return
+  if (!SNAP) { WIDGET_PENDING_LINK = url; return }
+  closeDrawer()
+  document.querySelectorAll('.sheet').forEach(function (x) { if (!x.classList.contains('home-sheet')) x.remove() })
+  var what = m[1], id = m[2] ? decodeURIComponent(m[2]) : '', sub = m[3] || ''
+  if (what === 'project' && id) {
+    var p = SNAP.projects.find(function (x) { return x.id === id })
+    if (!p) { navigate('pipeline'); return }
+    TAB = pageForBucket(p.bucket)
+    PTAB = sub === 'email' ? 'email' : 'details'
+    renderDetail(p.id)
+    window.scrollTo(0, 0)
+    return
+  }
+  if (what === 'gigs') { navigate('home'); openHomeSheet('gigs'); return }
+  if (what === 'tasks' || what === 'inbox' || what === 'home') { navigate(what); return }
+}
+function wireWidgets() {
+  var wb = widgetBridge(); if (!wb) return
+  try { wb.addListener('link', function (e) { handleWidgetLink(e && e.url) }) } catch (e) { /* older shell */ }
+  wb.takeLink().then(function (r) { if (r && r.url) handleWidgetLink(r.url) }).catch(function () {})
+  // Leaving the app is when the home screen is about to be looked at, so that is when to refresh.
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') reloadWidgets(true) })
+}
+
 // ---------- push (notifications from this app) ----------
 //
 // TWO DELIVERY ROUTES, ONE UI. This file is the single source for both the PWA at
@@ -7250,7 +7337,12 @@ function enterApp() {
     TAB = saved.tab
     if (TAB === 'show') { if (saved.show) SHOW_ID = saved.show; else TAB = 'shows' }
   }
+  wireWidgets()
   loadAndRender().then(function (r) {
+    if (r === 'ok') {
+      connectWidgets(false).then(function () { reloadWidgets(true) })
+      if (WIDGET_PENDING_LINK) { var wl = WIDGET_PENDING_LINK; WIDGET_PENDING_LINK = null; handleWidgetLink(wl); return }
+    }
     if (r !== 'ok' || !saved || !saved.detail) return
     var p = (SNAP.projects || []).find(function (x) { return x.id === saved.detail })
     if (!p) return
@@ -7323,6 +7415,7 @@ export const __app = {
   fmtPhoneDisplay, projectEmails, mailWhen, updateCounts, refreshUnreadMail, taskCard, mailRow,
   renderProposals, proposalCard, openPreview, copyText, renderPipeline, projectCard,
   buildClientMailQueries, activeProjectEmails, openContactSheet, openSearch, openScheduleSheet,
+  handleWidgetLink, connectWidgets, getPtab: () => PTAB,
   renderHome, openHomeSheet, goBack, homeData, getNav: () => NAV_STACK, getTab: () => TAB, getDetail: () => DETAIL_ID,
   bookingTab, proposalSection, emailToProjectIndex, openNewProject,
   refreshNativePushToken, registerNativePush, updatePushButton,

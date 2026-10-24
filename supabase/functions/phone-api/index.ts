@@ -8,6 +8,7 @@
 //   - QuickBooks (quickbooks_config, service-role only)       -> finance-qbo
 //   - Google Calendar (email_config's Google token)            -> calendar-events, calendar-invite
 //   - calendar_alert_state (service-role only by design)       -> alert-state
+//   - widget_tokens (service-role only)                        -> widget-token, widget-revoke
 // Each action mirrors one Mac endpoint and returns the same shape, so the phone's screens can be
 // straight ports of the Mac's. New phone-only server needs go here as new actions rather than as new
 // functions, so there is one auth check and one place to look.
@@ -66,6 +67,21 @@ Deno.serve(async (req) => {
       case 'proposal-email': return json(await proposalDraftEmail(admin, String(b.projectId || ''), () => googleToken(admin)))
       case 'proposal-retire': return json(await proposalRetire(admin, String(b.projectId || '')))
       case 'proposal-reset': return json(await proposalResetViews(admin, String(b.projectId || '')))
+      // Home-screen widgets (2026-10-24). The signed-in app mints a read-only widget key and hands it
+      // to the widget extension; only its SHA-256 is stored. See widget-feed and widget_tokens.
+      case 'widget-token': {
+        const bytes = crypto.getRandomValues(new Uint8Array(32))
+        const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))), (x) => x.toString(16).padStart(2, '0')).join('')
+        const { error } = await admin.from('widget_tokens').insert({ token_hash: hash, label: String(b.label || 'iPhone widgets').slice(0, 80) })
+        if (error) throw error
+        return json({ ok: true, token })
+      }
+      case 'widget-revoke': {
+        const { error } = await admin.from('widget_tokens').update({ revoked: true }).eq('revoked', false)
+        if (error) throw error
+        return json({ ok: true })
+      }
       default:
         return json({ ok: false, error: `Unknown action "${action}".` }, 400)
     }

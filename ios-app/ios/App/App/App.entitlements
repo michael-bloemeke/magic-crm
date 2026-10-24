@@ -14,5 +14,10 @@
 	     worked per device, so the mismatch is absorbed rather than becoming a debugging session. -->
 	<key>aps-environment</key>
 	<string>$(APS_ENVIRONMENT)</string>
+	<!-- Shared with the BloomWidgets extension (2026-10-24): the widget key and the cached feed live here. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.michaelbloemeke.crm</string>
+	</array>
 </dict>
 </plist>

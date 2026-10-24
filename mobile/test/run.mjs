@@ -694,6 +694,36 @@ console.log('\n== shows ==')
   document.querySelectorAll('.sheet').forEach((x) => x.remove())
 }
 
+console.log('\n== home-screen widgets ==')
+{
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.handleWidgetLink('bloomcrm://project/sarah-whitfield/email'); await settle()
+  ok(__app.getDetail() === 'sarah-whitfield' && __app.getPtab() === 'email', 'a mail row opens that client on the Email tab')
+  __app.handleWidgetLink('bloomcrm://project/sarah-whitfield'); await settle()
+  ok(__app.getDetail() === 'sarah-whitfield' && __app.getPtab() === 'details', 'a task or gig row opens the project')
+  __app.handleWidgetLink('bloomcrm://tasks'); await settle()
+  ok(__app.getTab() === 'tasks' && !__app.getDetail(), 'the Tasks widget opens Tasks')
+  __app.handleWidgetLink('bloomcrm://gigs'); await settle()
+  ok(__app.getTab() === 'home' && !!document.querySelector('.home-sheet'), 'the Gigs widget opens Home with the gigs list')
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.handleWidgetLink('bloomcrm://inbox'); await settle()
+  ok(__app.getTab() === 'inbox', 'the Mail widget opens the Inbox')
+  // The key handoff, with a pretend native shell.
+  const saved = window.Capacitor
+  const got = {}
+  window.Capacitor = { isNativePlatform: () => true, Plugins: { WidgetBridge: {
+    hasKey: () => Promise.resolve({ has: false }),
+    setKey: (o) => { got.set = o; return Promise.resolve() },
+    reload: () => { got.reload = true; return Promise.resolve() },
+  } } }
+  CALLS.length = 0
+  const okk = await __app.connectWidgets(false)
+  ok(okk && CALLS.some((c) => c.name === 'phoneApi' && c.args[0] === 'widget-token'), 'with no key yet, the app asks phone-api for one')
+  ok(got.set && /widget-feed$/.test(got.set.url) && !!got.set.key, 'and hands the key and the feed address to the widgets', JSON.stringify(got.set))
+  window.Capacitor = saved
+  __app.navigate('home')
+}
+
 console.log('\n== el() never gets two top-level elements ==')
 {
   // el() returns ONLY the first top-level element of its HTML. A label-and-value pair written as one

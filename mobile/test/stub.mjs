@@ -22,6 +22,7 @@ export const STUB = {
         views: 6, firstViewedAt: '2026-09-11T10:00:00Z', lastViewedAt: '2026-09-18T10:00:00Z', expiresAt: '', emailDraftedAt: '2026-09-10T11:00:00Z', packageCount: 2 })
       return Promise.resolve({ ok: true, exists: false, status: 'none', gaps: [], views: 0 })
     }
+    if (action === 'widget-token') return Promise.resolve({ ok: true, token: 'test-widget-key-0123456789abcdef' })
     return Promise.resolve({ ok: true })
   },
   EXPENSE_CADENCES: ['monthly', 'quarterly', 'yearly', 'weekly', 'one-time'],
