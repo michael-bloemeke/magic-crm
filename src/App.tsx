@@ -8,6 +8,7 @@ import { PipelineCards } from './components/PipelineCards'
 import { ProjectDetail } from './components/ProjectDetail'
 import { ProjectView } from './components/ProjectView'
 import { ShowsPage } from './components/ShowsPage'
+import { ShowBuilderApp } from './showbuilder/App'
 import { ContactDetail } from './components/ContactDetail'
 import { ProjectContactPickerModal } from './components/ProjectContactPickerModal'
 import { HomePage } from './components/HomePage'
@@ -116,6 +117,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   contacts: { kicker: 'Contacts', title: 'Contacts' },
   playbook: { kicker: 'Library', title: 'Playbook' },
   shows: { kicker: 'Library', title: 'Shows' },
+  showbuilder: { kicker: 'Library', title: 'Show Builder' },
   files: { kicker: 'Library', title: 'Files' },
   completed: { kicker: 'Records', title: 'Completed' },
   archive: { kicker: 'Records', title: 'Archive' },
@@ -1333,6 +1335,14 @@ function App() {
                 <PlaybookPage />
               ) : page === 'shows' ? (
                 <ShowsPage />
+              ) : page === 'showbuilder' ? (
+                // The Show Builder brings its own dark workspace and does its own scrolling (its canvas
+                // pans, its lists scroll), so the page just gives it the full height below the header.
+                <div className="h-full px-8 pb-8">
+                  <div className="h-full overflow-hidden rounded-2xl border border-line shadow-[0_14px_30px_-18px_rgba(4,8,24,0.75)]">
+                    <ShowBuilderApp />
+                  </div>
+                </div>
               ) : page === 'proposals' ? (
                 <ProposalsPage onPreview={setPreview} />
               ) : page === 'website' ? (

@@ -13,6 +13,7 @@ export type Page =
   | 'contacts'
   | 'playbook'
   | 'shows'
+  | 'showbuilder'
   | 'files'
   | 'completed'
   | 'archive'
@@ -177,6 +178,20 @@ const GROUPS: NavGroup[] = [
         icon: icon(
           <>
             <path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8-4.3-4.1 5.9-.9z" />
+          </>,
+        ),
+      },
+      // Show Builder: the standalone Show Builder app, folded in as a page (2026-10-24). Its nodes
+      // canvas, tricks, music and "other" libraries. See src/showbuilder/App.tsx.
+      {
+        id: 'showbuilder',
+        label: 'Show Builder',
+        enabled: true,
+        icon: icon(
+          <>
+            <rect x="3" y="4" width="6" height="6" rx="1.5" />
+            <rect x="15" y="14" width="6" height="6" rx="1.5" />
+            <path d="M9 7h4a2 2 0 0 1 2 2v5" />
           </>,
         ),
       },

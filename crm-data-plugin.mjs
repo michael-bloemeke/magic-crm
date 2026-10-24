@@ -61,6 +61,7 @@ import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
 import { loadShows, createShow, updateShow, setPacked, uncheckAll, duplicateShow, deleteShow } from './crm-shows.mjs'
+import { listDocs, getDoc, saveDoc, deleteDoc, audioUploadStart, audioUploadFinish, audioRename, audioPlayUrl } from './crm-showbuilder.mjs'
 import { loadCalendarAlerts, updateCalendarAlerts } from './crm-calendar-alerts.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
 import { loadCustomValues, setCustomValue } from './crm-custom-fields.mjs'
@@ -572,6 +573,46 @@ export function crmDataPlugin() {
             res.statusCode = 500
             res.end(JSON.stringify({ error: e?.message || 'Failed to load shows.' }))
           })
+      })
+
+      // --- Show Builder: the folded-in Show Builder app (crm-showbuilder.mjs) ---
+      // One generic set of routes for every kind (show, trick, tag, music, other, audio), because the
+      // page's own code (src/showbuilder/sbApi.ts) asks for documents by kind and id.
+      server.middlewares.use('/api/show-builder/list', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ docs: await listDocs(b.kind) }))
+      })
+      server.middlewares.use('/api/show-builder/get', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ doc: await getDoc(b.kind, b.id) }))
+      })
+      server.middlewares.use('/api/show-builder/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ doc: await saveDoc(b.kind, b.doc) }))
+      })
+      server.middlewares.use('/api/show-builder/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await deleteDoc(b.kind, b.id))
+      })
+      server.middlewares.use('/api/show-builder/audio-upload', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await audioUploadStart(b))
+      })
+      server.middlewares.use('/api/show-builder/audio-finish', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ doc: await audioUploadFinish(b) }))
+      })
+      server.middlewares.use('/api/show-builder/audio-rename', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ doc: await audioRename(b.id, b.displayName) }))
+      })
+      // GET /api/show-builder/audio/<id> -> a short-lived signed link to the file, for <audio src>.
+      server.middlewares.use('/api/show-builder/audio', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const id = decodeURIComponent(String(req.url || '').replace(/^\//, '').split('?')[0])
+        audioPlayUrl(id)
+          .then((url) => { res.statusCode = 302; res.setHeader('Location', url); res.setHeader('Cache-Control', 'no-store'); res.end() })
+          .catch((e) => { res.statusCode = 404; res.end(String(e?.message || e)) })
       })
 
       // --- Recurring task schedules (materialised by a Postgres job, editable here) ---
