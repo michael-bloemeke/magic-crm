@@ -6266,10 +6266,11 @@ function settingsWidgets() {
   wb.hasKey().then(function (r) {
     stat.textContent = r && r.has ? 'Connected' : 'Not connected'
     stat.style.color = r && r.has ? 'var(--green)' : 'var(--brass-bright)'
-  }).catch(function () { stat.textContent = 'Unknown' })
+  }).catch(function (e) { stat.textContent = 'Unknown: ' + String((e && e.message) || e) })
+  if (WIDGET_LAST_ERROR) card.appendChild(el('<p class="fin-h" style="margin-top:8px;color:var(--red)"></p>')).textContent = 'Last connection error: ' + WIDGET_LAST_ERROR
   var row = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Disconnect</button><button class="btn-gold">Reconnect</button></div>')
   row.children[1].addEventListener('click', function () {
-    connectWidgets(true).then(function (ok) { toast(ok ? 'Widgets connected' : 'Could not connect the widgets', ok ? undefined : 'err'); renderSettings() })
+    connectWidgets(true).then(function (ok) { toast(ok ? 'Widgets connected' : 'Could not connect the widgets: ' + WIDGET_LAST_ERROR, ok ? undefined : 'err'); renderSettings() })
   })
   row.children[0].addEventListener('click', function () {
     if (!confirm('Disconnect the home-screen widgets?\n\nThey stop showing CRM data until you tap Reconnect.')) return
@@ -7143,15 +7144,30 @@ function widgetBridge() {
   var C = window.Capacitor
   return (C.Plugins && C.Plugins.WidgetBridge) || (typeof C.registerPlugin === 'function' ? C.registerPlugin('WidgetBridge') : null)
 }
+// One key per device: the iPad and the iPhone each get their own, and making a new one retires the
+// previous key for the same device (phone-api), so unused keys never pile up.
+function widgetDeviceLabel() {
+  var ipad = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  return ipad ? 'iPad widgets' : 'iPhone widgets'
+}
+var WIDGET_LAST_ERROR = ''
 function connectWidgets(force) {
   var wb = widgetBridge(); if (!wb) return Promise.resolve(false)
   return wb.hasKey().then(function (r) {
     if (r && r.has && !force) return true
-    return phoneApi('widget-token', { label: 'iPhone widgets' }).then(function (res) {
+    return phoneApi('widget-token', { label: widgetDeviceLabel() }).then(function (res) {
       if (!res || !res.token) throw new Error('No widget key came back.')
-      return wb.setKey({ key: res.token, url: WIDGET_FEED_URL }).then(function () { return true })
+      return wb.setKey({ key: res.token, url: WIDGET_FEED_URL }).then(function () {
+        // A second nudge a moment later, in case the widgets looked before the key had landed.
+        setTimeout(function () { reloadWidgets(true) }, 3000)
+        return true
+      })
     })
-  }).catch(function () { return false })
+  }).then(function (ok) { WIDGET_LAST_ERROR = ''; return ok }).catch(function (e) {
+    // Never silent again: Settings shows this (2026-10-24, the widgets sat on "Open Bloom CRM once").
+    WIDGET_LAST_ERROR = String((e && (e.message || e.errorMessage)) || e || 'Unknown error')
+    return false
+  })
 }
 // Throttled: the widgets refetch on every reload, and a burst of edits should cost one fetch.
 function reloadWidgets(now) {

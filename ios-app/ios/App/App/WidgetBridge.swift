@@ -18,6 +18,38 @@ enum WidgetShared {
     static let tokenKey = "widgetToken"
     static let feedURLKey = "feedURL"
     static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
+
+    // ⚠️ THE KEY IS ALSO WRITTEN AS A FILE, and the widgets read the FILE (2026-10-24).
+    // The first build kept it only in the shared UserDefaults. On Michael's phone the app minted and
+    // stored a key, yet the widget stayed on "Open Bloom CRM once to connect" and not one request
+    // ever reached widget-feed. The suspected cause (NOT reproduced on the simulator, where the same
+    // code worked) is the widget's process reading a stale copy of the suite it had read before the
+    // key existed. A file in the App Group container has no per-process cache, so whatever the cause
+    // was, the widget now reads exactly what the app wrote.
+    static var keyFile: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?.appendingPathComponent("widget-key.json")
+    }
+
+    static func store(key: String, url: String) -> Bool {
+        defaults?.set(key, forKey: tokenKey)
+        defaults?.set(url, forKey: feedURLKey)
+        guard let file = keyFile, let data = try? JSONSerialization.data(withJSONObject: ["key": key, "url": url]) else { return false }
+        do { try data.write(to: file, options: [.atomic]) } catch { return false }
+        WidgetCenter.shared.reloadAllTimelines()
+        return true
+    }
+
+    static func hasKey() -> Bool {
+        if let file = keyFile, let data = try? Data(contentsOf: file),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String], !(obj["key"] ?? "").isEmpty { return true }
+        return false
+    }
+
+    static func clear() {
+        defaults?.removeObject(forKey: tokenKey)
+        if let file = keyFile { try? FileManager.default.removeItem(at: file) }
+        WidgetCenter.shared.reloadAllTimelines()
+    }
 }
 
 // A widget link that arrived before app.js was listening (a cold launch from the widget).
@@ -59,21 +91,17 @@ public class WidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("key and url are required")
             return
         }
-        guard let d = WidgetShared.defaults else { call.reject("App Group unavailable"); return }
-        d.set(key, forKey: WidgetShared.tokenKey)
-        d.set(url, forKey: WidgetShared.feedURLKey)
-        WidgetCenter.shared.reloadAllTimelines()
+        guard WidgetShared.store(key: key, url: url) else { call.reject("Could not save the widget key to the App Group."); return }
         call.resolve()
     }
 
+    // Reads the FILE, so "Connected" in Settings means exactly what the widgets will see.
     @objc func hasKey(_ call: CAPPluginCall) {
-        let key = WidgetShared.defaults?.string(forKey: WidgetShared.tokenKey) ?? ""
-        call.resolve(["has": !key.isEmpty])
+        call.resolve(["has": WidgetShared.hasKey()])
     }
 
     @objc func clearKey(_ call: CAPPluginCall) {
-        WidgetShared.defaults?.removeObject(forKey: WidgetShared.tokenKey)
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetShared.clear()
         call.resolve()
     }
 

@@ -7,7 +7,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        #if DEBUG
+        // Simulator testing only (never in a TestFlight build): `simctl launch ... -BloomWidgetTestKey K`
+        // stores a widget key through the same path the app uses, so the widget hand-off can be
+        // tested without signing in.
+        if let k = UserDefaults.standard.string(forKey: "BloomWidgetTestKey"), !k.isEmpty {
+            _ = WidgetShared.store(key: k, url: "https://yfmacqvcmkogvkcxfjkr.supabase.co/functions/v1/widget-feed")
+        }
+        #endif
         return true
     }
 

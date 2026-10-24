@@ -44,7 +44,7 @@ struct Feed: Codable {
     let mailError: String?
 }
 
-enum FeedState { case ok, notConnected, failed }
+enum FeedState { case ok, notConnected, rejected, failed }
 
 struct FeedEntry: TimelineEntry {
     let date: Date
@@ -55,34 +55,48 @@ struct FeedEntry: TimelineEntry {
 }
 
 enum FeedStore {
-    static let cacheKey = "feedCache"
-    static let cacheAtKey = "feedCacheAt"
+    // Files in the App Group container, read fresh on every load (2026-10-24). The first build read
+    // the key from the shared UserDefaults, and on Michael's phone the widget never once saw the key
+    // the app had stored there (cause suspected, not reproduced; see App/WidgetBridge.swift). A file
+    // has no per-process cache to go stale. UserDefaults is still read as a fallback.
+    static var dir: URL? { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) }
+    static var cacheFile: URL? { dir?.appendingPathComponent("widget-feed.json") }
+
+    static func credentials() -> (String, URL)? {
+        if let file = dir?.appendingPathComponent("widget-key.json"), let data = try? Data(contentsOf: file),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+           let key = obj["key"], !key.isEmpty, let u = obj["url"], let url = URL(string: u) {
+            return (key, url)
+        }
+        if let d = shared, let key = d.string(forKey: "widgetToken"), !key.isEmpty,
+           let u = d.string(forKey: "feedURL"), let url = URL(string: u) {
+            return (key, url)
+        }
+        return nil
+    }
 
     static func cached() -> (Feed, Date)? {
-        guard let d = shared, let data = d.data(forKey: cacheKey) else { return nil }
-        guard let feed = try? JSONDecoder().decode(Feed.self, from: data) else { return nil }
-        return (feed, Date(timeIntervalSince1970: d.double(forKey: cacheAtKey)))
+        guard let file = cacheFile, let data = try? Data(contentsOf: file),
+              let feed = try? JSONDecoder().decode(Feed.self, from: data) else { return nil }
+        let at = (try? FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date) ?? nil
+        return (feed, at ?? Date.distantPast)
     }
 
     // Fresh enough to reuse without a network call: this is what makes paging instant.
     static func load(maxAge: TimeInterval = 90) async -> (Feed?, FeedState, Date?) {
-        guard let d = shared, let key = d.string(forKey: "widgetToken"), !key.isEmpty,
-              let urlString = d.string(forKey: "feedURL"), let url = URL(string: urlString) else {
-            return (nil, .notConnected, nil)
-        }
+        guard let (key, url) = credentials() else { return (nil, .notConnected, nil) }
         if let (feed, at) = cached(), Date().timeIntervalSince(at) < maxAge { return (feed, .ok, at) }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue(key, forHTTPHeaderField: "x-widget-token")
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            if code == 401 { return (cached()?.0, .notConnected, cached()?.1) }
+            if code == 401 { return (nil, .rejected, nil) }
             guard code == 200, let feed = try? JSONDecoder().decode(Feed.self, from: data) else {
                 if let (f, at) = cached() { return (f, .ok, at) }
                 return (nil, .failed, nil)
             }
-            d.set(data, forKey: cacheKey)
-            d.set(Date().timeIntervalSince1970, forKey: cacheAtKey)
+            if let file = cacheFile { try? data.write(to: file, options: [.atomic]) }
             return (feed, .ok, Date())
         } catch {
             if let (f, at) = cached() { return (f, .ok, at) }
@@ -106,7 +120,10 @@ struct Provider: TimelineProvider {
         Task {
             let (feed, state, at) = await FeedStore.load()
             let entry = FeedEntry(date: Date(), feed: feed, state: state, fetchedAt: at, page: FeedStore.page(kind))
-            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60))))
+            // Not connected yet, or the network failed: look again in two minutes rather than fifteen,
+            // so a missed reload from the app can never strand the widget on a message.
+            let wait: TimeInterval = (feed == nil) ? 120 : 15 * 60
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(wait))))
         }
     }
 }
@@ -215,6 +232,7 @@ private func stateNote(_ e: FeedEntry) -> String? {
     if e.feed != nil { return nil }
     switch e.state {
     case .notConnected: return "Open Bloom CRM once to connect this widget."
+    case .rejected: return "This widget was disconnected. Open Bloom CRM, then Settings, Notifications, Reconnect."
     case .failed: return "Could not reach the CRM. It will try again shortly."
     case .ok: return "Loading…"
     }

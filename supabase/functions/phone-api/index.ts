@@ -73,7 +73,10 @@ Deno.serve(async (req) => {
         const bytes = crypto.getRandomValues(new Uint8Array(32))
         const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
         const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))), (x) => x.toString(16).padStart(2, '0')).join('')
-        const { error } = await admin.from('widget_tokens').insert({ token_hash: hash, label: String(b.label || 'iPhone widgets').slice(0, 80) })
+        const label = String(b.label || 'iPhone widgets').slice(0, 80)
+        // One live key per device: retire any earlier key for the same device first.
+        await admin.from('widget_tokens').update({ revoked: true }).eq('label', label).eq('revoked', false)
+        const { error } = await admin.from('widget_tokens').insert({ token_hash: hash, label })
         if (error) throw error
         return json({ ok: true, token })
       }
