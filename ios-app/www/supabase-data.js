@@ -1305,6 +1305,38 @@ export async function deleteShow(id) {
   if (error) throw error
 }
 
+// ---------- home list: "On my plate" (twin of crm-home-list.mjs on the Mac) ----------
+// The big things Michael is working on, under the tiles on Home (2026-10-24). Add and delete only, by
+// his design: no due date, no checkbox, no rename, and NOT a task. Same `home_list` rows as the Mac.
+function homeItemFromRow(r) {
+  return { id: str(r.id), text: str(r.text), createdAt: str(r.created_at) }
+}
+// Oldest first: a new item goes to the bottom. NEVER throws: it is loaded inside loadEverything's
+// batch, where one failed read used to take the whole app down, so a problem here only empties the
+// list and says so (homeListError).
+export async function loadHomeList() {
+  try {
+    const { data, error } = await sb.from('home_list').select('*').order('created_at', { ascending: true })
+    if (error) throw error
+    return { items: (data || []).map(homeItemFromRow), error: '' }
+  } catch (e) {
+    return { items: [], error: (e && e.message) || 'Could not load the list.' }
+  }
+}
+export async function addHomeListItem(text) {
+  const t = str(text).trim()
+  if (!t) throw new Error('Type the item first.')
+  const { data, error } = await sb.from('home_list').insert({ text: t }).select('*').single()
+  if (error) throw error
+  return homeItemFromRow(data)
+}
+export async function deleteHomeListItem(id) {
+  if (!id) throw new Error('Item id is required.')
+  const { error } = await sb.from('home_list').delete().eq('id', id)
+  if (error) throw error
+  return { ok: true }
+}
+
 // ---------- inquiries to review (the Mac bell's "Inquiries to review") ----------
 // Every website inquiry not yet dismissed, newest first. Dismissing sets data.dismissed, exactly as
 // the Mac's dismissNotification does, so clearing one on either device clears it on both.
@@ -1733,7 +1765,7 @@ export async function loadEverything() {
   // Record the sentinel BEFORE loading: a write landing mid-load leaves v ahead of what we
   // saw, so the next background poll reloads again rather than missing it.
   await noteDataVersionLoaded()
-  const [projects, structure, tasks, config, contacts, links, paymentsRaw] = await Promise.all([
+  const [projects, structure, tasks, config, contacts, links, paymentsRaw, homeList] = await Promise.all([
     loadProjects(),
     loadStructure(),
     loadTasks(),
@@ -1741,6 +1773,7 @@ export async function loadEverything() {
     loadContacts(),
     loadLinks(),
     sb.from('payments').select('id,project_id,amount,amount_text,date_received,pending,type,method,note,created_at'),
+    loadHomeList(), // never rejects, so it cannot take the batch down
   ])
   if (paymentsRaw.error) throw paymentsRaw.error
   const payments = (paymentsRaw.data || []).map(paymentFromRow)
@@ -1766,6 +1799,9 @@ export async function loadEverything() {
     eventFieldLabels: config.eventFieldLabels,
     eventFieldHidden: config.eventFieldHidden,
     eventFieldDeleted: config.eventFieldDeleted,
+    // "On my plate" on Home. homeListError is set only when the read failed.
+    homeList: homeList.items,
+    homeListError: homeList.error,
   }
 }
 

@@ -4,6 +4,9 @@
 # The build number is the timestamp, so every upload is newer than the last. Builds expire after 90
 # days in TestFlight; any new upload resets that.
 set -e
+# Without pipefail a failed xcodebuild is hidden by the grep after it, and the script printed "Uploaded
+# build" after an upload that never happened (2026-10-24, Xcode signed out of the Apple account).
+set -o pipefail
 cd "$(dirname "$0")"
 export PATH="$HOME/.local/node22/bin:$PATH"
 node build-www.mjs
