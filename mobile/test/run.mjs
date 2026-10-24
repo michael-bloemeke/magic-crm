@@ -107,14 +107,9 @@ await settle()
 ok(has('What they sent back'), 'the submitted-form section appears')
 ok(has('Performance agreement'), 'the agreement PDF is reachable from Details')
 ok(has('Signed'), 'it says it was signed')
-ok(has('Completed booking form'), 'the booking form answers are reachable')
-const toggle = [...document.querySelectorAll('.pdfchip')].find((b) => b.textContent.includes('Completed booking form'))
-ok(toggle.textContent.includes('6 answers'), 'blank answers are not counted (7 given, 1 blank)', toggle.textContent)
-toggle.dispatchEvent(new window.Event('click'))
-ok(has('Venue address'), 'raw answer ids are mapped to their questions')
-ok(has('an id with no label mapping'), 'an UNKNOWN answer id still renders its value')
-ok(has('brand_new_question'), 'an unknown id falls back to the id rather than vanishing')
-ok(!!document.querySelector('.do-inline-addr'), "the client's typed address is tappable too")
+// Removed 2026-10-24: the raw answers duplicated the event details, which the form now writes to.
+ok(!has('Completed booking form'), 'there is no second copy of the answers under the details')
+ok(!has('brand_new_question') && !has('an id with no label mapping'), 'and none of the raw answers are drawn, even hidden')
 
 console.log('\n== fee write path (the bug that was found) ==')
 CALLS.length = 0

@@ -1414,95 +1414,37 @@ function fmtPhoneDisplay(v) {
 
 // ---- what the client actually sent back ----
 //
-// Two different artefacts, and Michael asked for both: "I need to be able to see the PDF of their
-// completed booking form and performance agreement so I can see what they entered".
+// The signed performance agreement, as a PDF built by the same cloud renderer that produced the
+// client's copy. It carries every answer they gave on the booking form.
 //
-//   - The ANSWERS, verbatim, as text. This is the useful one on a phone: it is selectable,
-//     searchable and the address in it is tappable. A PDF of a form is a picture of a form.
-//   - The AGREEMENT PDF, which is the document with legal weight, built by the same cloud renderer
-//     that produced the client's copy. Already wired; it just lived on the Booking tab where he
-//     was not looking for it.
-//
-// Note the answers are the raw submission, NOT the project fields. They can differ: Michael edits a
-// project after the form comes in. Seeing what the CLIENT said, unedited, is the point.
+// ⚠️ THERE IS NO "Completed booking form" ANSWERS LIST ANY MORE (removed 2026-10-24). It drew the
+// client's raw answers under the event details, so every detail appeared twice and the two copies
+// could disagree. Michael: "I think that's confusing and unnecessary." The event details ARE the
+// answers: the `booking` edge function writes every answer onto the project the moment the form is
+// submitted (since 2026-10-14), and his own sales-call wording is not worth keeping over theirs. The
+// PDF stays as the record of exactly what they agreed to.
 function submittedSection(p) {
   var wrap = el('<div></div>')
   var body = el('<div></div>')
 
   function draw(g) {
     body.innerHTML = ''
-    var answers = (g && Array.isArray(g.answers) ? g.answers : []).filter(function (a) {
-      return a && String(a.value == null ? '' : a.value).trim()
-    })
-    if (!answers.length && !(g && (g.stage === 'submitted' || g.stage === 'signed'))) return
+    if (!(g && (g.stage === 'submitted' || g.stage === 'signed'))) return
     body.appendChild(sectionLabel('What they sent back'))
-
-    if (g.stage === 'submitted' || g.stage === 'signed') {
-      var chip = el(
-        '<button class="pdfchip"><span class="pdfchip-i">PDF</span><span>' +
-        '<span class="pdfchip-n">Performance agreement' + (g.stage === 'signed' ? ' (signed)' : '') + '</span>' +
-        '<span class="pdfchip-s">' + (g.stage === 'signed' ? 'Signed ' + esc(bookingStamp(g.signedAt) || '') + (g.signedName ? ' by ' + esc(g.signedName) : '') : 'Details in, not signed yet') + ' · tap to preview</span>' +
-        '</span></button>'
-      )
-      chip.addEventListener('click', function () { openPdfPreview(p) })
-      body.appendChild(chip)
-    }
-
-    if (!answers.length) return
-    var open = false
-    var toggle = el('<button class="pdfchip"><span class="pdfchip-i" style="background:rgba(93,169,163,0.16);color:var(--teal)">FRM</span><span><span class="pdfchip-n">Completed booking form</span><span class="pdfchip-s">' + answers.length + ' answers · tap to read</span></span></button>')
-    var list = el('<div class="kv kv-full" style="display:none"></div>')
-    answers.forEach(function (a) {
-      var label = BOOKING_FORM_LABELS[a.id] || a.id
-      var value = String(a.value).trim()
-      var item = el('<div class="item"><div class="k">' + esc(label) + '</div></div>')
-      // The venue address the CLIENT typed gets the same one-tap route as the one on the day-of
-      // card, because this is often where it lands first.
-      var mm = a.id === 'venue_address' ? mapsLinks(value) : null
-      if (mm) {
-        var v = el('<button class="v do-inline-addr">' + esc(value) + '</button>')
-        v.addEventListener('click', function () { window.location.href = mm.apple })
-        item.appendChild(v)
-      } else {
-        item.appendChild(el('<div class="v">' + esc(value) + '</div>'))
-      }
-      list.appendChild(item)
-    })
-    toggle.addEventListener('click', function () {
-      open = !open
-      list.style.display = open ? '' : 'none'
-      toggle.querySelector('.pdfchip-s').textContent = answers.length + ' answers · tap to ' + (open ? 'hide' : 'read')
-    })
-    body.appendChild(toggle)
-    body.appendChild(list)
+    var chip = el(
+      '<button class="pdfchip"><span class="pdfchip-i">PDF</span><span>' +
+      '<span class="pdfchip-n">Performance agreement' + (g.stage === 'signed' ? ' (signed)' : '') + '</span>' +
+      '<span class="pdfchip-s">' + (g.stage === 'signed' ? 'Signed ' + esc(bookingStamp(g.signedAt) || '') + (g.signedName ? ' by ' + esc(g.signedName) : '') : 'Details in, not signed yet') + ' · tap to preview</span>' +
+      '</span></button>'
+    )
+    chip.addEventListener('click', function () { openPdfPreview(p) })
+    body.appendChild(chip)
   }
 
   draw(BOOKING_PROGRESS[p.id])
   refreshBookingProgress(p.id, draw)
   wrap.appendChild(body)
   return wrap
-}
-
-// Answer id -> the question the client was asked. Mirrors BOOKING_FIELDS in crm-booking-form.mjs,
-// shortened for a phone: the form asks "For a stage show, what AV is available at the venue (sound
-// system, projector/screen, etc)?" and on a 390px screen that is a paragraph, not a label.
-//
-// ⚠️ Keys must stay in step with BOOKING_FIELDS. An id with no entry here falls back to the raw id,
-// which is ugly but never wrong, so a new question added to the form degrades rather than breaks.
-var BOOKING_FORM_LABELS = {
-  event_summary: 'Description of the event',
-  event_start_time: 'Event start time',
-  show_start_time: 'Show start time',
-  number_of_guests: 'Number of guests',
-  age_of_guests: 'Ages of the guests',
-  venue_address: 'Venue address',
-  venue_type: 'Venue type',
-  indoors_or_outdoors: 'Indoor or outdoor',
-  av: 'AV available',
-  vips: 'VIPs',
-  invoice_to: 'Invoice made out to',
-  unforgettable: 'How to make it unforgettable',
-  notes: 'Anything else',
 }
 
 // Details: EVERY event field, including the blank ones, which are called out in red. A field you
