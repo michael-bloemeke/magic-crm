@@ -26,6 +26,34 @@ const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  // Lets the phone skip the permission round trip (OPTIONS) before most calls. Added 2026-10-24
+  // when the Home unread-email list was slow: every list cost two trips across the network.
+  'Access-Control-Max-Age': '86400',
+}
+
+// SPEED (2026-10-24). A warm instance of this function serves many calls, so the Google access
+// token (good for an hour) is kept here and reused until two minutes before it expires, instead of
+// trading the refresh token for a new one on every single call. Nothing about who may call changes:
+// the caller's session is still checked first, every time.
+let googleAccess: { token: string; until: number } | null = null
+async function googleToken(admin: any): Promise<string | null> {
+  if (googleAccess && googleAccess.until > Date.now() + 120_000) return googleAccess.token
+  const { data: cfg } = await admin.from('email_config').select('*').eq('id', 1).single()
+  if (!cfg) return null
+  const tokRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: cfg.client_id,
+      client_secret: cfg.client_secret,
+      refresh_token: cfg.refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  })
+  const tok = await tokRes.json().catch(() => ({}))
+  if (!tokRes.ok || !tok.access_token) return null
+  googleAccess = { token: String(tok.access_token), until: Date.now() + (Number(tok.expires_in) || 3600) * 1000 }
+  return googleAccess.token
 }
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
@@ -119,29 +147,20 @@ Deno.serve(async (req) => {
 
   const jwt = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '')
   if (!jwt) return json({ ok: false, error: 'Not signed in.' }, 401)
-  const { data: userData, error: userErr } = await admin.auth.getUser(jwt)
+  // The session check and the Google token run side by side (they do not depend on each other), and
+  // nothing is read from Gmail or returned until the session check has passed.
+  const [{ data: userData, error: userErr }, googleAccessToken] = await Promise.all([
+    admin.auth.getUser(jwt),
+    googleToken(admin).catch(() => null),
+  ])
   if (userErr || !userData?.user) return json({ ok: false, error: 'Invalid session.' }, 401)
 
   let payload: any
   try { payload = await req.json() } catch { return json({ ok: false, error: 'Bad JSON.' }, 400) }
   const action = String(payload.action || 'list')
 
-  const { data: cfg, error: cfgErr } = await admin.from('email_config').select('*').eq('id', 1).single()
-  if (cfgErr || !cfg) return json({ ok: false, error: 'Email is not configured.' }, 500)
-
-  const tokRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: cfg.client_id,
-      client_secret: cfg.client_secret,
-      refresh_token: cfg.refresh_token,
-      grant_type: 'refresh_token',
-    }),
-  })
-  const tok = await tokRes.json()
-  if (!tokRes.ok || !tok.access_token) return json({ ok: false, error: 'Gmail auth failed.' }, 502)
-  const auth = { Authorization: `Bearer ${tok.access_token}` }
+  if (!googleAccessToken) return json({ ok: false, error: 'Gmail auth failed.' }, 502)
+  const auth = { Authorization: `Bearer ${googleAccessToken}` }
   const api = (path: string) => `https://gmail.googleapis.com/gmail/v1/users/me/${path}`
 
   try {
@@ -167,6 +186,7 @@ Deno.serve(async (req) => {
 
       const lists = await Promise.all(queries.map(async (q) => {
         const r = await fetch(api(`messages?q=${encodeURIComponent(q)}&maxResults=${max}`), { headers: auth })
+        if (r.status === 401) googleAccess = null // a revoked token is fetched afresh next call
         if (!r.ok) {
           // One bad chunk must not take the whole inbox down. The rest still render, and the next
           // refresh retries; a short list beats an error page.

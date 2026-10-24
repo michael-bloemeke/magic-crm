@@ -51,7 +51,7 @@ const tail = [
   "  fmtPhoneDisplay, projectEmails, mailWhen, updateCounts, refreshUnreadMail, taskCard, mailRow,",
   "  renderProposals, proposalCard, openPreview, copyText, renderPipeline, projectCard,",
   "  buildClientMailQueries, activeProjectEmails, openContactSheet, openSearch, openScheduleSheet,",
-  "  handleWidgetLink, connectWidgets, getPtab: () => PTAB,",
+  "  handleWidgetLink, connectWidgets, getPtab: () => PTAB, getSnap: () => SNAP, setSnapRaw: (s) => { SNAP = s },",
   "  renderHome, openHomeSheet, goBack, homeData, getNav: () => NAV_STACK, getTab: () => TAB, getDetail: () => DETAIL_ID,",
   "  bookingTab, proposalSection, emailToProjectIndex, openNewProject,",
   "  refreshNativePushToken, registerNativePush, updatePushButton,",

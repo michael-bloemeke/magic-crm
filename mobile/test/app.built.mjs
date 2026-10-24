@@ -4556,41 +4556,86 @@ function updateCounts() {
 // every twenty seconds is how the desktop's inbox counter blew through its API quota on 2026-09-09.
 var UNREAD_MAIL = 0
 var UNREAD_BY_PROJECT = {} // projectId -> how many unread threads are from / to that client
-var MAIL_COUNT_MS = 5 * 60 * 1000
+// FIXED 2026-10-24 (Michael: the Home tile said 0 while its list, once it finally loaded, showed 3;
+// and reopening the list sat on "Loading mail…"). Three causes, all fixed here:
+//   1. The first count ran the moment the app opened, BEFORE the projects had loaded, so there were
+//      no client addresses to search for, the answer was 0, and the next try was five minutes away.
+//      Now nothing is counted until the projects are in, and the first count runs straight after.
+//   2. The tile's count and the tile's list were two separate Gmail fetches. Now there is ONE: the
+//      count fetch keeps the threads (UNREAD_THREADS), the list draws them instantly, and anything
+//      older than 30 seconds is refreshed in the background while the old list stays on screen.
+//   3. Nothing de-duplicated a fetch already in flight, and nothing gave up on a stalled one. Now a
+//      second request joins the first, and a fetch that takes longer than 20 seconds reports an error
+//      with a Retry instead of "Loading mail…" forever.
+// Two minutes between counts (plus one whenever the app comes back to the foreground). Still far
+// from the quota trouble the desktop's 20-second counter caused on 2026-09-09: three small queries.
+var UNREAD_THREADS = null // the last unread list, or null before the first fetch
+var UNREAD_AT = 0         // when it was fetched
+var UNREAD_INFLIGHT = null
+var MAIL_COUNT_MS = 2 * 60 * 1000
 var mailCountTimer = null
+function withTimeout(promise, ms, msg) {
+  return new Promise(function (resolve, reject) {
+    var t = setTimeout(function () { reject(new Error(msg || 'Email is taking too long. Try again.')) }, ms)
+    promise.then(function (v) { clearTimeout(t); resolve(v) }, function (e) { clearTimeout(t); reject(e) })
+  })
+}
 function refreshUnreadMail() {
   // The badge counts EXACTLY what the Inbox page shows: unread mail from someone on an active
   // project. It used to count the whole Gmail inbox, which read 201 and meant nothing, because 201
   // is mostly Bark and GigSalad notifications rather than anyone waiting on a reply.
+  if (!SNAP) return Promise.resolve() // projects not loaded yet: a count now would be a false 0
+  if (UNREAD_INFLIGHT) return UNREAD_INFLIGHT
   var queries = buildClientMailQueries('is:unread')
-  if (!queries.length) { UNREAD_MAIL = 0; UNREAD_BY_PROJECT = {}; setTabCount('nav-badge-inbox', 0); return Promise.resolve() }
-  return gmailUnread(queries)
+  if (!queries.length) {
+    UNREAD_MAIL = 0; UNREAD_BY_PROJECT = {}; UNREAD_THREADS = []; UNREAD_AT = Date.now()
+    setTabCount('nav-badge-inbox', 0)
+    return Promise.resolve()
+  }
+  var before = UNREAD_MAIL
+  UNREAD_INFLIGHT = withTimeout(gmailUnread(queries), 20000)
     .then(function (r) {
-      UNREAD_MAIL = r.count
-      setTabCount('nav-badge-inbox', r.count)
+      var threads = (r.threads || []).filter(function (t) { return t.unread })
+      UNREAD_THREADS = threads
+      UNREAD_AT = Date.now()
+      UNREAD_MAIL = threads.length
+      setTabCount('nav-badge-inbox', UNREAD_MAIL)
       // The same fetch also answers "which clients are waiting on me", which is the version of this
       // question that is actually useful on the pipeline. Matching happens here, against contacts
       // the phone already holds, so it costs nothing extra.
       var ix = emailToProjectIndex()
       var by = {}
-      r.threads.forEach(function (t) {
-        if (!t.unread) return
+      threads.forEach(function (t) {
         var pid = ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || ''
         if (pid) by[pid] = (by[pid] || 0) + 1
       })
       UNREAD_BY_PROJECT = by
+      if (UNREAD_MAIL !== before) reloadWidgets()
       // Repaint only the list pages, and only when nothing is being typed into or edited: a
       // background repaint that throws away a half-written search box is worse than a stale mark.
       if (!DETAIL_ID && !isEditingActive() && !editorOpen() && (TAB === 'pipeline' || TAB === 'home')) render()
+      else if (TAB === 'home' && !DETAIL_ID) paintMailTile()
     })
-    .catch(function () { /* a mail hiccup must never break the CRM; leave the marks as they were */ })
+    .finally(function () { UNREAD_INFLIGHT = null })
+  // A mail hiccup must never break the CRM: callers that care catch; the timer ignores it.
+  UNREAD_INFLIGHT.catch(function () {})
+  return UNREAD_INFLIGHT
+}
+// Just the tile's number, for when a full repaint would disturb an open sheet.
+function paintMailTile() {
+  var n = document.querySelector('.statcard.s-mail .n')
+  if (n) n.textContent = String(UNREAD_MAIL)
 }
 function startMailCount() {
   if (mailCountTimer) return
-  refreshUnreadMail()
+  refreshUnreadMail() // a no-op until the projects are in; loadAndRender runs it again once they are
   mailCountTimer = setInterval(function () {
     if (!document.hidden) refreshUnreadMail()
   }, MAIL_COUNT_MS)
+  // Back in the app after a while: the count is the first thing he looks at, so freshen it now.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && Date.now() - UNREAD_AT > 60000) refreshUnreadMail()
+  })
 }
 
 // The header's date line and the page marker the stylesheet keys off (Home gets the damask ground,
@@ -5386,23 +5431,33 @@ function openHomeSheet(kind) {
     tasks.forEach(function (t) { list.appendChild(taskCard(t, true, draw)) })
   }
 
-  // The same query the Inbox's Unread view runs, so this list is exactly what the tile counts.
+  // The tile's own list: the threads the count fetch already holds (UNREAD_THREADS), drawn at once.
+  // If they are more than 30 seconds old, a refresh runs in the background and the list redraws
+  // when it lands; "Loading mail…" only ever shows on the very first fetch.
   function fillMail(list) {
-    setTitle(null)
-    var q = buildClientMailQueries('is:unread')
-    if (!q.length) { setTitle(0); list.appendChild(el('<div class="empty">Nothing unread from a client.</div>')); return }
-    list.appendChild(el('<div class="empty">Loading mail…</div>'))
-    mailFetch(q, 25, function (err, threads) {
-      if (!sheet.isConnected) return // closed while it was in flight
+    var paint = function () {
       list.innerHTML = ''
-      if (err) { list.appendChild(mailError(err, function () { mailForget(); draw() })); return }
+      var threads = (UNREAD_THREADS || []).filter(function (t) { return t.unread })
       setTitle(threads.length)
       if (!threads.length) { list.appendChild(el('<div class="empty">Nothing unread from a client.</div>')); return }
       var ix = emailToProjectIndex()
       threads.forEach(function (t) {
-        list.appendChild(mailRow(t, ix, function () { mailForget(); refreshUnreadMail(); draw() }))
+        // Reading one marks it read; the list and the tile drop it straight away, then re-check.
+        list.appendChild(mailRow(t, ix, function () { UNREAD_MAIL = (UNREAD_THREADS || []).filter(function (x) { return x.unread }).length; paintMailTile(); paint(); refreshUnreadMail() }))
       })
-    })
+    }
+    if (UNREAD_THREADS) paint()
+    else { setTitle(null); list.appendChild(el('<div class="empty">Loading mail…</div>')) }
+    if (!UNREAD_THREADS || Date.now() - UNREAD_AT > 30000) {
+      refreshUnreadMail().then(function () {
+        if (sheet.isConnected) paint()
+      }).catch(function (err) {
+        if (!sheet.isConnected) return
+        if (UNREAD_THREADS) return // keep showing what we have; the next refresh will try again
+        list.innerHTML = ''
+        list.appendChild(mailError(err, function () { list.innerHTML = ''; list.appendChild(el('<div class="empty">Loading mail…</div>')); fillMail(list) }))
+      })
+    }
   }
 
   draw()
@@ -7340,6 +7395,7 @@ function enterApp() {
   wireWidgets()
   loadAndRender().then(function (r) {
     if (r === 'ok') {
+      refreshUnreadMail() // the first count waits for the projects, or it would read a false 0
       connectWidgets(false).then(function () { reloadWidgets(true) })
       if (WIDGET_PENDING_LINK) { var wl = WIDGET_PENDING_LINK; WIDGET_PENDING_LINK = null; handleWidgetLink(wl); return }
     }
@@ -7415,7 +7471,7 @@ export const __app = {
   fmtPhoneDisplay, projectEmails, mailWhen, updateCounts, refreshUnreadMail, taskCard, mailRow,
   renderProposals, proposalCard, openPreview, copyText, renderPipeline, projectCard,
   buildClientMailQueries, activeProjectEmails, openContactSheet, openSearch, openScheduleSheet,
-  handleWidgetLink, connectWidgets, getPtab: () => PTAB,
+  handleWidgetLink, connectWidgets, getPtab: () => PTAB, getSnap: () => SNAP, setSnapRaw: (s) => { SNAP = s },
   renderHome, openHomeSheet, goBack, homeData, getNav: () => NAV_STACK, getTab: () => TAB, getDetail: () => DETAIL_ID,
   bookingTab, proposalSection, emailToProjectIndex, openNewProject,
   refreshNativePushToken, registerNativePush, updatePushButton,

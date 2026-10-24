@@ -317,8 +317,30 @@ console.log('\n== unread badge ==')
 await __app.refreshUnreadMail()
 await settle()
 const badge = document.querySelector('#nav-badge-inbox')
-ok(badge.textContent === '7', 'the drawer badge shows the unread count', badge.textContent)
+// The count is the number of unread threads the list will show (one in the fixture), never Gmail's
+// loose estimate: the Home tile once said 0 while its own list showed 3 (2026-10-24).
+ok(badge.textContent === '1', 'the drawer badge shows the unread count', badge.textContent)
 ok(!badge.classList.contains('hidden'), 'and is visible')
+{
+  // The Home tile's list draws from the count's own fetch: no second Gmail call, no "Loading mail…".
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('home'); __app.render(); await settle()
+  ok(document.querySelector('.statcard.s-mail .n').textContent === '1', 'the Home tile shows the same number')
+  CALLS.length = 0
+  __app.openHomeSheet('mail')
+  const sh = document.querySelector('.home-sheet')
+  ok(!sh.textContent.includes('Loading mail'), 'the list appears at once, from the count\'s fetch')
+  ok(sh.querySelectorAll('.mailrow').length === 1 && sh.textContent.includes('Magic for the gala'), 'and lists the same unread thread')
+  ok(!CALLS.some((c) => c.name === 'gmailList' || c.name === 'gmailUnread'), 'without fetching again while the count is fresh')
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  // Before the projects load there are no client addresses, so a count then would be a false 0.
+  const saved = __app.getSnap()
+  __app.setSnapRaw(null)
+  CALLS.length = 0
+  await __app.refreshUnreadMail()
+  ok(!CALLS.some((c) => c.name === 'gmailUnread'), 'no count is taken before the projects have loaded')
+  __app.setSnapRaw(saved)
+}
 
 console.log('\n== proposals ==')
 CALLS.length = 0
