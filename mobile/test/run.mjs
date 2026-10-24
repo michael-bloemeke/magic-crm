@@ -779,6 +779,14 @@ console.log('\n== alert cards are solid over their Dismiss button ==')
   ok(/background:/.test(style) && !/transparent/.test(style), 'the new-inquiry card has a solid background', style)
 }
 
+console.log('\n== date and time fields carry their own icon ==')
+{
+  // iOS draws no calendar button on a date field, so an empty one was a blank box (2026-10-24).
+  const css = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+  ok(/input\[type="date"\] \{ background-image: url\("data:image\/svg\+xml/.test(css), 'date fields paint a calendar icon')
+  ok(/input\[type="time"\] \{ background-image: url\("data:image\/svg\+xml/.test(css), 'time fields paint a clock icon')
+}
+
 console.log('\n== el() never gets two top-level elements ==')
 {
   // el() returns ONLY the first top-level element of its HTML. A label-and-value pair written as one
