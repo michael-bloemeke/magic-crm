@@ -15,6 +15,7 @@ export const SB_DOCS = {
   ],
   music: [{ id: 'mu-walk', name: 'Walk On', startCue: 'at the top', stopCue: 'when the cups land', audioFileId: 'au-walk' }],
   other: [{ id: 'ot-story', name: 'Opening story', duration: '0:30', color: '#29bcb2', description: 'Thirty seconds before the first trick.' }],
+  packing: [],
   audio: [{ id: 'au-walk', displayName: '1 Walk On', originalFilename: '1 Walk On.wav', storedFilename: 'au-walk.wav', mimeType: 'audio/wav', size: 12496940 }],
   show: [{
     id: 'sh-family', name: 'Family Show', showProps: ['mic'], updatedAt: '2026-06-02T02:27:12.929Z',
@@ -61,6 +62,14 @@ export const STUB = {
     const next = normalizeDoc('show', { ...fn(sbCopy(cur)), updatedAt: '2026-10-24T12:00:00.000Z' })
     CALLS.push({ name: 'sbMutateShow', args: [id, sbCopy(next)] })
     SB_DOCS.show = SB_DOCS.show.filter((d) => d.id !== id).concat(next)
+    return Promise.resolve(sbCopy(next))
+  },
+  sbMutatePacking: (showId, fn) => {
+    const id = 'packing:' + showId
+    const cur = SB_DOCS.packing.find((d) => d.id === id) || normalizeDoc('packing', { id, showId, checked: [] })
+    const next = normalizeDoc('packing', { ...fn(sbCopy(cur)), updatedAt: '2026-10-24T12:00:00.000Z' })
+    CALLS.push({ name: 'sbMutatePacking', args: [showId, sbCopy(next)] })
+    SB_DOCS.packing = SB_DOCS.packing.filter((d) => d.id !== id).concat(next)
     return Promise.resolve(sbCopy(next))
   },
   sbDelete: (kind, id) => { CALLS.push({ name: 'sbDelete', args: [kind, id] }); SB_DOCS[kind] = (SB_DOCS[kind] || []).filter((d) => d.id !== id); return Promise.resolve({ ok: true }) },

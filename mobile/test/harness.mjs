@@ -57,7 +57,7 @@ const tail = [
   "  bookingTab, proposalSection, emailToProjectIndex, openNewProject,",
   "  refreshNativePushToken, registerNativePush, updatePushButton,",
   "  setSnap: (s) => { SNAP = s }, setTab: (t) => { TAB = t },",
-  "  renderBuilder, renderBShow, openBShow, sbFlushEdit, sbEditor, sbNodeSheet, sbLoad, getSB: () => SB,",
+  "  renderBuilder, renderBShow, openBShow, sbFlushEdit, sbEditor, sbNodeSheet, sbLoad, sbArrowSheet, getSB: () => SB,",
   "  setSbView: (v) => { SB_VIEW = v }, setSbTab: (v) => { SB_TAB = v }, setSbDraft: (d) => { SB_EDIT = !!d; SB_DRAFT = d },",
   "  setPtab: (t) => { PTAB = t }, setDetail: (d) => { DETAIL_ID = d },",
   "  getPtab: () => PTAB, getStage: () => STAGE, setStageMap: (m) => { STAGE = m },",

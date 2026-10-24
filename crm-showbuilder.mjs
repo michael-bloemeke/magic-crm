@@ -25,7 +25,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { sb } from './crm-store.mjs'
-import { KINDS, normalizeDoc, sortDocs } from './mobile/showbuilder-core.js'
+import { KINDS, normalizeDoc, sortDocs, packingId } from './mobile/showbuilder-core.js'
 
 export { normalizeDoc }
 export { cleanShow } from './mobile/showbuilder-core.js'
@@ -80,6 +80,8 @@ export async function deleteDoc(kind, id) {
       if ((t.tagIds || []).includes(id)) await saveDoc('trick', { ...t, tagIds: t.tagIds.filter((x) => x !== id) })
     }
   }
+  // A show's packing ticks (the phone's Packing tab) go with it.
+  if (kind === 'show') await sb().from('show_builder').delete().eq('kind', 'packing').eq('id', packingId(id))
   const { error } = await sb().from('show_builder').delete().eq('kind', kind).eq('id', id)
   if (error) throw error
   return { ok: true }

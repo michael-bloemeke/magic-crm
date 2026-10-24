@@ -25,7 +25,7 @@
 // check the closure again. Deliberately a manual, visible step rather than an automatic one.
 import { createClient } from './vendor/supabase-js.js'
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js'
-import { normalizeDoc, sortDocs } from './showbuilder-core.js'
+import { normalizeDoc, sortDocs, packingId } from './showbuilder-core.js'
 
 // supabase-js persists the session in localStorage (persistSession + autoRefreshToken default on), so
 // login is once-per-device and the token silently refreshes. That gives us the "log in, then it just
@@ -1997,8 +1997,17 @@ export async function sbMutateShow(id, fn) {
   return sbSave('show', fn(cur))
 }
 
+// A show's packing ticks, changed from the newest saved copy (a tick on the Mac or another phone is
+// kept). The document is created the first time a box is ticked.
+export async function sbMutatePacking(showId, fn) {
+  const id = packingId(showId)
+  const cur = (await sbGet('packing', id)) || normalizeDoc('packing', { id, showId, checked: [] })
+  return sbSave('packing', fn(cur))
+}
+
 export async function sbDelete(kind, id) {
   id = String(id)
+  if (kind === 'show') await sb.from('show_builder').delete().eq('kind', 'packing').eq('id', packingId(id))
   if (kind === 'audio') {
     const meta = await sbGet('audio', id)
     if (meta && meta.storedFilename) await sb.storage.from(SB_BUCKET).remove(['audio/' + meta.storedFilename])

@@ -31,7 +31,7 @@
 
 export const CANVAS_W = 2400
 export const CANVAS_H = 1500
-export const KINDS = ['show', 'trick', 'tag', 'music', 'other', 'audio']
+export const KINDS = ['show', 'trick', 'tag', 'music', 'other', 'audio', 'packing']
 export const DEFAULT_OTHER_COLOR = '#7a8aa0'
 
 // Default node sizes, from the standalone app's EditableNode.tsx.
@@ -150,6 +150,10 @@ export function normalizeDoc(kind, raw) {
     }
   }
   if (kind === 'tag') return dropUndefined({ id, name: str(raw.name), color: raw.color ? str(raw.color) : undefined, ...stamps(raw) })
+  if (kind === 'packing') {
+    const checked = Array.isArray(raw.checked) ? [...new Set(raw.checked.map(str).filter(Boolean))] : []
+    return { id, showId: str(raw.showId) || id.replace(/^packing:/, ''), checked, ...stamps(raw) }
+  }
   if (kind === 'audio') {
     return {
       id, displayName: str(raw.displayName) || str(raw.originalFilename), originalFilename: str(raw.originalFilename),
@@ -165,6 +169,7 @@ export function sortDocs(kind, docs) {
   const out = docs.slice()
   if (kind === 'show') out.sort((a, b) => str(b.updatedAt).localeCompare(str(a.updatedAt)))
   else if (kind === 'audio') out.sort((a, b) => str(a.displayName).localeCompare(str(b.displayName)))
+  else if (kind === 'packing') out.sort((a, b) => str(a.id).localeCompare(str(b.id)))
   else out.sort((a, b) => str(a.name).localeCompare(str(b.name)))
   return out
 }
@@ -328,6 +333,46 @@ export function showInfo(show, lib) {
     return { node: n, kind: nodeKind(n), item, props }
   })
   return { totalMinutes: total, count: flow.length, unassigned, reusable, items, music: order.filter((n) => n.type === 'music') }
+}
+
+// ---------------------------------------------------------------------------
+// The packing list (the phone's Packing tab, 2026-10-24)
+// ---------------------------------------------------------------------------
+//
+// Michael: "a packing list tab that is the same as the show info tab ... all the props listed out that
+// I would need ... checklist style so I can cross them off as I'm packing for my show, or I can clear
+// them." So the groups are exactly Show Info's: the show essentials, the reusable props to pack once,
+// then each item's own props in show order.
+//
+// Which boxes are ticked is its OWN document per show (kind 'packing', id 'packing:<showId>', a list of
+// line keys), not part of the show, so a tick on the phone can never collide with a canvas edit saved
+// from the Mac. A key names the line, so renaming a prop or taking an item out of the show simply
+// leaves its old tick behind, unseen.
+
+export function packingId(showId) { return 'packing:' + showId }
+
+export function packingList(show, lib) {
+  const info = showInfo(show, lib)
+  const sections = []
+  const keyed = (prefix, names) => {
+    const seen = {}
+    return names.map((name) => {
+      const k = prefix + normName(name)
+      seen[k] = (seen[k] || 0) + 1
+      return { key: seen[k] > 1 ? k + '#' + seen[k] : k, name }
+    })
+  }
+  const ess = (show.showProps || []).filter((p) => str(p).trim())
+  if (ess.length) sections.push({ title: 'Show essentials', lines: keyed('e:', ess) })
+  if (info.reusable.length) sections.push({ title: 'Reusable across the show', hint: 'Pack one of each.', lines: keyed('r:', info.reusable) })
+  let n = 0
+  for (const x of info.items) {
+    n++
+    if (!x.item || !x.props.length) continue
+    sections.push({ title: n + '. ' + (x.item.name || 'Untitled'), nodeId: x.node.id, lines: keyed('i:' + x.node.id + ':', x.props.map((p) => p.name)) })
+  }
+  const total = sections.reduce((t, sec) => t + sec.lines.length, 0)
+  return { sections, total }
 }
 
 // ---------------------------------------------------------------------------

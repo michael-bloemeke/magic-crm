@@ -716,7 +716,7 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
   // create or the audio files or anything like that to be crossing over into the Show Builder app
   // folder. I want everything to just be self-contained within the CRM.")
   {
-    const kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio']
+    const kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio', 'packing']
     const out = {}
     let total = 0
     for (const k of kinds) {

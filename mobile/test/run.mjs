@@ -828,6 +828,13 @@ console.log('\n== show builder: the rules (showbuilder-core.js) ==')
   const dup = CORE.duplicateShow(show)
   ok(dup.name === 'Copy of Family Show' && dup.id !== show.id && !dup.nodes.some((n) => show.nodes.some((m) => m.id === n.id)), 'Duplicate makes a copy with fresh ids')
   ok(CORE.getShowOrder(dup.nodes, dup.edges).length === 5 && dup.edges.length === 3, 'with the same items and arrows')
+
+  // The packing list: Show info's groups, one checkbox line per prop.
+  const pk = CORE.packingList(show, lib)
+  ok(pk.sections.map((x) => x.title).join(' | ') === 'Show essentials | Reusable across the show | 1. Cups and Balls | 2. Rope Routine | 3. Tossed Out Deck', 'packing groups follow Show info, items numbered in show order', pk.sections.map((x) => x.title).join(' | '))
+  ok(pk.total === 5, 'one line per prop to pack: mic, Jacket once, 3 cups, rope, deck', pk.total)
+  ok(!pk.sections[2].lines.some((l) => l.name === 'Jacket'), 'a reusable prop is listed once, in its own group, not under each trick')
+  ok(new Set(pk.sections.flatMap((x) => x.lines.map((l) => l.key))).size === pk.total, 'every line has its own key, so ticks never collide')
   sbFixtureReset(SNAPSHOT)
 }
 
@@ -870,6 +877,33 @@ console.log('\n== show builder: the phone ==')
   ok(document.querySelectorAll('path.sb-edge').length === 3, 'and every arrow')
   const n1 = document.querySelector('.sb-node[data-id="n1"]')
   ok(n1 && n1.style.left === '100px' && n1.style.top === '100px', 'at its saved position', n1 && n1.style.left + ',' + n1.style.top)
+
+  ok(document.querySelectorAll('path.sb-edge-hit').length === 3, 'every arrow has a finger-sized tap area')
+  CALLS.length = 0
+  __app.sbArrowSheet('sh-family', { source: 'n1', target: 'n2' }, document.querySelector('.sb-edges'))
+  await settle()
+  const arrowSheet = document.querySelector('.sheet')
+  ok(arrowSheet && arrowSheet.textContent.includes('From Cups and Balls') && arrowSheet.textContent.includes('to Rope Routine'), 'tapping an arrow says which two items it joins')
+  ok(document.querySelector('path.sb-edge.sel'), 'and lights that arrow up')
+  ;[...arrowSheet.querySelectorAll('button')].find((b) => b.textContent === 'Delete arrow').dispatchEvent(new window.Event('click')); await settle()
+  const delArrow = CALLS.find((c) => c.name === 'sbMutateShow')
+  ok(delArrow && delArrow.args[1].edges.length === 2 && !delArrow.args[1].edges.some((e) => e.source === 'n1' && e.target === 'n2'), 'Delete arrow removes just that arrow')
+  ok(delArrow && delArrow.args[1].nodes.length === 5, 'and leaves every box where it was')
+  sbFixtureReset(SNAPSHOT); await __app.sbLoad()
+
+  __app.setSbView('pack'); __app.renderBShow(); await settle()
+  ok(document.querySelector('#ptabs').textContent.includes('Packing'), 'a show has a Packing tab')
+  ok(document.querySelectorAll('.pack-item').length === 5, 'listing every prop to pack as a checkbox', document.querySelectorAll('.pack-item').length)
+  ok(has('0 of 5 packed') && has('Show essentials') && has('1. Cups and Balls'), 'grouped like Show info, with a count')
+  CALLS.length = 0
+  ;[...document.querySelectorAll('.pack-item')].find((r) => r.textContent.includes('3 cups')).dispatchEvent(new window.Event('click')); await settle()
+  const tick = CALLS.find((c) => c.name === 'sbMutatePacking')
+  ok(tick && tick.args[1].checked.length === 1 && tick.args[1].checked[0].startsWith('i:n1:'), 'tapping a prop ticks it and saves the tick')
+  ok(!CALLS.some((c) => c.name === 'sbMutateShow'), 'packing never touches the show itself')
+  ok(has('1 of 5 packed') && document.querySelector('.pack-item.done') && document.querySelector('.pack-item.done').textContent.includes('3 cups'), 'it shows as packed')
+  ;[...document.querySelectorAll('.show-acts button')].find((b) => b.textContent === 'Uncheck all').dispatchEvent(new window.Event('click')); await settle()
+  ok(SB_DOCS.packing[0] && SB_DOCS.packing[0].checked.length === 0 && has('0 of 5 packed'), 'Uncheck all clears every tick')
+  sbFixtureReset(SNAPSHOT); await __app.sbLoad()
 
   __app.setSbView('info'); __app.renderBShow(); await settle()
   ok(has('Total runtime') && has('13 min'), 'Show info gives the runtime')

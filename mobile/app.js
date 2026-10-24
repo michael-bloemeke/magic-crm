@@ -24,13 +24,13 @@ import {
   loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings,
   listFiles, fileUrl, uploadFile, deleteFile,
   loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog,
-  sbList, sbGet, sbSave, sbMutateShow, sbDelete, sbUploadAudio, sbAudioUrls,
+  sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls,
 } from './supabase-data.js'
 // The Show Builder's rules, shared with the Mac's server (see showbuilder-core.js).
 import {
   getShowOrder, showInfo, formatDuration, cleanShow, normalizeDoc, newId, nodeKind, nodeRef, nodeItem, nodeSize,
   reorderShow, appendNode, removeNode, assignNode, moveNode, connectNodes, connectedCount,
-  duplicateShow as sbDuplicateShow, CANVAS_W, CANVAS_H, DEFAULT_OTHER_COLOR,
+  duplicateShow as sbDuplicateShow, CANVAS_W, CANVAS_H, DEFAULT_OTHER_COLOR, packingList, packingId,
 } from './showbuilder-core.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 import { TEMPLATE_GROUPS } from './email-templates.js'
@@ -5100,7 +5100,10 @@ function openShowOptions(s) {
 //                     Edit, then drag a handle to reorder, or × to take an item out. "+ Add" puts a
 //                     trick, music cue or other item on the end.
 //     Canvas          the Mac's canvas, to scale: pinch to zoom, drag the background to pan, drag a
-//                     box to move it, tap a box to open it, and Connect to draw an arrow.
+//                     box to move it, tap a box to open it, Connect to draw an arrow, and tap an
+//                     arrow to delete it.
+//     Packing         every prop the show needs, grouped as Show info groups them, as a checklist to
+//                     tick off while packing, with Uncheck all (like the Shows page's packing list).
 //     Show info       runtime, show essentials, reusable props and the per-item props list, the same
 //                     sheet as the Mac's Show Info.
 //
@@ -5112,10 +5115,11 @@ function openShowOptions(s) {
 // Mac in the meantime is not overwritten. The Mac does the same in reverse when its window comes back
 // to the front.
 
-var SB = { show: null, trick: null, tag: null, music: null, other: null, audio: null } // null = not loaded yet
+var SB = { show: null, trick: null, tag: null, music: null, other: null, audio: null, packing: null } // null = not loaded yet
 var SB_TAB = 'shows'      // the Show Builder page's tab: shows | tricks | music | other
 var SB_SHOW_ID = null     // the open show (TAB 'bshow')
-var SB_VIEW = 'flow'      // inside a show: flow | canvas | info
+var SB_VIEW = 'flow'      // inside a show: flow | canvas | pack | info
+var SB_PACK_SEQ = 0       // only the newest packing save may write its server copy back
 var SB_EDIT = false       // the running order is in Edit (drag handles and remove buttons)
 var SB_DRAFT = null       // { order: [nodeId], removed: [nodeId] } while editing
 var SB_FIND = { q: '', tags: [] } // the Tricks library's search and tag filter
@@ -5153,7 +5157,7 @@ function sbSig(list) { return JSON.stringify(list || []) }
 // Load the libraries. `after` runs once they are in; `changed` is true when anything differs from
 // what was already showing, so a background refresh only redraws when it has something new.
 function sbLoad(after) {
-  var kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio']
+  var kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio', 'packing']
   var before = sbSig(kinds.map(function (k) { return SB[k] }))
   return Promise.all(kinds.map(function (k) { return sbList(k) })).then(function (lists) {
     kinds.forEach(function (k, i) { SB[k] = lists[i] })
@@ -5222,6 +5226,7 @@ var SB_PAGE_TABS = [
 var SB_SHOW_TABS = [
   ['flow', 'Running order', '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>'],
   ['canvas', 'Canvas', '<rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v5"/>'],
+  ['pack', 'Packing', '<rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M8.5 13.5l2 2 4-4"/>'],
   ['info', 'Show info', '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>'],
 ]
 function sbTabBar(tabs, current, onPick) {
@@ -5323,6 +5328,7 @@ function renderBShow() {
     render(); window.scrollTo(0, 0)
   })
   if (SB_VIEW === 'canvas') sbCanvasView(v, s)
+  else if (SB_VIEW === 'pack') sbPackView(v, s)
   else if (SB_VIEW === 'info') sbInfoView(v, s)
   else sbFlowView(v, s)
   // Re-read in the background: the show may have been changed on the Mac since it was loaded.
@@ -5733,12 +5739,87 @@ function sbInfoView(v, s) {
   }
 }
 
+// ---- Packing: every prop the show needs, ticked off while packing ----
+//
+// Michael, 2026-10-24: "a packing list tab that is the same as the show info tab ... checklist style so
+// I can cross them off as I'm packing for my show, or I can clear them." The groups and the lines come
+// from packingList() in showbuilder-core.js, so they always match Show info. A tap ticks at once and
+// saves in the background; Uncheck all clears the show's ticks. The ticks are their own document, so
+// packing never touches the show itself.
+function sbPackDoc(showId) { return sbFind('packing', packingId(showId)) || { id: packingId(showId), showId: showId, checked: [] } }
+
+function sbPackView(v, s) {
+  var lib = sbLib()
+  var pl = packingList(s, lib)
+  var doc = sbPackDoc(s.id)
+  var checked = {}; doc.checked.forEach(function (k) { checked[k] = true })
+  var done = 0
+  pl.sections.forEach(function (sec) { sec.lines.forEach(function (l) { if (checked[l.key]) done++ }) })
+
+  var acts = []
+  if (pl.total) {
+    var un = el('<button class="btn-ghost show-btn">Uncheck all</button>')
+    un.disabled = !done
+    un.addEventListener('click', function () {
+      if (!confirm('Uncheck all ' + done + ' packed item' + (done === 1 ? '' : 's') + '?')) return
+      sbSetPacking(s.id, function () { return [] }, 'All unchecked')
+    })
+    acts.push(un)
+    acts.push(el('<span class="show-count">' + done + ' of ' + pl.total + ' packed</span>'))
+  }
+  v.appendChild(sbTopBar(s, acts))
+
+  if (!pl.total) {
+    v.appendChild(el('<div class="empty" style="padding:36px 16px">Nothing to pack yet. Add props to the tricks in this show, or show essentials on Show info, and they will be listed here.</div>'))
+    return
+  }
+  var list = el('<div class="show-list"></div>')
+  pl.sections.forEach(function (sec) {
+    var hd = el('<div class="pack-head"></div>'); hd.textContent = sec.title
+    list.appendChild(hd)
+    if (sec.hint) { var h = el('<div class="sb-pack-hint"></div>'); h.textContent = sec.hint; list.appendChild(h) }
+    sec.lines.forEach(function (l) {
+      var on = !!checked[l.key]
+      var row = el('<button class="card pack-item' + (on ? ' done' : '') + '"><span class="pack-box"></span><span class="pack-t"></span></button>')
+      row.querySelector('.pack-t').textContent = l.name
+      row.setAttribute('aria-pressed', on ? 'true' : 'false')
+      row.addEventListener('click', function () {
+        sbSetPacking(s.id, function (keys) { return on ? keys.filter(function (k) { return k !== l.key }) : keys.concat(l.key) })
+      })
+      list.appendChild(row)
+    })
+  })
+  v.appendChild(list)
+}
+
+// Tick, untick or clear: shown at once, then saved onto the newest saved copy.
+function sbSetPacking(showId, fn, okMsg) {
+  var cur = sbPackDoc(showId)
+  sbPut('packing', Object.assign({}, cur, { checked: fn(cur.checked.slice()) }))
+  if (TAB === 'bshow' && SB_SHOW_ID === showId && SB_VIEW === 'pack') render()
+  var seq = ++SB_PACK_SEQ
+  return sbMutatePacking(showId, function (doc) { return Object.assign({}, doc, { checked: fn(doc.checked.slice()) }) })
+    .then(function (saved) {
+      if (okMsg) toast(okMsg)
+      if (seq !== SB_PACK_SEQ) return
+      sbPut('packing', saved)
+      if (TAB === 'bshow' && SB_SHOW_ID === showId && SB_VIEW === 'pack') render()
+    })
+    .catch(function (e) {
+      toast(e.message || 'Could not save that checkmark', 'err')
+      if (seq === SB_PACK_SEQ) { sbPut('packing', cur); if (TAB === 'bshow' && SB_SHOW_ID === showId) render() }
+    })
+}
+
 // ---- the canvas, to scale, for a finger ----
 //
 // The Mac's 2400 x 1500 page with every box where the Mac put it. One finger on the background pans,
 // two fingers pinch to zoom, a finger on a box drags it (it saves when lifted), and a tap opens it.
-// Connect draws an arrow: tap the box it starts from, then the box it goes to. Arrows are removed
-// from an item's sheet ("Arrows").
+// Connect draws an arrow: tap the box it starts from, then the box it goes to. Tapping an ARROW offers
+// to delete it (Michael, 2026-10-24: "I will need a way to delete connections in the canvas"). The
+// drawn line is 2 points wide, so each arrow carries an invisible, finger-wide tap area along it; it
+// widens as the canvas zooms out so it stays about the same size under a finger. An item's sheet
+// also lists its arrows with an × each.
 function sbCanvasView(v, s) {
   var lib = sbLib()
   var fit = el('<button class="btn-ghost show-btn">Fit</button>')
@@ -5757,7 +5838,7 @@ function sbCanvasView(v, s) {
   function paintHint() {
     conn.classList.toggle('on', !!SB_CONNECT)
     conn.textContent = SB_CONNECT ? 'Cancel' : 'Connect'
-    hint.textContent = !SB_CONNECT ? 'Drag a box to move it. Tap one to open it. Pinch to zoom.'
+    hint.textContent = !SB_CONNECT ? 'Drag a box to move it. Tap a box to open it, or an arrow to delete it.'
       : SB_CONNECT === 'pick-from' ? 'Tap the box the arrow starts from.' : 'Now tap the box it goes to.'
     wrap.querySelectorAll('.sb-node').forEach(function (b) { b.classList.toggle('from', b.dataset.id === SB_CONNECT) })
   }
@@ -5785,8 +5866,9 @@ function sbCanvasView(v, s) {
     return [x + sz[0], y + sz[1] / 2]
   }
   var DIR = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] }
+  function hitWidth() { return Math.max(16, 26 / ((cam && cam.k) || 1)) }
   function drawEdges() {
-    svg.querySelectorAll('path.sb-edge').forEach(function (p) { p.remove() })
+    svg.querySelectorAll('path.sb-edge, path.sb-edge-hit').forEach(function (p) { p.remove() })
     var byId = {}; show.nodes.forEach(function (n) { byId[n.id] = n })
     show.edges.forEach(function (e) {
       var a = byId[e.source], b = byId[e.target]; if (!a || !b) return
@@ -5798,14 +5880,26 @@ function sbCanvasView(v, s) {
       p.setAttribute('class', 'sb-edge')
       p.setAttribute('d', 'M' + p0 + ' C' + c1 + ' ' + c2 + ' ' + p3)
       p.setAttribute('marker-end', 'url(#sb-arrowhead)')
+      p.dataset.source = e.source; p.dataset.target = e.target
       svg.appendChild(p)
+      var hit = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      hit.setAttribute('class', 'sb-edge-hit')
+      hit.setAttribute('d', p.getAttribute('d'))
+      hit.setAttribute('stroke-width', String(hitWidth()))
+      hit.dataset.source = e.source; hit.dataset.target = e.target
+      svg.appendChild(hit)
     })
   }
   drawEdges()
 
   // ---- the view: pan and zoom ----
   var cam = SB_CAM[s.id]
-  function apply() { world.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.k + ')'; SB_CAM[s.id] = cam }
+  function apply() {
+    world.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.k + ')'
+    SB_CAM[s.id] = cam
+    var w = String(hitWidth())
+    svg.querySelectorAll('path.sb-edge-hit').forEach(function (h) { h.setAttribute('stroke-width', w) })
+  }
   function fitAll() {
     var r = wrap.getBoundingClientRect()
     var minX = 0, minY = 0, maxX = CANVAS_W, maxY = CANVAS_H
@@ -5857,8 +5951,12 @@ function sbCanvasView(v, s) {
       return
     }
     var nodeEl = ev.target.closest('.sb-node')
+    var edgeEl = !nodeEl && ev.target.closest && ev.target.closest('.sb-edge-hit')
     var p = pts[ev.pointerId]
-    if (nodeEl) {
+    if (edgeEl) {
+      // A finger on an arrow: a tap offers to delete it; a drag pans, like the background.
+      gesture = { type: 'pan', edge: { source: edgeEl.dataset.source, target: edgeEl.dataset.target }, sx: p.x, sy: p.y, cx: cam.x, cy: cam.y, moved: false, pid: ev.pointerId }
+    } else if (nodeEl) {
       var n = show.nodes.find(function (x) { return x.id === nodeEl.dataset.id })
       gesture = { type: 'node', id: n.id, el: nodeEl, sx: p.x, sy: p.y, ox: n.position.x, oy: n.position.y, moved: false, pid: ev.pointerId }
     } else {
@@ -5897,6 +5995,7 @@ function sbCanvasView(v, s) {
     }
     gesture = null
     SB_BUSY = false
+    if (g && g.type === 'pan' && g.edge && !g.moved && !SB_CONNECT) { sbArrowSheet(s.id, g.edge, svg); return }
     if (!g || g.type === 'pinch' || g.type === 'pan') return
     g.el.classList.remove('dragging')
     if (g.moved && !SB_CONNECT) {
@@ -5920,6 +6019,30 @@ function sbCanvasView(v, s) {
   wrap.addEventListener('pointerup', up)
   wrap.addEventListener('pointercancel', up)
   paintHint()
+}
+
+// The sheet a tapped arrow opens: which two items it joins, and Delete. The arrow is lit while it is open.
+function sbArrowSheet(showId, edge, svg) {
+  var s = sbShow(showId); if (!s) return
+  var lib = sbLib()
+  var nameOf = function (id) { var n = s.nodes.find(function (x) { return x.id === id }); var it = n && nodeItem(n, lib); return it ? it.name : 'an empty slot' }
+  var lit = svg ? svg.querySelectorAll('path.sb-edge') : []
+  Array.prototype.forEach.call(lit, function (p) { if (p.dataset.source === edge.source && p.dataset.target === edge.target) p.classList.add('sel') })
+  var unlight = function () { Array.prototype.forEach.call(lit, function (p) { p.classList.remove('sel') }) }
+  var sh = makeSheet('Arrow')
+  sh.sheet.querySelector('.sheet-x').addEventListener('click', unlight)
+  sh.sheet.addEventListener('click', function (e) { if (e.target === sh.sheet) unlight() })
+  var line = el('<div class="sb-arrow-what"><span class="sb-arrow-from"></span><span class="sb-arrow-to"></span></div>')
+  line.querySelector('.sb-arrow-from').textContent = 'From ' + nameOf(edge.source)
+  line.querySelector('.sb-arrow-to').textContent = 'to ' + nameOf(edge.target)
+  sh.body.appendChild(line)
+  var bar = el('<div class="addrow" style="margin-top:14px"><button class="btn-ghost">Cancel</button><button class="btn-ghost sb-danger">Delete arrow</button></div>')
+  bar.children[0].addEventListener('click', function () { unlight(); sh.close() })
+  bar.children[1].addEventListener('click', function () {
+    sh.close()
+    sbChangeShow(showId, function (cur) { return Object.assign({}, cur, { edges: cur.edges.filter(function (x) { return !(x.source === edge.source && x.target === edge.target) }) }) }, 'Arrow deleted')
+  })
+  sh.body.appendChild(bar)
 }
 
 // ---- the libraries ----
