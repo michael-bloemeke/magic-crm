@@ -730,6 +730,10 @@ console.log('\n== home-screen widgets ==')
   document.querySelectorAll('.sheet').forEach((x) => x.remove())
   __app.handleWidgetLink('bloomcrm://inbox'); await settle()
   ok(__app.getTab() === 'inbox', 'the Mail widget opens the Inbox')
+  __app.handleWidgetLink('bloomcrm://finance'); await settle()
+  ok(__app.getTab() === 'finance', 'the lock-screen money widgets open Finance')
+  __app.handleWidgetLink('bloomcrm://pipeline'); await settle()
+  ok(__app.getTab() === 'pipeline', 'the New leads and Booked widgets open the pipeline')
   // The key handoff, with a pretend native shell.
   const saved = window.Capacitor
   const got = {}

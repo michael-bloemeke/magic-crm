@@ -34,6 +34,12 @@ struct FeedTask: Codable, Hashable { let id: String; let title: String; let proj
 struct FeedGig: Codable, Hashable { let id: String; let name: String; let eventType: String; let date: String; let dateLabel: String; let countdown: String; let location: String; let fee: String; let stage: String }
 struct FeedMail: Codable, Hashable { let threadId: String; let from: String; let fromEmail: String; let outbound: Bool?; let subject: String; let snippet: String; let ts: Double; let projectId: String; let project: String }
 struct TaskCounts: Codable, Hashable { let overdue: Int; let today: Int; let total: Int }
+struct NextGig: Codable, Hashable { let id: String; let name: String; let eventType: String; let dateLabel: String; let daysAway: Int; let countdown: String; let location: String; let fee: String; let showTime: String }
+struct Money: Codable, Hashable { let monthLabel: String; let yearLabel: String; let monthReceived: Double; let monthEarned: Double; let monthlyGoal: Double; let yearReceived: Double; let yearEarned: Double; let yearGoal: Double }
+struct LeadRow: Codable, Hashable { let id: String; let name: String; let eventDate: String }
+struct Leads: Codable, Hashable { let count: Int; let latest: [LeadRow] }
+struct BookedNext: Codable, Hashable { let id: String; let name: String; let dateLabel: String }
+struct Booked: Codable, Hashable { let count: Int; let value: String; let next: BookedNext? }
 struct Feed: Codable {
     let generatedAt: String
     let tasks: [FeedTask]
@@ -42,6 +48,11 @@ struct Feed: Codable {
     let mail: [FeedMail]
     let mailCount: Int
     let mailError: String?
+    // Lock-screen additions (2026-10-24). Optional so a feed cached by an older build still decodes.
+    let nextGig: NextGig?
+    let finance: Money?
+    let leads: Leads?
+    let booked: Booked?
 }
 
 enum FeedState { case ok, notConnected, rejected, failed }
@@ -422,36 +433,104 @@ private struct Ground: View {
     var body: some View { LinearGradient(colors: [navyTop, navyBottom], startPoint: .top, endPoint: .bottom) }
 }
 
+// Every widget below can go on the LOCK SCREEN too (round, rectangular, and the one line above the
+// clock); Tasks, Gigs and Unread email are also the large home-screen widgets. One widget, several
+// sizes: the view switches on the family it is placed in.
+private let lockFamilies: [WidgetFamily] = [.accessoryCircular, .accessoryRectangular, .accessoryInline]
+
+struct TasksEntryView: View {
+    @Environment(\.widgetFamily) var family
+    let entry: FeedEntry
+    var body: some View {
+        if family == .systemLarge { TasksView(entry: entry).containerBackground(for: .widget) { Ground() } }
+        else { LockTasks(entry: entry, family: family).lockBackground(family) }
+    }
+}
+struct GigsEntryView: View {
+    @Environment(\.widgetFamily) var family
+    let entry: FeedEntry
+    var body: some View {
+        if family == .systemLarge { GigsView(entry: entry).containerBackground(for: .widget) { Ground() } }
+        else { LockNextGig(entry: entry, family: family).lockBackground(family) }
+    }
+}
+struct MailEntryView: View {
+    @Environment(\.widgetFamily) var family
+    let entry: FeedEntry
+    var body: some View {
+        if family == .systemLarge { MailView(entry: entry).containerBackground(for: .widget) { Ground() } }
+        else { LockMail(entry: entry, family: family).lockBackground(family) }
+    }
+}
+
 struct TasksWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "BloomTasks", provider: Provider(kind: "tasks")) { e in
-            TasksView(entry: e).containerBackground(for: .widget) { Ground() }
-        }
+        StaticConfiguration(kind: "BloomTasks", provider: Provider(kind: "tasks")) { e in TasksEntryView(entry: e) }
         .configurationDisplayName("Tasks")
         .description("Overdue first, then due today. Project tasks before general ones.")
-        .supportedFamilies([.systemLarge])
+        .supportedFamilies([.systemLarge] + lockFamilies)
     }
 }
 
 struct GigsWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "BloomGigs", provider: Provider(kind: "gigs")) { e in
-            GigsView(entry: e).containerBackground(for: .widget) { Ground() }
-        }
-        .configurationDisplayName("Gigs next 7 days")
-        .description("Your next week of gigs, soonest first.")
-        .supportedFamilies([.systemLarge])
+        StaticConfiguration(kind: "BloomGigs", provider: Provider(kind: "gigs")) { e in GigsEntryView(entry: e) }
+        .configurationDisplayName("Gigs")
+        .description("Home screen: the next 7 days of gigs. Lock screen: your next booked gig.")
+        .supportedFamilies([.systemLarge] + lockFamilies)
     }
 }
 
 struct MailWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "BloomMail", provider: Provider(kind: "mail")) { e in
-            MailView(entry: e).containerBackground(for: .widget) { Ground() }
-        }
+        StaticConfiguration(kind: "BloomMail", provider: Provider(kind: "mail")) { e in MailEntryView(entry: e) }
         .configurationDisplayName("Unread email")
         .description("Unread email to or from anyone on an active project.")
-        .supportedFamilies([.systemLarge])
+        .supportedFamilies([.systemLarge] + lockFamilies)
+    }
+}
+
+struct MoneyMonthWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BloomMoneyMonth", provider: Provider(kind: "money-month")) { e in
+            LockFamily { f in LockMoney(entry: e, year: false, family: f) }
+        }
+        .configurationDisplayName("Money this month")
+        .description("Money received this month against your monthly goal, and money earned.")
+        .supportedFamilies(lockFamilies)
+    }
+}
+
+struct MoneyYearWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BloomMoneyYear", provider: Provider(kind: "money-year")) { e in
+            LockFamily { f in LockMoney(entry: e, year: true, family: f) }
+        }
+        .configurationDisplayName("Money this year")
+        .description("Money received so far this year against your income goal, and money earned.")
+        .supportedFamilies(lockFamilies)
+    }
+}
+
+struct LeadsWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BloomLeads", provider: Provider(kind: "leads")) { e in
+            LockFamily { f in LockLeads(entry: e, family: f) }
+        }
+        .configurationDisplayName("New leads")
+        .description("New inquiries still waiting in the Inquiry stage.")
+        .supportedFamilies(lockFamilies)
+    }
+}
+
+struct BookedWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BloomBooked", provider: Provider(kind: "booked")) { e in
+            LockFamily { f in LockBooked(entry: e, family: f) }
+        }
+        .configurationDisplayName("Booked")
+        .description("Upcoming gigs with money in, and what they are worth.")
+        .supportedFamilies(lockFamilies)
     }
 }
 
@@ -461,5 +540,263 @@ struct BloomWidgetsBundle: WidgetBundle {
         TasksWidget()
         GigsWidget()
         MailWidget()
+        MoneyMonthWidget()
+        MoneyYearWidget()
+        LeadsWidget()
+        BookedWidget()
+    }
+}
+
+// MARK: - Lock screen (2026-10-24)
+//
+// Michael asked for a round and a rectangular lock-screen widget for tasks, gigs and email, plus
+// anything else useful (he suggested money this month and this year). Lock-screen widgets are drawn
+// by iOS in one tint over the wallpaper, so these use weight and size for emphasis, not colour.
+//
+// Names and money are marked privacySensitive: iOS hides them while the phone is locked and shows them
+// once Face ID recognises him. Counts stay visible either way.
+
+private extension View {
+    // The round widgets sit on the standard frosted disc; the others have no background of their own.
+    @ViewBuilder func lockBackground(_ family: WidgetFamily) -> some View {
+        if family == .accessoryCircular { containerBackground(for: .widget) { AccessoryWidgetBackground() } }
+        else { containerBackground(for: .widget) { Color.clear } }
+    }
+}
+// Reads which size the widget was placed at and hands it to the view.
+struct LockFamily<Content: View>: View {
+    @Environment(\.widgetFamily) var family
+    @ViewBuilder let content: (WidgetFamily) -> Content
+    var body: some View { content(family).lockBackground(family) }
+}
+
+private func compactMoney(_ v: Double) -> String {
+    if v >= 1_000_000 { return String(format: "$%.1fM", v / 1_000_000) }
+    if v >= 10_000 { return "$\(Int((v / 1000).rounded()))k" }
+    if v >= 1_000 { return String(format: "$%.1fk", v / 1000) }
+    return "$\(Int(v.rounded()))"
+}
+private func fullMoney(_ v: Double) -> String {
+    let f = NumberFormatter(); f.numberStyle = .decimal; f.maximumFractionDigits = 0
+    return "$" + (f.string(from: NSNumber(value: v.rounded())) ?? "\(Int(v))")
+}
+
+// A number with a small symbol above it, for the round widgets.
+private struct CircleCount: View {
+    let symbol: String
+    let value: String
+    var caption: String = ""
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
+            Text(value).font(.system(size: 22, weight: .bold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1)
+            if !caption.isEmpty { Text(caption).font(.system(size: 10, weight: .medium)) }
+        }
+    }
+}
+
+private struct LockNote: View {
+    let entry: FeedEntry
+    let family: WidgetFamily
+    var body: some View {
+        let msg = entry.state == .notConnected ? "Open Bloom CRM" : entry.state == .rejected ? "Reconnect in Settings" : "Loading"
+        if family == .accessoryCircular { Image(systemName: "exclamationmark.circle").font(.title3) }
+        else { Text(msg).font(.system(size: 13, weight: .medium)) }
+    }
+}
+
+struct LockTasks: View {
+    let entry: FeedEntry
+    let family: WidgetFamily
+    var body: some View {
+        Group {
+            if let f = entry.feed {
+                let c = f.taskCounts
+                let due = c.overdue + c.today
+                switch family {
+                case .accessoryCircular:
+                    CircleCount(symbol: "checklist", value: "\(due)", caption: "due")
+                case .accessoryInline:
+                    Label("\(c.overdue) overdue · \(c.today) due today", systemImage: "checklist")
+                default:
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("\(c.overdue) overdue · \(c.today) today").font(.system(size: 14, weight: .bold)).widgetAccentable()
+                        ForEach(Array(f.tasks.prefix(2)), id: \.id) { t in
+                            Text(t.project.isEmpty ? t.title : "\(t.title) · \(t.project)")
+                                .font(.system(size: 13)).lineLimit(1).privacySensitive()
+                        }
+                        if f.tasks.isEmpty { Text("All caught up.").font(.system(size: 13)) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else { LockNote(entry: entry, family: family) }
+        }
+        .widgetURL(URL(string: "bloomcrm://tasks"))
+    }
+}
+
+struct LockNextGig: View {
+    let entry: FeedEntry
+    let family: WidgetFamily
+    var body: some View {
+        let g = entry.feed?.nextGig
+        Group {
+            if entry.feed == nil { LockNote(entry: entry, family: family) }
+            else if let g {
+                switch family {
+                case .accessoryCircular:
+                    VStack(spacing: 0) {
+                        Image(systemName: "calendar").font(.system(size: 12, weight: .semibold))
+                        if g.daysAway == 0 { Text("Today").font(.system(size: 14, weight: .bold)) }
+                        else {
+                            Text("\(g.daysAway)").font(.system(size: 22, weight: .bold, design: .rounded)).minimumScaleFactor(0.5)
+                            Text(g.daysAway == 1 ? "day" : "days").font(.system(size: 10, weight: .medium))
+                        }
+                    }
+                case .accessoryInline:
+                    Label("Next gig: \(g.countdown.lowercased())", systemImage: "calendar")
+                default:
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Next gig · \(g.countdown)").font(.system(size: 14, weight: .bold)).widgetAccentable()
+                        Text(g.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).privacySensitive()
+                        Text(g.showTime.isEmpty ? "\(g.dateLabel) · \(g.location)" : "\(g.dateLabel) · \(g.showTime)")
+                            .font(.system(size: 12)).lineLimit(1).privacySensitive()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                switch family {
+                case .accessoryCircular: CircleCount(symbol: "calendar", value: "0")
+                case .accessoryInline: Label("No booked gigs coming up", systemImage: "calendar")
+                default: Text("No booked gigs coming up.").font(.system(size: 13))
+                }
+            }
+        }
+        .widgetURL(URL(string: g.map { "bloomcrm://project/\($0.id)" } ?? "bloomcrm://pipeline"))
+    }
+}
+
+struct LockMail: View {
+    let entry: FeedEntry
+    let family: WidgetFamily
+    var body: some View {
+        Group {
+            if let f = entry.feed {
+                switch family {
+                case .accessoryCircular:
+                    CircleCount(symbol: "envelope", value: "\(f.mailCount)")
+                case .accessoryInline:
+                    Label(f.mailCount == 1 ? "1 unread client email" : "\(f.mailCount) unread client emails", systemImage: "envelope")
+                default:
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(f.mailCount == 1 ? "1 unread email" : "\(f.mailCount) unread emails").font(.system(size: 14, weight: .bold)).widgetAccentable()
+                        ForEach(Array(f.mail.prefix(2)), id: \.threadId) { m in
+                            Text("\(m.outbound == true ? "To " : "")\(m.from) · \(m.subject)").font(.system(size: 13)).lineLimit(1).privacySensitive()
+                        }
+                        if f.mail.isEmpty { Text("Nothing unread from clients.").font(.system(size: 13)) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else { LockNote(entry: entry, family: family) }
+        }
+        .widgetURL(URL(string: "bloomcrm://inbox"))
+    }
+}
+
+struct LockMoney: View {
+    let entry: FeedEntry
+    let year: Bool
+    let family: WidgetFamily
+    var body: some View {
+        Group {
+            if let m = entry.feed?.finance {
+                let received = year ? m.yearReceived : m.monthReceived
+                let earned = year ? m.yearEarned : m.monthEarned
+                let goal = year ? m.yearGoal : m.monthlyGoal
+                let label = year ? m.yearLabel : m.monthLabel
+                let pct = goal > 0 ? Int((received / goal * 100).rounded()) : 0
+                switch family {
+                case .accessoryCircular:
+                    if goal > 0 {
+                        Gauge(value: min(1, received / goal)) {
+                            Image(systemName: "dollarsign")
+                        } currentValueLabel: {
+                            Text(compactMoney(received)).privacySensitive()
+                        }
+                        .gaugeStyle(.accessoryCircularCapacity)
+                    } else { CircleCount(symbol: "dollarsign", value: compactMoney(received)).privacySensitive() }
+                case .accessoryInline:
+                    Text("\(fullMoney(received)) in \(label)").privacySensitive()
+                default:
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(year ? "\(label) so far" : label).font(.system(size: 14, weight: .bold)).widgetAccentable()
+                        Text("\(fullMoney(received)) received").font(.system(size: 13, weight: .semibold)).privacySensitive()
+                        Text(goal > 0 ? "\(pct)% of \(compactMoney(goal)) · \(compactMoney(earned)) earned" : "\(fullMoney(earned)) earned")
+                            .font(.system(size: 12)).lineLimit(1).privacySensitive()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if entry.feed == nil { LockNote(entry: entry, family: family) }
+            else { Text("Update Bloom CRM").font(.system(size: 12)) }
+        }
+        .widgetURL(URL(string: "bloomcrm://finance"))
+    }
+}
+
+struct LockLeads: View {
+    let entry: FeedEntry
+    let family: WidgetFamily
+    var body: some View {
+        Group {
+            if let l = entry.feed?.leads {
+                switch family {
+                case .accessoryCircular:
+                    CircleCount(symbol: "person.badge.plus", value: "\(l.count)")
+                case .accessoryInline:
+                    Label(l.count == 1 ? "1 new lead waiting" : "\(l.count) new leads waiting", systemImage: "person.badge.plus")
+                default:
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.count == 1 ? "1 new lead" : "\(l.count) new leads").font(.system(size: 14, weight: .bold)).widgetAccentable()
+                        ForEach(Array(l.latest.prefix(2)), id: \.id) { r in
+                            Text(r.eventDate.isEmpty ? r.name : "\(r.name) · \(r.eventDate)").font(.system(size: 13)).lineLimit(1).privacySensitive()
+                        }
+                        if l.latest.isEmpty { Text("None waiting on you.").font(.system(size: 13)) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if entry.feed == nil { LockNote(entry: entry, family: family) }
+            else { Text("Update Bloom CRM").font(.system(size: 12)) }
+        }
+        .widgetURL(URL(string: "bloomcrm://pipeline"))
+    }
+}
+
+struct LockBooked: View {
+    let entry: FeedEntry
+    let family: WidgetFamily
+    var body: some View {
+        Group {
+            if let b = entry.feed?.booked {
+                switch family {
+                case .accessoryCircular:
+                    CircleCount(symbol: "checkmark.seal", value: "\(b.count)")
+                case .accessoryInline:
+                    Label("\(b.count) booked · \(b.value)", systemImage: "checkmark.seal").privacySensitive()
+                default:
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(b.count == 1 ? "1 gig booked" : "\(b.count) gigs booked").font(.system(size: 14, weight: .bold)).widgetAccentable()
+                        Text("\(b.value) on the books").font(.system(size: 13)).privacySensitive()
+                        // Date first, so a long name is what gets cut short. "Sat, Nov 14" drops the weekday.
+                        if let n = b.next {
+                            let day = n.dateLabel.split(separator: ",").dropFirst().joined(separator: ",").trimmingCharacters(in: .whitespaces)
+                            Text("Next \(day.isEmpty ? n.dateLabel : day) · \(n.name)").font(.system(size: 12)).lineLimit(1).privacySensitive()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if entry.feed == nil { LockNote(entry: entry, family: family) }
+            else { Text("Update Bloom CRM").font(.system(size: 12)) }
+        }
+        .widgetURL(URL(string: "bloomcrm://pipeline"))
     }
 }

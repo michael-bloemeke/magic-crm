@@ -12,11 +12,22 @@
 //
 // verify_jwt is off (the caller has no JWT); the key check below is the gate and runs first.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { googleToken } from '../phone-api/logic.ts'
+import { googleToken, financeQbo } from '../phone-api/logic.ts'
 import { buildFeed } from './feed.ts'
 
 const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers })
+
+// QuickBooks figures for the money widgets, kept for ten minutes on a warm instance. Several widgets
+// refresh close together and the numbers barely move inside ten minutes; this keeps the QuickBooks
+// calls (and its token rotation, shared with the Mac) to a trickle.
+let qboCache: { at: number; data: unknown } | null = null
+async function cachedQbo(admin: any) {
+  if (qboCache && Date.now() - qboCache.at < 10 * 60 * 1000) return qboCache.data
+  const data = await financeQbo(admin)
+  qboCache = { at: Date.now(), data }
+  return data
+}
 
 async function sha256(s: string) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))
@@ -35,7 +46,7 @@ Deno.serve(async (req) => {
   // Best effort: when the widgets last checked in, visible from the database if ever needed.
   admin.from('widget_tokens').update({ last_used_at: new Date().toISOString() }).eq('id', row.id).then(() => {}, () => {})
   try {
-    return json(await buildFeed(admin, () => googleToken(admin)))
+    return json(await buildFeed(admin, () => googleToken(admin), () => cachedQbo(admin)))
   } catch (e) {
     return json({ ok: false, error: String((e as Error)?.message || e) }, 500)
   }

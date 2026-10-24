@@ -7118,7 +7118,7 @@ function startAutoRefresh() {
 // it to them through the WidgetBridge plugin (App/WidgetBridge.swift), which keeps it in the App
 // Group the widgets share. After that this file only does two things: tells the widgets to refresh
 // when the CRM changes or the app goes to the background, and opens the right page when a widget is
-// tapped (bloomcrm://tasks, gigs, inbox, project/<id>, project/<id>/email).
+// tapped (bloomcrm://tasks, gigs, inbox, finance, pipeline, project/<id>, project/<id>/email).
 // Every call here is a no-op in a browser and in the PWA, which have no WidgetBridge.
 var WIDGET_FEED_URL = 'https://yfmacqvcmkogvkcxfjkr.supabase.co/functions/v1/widget-feed'
 var WIDGET_PENDING_LINK = null
@@ -7177,7 +7177,8 @@ function handleWidgetLink(url) {
     return
   }
   if (what === 'gigs') { navigate('home'); openHomeSheet('gigs'); return }
-  if (what === 'tasks' || what === 'inbox' || what === 'home') { navigate(what); return }
+  // The lock-screen money widgets open Finance; New leads and Booked open the pipeline.
+  if (what === 'tasks' || what === 'inbox' || what === 'home' || what === 'finance' || what === 'pipeline') { navigate(what); return }
 }
 function wireWidgets() {
   var wb = widgetBridge(); if (!wb) return

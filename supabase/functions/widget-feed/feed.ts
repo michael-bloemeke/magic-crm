@@ -54,10 +54,14 @@ function money(n: unknown) {
   return n == null || n === '' || !Number.isFinite(v) ? '' : '$' + Math.round(v).toLocaleString('en-US')
 }
 
-export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<string>) {
+// LOCK-SCREEN WIDGETS (2026-10-24) added four more things to this feed: the next gig at any distance
+// (`nextGig`), money this month and this year (`finance`), new leads waiting in the Inquiry stage
+// (`leads`), and upcoming booked gigs (`booked`). `qbo` is phone-api's financeQbo, so "money received"
+// is the same QuickBooks-first figure the Finance page shows; without it the CRM's payments are used.
+export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<string>, qbo?: () => Promise<any>) {
   const { date: today, minutes: nowMin } = nowParts()
   const [{ data: projects, error: e1 }, { data: tasks, error: e2 }, { data: meta }, { data: contacts }, { data: links }] = await Promise.all([
-    sb.from('projects').select('id,client_name,project_name,bucket,stage_id,event_type,event_date,event_location,venue_type,total_fee,total_fee_text,show_start_time,contact_emails'),
+    sb.from('projects').select('id,client_name,project_name,bucket,stage_id,event_type,event_date,event_location,venue_type,total_fee,total_fee_text,show_start_time,contact_emails,lead_date,created_at'),
     sb.from('tasks').select('id,title,due_date,due_time,done,project_id').eq('done', false),
     sb.from('pipeline_meta').select('structure').maybeSingle(),
     sb.from('contacts').select('id,emails'),
@@ -113,6 +117,75 @@ export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<s
         fee: money(p.total_fee ?? p.total_fee_text), stage: stageName[str(p.stage_id)] || '',
       }
     })
+
+  // ---- NEXT GIG: the soonest BOOKED gig (money in), at any distance. An inquiry is not a gig. ----
+  const upcoming = (projects || [])
+    .filter((p: any) => p.bucket === 'active' && p.event_date && p.event_date >= today)
+    .sort((a: any, b: any) => str(a.event_date).localeCompare(str(b.event_date)))
+  const nextGigOf = (ng: any) => ng ? (() => {
+    const days = Math.round((Date.parse(ng.event_date + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000)
+    return {
+      id: str(ng.id), name: nameOf(ng), eventType: str(ng.event_type) || 'Event', date: str(ng.event_date), dateLabel: shortDate(ng.event_date),
+      daysAway: days, countdown: days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`,
+      location: str(ng.event_location) || str(ng.venue_type) || 'Location TBD', fee: money(ng.total_fee ?? ng.total_fee_text),
+      stage: stageName[str(ng.stage_id)] || '', showTime: ng.show_start_time ? time12(ng.show_start_time) : '',
+    }
+  })() : null
+
+  // ---- PAYMENTS, for money and for "booked" ----
+  const { data: pays } = await sb.from('payments').select('project_id,amount,amount_text,date_received,pending')
+  const num = (v: unknown) => { const n = Number(str(v).replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : 0 }
+  const live = new Set((projects || []).filter((p: any) => p.bucket !== 'deleted').map((p: any) => p.id))
+  // Real money = logged, not date-pending, positive, and not on a deleted project (computeFinance).
+  const real = (pays || []).filter((pm: any) => !pm.pending && num(pm.amount_text ?? pm.amount) > 0 && (!pm.project_id || live.has(pm.project_id)))
+  const amt = (pm: any) => num(pm.amount_text != null && pm.amount_text !== '' ? pm.amount_text : pm.amount)
+
+  // ---- BOOKED: upcoming active gigs that have money in (the CRM's own booked gate is a payment) ----
+  const paidIds = new Set(real.map((pm: any) => pm.project_id).filter(Boolean))
+  const bookedList = upcoming.filter((p: any) => paidIds.has(p.id))
+  const nextGig = nextGigOf(bookedList[0])
+  const booked = {
+    count: bookedList.length,
+    value: money(bookedList.reduce((s: number, p: any) => s + num(p.total_fee ?? p.total_fee_text), 0)),
+    next: bookedList[0] ? { id: str(bookedList[0].id), name: nameOf(bookedList[0]), dateLabel: shortDate(bookedList[0].event_date) } : null,
+  }
+
+  // ---- NEW LEADS: active projects still in the first "Inquiry" stage, newest first ----
+  const leadRows = (projects || [])
+    .filter((p: any) => p.bucket === 'active' && p.stage_id === 'inquiry')
+    .sort((a: any, b: any) => str(b.lead_date || b.created_at).localeCompare(str(a.lead_date || a.created_at)))
+  const leads = {
+    count: leadRows.length,
+    latest: leadRows.slice(0, 3).map((p: any) => ({ id: str(p.id), name: nameOf(p), eventDate: p.event_date ? shortDate(p.event_date) : '' })),
+  }
+
+  // ---- MONEY: this month and this calendar year ----
+  const { data: conf } = await sb.from('crm_config').select('data').eq('id', 1).maybeSingle()
+  const cfg = (conf && conf.data) || {}
+  const monthlyGoal = Number(cfg.monthlyGoal) > 0 ? Number(cfg.monthlyGoal) : 10000
+  const goals = (Array.isArray(cfg.incomeGoals) ? cfg.incomeGoals : []).map(Number).filter((n: number) => n > 0).sort((a: number, b: number) => a - b)
+  const curMonth = today.slice(0, 7), curYear = today.slice(0, 4)
+  const eventMonth = (pm: any) => str(byId.get(pm.project_id)?.event_date).slice(0, 7)
+  const crmReceived = (month: string) => real.filter((pm: any) => str(pm.date_received).slice(0, 7) === month).reduce((s: number, pm: any) => s + amt(pm), 0)
+  const monthEarned = real.filter((pm: any) => eventMonth(pm) === curMonth).reduce((s: number, pm: any) => s + amt(pm), 0)
+  const yearEarned = real.filter((pm: any) => { const m = eventMonth(pm); return m.startsWith(curYear) && m <= curMonth }).reduce((s: number, pm: any) => s + amt(pm), 0)
+  let qb: any = null
+  if (qbo) { try { qb = await qbo() } catch { qb = null } }
+  const qbBy = new Map(((qb && qb.connected && qb.months) || []).map((m: any) => [m.month, m]))
+  // Received = QuickBooks income for every month it covers, logged payments before that (Finance page rule).
+  const receivedFor = (month: string) => { const q: any = qbBy.get(month); return q && q.covered ? Number(q.income) || 0 : crmReceived(month) }
+  let yearReceived = 0
+  for (let mo = 1; mo <= Number(curMonth.slice(5, 7)); mo++) yearReceived += receivedFor(`${curYear}-${String(mo).padStart(2, '0')}`)
+  const monthReceived = receivedFor(curMonth)
+  const monthName = new Date(Date.UTC(Number(curYear), Number(curMonth.slice(5, 7)) - 1, 15)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long' })
+  const yearGoal = goals[0] || 0
+  const finance = {
+    monthLabel: monthName, yearLabel: curYear,
+    monthReceived: Math.round(monthReceived * 100) / 100, monthEarned: Math.round(monthEarned * 100) / 100, monthlyGoal,
+    yearReceived: Math.round(yearReceived * 100) / 100, yearEarned: Math.round(yearEarned * 100) / 100, yearGoal,
+    nextGoal: goals.find((g: number) => g > yearReceived) || 0,
+    source: qbBy.size ? 'quickbooks' : 'crm',
+  }
 
   // ---- MAIL: unread, FROM anyone on an active project ----
   const contactEmails = new Map((contacts || []).map((c: any) => [c.id, (Array.isArray(c.emails) ? c.emails : []).map((e: unknown) => str(e).trim().toLowerCase())]))
@@ -190,5 +263,9 @@ export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<s
     mail: mail.slice(0, 40),
     mailCount: mail.length,
     mailError,
+    nextGig,
+    finance,
+    leads,
+    booked,
   }
 }
