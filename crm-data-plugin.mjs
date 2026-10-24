@@ -61,6 +61,7 @@ import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
 import { loadShows, createShow, updateShow, setPacked, uncheckAll, duplicateShow, deleteShow } from './crm-shows.mjs'
+import { loadHomeList, addHomeListItem, deleteHomeListItem } from './crm-home-list.mjs'
 import { listDocs, getDoc, saveDoc, deleteDoc, audioUploadStart, audioUploadFinish, audioRename, audioPlayUrl } from './crm-showbuilder.mjs'
 import { loadCalendarAlerts, updateCalendarAlerts } from './crm-calendar-alerts.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
@@ -572,6 +573,28 @@ export function crmDataPlugin() {
           .catch((e) => {
             res.statusCode = 500
             res.end(JSON.stringify({ error: e?.message || 'Failed to load shows.' }))
+          })
+      })
+
+      // --- Home list: the big things he is working on, under everything on Home (crm-home-list.mjs) ---
+      server.middlewares.use('/api/home-list/add', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => ({ item: await addHomeListItem(b.text) }))
+      })
+      server.middlewares.use('/api/home-list/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await deleteHomeListItem(b.id))
+      })
+      server.middlewares.use('/api/home-list', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        Promise.resolve(loadHomeList())
+          .then((items) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ items }))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: e?.message || 'Failed to load the list.' }))
           })
       })
 

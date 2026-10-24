@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { byEventDateAsc, formatEventDate, todayISO, type Project } from '../pipeline'
-import { loadFinance, type FinanceSummary, type Task } from '../api'
+import {
+  loadFinance,
+  loadHomeList,
+  addHomeListItem,
+  deleteHomeListItem,
+  type FinanceSummary,
+  type HomeListItem,
+  type Task,
+} from '../api'
 import type { Page } from './Sidebar'
 import { TaskRow } from './TaskRow'
 import { ProjectRow } from './ProjectRow'
@@ -189,6 +197,9 @@ export function HomePage({
         </section>
       </div>
 
+      {/* The big things he is working on, under everything else */}
+      <HomeList />
+
       <UnreadMailModal
         open={mailOpen}
         onClose={() => setMailOpen(false)}
@@ -349,6 +360,145 @@ function DailyDuties() {
           </button>
         </div>
       )}
+    </section>
+  )
+}
+
+// --- On my plate -------------------------------------------------------------
+// The big things Michael is working on (2026-10-24): "the major elements of my business that I'm
+// working on that still need to be done. The things that are hanging over my head." Add and delete,
+// nothing else: no due date, no checkbox, no rename, and it is NOT a task. The rows live in Supabase
+// (`home_list`, crm-home-list.mjs) and the phone's Home shows the same list.
+//
+// It is one white card with its heading inside, because the navy band ends somewhere above it and a
+// heading drawn straight on the band turns invisible below it (crm-page-layout-traps).
+function HomeList() {
+  const [items, setItems] = useState<HomeListItem[] | null>(null)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // A refresh that started before an add or a delete would put the old list back, so it is dropped.
+  const lastEditAt = useRef(0)
+
+  const refresh = useCallback(() => {
+    const startedAt = Date.now()
+    loadHomeList()
+      .then((fresh) => {
+        if (lastEditAt.current <= startedAt) setItems(fresh)
+      })
+      .catch(() => setItems((prev) => prev ?? []))
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    // The same rhythm as the rest of the Mac app (every 20 seconds, and the moment the window comes
+    // back), so something added on the phone turns up here.
+    const timer = setInterval(refresh, 20 * 1000)
+    const onFocus = () => refresh()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [refresh])
+
+  const add = async () => {
+    const t = text.trim()
+    if (!t || busy) return
+    setBusy(true)
+    setError('')
+    lastEditAt.current = Date.now()
+    try {
+      const item = await addHomeListItem(t)
+      setItems((prev) => [...(prev ?? []), item])
+      setText('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add that.')
+    } finally {
+      lastEditAt.current = Date.now()
+      setBusy(false)
+    }
+  }
+
+  // Straight away, like deleting a task on the Mac.
+  const remove = async (id: string) => {
+    setError('')
+    lastEditAt.current = Date.now()
+    setItems((prev) => (prev ?? []).filter((x) => x.id !== id))
+    try {
+      await deleteHomeListItem(id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delete that.')
+      lastEditAt.current = 0
+      refresh()
+      return
+    }
+    lastEditAt.current = Date.now()
+  }
+
+  return (
+    <section className="mt-8 rounded-2xl border border-line bg-surface p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-brass-dim">On my plate</h3>
+        {items && items.length > 0 && (
+          <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-faint">
+            {items.length}
+          </span>
+        )}
+      </div>
+
+      {items && items.length === 0 && (
+        <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-[12.5px] text-faint">
+          Nothing on your plate yet. Add the first thing below.
+        </p>
+      )}
+      {items && items.length > 0 && (
+        <div className="space-y-2">
+          {items.map((x) => (
+            <div
+              key={x.id}
+              className="group flex items-center gap-3 rounded-lg border border-line bg-surface-2/50 px-3 py-2.5 transition-colors hover:border-line-strong"
+            >
+              <span className="min-w-0 flex-1 text-[14px] leading-snug text-parchment">{x.text}</span>
+              <button
+                type="button"
+                onClick={() => remove(x.id)}
+                aria-label={`Delete ${x.text}`}
+                title="Delete"
+                className="shrink-0 rounded-md p-1 text-faint opacity-0 transition-all hover:text-[var(--color-brass-bright)] focus:opacity-100 group-hover:opacity-100"
+              >
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+          placeholder="Add an item…"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={!text.trim() || busy}
+          className="shrink-0 rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-2 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+      {error && <p className="mt-2 text-[12px] text-[#dc2626]">{error}</p>}
     </section>
   )
 }

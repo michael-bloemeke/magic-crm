@@ -1820,3 +1820,19 @@ export async function duplicateShow(id: string): Promise<Show> {
 export async function deleteShow(id: string): Promise<void> {
   await postJsonStrict('/api/shows/delete', { id }, 'Could not delete the show')
 }
+
+// --- Home list: the big things he is working on (crm-home-list.mjs; the phone shares the `home_list` rows) ---
+// Add and delete only, by his design: no due date, no checkbox, no rename.
+export type HomeListItem = { id: string; text: string; createdAt: string }
+
+export async function loadHomeList(): Promise<HomeListItem[]> {
+  const res = await fetch('/api/home-list')
+  if (!res.ok) throw new Error(`Failed to load the list (${res.status})`)
+  return ((await res.json()).items ?? []) as HomeListItem[]
+}
+export async function addHomeListItem(text: string): Promise<HomeListItem> {
+  return (await postJsonStrict<{ item: HomeListItem }>('/api/home-list/add', { text }, 'Could not add that')).item
+}
+export async function deleteHomeListItem(id: string): Promise<void> {
+  await postJsonStrict('/api/home-list/delete', { id }, 'Could not delete that')
+}
