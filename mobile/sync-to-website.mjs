@@ -38,6 +38,7 @@ const FILES = [
   'icon-512.png',
   'damask.webp',
   'email-templates.js',
+  'showbuilder-core.js',
   // supabase-js and the Node shims it needs, vendored so the app loads no code from another origin.
   'vendor/supabase-js.js',
   'vendor/node-process.js',

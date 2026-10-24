@@ -25,6 +25,7 @@
 // check the closure again. Deliberately a manual, visible step rather than an automatic one.
 import { createClient } from './vendor/supabase-js.js'
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js'
+import { normalizeDoc, sortDocs } from './showbuilder-core.js'
 
 // supabase-js persists the session in localStorage (persistSession + autoRefreshToken default on), so
 // login is once-per-device and the token silently refreshes. That gives us the "log in, then it just
@@ -1957,4 +1958,85 @@ export async function saveNativePushToken(token) {
   if (sweepErr) console.warn('[push] could not clear an old Apple token:', sweepErr.message)
 
   return { ok: true, endpoint: row.endpoint }
+}
+
+// ---------- show builder (twin of crm-showbuilder.mjs on the Mac) ----------
+//
+// The folded-in Show Builder app (2026-10-24). One `show_builder` row per show, trick, tag, music
+// cue, "other" item and audio file; `data` is the document, shaped by showbuilder-core.js, which the
+// Mac's server uses too. Audio files live in the private `show-builder` bucket at audio/<storedFilename>.
+//
+// Same cascades as the Mac (and the old app): deleting a TAG takes it off every trick, deleting an
+// AUDIO file removes the file and clears it from any music cue that used it.
+const SB_BUCKET = 'show-builder'
+
+export async function sbList(kind) {
+  const { data, error } = await sb.from('show_builder').select('data').eq('kind', kind)
+  if (error) throw error
+  return sortDocs(kind, (data || []).map((r) => normalizeDoc(kind, r.data)))
+}
+
+export async function sbGet(kind, id) {
+  const { data, error } = await sb.from('show_builder').select('data').eq('kind', kind).eq('id', String(id)).maybeSingle()
+  if (error) throw error
+  return data ? normalizeDoc(kind, data.data) : null
+}
+
+export async function sbSave(kind, doc) {
+  const clean = normalizeDoc(kind, { ...doc, updatedAt: new Date().toISOString() })
+  const { error } = await sb.from('show_builder').upsert({ id: clean.id, kind, data: clean, created_at: clean.createdAt, updated_at: clean.updatedAt })
+  if (error) throw error
+  return clean
+}
+
+// Change a show from its LATEST saved copy, not whatever this phone loaded earlier, so an edit made
+// on the Mac in the meantime is kept. `fn` gets the show and returns the changed show.
+export async function sbMutateShow(id, fn) {
+  const cur = await sbGet('show', id)
+  if (!cur) throw new Error('That show no longer exists.')
+  return sbSave('show', fn(cur))
+}
+
+export async function sbDelete(kind, id) {
+  id = String(id)
+  if (kind === 'audio') {
+    const meta = await sbGet('audio', id)
+    if (meta && meta.storedFilename) await sb.storage.from(SB_BUCKET).remove(['audio/' + meta.storedFilename])
+    for (const m of await sbList('music')) if (m.audioFileId === id) await sbSave('music', { ...m, audioFileId: null })
+  }
+  if (kind === 'tag') {
+    for (const t of await sbList('trick')) if ((t.tagIds || []).includes(id)) await sbSave('trick', { ...t, tagIds: t.tagIds.filter((x) => x !== id) })
+  }
+  const { error } = await sb.from('show_builder').delete().eq('kind', kind).eq('id', id)
+  if (error) throw error
+  return { ok: true }
+}
+
+const SB_AUDIO_EXT = { mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac' }
+
+// An audio file picked on the phone: uploaded as-is, recorded like the old app's <id>.audio.json.
+export async function sbUploadAudio(file) {
+  const name = String(file.name || 'audio')
+  const ext = (name.match(/\.([a-z0-9]+)$/i) || ['', ''])[1].toLowerCase()
+  if (!SB_AUDIO_EXT[ext]) throw new Error('Pick an audio file (mp3, wav, m4a, ogg, flac or aac).')
+  const id = uuid()
+  const storedFilename = id + '.' + ext
+  const mimeType = file.type || SB_AUDIO_EXT[ext]
+  const { error } = await sb.storage.from(SB_BUCKET).upload('audio/' + storedFilename, file, { contentType: mimeType, upsert: false })
+  if (error) throw error
+  const now = new Date().toISOString()
+  return sbSave('audio', { id, displayName: name.replace(/\.[^.]+$/, '') || name, originalFilename: name, storedFilename, mimeType, size: file.size || 0, createdAt: now, updatedAt: now })
+}
+
+// Playable links for several audio files at once, valid for an hour. The phone fetches them BEFORE
+// the play button is tapped, because iOS only lets a tap start sound if play() runs in that tap,
+// with no network wait in between.
+export async function sbAudioUrls(metas) {
+  const list = (metas || []).filter((m) => m && m.storedFilename)
+  if (!list.length) return {}
+  const { data, error } = await sb.storage.from(SB_BUCKET).createSignedUrls(list.map((m) => 'audio/' + m.storedFilename), 60 * 60)
+  if (error) throw error
+  const out = {}
+  ;(data || []).forEach((d, i) => { if (d && d.signedUrl) out[list[i].id] = d.signedUrl })
+  return out
 }

@@ -3,7 +3,8 @@ const SD = new URL('.', import.meta.url).pathname
 process.argv[2] = SD + 'app.built.mjs'
 await import('./harness.mjs')
 const { __app } = await import('./app.built.mjs')
-const { CALLS, FIXTURE_THREADS } = await import('./stub.mjs')
+const { CALLS, FIXTURE_THREADS, SB_DOCS, sbFixtureReset } = await import('./stub.mjs')
+const CORE = await import('../showbuilder-core.js')
 
 let fails = 0
 const ok = (cond, label, extra) => {
@@ -780,6 +781,128 @@ console.log('\n== date and time fields carry their own icon ==')
   const css = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   ok(/input\[type="date"\] \{ background-image: url\("data:image\/svg\+xml/.test(css), 'date fields paint a calendar icon')
   ok(/input\[type="time"\] \{ background-image: url\("data:image\/svg\+xml/.test(css), 'time fields paint a clock icon')
+}
+
+console.log('\n== show builder: the rules (showbuilder-core.js) ==')
+{
+  const SNAPSHOT = JSON.parse(JSON.stringify(SB_DOCS))
+  const lib = { tricks: new Map(SB_DOCS.trick.map((d) => [d.id, d])), music: new Map(SB_DOCS.music.map((d) => [d.id, d])), others: new Map(SB_DOCS.other.map((d) => [d.id, d])) }
+  const show = SB_DOCS.show[0]
+  const order = CORE.getShowOrder(show.nodes, show.edges).map((n) => n.id)
+  ok(order.join() === 'n1,n2,n3,n4,n5', 'the running order follows the arrows, then the order items were added', order.join())
+  const info = CORE.showInfo(show, lib)
+  ok(info.count === 4 && Math.round(info.totalMinutes * 10) === 130, 'Show Info: 4 items (music is a cue, not a slot) and 13 minutes', info.count + ' / ' + info.totalMinutes)
+  ok(info.reusable.join() === 'Jacket', 'a reusable prop used by two tricks is hoisted to "pack one"', info.reusable.join())
+  ok(!info.items[0].props.some((p) => p.name === 'Jacket') && info.items[0].props.some((p) => p.name === '3 cups'), 'and comes off those tricks\' own lists')
+  ok(CORE.formatDuration(info.totalMinutes) === '13 min', 'runtime reads "13 min"', CORE.formatDuration(info.totalMinutes))
+  ok(CORE.connectedCount(show) === 4, 'four of the five items are joined by arrows')
+
+  // Reorder on the phone: the arrows become one chain and the boxes trade places.
+  const re = CORE.reorderShow(show, ['n3', 'n1', 'n2', 'n4', 'n5'], lib)
+  const chain = re.edges.map((e) => e.source + '>' + e.target).join(' ')
+  ok(chain === 'n3>n1 n1>n2 n2>n4 n4>n5', 'reordering rewires the arrows as one chain in the new order', chain)
+  const pos = (sh, id) => sh.nodes.find((n) => n.id === id).position
+  ok(pos(re, 'n3').x === 100 && pos(re, 'n3').y === 100, 'the new first item takes the first item\'s place on the canvas', JSON.stringify(pos(re, 'n3')))
+  ok(pos(re, 'n1').x === 320, 'and every item after it moves up one place', JSON.stringify(pos(re, 'n1')))
+  ok(CORE.getShowOrder(re.nodes, re.edges).map((n) => n.id).join() === 'n3,n1,n2,n4,n5', 'reading the saved show back gives the new order')
+  ok(re.edges.every((e) => e.sourceHandle && e.targetHandle && e.markerEnd), 'every new arrow has the sides and arrowhead the Mac draws')
+  ok(show.edges.length === 3, 'the original show object is untouched (every change returns a new show)')
+
+  // Add: on the end, one step past the last item, with an arrow from it.
+  const ad = CORE.appendNode(show, 'trick', 'tr-deck', lib)
+  const last = ad.show.edges[ad.show.edges.length - 1]
+  ok(last.source === 'n5' && last.target === ad.node.id, 'an added item gets an arrow from the current last item')
+  ok(ad.node.position.x >= 0 && ad.node.position.x <= CORE.CANVAS_W - 130 && ad.node.position.y >= 0, 'and lands on the page', JSON.stringify(ad.node.position))
+  ok(ad.node.type === 'editable' && ad.node.data.trickId === 'tr-deck', 'as a trick node pointing at the trick')
+
+  // Remove: the neighbours are joined so the chain does not break.
+  const rm = CORE.removeNode(show, 'n2', lib)
+  ok(!rm.nodes.some((n) => n.id === 'n2') && rm.edges.some((e) => e.source === 'n1' && e.target === 'n3'), 'taking an item out joins the items either side of it')
+
+  // Normalising: what the old app's files held comes back in the canonical shape.
+  const legacy = CORE.normalizeDoc('trick', { id: 'x', name: 'Old', props: 'deck, rope\nwand', tagIds: ['a', 7] })
+  ok(legacy.props.map((p) => p.name).join() === 'deck,rope,wand' && legacy.tagIds.join() === 'a', 'old string props and stray tag ids are cleaned up')
+  const cleaned = CORE.cleanShow({ id: 's', name: 'X', nodes: [{ id: 'a', type: 'editable', position: { x: 1, y: 2 }, selected: true, positionAbsolute: {}, width: 130, data: { trickId: 't', width: 9999 } }], edges: [{ source: 'a', target: 'gone' }] })
+  ok(!('selected' in cleaned.nodes[0]) && !('width' in cleaned.nodes[0]) && !('width' in cleaned.nodes[0].data), 'React Flow\'s screen-only fields and a junk size are not saved')
+  ok(cleaned.edges.length === 0, 'an arrow to a node that is gone is dropped')
+  const dup = CORE.duplicateShow(show)
+  ok(dup.name === 'Copy of Family Show' && dup.id !== show.id && !dup.nodes.some((n) => show.nodes.some((m) => m.id === n.id)), 'Duplicate makes a copy with fresh ids')
+  ok(CORE.getShowOrder(dup.nodes, dup.edges).length === 5 && dup.edges.length === 3, 'with the same items and arrows')
+  sbFixtureReset(SNAPSHOT)
+}
+
+console.log('\n== show builder: the phone ==')
+{
+  const SNAPSHOT = JSON.parse(JSON.stringify(SB_DOCS))
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setSbTab('shows')
+  __app.navigate('builder'); await settle(); await settle()
+  ok(has('Family Show'), 'the Show Builder page lists the shows')
+  ok(has('4 items') && has('13 min'), 'each with its item count and runtime')
+  ok(!!document.querySelector('#ptabs') && document.querySelector('#ptabs').textContent.includes('Tricks'), 'the libraries are tabs along the bottom')
+
+  __app.openBShow('sh-family'); await settle()
+  const rows = [...document.querySelectorAll('.sb-row .sb-name')].map((x) => x.textContent)
+  ok(rows.join('|') === 'Cups and Balls|Rope Routine|Tossed Out Deck|Walk On|Opening story', 'the running order lists every item in show order', rows.join('|'))
+  ok(has('4 of 5 items are joined by arrows'), 'and says when some items have no arrows yet')
+  ok(document.querySelector('#ptabs').textContent.includes('Canvas') && document.querySelector('#ptabs').textContent.includes('Show info'), 'a show has Running order, Canvas and Show info tabs')
+
+  // Edit: move the deck to the top, take the rope out, Done.
+  CALLS.length = 0
+  __app.setSbDraft({ order: ['n3', 'n1', 'n4', 'n5'], removed: ['n2'] })
+  __app.sbFlushEdit(); await settle()
+  const mut = CALLS.find((c) => c.name === 'sbMutateShow')
+  ok(!!mut, 'Done saves the show')
+  const saved = mut && mut.args[1]
+  ok(saved && !saved.nodes.some((n) => n.id === 'n2'), 'the removed item is gone from the show')
+  ok(saved && CORE.getShowOrder(saved.nodes, saved.edges).map((n) => n.id).join() === 'n3,n1,n4,n5', 'and the saved arrows give the new order', saved && CORE.getShowOrder(saved.nodes, saved.edges).map((n) => n.id).join())
+  ok(SB_DOCS.trick.some((t) => t.id === 'tr-rope'), 'the trick taken out stays in the library')
+  sbFixtureReset(SNAPSHOT); await __app.sbLoad()
+
+  // An Edit with no change leaves the arrows alone (it must not join loose items behind his back).
+  CALLS.length = 0
+  __app.setSbDraft({ order: ['n1', 'n2', 'n3', 'n4', 'n5'], removed: [] })
+  __app.sbFlushEdit(); await settle()
+  ok(!CALLS.some((c) => c.name === 'sbMutateShow'), 'Done with nothing changed saves nothing')
+
+  __app.setSbView('canvas'); __app.renderBShow(); await settle()
+  ok(document.querySelectorAll('.sb-node').length === 5, 'the canvas draws every item where the Mac put it')
+  ok(document.querySelectorAll('path.sb-edge').length === 3, 'and every arrow')
+  const n1 = document.querySelector('.sb-node[data-id="n1"]')
+  ok(n1 && n1.style.left === '100px' && n1.style.top === '100px', 'at its saved position', n1 && n1.style.left + ',' + n1.style.top)
+
+  __app.setSbView('info'); __app.renderBShow(); await settle()
+  ok(has('Total runtime') && has('13 min'), 'Show info gives the runtime')
+  ok(has('Reusable across the show') && has('Jacket'), 'and the props to pack once')
+  ok(has('Show essentials') && has('mic'), 'and the show essentials, editable')
+  ok(has('Music cues') && has('Walk On'), 'and lists the music cues')
+
+  // The item sheet: everything about a trick.
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.sbNodeSheet('sh-family', 'n1'); await settle()
+  const sheet = document.querySelector('.sheet')
+  ok(sheet && sheet.textContent.includes('Opening line: three cups') && sheet.textContent.includes('3 cups') && sheet.textContent.includes('Stage'), 'tapping a trick shows its script, props and tags')
+  ok(sheet && sheet.textContent.includes('Leads to Rope Routine'), 'and its arrows, each removable')
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+
+  // Editing a trick in full from the phone.
+  CALLS.length = 0
+  __app.sbEditor('trick', SB_DOCS.trick.find((t) => t.id === 'tr-cups'), null, null); await settle()
+  const ed = document.querySelector('.sheet')
+  const areas = [...ed.querySelectorAll('textarea')]
+  ok(areas.length === 3, 'the trick editor has description, script and notes', areas.length)
+  areas[1].value = 'A brand new script.'
+  ed.querySelector('.sb-add-prop').dispatchEvent(new window.Event('click'))
+  const propIns = [...ed.querySelectorAll('.sb-prop input')]
+  propIns[propIns.length - 1].value = 'Wand'; propIns[propIns.length - 1].dispatchEvent(new window.Event('input'))
+  ;[...ed.querySelectorAll('.sb-save .btn-gold')][0].dispatchEvent(new window.Event('click')); await settle()
+  const sv = CALLS.find((c) => c.name === 'sbSave')
+  ok(sv && sv.args[0] === 'trick' && sv.args[1].script === 'A brand new script.', 'Save writes the new script')
+  ok(sv && sv.args[1].props.map((p) => p.name).join() === '3 cups,Jacket,Wand', 'and the new prop, after the old ones', sv && sv.args[1].props.map((p) => p.name).join())
+  ok(sv && sv.args[1].props[1].reusable === true, 'keeping "reusable" on the props that had it')
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  sbFixtureReset(SNAPSHOT)
+  __app.setSbView('flow')
 }
 
 console.log('\n== el() never gets two top-level elements ==')

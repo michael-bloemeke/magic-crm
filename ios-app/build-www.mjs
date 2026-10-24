@@ -27,6 +27,7 @@ const FILES = [
   'icon-512.png',
   'damask.webp',
   'email-templates.js',
+  'showbuilder-core.js',
   'vendor/supabase-js.js',
   'vendor/node-process.js',
   'vendor/node-buffer.js',

@@ -8,7 +8,7 @@ import {
   type ReactNode
 } from 'react'
 import type { Tag, Trick } from '../types'
-import { sbApi } from '../sbApi'
+import { sbApi, useOnFocus } from '../sbApi'
 
 type TricksContextValue = {
   tricks: Trick[]
@@ -50,6 +50,7 @@ export function TricksProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh()
   }, [refresh])
+  useOnFocus(refresh)
 
   const saveTrick = useCallback(async (trick: Trick) => {
     const saved = await sbApi.saveTrick(trick)

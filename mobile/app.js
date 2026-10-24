@@ -24,7 +24,14 @@ import {
   loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings,
   listFiles, fileUrl, uploadFile, deleteFile,
   loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog,
+  sbList, sbGet, sbSave, sbMutateShow, sbDelete, sbUploadAudio, sbAudioUrls,
 } from './supabase-data.js'
+// The Show Builder's rules, shared with the Mac's server (see showbuilder-core.js).
+import {
+  getShowOrder, showInfo, formatDuration, cleanShow, normalizeDoc, newId, nodeKind, nodeRef, nodeItem, nodeSize,
+  reorderShow, appendNode, removeNode, assignNode, moveNode, connectNodes, connectedCount,
+  duplicateShow as sbDuplicateShow, CANVAS_W, CANVAS_H, DEFAULT_OTHER_COLOR,
+} from './showbuilder-core.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 import { TEMPLATE_GROUPS } from './email-templates.js'
 
@@ -39,7 +46,7 @@ var PAGE_TITLES = {
   home: 'Home', pipeline: 'Pipeline', completed: 'Completed', archived: 'Archived', deleted: 'Deleted',
   contacts: 'Contacts', tasks: 'Tasks', alerts: 'Alerts', finance: 'Finance', inbox: 'Inbox',
   proposals: 'Proposals and Booking Forms', calendar: 'Calendar', stats: 'Lead Stats', website: 'Website Analytics',
-  playbook: 'Playbook', files: 'Files', settings: 'Settings', shows: 'Shows', show: 'Show',
+  playbook: 'Playbook', files: 'Files', settings: 'Settings', shows: 'Shows', show: 'Show', builder: 'Show Builder', bshow: 'Show',
 }
 
 // Completed / Archived / Deleted are their own pages now (2026-08-06). They used to be a segmented
@@ -4637,7 +4644,9 @@ function setHeaderChrome(page) {
 
 function render() {
   if (TAB !== 'show') flushShowEdit() // leaving a show mid-edit saves the edit
-  noteLoc({ tab: TAB, detail: null, show: TAB === 'show' ? SHOW_ID : null })
+  if (TAB !== 'bshow') sbFlushEdit() // the same for a Show Builder running order
+  if (TAB !== 'bshow') { SB_CONNECT = null; sbStopAudio() }
+  noteLoc({ tab: TAB, detail: null, show: TAB === 'show' ? SHOW_ID : TAB === 'bshow' ? SB_SHOW_ID : null })
   DETAIL_ID = null // a tab page is on screen now, so no project is
   if (TAB !== 'pipeline') removeFab() // the New-project button lives only on the pipeline page
   removeProjectTabs() // any full page render means we are no longer inside a project
@@ -4660,7 +4669,9 @@ function render() {
   else if (TAB === 'settings') renderSettings()
   else if (TAB === 'shows') renderShows()
   else if (TAB === 'show') renderShow()
-  var title = $('#pagetitle'); if (title) title.textContent = TAB === 'home' ? greetingText() : TAB === 'show' ? ((showById(SHOW_ID) || {}).name || 'Show') : (PAGE_TITLES[TAB] || 'Bloom CRM')
+  else if (TAB === 'builder') renderBuilder()
+  else if (TAB === 'bshow') renderBShow()
+  var title = $('#pagetitle'); if (title) title.textContent = TAB === 'home' ? greetingText() : TAB === 'show' ? ((showById(SHOW_ID) || {}).name || 'Show') : TAB === 'bshow' ? ((sbShow(SB_SHOW_ID) || {}).name || 'Show') : (PAGE_TITLES[TAB] || 'Bloom CRM')
   setHeaderChrome(TAB)
   updateCounts()
   updateDrawerActive()
@@ -5068,6 +5079,1208 @@ function openShowOptions(s) {
   sh.body.appendChild(ren); sh.body.appendChild(del)
 }
 
+// ============================== SHOW BUILDER ==============================
+//
+// The standalone Show Builder app, folded into the CRM (2026-10-24). Michael: "make a new page called
+// Show Builder ... I can pick a show. I can move nodes around to create the flow of the show. I can
+// open up any trick. And I can edit the prop list, the script, everything, the runtime ... this is a
+// huge thing because I want to work on this on the go."
+//
+// The Mac page is the old app itself (React Flow canvas, src/showbuilder/). A 2400 x 1500 canvas of
+// draggable boxes and hand-drawn arrows does not fit a phone, so the phone is built around the same
+// data, rearranged for a thumb:
+//
+//   Show Builder (menu, under Library)   four tabs along the bottom: Shows, Tricks, Music, Other.
+//                                         Shows lists every show; the other three are the libraries,
+//                                         each item editable in full (Tricks also manages tags).
+//   A show (tap one)                      three tabs: Running order, Canvas, Show info.
+//     Running order   the show top to bottom, following the arrows, exactly the order the Mac's Show
+//                     Info uses. Tap an item for everything about it (script, props, runtime ...).
+//                     Edit, then drag a handle to reorder, or × to take an item out. "+ Add" puts a
+//                     trick, music cue or other item on the end.
+//     Canvas          the Mac's canvas, to scale: pinch to zoom, drag the background to pan, drag a
+//                     box to move it, tap a box to open it, and Connect to draw an arrow.
+//     Show info       runtime, show essentials, reusable props and the per-item props list, the same
+//                     sheet as the Mac's Show Info.
+//
+// How a reorder on the phone is written into the arrows and boxes the Mac draws is explained in
+// showbuilder-core.js ("Editing a show from the PHONE"). The short version: the arrows become one
+// chain in the new order and the boxes trade places, so the canvas still reads in show order.
+//
+// Every change to a show re-reads the newest saved copy first (sbMutateShow), so an edit made on the
+// Mac in the meantime is not overwritten. The Mac does the same in reverse when its window comes back
+// to the front.
+
+var SB = { show: null, trick: null, tag: null, music: null, other: null, audio: null } // null = not loaded yet
+var SB_TAB = 'shows'      // the Show Builder page's tab: shows | tricks | music | other
+var SB_SHOW_ID = null     // the open show (TAB 'bshow')
+var SB_VIEW = 'flow'      // inside a show: flow | canvas | info
+var SB_EDIT = false       // the running order is in Edit (drag handles and remove buttons)
+var SB_DRAFT = null       // { order: [nodeId], removed: [nodeId] } while editing
+var SB_FIND = { q: '', tags: [] } // the Tricks library's search and tag filter
+var SB_CAM = {}           // per show: the canvas view { x, y, k }, kept while moving around the app
+var SB_CONNECT = null     // canvas Connect mode: null, 'pick-from', or the node id the arrow starts at
+var SB_BUSY = false       // a canvas drag or pinch is in progress; background refreshes wait
+var SB_AUDIO_URLS = {}    // audio id -> playable link (an hour), fetched ahead of a tap
+var SB_AUDIO_AT = 0
+var SB_PLAYER = null
+var SB_PLAYING = null     // the audio id playing now
+
+var SB_KIND_COLOR = { trick: '#c89b5c', music: '#5b9d6d', other: '#7a8aa0' }
+var SB_KIND_LABEL = { trick: 'Trick', music: 'Music', other: 'Other' }
+var SB_LIST_KIND = { trick: 'trick', music: 'music', other: 'other' }
+
+function sbLib() {
+  var m = function (list) { var x = new Map(); (list || []).forEach(function (d) { x.set(d.id, d) }); return x }
+  return { tricks: m(SB.trick), music: m(SB.music), others: m(SB.other) }
+}
+function sbFind(kind, id) { return (SB[kind] || []).find(function (d) { return d.id === id }) || null }
+function sbShow(id) { return sbFind('show', id) }
+function sbPut(kind, doc) {
+  if (!SB[kind]) SB[kind] = []
+  var i = SB[kind].findIndex(function (d) { return d.id === doc.id })
+  if (i >= 0) SB[kind][i] = doc; else SB[kind].push(doc)
+  if (kind === 'show') SB.show.sort(function (a, b) { return String(b.updatedAt).localeCompare(String(a.updatedAt)) })
+  else if (kind === 'audio') SB.audio.sort(function (a, b) { return String(a.displayName).localeCompare(String(b.displayName)) })
+  else SB[kind].sort(function (a, b) { return String(a.name).localeCompare(String(b.name)) })
+}
+function sbDrop(kind, id) { if (SB[kind]) SB[kind] = SB[kind].filter(function (d) { return d.id !== id }) }
+function sbItemName(kind, item) { return item ? (item.name || 'Untitled') : '' }
+function sbItemColor(kind, item) { return kind === 'other' ? ((item && item.color) || DEFAULT_OTHER_COLOR) : SB_KIND_COLOR[kind] }
+function sbSig(list) { return JSON.stringify(list || []) }
+
+// Load the libraries. `after` runs once they are in; `changed` is true when anything differs from
+// what was already showing, so a background refresh only redraws when it has something new.
+function sbLoad(after) {
+  var kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio']
+  var before = sbSig(kinds.map(function (k) { return SB[k] }))
+  return Promise.all(kinds.map(function (k) { return sbList(k) })).then(function (lists) {
+    kinds.forEach(function (k, i) { SB[k] = lists[i] })
+    var changed = before !== sbSig(kinds.map(function (k) { return SB[k] }))
+    sbPrefetchAudio()
+    if (after) after(changed)
+  }).catch(function (e) {
+    kinds.forEach(function (k) { if (SB[k] == null) SB[k] = [] })
+    toast(e.message || 'Could not load the Show Builder', 'err')
+    if (after) after(false)
+  })
+}
+function sbLoaded() { return SB.show != null && SB.trick != null }
+
+// ---- audio: links fetched ahead, so a tap can start the sound at once (iOS insists) ----
+function sbPrefetchAudio() {
+  if (!SB.audio || !SB.audio.length) return
+  if (Date.now() - SB_AUDIO_AT < 40 * 60 * 1000 && SB.audio.every(function (a) { return SB_AUDIO_URLS[a.id] })) return
+  SB_AUDIO_AT = Date.now()
+  sbAudioUrls(SB.audio).then(function (m) { SB_AUDIO_URLS = m }).catch(function () { SB_AUDIO_AT = 0 })
+}
+function sbPlay(audioId, btn) {
+  if (!SB_PLAYER) {
+    SB_PLAYER = new Audio()
+    SB_PLAYER.addEventListener('ended', function () { SB_PLAYING = null; sbPaintPlay() })
+  }
+  if (SB_PLAYING === audioId) { SB_PLAYER.pause(); SB_PLAYING = null; sbPaintPlay(); return }
+  var url = SB_AUDIO_URLS[audioId]
+  if (!url) {
+    toast('Getting the audio ready. Tap play again in a moment.')
+    SB_AUDIO_AT = 0; sbPrefetchAudio()
+    return
+  }
+  SB_PLAYER.pause()
+  SB_PLAYER.src = url
+  SB_PLAYER.currentTime = 0
+  SB_PLAYING = audioId
+  sbPaintPlay()
+  SB_PLAYER.play().catch(function () { SB_PLAYING = null; sbPaintPlay(); toast('Could not play that file.', 'err') })
+}
+function sbStopAudio() { if (SB_PLAYER) SB_PLAYER.pause(); SB_PLAYING = null; sbPaintPlay() }
+function sbPaintPlay() {
+  document.querySelectorAll('.sb-play').forEach(function (b) {
+    var on = b.dataset.audio === SB_PLAYING
+    b.classList.toggle('on', on)
+    b.setAttribute('aria-label', on ? 'Stop' : 'Play')
+    b.innerHTML = on ? '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>'
+  })
+}
+function sbPlayBtn(audioId) {
+  var b = el('<button class="sb-play" type="button"></button>')
+  b.dataset.audio = audioId
+  b.addEventListener('click', function (e) { e.stopPropagation(); sbPlay(audioId, b) })
+  setTimeout(sbPaintPlay, 0)
+  return b
+}
+
+// ---- the bottom tab bars ----
+var SB_PAGE_TABS = [
+  ['shows', 'Shows', '<rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v5"/>'],
+  ['tricks', 'Tricks', '<rect x="5" y="3" width="11" height="15" rx="2"/><path d="M8 21h10a2 2 0 0 0 2-2V7"/>'],
+  ['music', 'Music', '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>'],
+  ['other', 'Other', '<circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/>'],
+]
+var SB_SHOW_TABS = [
+  ['flow', 'Running order', '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>'],
+  ['canvas', 'Canvas', '<rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v5"/>'],
+  ['info', 'Show info', '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>'],
+]
+function sbTabBar(tabs, current, onPick) {
+  removeProjectTabs()
+  var bar = el('<nav id="ptabs"></nav>')
+  tabs.forEach(function (t) {
+    var b = el('<button class="ptab' + (current === t[0] ? ' on' : '') + '"><span class="ptab-i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + t[2] + '</svg></span><span class="ptab-l">' + esc(t[1]) + '</span></button>')
+    b.addEventListener('click', function () { if (current !== t[0]) onPick(t[0]) })
+    bar.appendChild(b)
+  })
+  document.body.appendChild(bar)
+  document.body.classList.add('has-ptabs')
+}
+
+// ---- the Show Builder page ----
+function renderBuilder() {
+  var v = $('#view'); v.innerHTML = ''
+  sbTabBar(SB_PAGE_TABS, SB_TAB, function (t) { SB_TAB = t; render(); window.scrollTo(0, 0) })
+  var body = el('<div class="sb-page"></div>')
+  v.appendChild(body)
+  function draw() {
+    if (TAB !== 'builder') return
+    body.innerHTML = ''
+    if (!sbLoaded()) { body.appendChild(el('<div class="empty">Loading the Show Builder…</div>')); return }
+    if (SB_TAB === 'tricks') sbTricksTab(body, draw)
+    else if (SB_TAB === 'music') sbMusicTab(body, draw)
+    else if (SB_TAB === 'other') sbOtherTab(body, draw)
+    else sbShowsTab(body, draw)
+  }
+  draw()
+  // Always re-read in the background, so an edit made on the Mac shows up without a manual refresh.
+  sbLoad(function (changed) { if (changed && TAB === 'builder' && !document.querySelector('.sheet')) draw() })
+}
+
+function sbAddBtn(label, onTap) {
+  var b = el('<button class="addbtn"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span></span></button>')
+  b.querySelector('span').textContent = label
+  b.addEventListener('click', onTap)
+  return b
+}
+
+function sbShowsTab(body, redraw) {
+  var head = el('<div class="tabhead"><span></span></div>')
+  head.appendChild(sbAddBtn('New show', function () { sbNewShow() }))
+  body.appendChild(head)
+  if (!SB.show.length) {
+    body.appendChild(el('<div class="empty" style="padding:40px 16px">No shows yet. Tap New show to build the first one.</div>'))
+    return
+  }
+  var lib = sbLib()
+  SB.show.forEach(function (s) {
+    var info = showInfo(s, lib)
+    var c = el('<button class="card sb-show-card"><div class="name"></div><div class="meta"></div></button>')
+    c.querySelector('.name').textContent = s.name
+    c.querySelector('.meta').textContent = info.count + ' item' + (info.count === 1 ? '' : 's') + '  ·  ' + formatDuration(info.totalMinutes) + '  ·  Updated ' + fmtDate(String(s.updatedAt).slice(0, 10))
+    c.addEventListener('click', function () { openBShow(s.id) })
+    body.appendChild(c)
+  })
+}
+
+function sbNewShow() {
+  var sh = makeSheet('New show')
+  var inp = el('<input class="search" placeholder="Name the show">')
+  sh.body.appendChild(inp)
+  var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Add show</button></div>')
+  bar.children[0].addEventListener('click', sh.close)
+  var go = function () {
+    var n = inp.value.trim()
+    if (!n) { inp.focus(); return }
+    bar.children[1].disabled = true
+    doWrite(sbSave('show', cleanShow({ name: n })), 'Show added', function (s) { sbPut('show', s); sh.close(); openBShow(s.id) })
+      .catch(function () { bar.children[1].disabled = false })
+  }
+  bar.children[1].addEventListener('click', go)
+  inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go() })
+  sh.body.appendChild(bar)
+  setTimeout(function () { inp.focus() }, 60)
+}
+
+function openBShow(id) {
+  SB_SHOW_ID = id; SB_VIEW = 'flow'; SB_EDIT = false; SB_DRAFT = null; SB_CONNECT = null
+  TAB = 'bshow'
+  render()
+  window.scrollTo(0, 0)
+}
+
+// ---- one show ----
+function renderBShow() {
+  var v = $('#view'); v.innerHTML = ''
+  var s = sbShow(SB_SHOW_ID)
+  if (!s) {
+    if (!sbLoaded()) { v.appendChild(el('<div class="empty">Loading…</div>')); sbLoad(function () { if (TAB === 'bshow') render() }); return }
+    TAB = 'builder'; SB_SHOW_ID = null; render(); return
+  }
+  var title = $('#pagetitle'); if (title) title.textContent = s.name
+  sbTabBar(SB_SHOW_TABS, SB_VIEW, function (t) {
+    sbFlushEdit()
+    SB_VIEW = t; SB_CONNECT = null
+    render(); window.scrollTo(0, 0)
+  })
+  if (SB_VIEW === 'canvas') sbCanvasView(v, s)
+  else if (SB_VIEW === 'info') sbInfoView(v, s)
+  else sbFlowView(v, s)
+  // Re-read in the background: the show may have been changed on the Mac since it was loaded.
+  if (!SB_EDIT) sbLoad(function (changed) {
+    if (changed && TAB === 'bshow' && SB_SHOW_ID === s.id && !SB_EDIT && !SB_BUSY && !document.querySelector('.sheet')) render()
+  })
+}
+
+// Every change to a show: shown at once, then saved onto the newest copy in the cloud.
+function sbChangeShow(id, fn, okMsg) {
+  var cur = sbShow(id)
+  if (cur) { sbPut('show', fn(cur)); if (TAB === 'bshow' && SB_SHOW_ID === id) render() }
+  return doWrite(sbMutateShow(id, fn), okMsg || null, function (saved) {
+    sbPut('show', saved)
+    if (TAB === 'bshow' && SB_SHOW_ID === id && !SB_BUSY && !SB_EDIT) render()
+  }).catch(function () { sbLoad(function () { if (TAB === 'bshow') render() }) })
+}
+
+function sbTopBar(s, left) {
+  var top = el('<div class="show-top"><div class="show-acts"></div><button class="show-more" aria-label="Show options"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button></div>')
+  top.querySelector('.show-more').addEventListener('click', function () { sbShowOptions(s) })
+  ;(left || []).forEach(function (b) { top.querySelector('.show-acts').appendChild(b) })
+  return top
+}
+
+function sbFlowView(v, s) {
+  var lib = sbLib()
+  var order = getShowOrder(s.nodes, s.edges)
+  if (SB_EDIT) { sbFlowEditor(v, s, order, lib); return }
+
+  var edit = el('<button class="btn-ghost show-btn">Edit</button>')
+  edit.disabled = !order.length
+  edit.addEventListener('click', function () {
+    SB_DRAFT = { order: order.map(function (n) { return n.id }), removed: [] }
+    SB_EDIT = true
+    render()
+  })
+  var add = el('<button class="btn-gold show-btn">+ Add</button>')
+  add.addEventListener('click', function () { sbAddSheet(s) })
+  v.appendChild(sbTopBar(s, [add, edit]))
+
+  var info = showInfo(s, lib)
+  v.appendChild(el('<div class="sb-sum">' + info.count + ' item' + (info.count === 1 ? '' : 's') + '  ·  ' + esc(formatDuration(info.totalMinutes)) + '</div>'))
+  var joined = connectedCount(s)
+  if (s.nodes.length >= 2 && joined < s.nodes.length) {
+    v.appendChild(el('<div class="card sb-note">' + (joined ? joined + ' of ' + s.nodes.length + ' items are joined by arrows on the canvas.' : 'None of these items are joined by arrows yet.') +
+      ' The rest are listed in the order they were added. Reordering here joins them all, in this order.</div>'))
+  }
+  if (!order.length) {
+    v.appendChild(el('<div class="empty" style="padding:36px 16px">This show is empty. Tap + Add to put the first trick in.</div>'))
+    return
+  }
+  var list = el('<div class="show-list"></div>')
+  var n = 0
+  order.forEach(function (node) {
+    var kind = nodeKind(node), item = nodeItem(node, lib)
+    var num = kind === 'music' ? '♪' : String(++n)
+    list.appendChild(sbRow(node, kind, item, num, function () { sbNodeSheet(s.id, node.id) }))
+  })
+  v.appendChild(list)
+}
+
+function sbRow(node, kind, item, num, onTap) {
+  var r = el('<button class="card sb-row"><span class="sb-num"></span><span class="sb-bar"></span><span class="sb-main"><span class="sb-name"></span><span class="sb-meta"></span></span><span class="sb-dur"></span></button>')
+  r.querySelector('.sb-num').textContent = num
+  r.querySelector('.sb-bar').style.background = sbItemColor(kind, item)
+  var name = r.querySelector('.sb-name')
+  if (item) name.textContent = item.name || 'Untitled'
+  else { name.textContent = 'Empty ' + SB_KIND_LABEL[kind].toLowerCase() + ' slot'; name.classList.add('sb-empty') }
+  r.querySelector('.sb-meta').textContent = sbRowMeta(kind, item)
+  r.querySelector('.sb-dur').textContent = (item && item.duration && kind !== 'music') ? item.duration : ''
+  if (kind === 'music') r.classList.add('sb-row-music')
+  if (onTap) r.addEventListener('click', onTap)
+  return r
+}
+function sbRowMeta(kind, item) {
+  if (!item) return 'Tap to choose one'
+  if (kind === 'music') return [item.startCue ? 'Starts ' + item.startCue : '', item.stopCue ? 'stops ' + item.stopCue : ''].filter(Boolean).join(', ') || 'Music cue'
+  if (kind === 'other') return item.description || ((item.props || []).length ? item.props.length + ' prop' + (item.props.length === 1 ? '' : 's') : '')
+  var tags = (item.tagIds || []).map(function (id) { var t = sbFind('tag', id); return t ? t.name : '' }).filter(Boolean)
+  var props = (item.props || []).length
+  return [tags.join(', '), props ? props + ' prop' + (props === 1 ? '' : 's') : ''].filter(Boolean).join('  ·  ')
+}
+
+// Edit: drag to reorder, × to take an item out. Nothing is saved until Done (or leaving the show).
+function sbFlowEditor(v, s, order, lib) {
+  var done = el('<button class="btn-gold show-btn">Done</button>')
+  done.addEventListener('click', function () { done.disabled = true; done.textContent = 'Saving…'; sbFlushEdit(); render() })
+  var cancel = el('<button class="btn-ghost show-btn">Cancel</button>')
+  cancel.addEventListener('click', function () { SB_EDIT = false; SB_DRAFT = null; render() })
+  v.appendChild(sbTopBar(s, [done, cancel]))
+  var byId = {}; order.forEach(function (n) { byId[n.id] = n })
+  var wrap = el('<div class="show-edit editing"></div>')
+  var list = el('<div class="show-list"></div>')
+  SB_DRAFT.order.forEach(function (id) {
+    var node = byId[id]; if (!node) return
+    var kind = nodeKind(node), item = nodeItem(node, lib)
+    var r = el('<div class="card ed-row"><span class="drag-h" aria-label="Drag to move"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span><div class="ed-body"><span class="sb-bar"></span><span class="sb-ed-name"></span></div><button class="ed-x" aria-label="Take out of the show">&times;</button></div>')
+    r.dataset.id = id
+    r.querySelector('.sb-bar').style.background = sbItemColor(kind, item)
+    r.querySelector('.sb-ed-name').textContent = item ? item.name : 'Empty ' + SB_KIND_LABEL[kind].toLowerCase() + ' slot'
+    r.querySelector('.ed-x').addEventListener('click', function () {
+      SB_DRAFT.removed.push(id)
+      SB_DRAFT.order = SB_DRAFT.order.filter(function (x) { return x !== id })
+      r.remove()
+    })
+    list.appendChild(r)
+  })
+  makeSortable(list, function (ids) { SB_DRAFT.order = ids })
+  wrap.appendChild(list)
+  wrap.appendChild(el('<p class="hint" style="margin:10px 2px 0">Drag the handle to move an item. × takes it out of this show (the trick stays in your library). Done saves.</p>'))
+  v.appendChild(wrap)
+}
+
+// Save the edit in progress. Called by Done, and by leaving the show, which keeps the edit the same
+// way the Shows page does.
+function sbFlushEdit() {
+  if (!SB_EDIT || !SB_DRAFT || !SB_SHOW_ID) { SB_EDIT = false; SB_DRAFT = null; return }
+  var id = SB_SHOW_ID, d = SB_DRAFT
+  SB_EDIT = false; SB_DRAFT = null
+  var s = sbShow(id); if (!s) return
+  var before = getShowOrder(s.nodes, s.edges).map(function (n) { return n.id })
+  if (!d.removed.length && before.join('|') === d.order.join('|')) return // nothing changed: leave the arrows alone
+  var lib = sbLib()
+  sbChangeShow(id, function (cur) {
+    var out = cur
+    d.removed.forEach(function (nid) { out = removeNode(out, nid, lib) })
+    var keep = d.order.filter(function (nid) { return out.nodes.some(function (n) { return n.id === nid }) })
+    return reorderShow(out, keep, lib)
+  }, 'Saved')
+}
+
+// ---- adding to a show ----
+function sbAddSheet(s) {
+  var sh = makeSheet('Add to the show')
+  ;['trick', 'music', 'other'].forEach(function (kind) {
+    var r = el('<button class="actrow"><span class="ar-l"><span class="sb-dot"></span></span></button>')
+    r.querySelector('.sb-dot').style.background = SB_KIND_COLOR[kind]
+    r.querySelector('.ar-l').appendChild(document.createTextNode(kind === 'trick' ? 'A trick' : kind === 'music' ? 'A music cue' : 'Something else (a joke, a story, a video cue)'))
+    r.addEventListener('click', function () {
+      sh.close()
+      sbPicker(kind, 'Add a ' + (kind === 'other' ? 'item' : kind === 'music' ? 'music cue' : 'trick'), function (itemId) {
+        var lib = sbLib()
+        sbChangeShow(s.id, function (cur) { return appendNode(cur, kind, itemId, lib).show }, 'Added')
+      })
+    })
+    sh.body.appendChild(r)
+  })
+}
+
+// A library to choose from, with "+ New" on top. onPick(itemId) gets the chosen (or new) item.
+function sbPicker(kind, title, onPick) {
+  var sh = makeSheet(title, true)
+  var listKind = SB_LIST_KIND[kind]
+  var head = el('<div class="sb-pick-head"></div>')
+  var q = el('<input class="search" placeholder="Search" autocapitalize="off" autocorrect="off">')
+  head.appendChild(q)
+  var tags = []
+  var chips = kind === 'trick' ? el('<div class="sb-chips"></div>') : null
+  if (chips) head.appendChild(chips)
+  sh.body.appendChild(head)
+  var out = el('<div class="sb-pick-list"></div>')
+  sh.body.appendChild(out)
+  var make = el('<button class="actrow sb-new"><span class="ar-l"></span></button>')
+  make.querySelector('.ar-l').textContent = '+ New ' + (kind === 'other' ? 'item' : kind === 'music' ? 'music cue' : 'trick')
+  make.addEventListener('click', function () {
+    sh.close()
+    sbEditor(kind, null, { name: q.value.trim() }, function (saved) { onPick(saved.id) })
+  })
+  function drawChips() {
+    if (!chips) return
+    chips.innerHTML = ''
+    ;(SB.tag || []).forEach(function (t) {
+      var on = tags.indexOf(t.id) >= 0
+      var c = el('<button class="sb-chip' + (on ? ' on' : '') + '"></button>'); c.textContent = t.name
+      c.addEventListener('click', function () { tags = on ? tags.filter(function (x) { return x !== t.id }) : tags.concat(t.id); drawChips(); draw() })
+      chips.appendChild(c)
+    })
+  }
+  function draw() {
+    out.innerHTML = ''
+    out.appendChild(make)
+    var needle = q.value.trim().toLowerCase()
+    var items = (SB[listKind] || []).filter(function (it) {
+      if (needle && String(it.name || '').toLowerCase().indexOf(needle) < 0) return false
+      return tags.every(function (t) { return (it.tagIds || []).indexOf(t) >= 0 })
+    })
+    if (!items.length) out.appendChild(el('<div class="empty" style="padding:18px 6px">Nothing matches.</div>'))
+    items.forEach(function (it) {
+      var r = el('<button class="actrow sb-pick-row"><span class="sb-dot"></span><span class="sb-pick-main"><span class="sb-pick-n"></span><span class="sb-pick-m"></span></span></button>')
+      r.querySelector('.sb-dot').style.background = sbItemColor(kind, it)
+      r.querySelector('.sb-pick-n').textContent = it.name || 'Untitled'
+      r.querySelector('.sb-pick-m').textContent = [kind !== 'music' ? it.duration : '', sbRowMeta(kind, it)].filter(Boolean).join('  ·  ')
+      r.addEventListener('click', function () { sh.close(); onPick(it.id) })
+      out.appendChild(r)
+    })
+  }
+  q.addEventListener('input', draw)
+  drawChips(); draw()
+}
+
+// ---- one item in a show: everything about it, and what can be done with it ----
+function sbNodeSheet(showId, nodeId) {
+  var s = sbShow(showId); if (!s) return
+  var node = s.nodes.find(function (n) { return n.id === nodeId }); if (!node) return
+  var lib = sbLib()
+  var kind = nodeKind(node), item = nodeItem(node, lib)
+  if (!item) {
+    // An empty slot (added on the Mac without choosing a trick): choosing is the only thing to do.
+    sbPicker(kind, 'Choose a ' + (kind === 'other' ? 'item' : kind === 'music' ? 'music cue' : 'trick'), function (itemId) {
+      sbChangeShow(showId, function (cur) { return assignNode(cur, nodeId, itemId) }, 'Saved')
+    })
+    return
+  }
+  var sh = makeSheet(item.name || 'Untitled', true)
+  sh.body.appendChild(sbItemDetails(kind, item))
+
+  // The arrows in and out, so one can be taken away without the Mac.
+  var ins = s.edges.filter(function (e) { return e.target === nodeId }), outs = s.edges.filter(function (e) { return e.source === nodeId })
+  if (ins.length || outs.length) {
+    var arr = el('<div class="sb-sec"><div class="sb-sec-l">Arrows</div></div>')
+    var nameOf = function (id) { var n = s.nodes.find(function (x) { return x.id === id }); var it = n && nodeItem(n, lib); return it ? it.name : 'an empty slot' }
+    ins.concat(outs).forEach(function (e) {
+      var into = e.target === nodeId
+      var row = el('<div class="sb-arrow"><span></span><button class="ed-x" aria-label="Remove this arrow">&times;</button></div>')
+      row.querySelector('span').textContent = into ? 'Comes after ' + nameOf(e.source) : 'Leads to ' + nameOf(e.target)
+      row.querySelector('button').addEventListener('click', function () {
+        row.remove()
+        sbChangeShow(showId, function (cur) { return Object.assign({}, cur, { edges: cur.edges.filter(function (x) { return !(x.source === e.source && x.target === e.target) }) }) }, 'Arrow removed')
+      })
+      arr.appendChild(row)
+    })
+    sh.body.appendChild(arr)
+  }
+
+  var bar = el('<div class="sb-acts"></div>')
+  var ed = el('<button class="btn-ghost"></button>'); ed.textContent = 'Edit ' + SB_KIND_LABEL[kind].toLowerCase()
+  ed.addEventListener('click', function () { sh.close(); sbEditor(kind, item, null, function () { if (TAB === 'bshow') render() }) })
+  var ch = el('<button class="btn-ghost"></button>'); ch.textContent = 'Change ' + SB_KIND_LABEL[kind].toLowerCase()
+  ch.addEventListener('click', function () {
+    sh.close()
+    sbPicker(kind, 'Change to', function (itemId) { sbChangeShow(showId, function (cur) { return assignNode(cur, nodeId, itemId) }, 'Saved') })
+  })
+  var rm = el('<button class="btn-ghost sb-danger">Take out of this show</button>')
+  rm.addEventListener('click', function () {
+    if (!confirm('Take "' + (item.name || 'this item') + '" out of ' + s.name + '?\n\nIt stays in your library.')) return
+    sh.close()
+    var lib2 = sbLib()
+    sbChangeShow(showId, function (cur) { return removeNode(cur, nodeId, lib2) }, 'Taken out')
+  })
+  bar.appendChild(ed); bar.appendChild(ch); bar.appendChild(rm)
+  sh.body.appendChild(bar)
+}
+
+// The read view of a trick, music cue or other item: only what is filled in, in a sensible order.
+function sbItemDetails(kind, item) {
+  var wrap = el('<div class="sb-detail"></div>')
+  var sec = function (label, node) { var d = el('<div class="sb-sec"><div class="sb-sec-l"></div></div>'); d.firstChild.textContent = label; d.appendChild(node); wrap.appendChild(d) }
+  var text = function (t, cls) { var p = el('<div class="sb-text' + (cls ? ' ' + cls : '') + '"></div>'); p.textContent = t; return p }
+  if (kind === 'trick' && (item.tagIds || []).length) {
+    var tg = el('<div class="sb-chips"></div>')
+    item.tagIds.forEach(function (id) { var t = sbFind('tag', id); if (t) { var c = el('<span class="sb-chip on"></span>'); c.textContent = t.name; tg.appendChild(c) } })
+    wrap.appendChild(tg)
+  }
+  if (kind === 'other') {
+    var sw = el('<div class="sb-swatch-line"><span class="sb-dot"></span><span></span></div>')
+    sw.querySelector('.sb-dot').style.background = sbItemColor('other', item)
+    sw.lastChild.textContent = 'Other item'
+    wrap.appendChild(sw)
+  }
+  if (kind !== 'music' && item.duration) sec('Runtime', text(item.duration))
+  if (item.description) sec('Description', text(item.description))
+  if (kind === 'music') {
+    if (item.startCue) sec('Starts', text(item.startCue))
+    if (item.stopCue) sec('Stops', text(item.stopCue))
+    var af = item.audioFileId && sbFind('audio', item.audioFileId)
+    if (af) {
+      var line = el('<div class="sb-audio-line"><span class="sb-audio-n"></span></div>')
+      line.querySelector('.sb-audio-n').textContent = af.displayName
+      line.insertBefore(sbPlayBtn(af.id), line.firstChild)
+      sec('Audio', line)
+    }
+  }
+  if ((item.props || []).length) {
+    var ul = el('<ul class="sb-props"></ul>')
+    item.props.forEach(function (p) {
+      var li = el('<li></li>'); li.textContent = p.name
+      if (p.reusable) li.appendChild(el('<span class="sb-reuse">reusable</span>'))
+      ul.appendChild(li)
+    })
+    sec('Props', ul)
+  }
+  if (kind === 'trick' && item.script) sec('Script', text(item.script, 'sb-script'))
+  if (kind === 'trick' && item.source) sec('Source', text(item.source))
+  if (kind === 'trick' && item.notes) sec('Notes', text(item.notes))
+  if (!wrap.children.length) wrap.appendChild(el('<div class="empty" style="padding:10px 2px;text-align:left">Nothing filled in yet. Tap Edit to add the details.</div>'))
+  return wrap
+}
+
+function sbShowOptions(s) {
+  var sh = makeSheet(s.name)
+  var ren = el('<button class="actrow"><span class="ar-l">Rename</span></button>')
+  ren.addEventListener('click', function () {
+    sh.body.innerHTML = ''
+    var inp = el('<input class="search">'); inp.value = s.name
+    sh.body.appendChild(inp)
+    var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+    bar.children[0].addEventListener('click', sh.close)
+    var go = function () {
+      var n = inp.value.trim()
+      if (!n) { inp.focus(); return }
+      sh.close()
+      sbChangeShow(s.id, function (cur) { return Object.assign({}, cur, { name: n }) }, 'Renamed')
+    }
+    bar.children[1].addEventListener('click', go)
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go() })
+    sh.body.appendChild(bar)
+    setTimeout(function () { inp.focus(); inp.select() }, 40)
+  })
+  var dup = el('<button class="actrow"><span class="ar-l">Duplicate</span></button>')
+  dup.addEventListener('click', function () {
+    sh.close()
+    doWrite(sbGet('show', s.id).then(function (cur) { return sbSave('show', sbDuplicateShow(cur || s)) }), 'Copied', function (copy) { sbPut('show', copy); openBShow(copy.id) })
+  })
+  var del = el('<button class="actrow"><span class="ar-l" style="color:var(--red)">Delete show</span></button>')
+  del.addEventListener('click', function () {
+    if (!confirm('Delete "' + s.name + '"?\n\nThe tricks in it stay in your library. The show itself cannot be brought back.')) return
+    doWrite(sbDelete('show', s.id), 'Show deleted', function () {
+      sbDrop('show', s.id)
+      SB_SHOW_ID = null; SB_EDIT = false; SB_DRAFT = null
+      sh.close()
+      TAB = 'builder'; SB_TAB = 'shows'; render()
+    })
+  })
+  sh.body.appendChild(ren); sh.body.appendChild(dup); sh.body.appendChild(del)
+}
+
+// ---- Show info (the Mac's Show Info, top to bottom) ----
+function sbInfoView(v, s) {
+  v.appendChild(sbTopBar(s, []))
+  var lib = sbLib()
+  var info = showInfo(s, lib)
+  v.appendChild(el('<div class="sb-stats"><div class="card sb-stat"><div class="sb-stat-l">Total runtime</div><div class="sb-stat-v">' + esc(formatDuration(info.totalMinutes)) + '</div></div>' +
+    '<div class="card sb-stat"><div class="sb-stat-l">Items</div><div class="sb-stat-v">' + info.count + '</div></div></div>'))
+  if (info.unassigned) v.appendChild(el('<div class="card sb-note">' + info.unassigned + ' empty slot' + (info.unassigned === 1 ? '' : 's') + ' with nothing chosen. Runtime and props skip ' + (info.unassigned === 1 ? 'it' : 'them') + '.</div>'))
+
+  // Show essentials: things for the whole show that belong to no one trick. Edited right here.
+  v.appendChild(sectionLabel('Show essentials'))
+  var ess = el('<div class="card sb-panel"></div>')
+  ess.appendChild(el('<p class="hint" style="margin:0 0 8px">Things you need for the whole show that are not part of a specific trick. Tables, totebox, mic, batteries.</p>'))
+  var essList = el('<div class="sb-ess"></div>')
+  ;(s.showProps || []).forEach(function (p, i) {
+    var row = el('<div class="sb-ess-row"><span></span><button class="ed-x" aria-label="Remove">&times;</button></div>')
+    row.querySelector('span').textContent = p
+    row.querySelector('button').addEventListener('click', function () {
+      sbChangeShow(s.id, function (cur) { var list = (cur.showProps || []).slice(); var j = list.indexOf(p); if (j >= 0) list.splice(j, 1); return Object.assign({}, cur, { showProps: list }) })
+    })
+    essList.appendChild(row)
+  })
+  ess.appendChild(essList)
+  var addRow = el('<div class="sb-ess-add"><input class="search" placeholder="Add an essential"><button class="btn-ghost">Add</button></div>')
+  var addIn = addRow.querySelector('input')
+  var addIt = function () {
+    var t = addIn.value.trim(); if (!t) { addIn.focus(); return }
+    sbChangeShow(s.id, function (cur) { return Object.assign({}, cur, { showProps: (cur.showProps || []).concat(t) }) })
+  }
+  addRow.querySelector('button').addEventListener('click', addIt)
+  addIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') addIt() })
+  ess.appendChild(addRow)
+  v.appendChild(ess)
+
+  if (info.reusable.length) {
+    v.appendChild(sectionLabel('Reusable across the show'))
+    var ru = el('<div class="card sb-panel"><p class="hint" style="margin:0 0 6px">Props flagged reusable that appear in more than one trick. Pack one of each.</p><ul class="sb-props"></ul></div>')
+    info.reusable.forEach(function (n) { var li = el('<li></li>'); li.textContent = n; ru.querySelector('ul').appendChild(li) })
+    v.appendChild(ru)
+  }
+
+  v.appendChild(sectionLabel('Show flow'))
+  if (!info.items.length) v.appendChild(el('<div class="empty" style="padding:16px 6px">No items in this show yet.</div>'))
+  info.items.forEach(function (x, i) {
+    var c = el('<button class="card sb-flow"><div class="sb-flow-h"><span class="sb-flow-n"></span><span class="sb-dot"></span><span class="sb-flow-t"></span><span class="sb-flow-d"></span></div></button>')
+    c.querySelector('.sb-flow-n').textContent = (i + 1) + '.'
+    c.querySelector('.sb-dot').style.background = sbItemColor(x.kind, x.item)
+    c.querySelector('.sb-flow-t').textContent = x.item ? x.item.name : '(nothing chosen)'
+    c.querySelector('.sb-flow-d').textContent = (x.item && x.item.duration) || ''
+    if (x.kind === 'other' && x.item && x.item.description) { var d = el('<div class="sb-flow-desc"></div>'); d.textContent = x.item.description; c.appendChild(d) }
+    if (x.props.length) {
+      var ul = el('<ul class="sb-props"></ul>')
+      x.props.forEach(function (p) { var li = el('<li></li>'); li.textContent = p.name; ul.appendChild(li) })
+      c.appendChild(ul)
+    } else if (x.item && x.kind === 'trick') c.appendChild(el('<div class="sb-flow-desc">No props of its own.</div>'))
+    c.addEventListener('click', function () { sbNodeSheet(s.id, x.node.id) })
+    v.appendChild(c)
+  })
+
+  if (info.music.length) {
+    v.appendChild(sectionLabel('Music cues'))
+    info.music.forEach(function (n) {
+      var m = nodeItem(n, lib)
+      var c = el('<button class="card sb-flow"><div class="sb-flow-h"><span class="sb-dot"></span><span class="sb-flow-t"></span></div><div class="sb-flow-desc"></div></button>')
+      c.querySelector('.sb-dot').style.background = SB_KIND_COLOR.music
+      c.querySelector('.sb-flow-t').textContent = m ? m.name : '(nothing chosen)'
+      c.querySelector('.sb-flow-desc').textContent = sbRowMeta('music', m)
+      c.addEventListener('click', function () { sbNodeSheet(s.id, n.id) })
+      v.appendChild(c)
+    })
+  }
+}
+
+// ---- the canvas, to scale, for a finger ----
+//
+// The Mac's 2400 x 1500 page with every box where the Mac put it. One finger on the background pans,
+// two fingers pinch to zoom, a finger on a box drags it (it saves when lifted), and a tap opens it.
+// Connect draws an arrow: tap the box it starts from, then the box it goes to. Arrows are removed
+// from an item's sheet ("Arrows").
+function sbCanvasView(v, s) {
+  var lib = sbLib()
+  var fit = el('<button class="btn-ghost show-btn">Fit</button>')
+  var conn = el('<button class="btn-ghost show-btn sb-conn">Connect</button>')
+  var add = el('<button class="btn-gold show-btn">+ Add</button>')
+  add.addEventListener('click', function () { sbAddSheet(s) })
+  v.appendChild(sbTopBar(s, [add, conn, fit]))
+  var hint = el('<div class="sb-canvas-hint"></div>')
+  v.appendChild(hint)
+  var wrap = el('<div class="sb-canvas"><div class="sb-world"><svg class="sb-edges" width="' + CANVAS_W + '" height="' + CANVAS_H + '" viewBox="0 0 ' + CANVAS_W + ' ' + CANVAS_H + '">' +
+    '<defs><marker id="sb-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#b8b8c0"/></marker></defs></svg></div></div>')
+  v.appendChild(wrap)
+  var world = wrap.querySelector('.sb-world'), svg = wrap.querySelector('svg')
+  var show = s // the copy being drawn; drags change it in place until saved
+
+  function paintHint() {
+    conn.classList.toggle('on', !!SB_CONNECT)
+    conn.textContent = SB_CONNECT ? 'Cancel' : 'Connect'
+    hint.textContent = !SB_CONNECT ? 'Drag a box to move it. Tap one to open it. Pinch to zoom.'
+      : SB_CONNECT === 'pick-from' ? 'Tap the box the arrow starts from.' : 'Now tap the box it goes to.'
+    wrap.querySelectorAll('.sb-node').forEach(function (b) { b.classList.toggle('from', b.dataset.id === SB_CONNECT) })
+  }
+  conn.addEventListener('click', function () { SB_CONNECT = SB_CONNECT ? null : 'pick-from'; paintHint() })
+
+  // ---- drawing ----
+  var boxes = {}
+  show.nodes.forEach(function (n) {
+    var kind = nodeKind(n), item = nodeItem(n, lib), sz = nodeSize(n, lib)
+    var b = el('<div class="sb-node sb-node-' + kind + '"><span class="sb-node-t"></span></div>')
+    b.dataset.id = n.id
+    b.style.width = sz[0] + 'px'; b.style.height = sz[1] + 'px'
+    b.style.left = n.position.x + 'px'; b.style.top = n.position.y + 'px'
+    if (kind === 'other') { var c = sbItemColor('other', item); b.style.borderColor = c; b.style.background = 'color-mix(in srgb, ' + c + ' 18%, #1e1e22)' }
+    b.querySelector('.sb-node-t').textContent = item ? (kind === 'music' ? '♪ ' : '') + item.name : (kind === 'music' ? '♪ ' : '') + 'Empty'
+    if (!item) b.classList.add('sb-node-empty')
+    world.appendChild(b)
+    boxes[n.id] = b
+  })
+  function sidePoint(n, side) {
+    var sz = nodeSize(n, lib), x = n.position.x, y = n.position.y
+    if (side === 'left') return [x, y + sz[1] / 2]
+    if (side === 'top') return [x + sz[0] / 2, y]
+    if (side === 'bottom') return [x + sz[0] / 2, y + sz[1]]
+    return [x + sz[0], y + sz[1] / 2]
+  }
+  var DIR = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] }
+  function drawEdges() {
+    svg.querySelectorAll('path.sb-edge').forEach(function (p) { p.remove() })
+    var byId = {}; show.nodes.forEach(function (n) { byId[n.id] = n })
+    show.edges.forEach(function (e) {
+      var a = byId[e.source], b = byId[e.target]; if (!a || !b) return
+      var sh = e.sourceHandle || 'right', th = e.targetHandle || 'left'
+      var p0 = sidePoint(a, sh), p3 = sidePoint(b, th)
+      var off = Math.max(30, Math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 0.35)
+      var c1 = [p0[0] + DIR[sh][0] * off, p0[1] + DIR[sh][1] * off], c2 = [p3[0] + DIR[th][0] * off, p3[1] + DIR[th][1] * off]
+      var p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      p.setAttribute('class', 'sb-edge')
+      p.setAttribute('d', 'M' + p0 + ' C' + c1 + ' ' + c2 + ' ' + p3)
+      p.setAttribute('marker-end', 'url(#sb-arrowhead)')
+      svg.appendChild(p)
+    })
+  }
+  drawEdges()
+
+  // ---- the view: pan and zoom ----
+  var cam = SB_CAM[s.id]
+  function apply() { world.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.k + ')'; SB_CAM[s.id] = cam }
+  function fitAll() {
+    var r = wrap.getBoundingClientRect()
+    var minX = 0, minY = 0, maxX = CANVAS_W, maxY = CANVAS_H
+    if (show.nodes.length) {
+      minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity
+      show.nodes.forEach(function (n) { var sz = nodeSize(n, lib); minX = Math.min(minX, n.position.x); minY = Math.min(minY, n.position.y); maxX = Math.max(maxX, n.position.x + sz[0]); maxY = Math.max(maxY, n.position.y + sz[1]) })
+      minX -= 40; minY -= 40; maxX += 40; maxY += 40
+    }
+    var k = Math.min(2, Math.max(0.15, Math.min((r.width || 360) / (maxX - minX), (r.height || 500) / (maxY - minY))))
+    cam = { k: k, x: (r.width - (maxX - minX) * k) / 2 - minX * k, y: (r.height - (maxY - minY) * k) / 2 - minY * k }
+    apply()
+  }
+  fit.addEventListener('click', fitAll)
+  // Opening the canvas: the whole show if it fits at a readable size. A show laid out wide on the Mac
+  // would shrink to unreadable specks on a tall phone screen, so then it opens zoomed in on the FIRST
+  // item of the running order instead, and Fit shows the lot.
+  function startView() {
+    fitAll()
+    if (cam.k >= 0.7 || !show.nodes.length) return
+    var r = wrap.getBoundingClientRect()
+    var first = getShowOrder(show.nodes, show.edges)[0], sz = nodeSize(first, lib), k = 0.75
+    cam = { k: k, x: 18 - first.position.x * k, y: (r.height || 500) / 2 - (first.position.y + sz[1] / 2) * k }
+    apply()
+  }
+  // The canvas fills the screen between the buttons and the tab bar.
+  setTimeout(function () {
+    var top = wrap.getBoundingClientRect().top
+    wrap.style.height = Math.max(300, window.innerHeight - top - 86) + 'px'
+    if (cam) apply(); else startView()
+  }, 0)
+
+  // ---- touch ----
+  var pts = {}, gesture = null
+  function local(ev) { var r = wrap.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top } }
+  function pinchState() {
+    var ids = Object.keys(pts); if (ids.length < 2) return null
+    var a = pts[ids[0]], b = pts[ids[1]]
+    return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 }
+  }
+  wrap.addEventListener('pointerdown', function (ev) {
+    if (ev.target.closest('button')) return
+    ev.preventDefault()
+    try { wrap.setPointerCapture(ev.pointerId) } catch (e) { /* fine */ }
+    pts[ev.pointerId] = local(ev)
+    SB_BUSY = true
+    if (Object.keys(pts).length === 2) {
+      var ps = pinchState()
+      gesture = { type: 'pinch', d0: ps.d, k0: cam.k, wx: (ps.mx - cam.x) / cam.k, wy: (ps.my - cam.y) / cam.k }
+      return
+    }
+    var nodeEl = ev.target.closest('.sb-node')
+    var p = pts[ev.pointerId]
+    if (nodeEl) {
+      var n = show.nodes.find(function (x) { return x.id === nodeEl.dataset.id })
+      gesture = { type: 'node', id: n.id, el: nodeEl, sx: p.x, sy: p.y, ox: n.position.x, oy: n.position.y, moved: false, pid: ev.pointerId }
+    } else {
+      gesture = { type: 'pan', sx: p.x, sy: p.y, cx: cam.x, cy: cam.y, moved: false, pid: ev.pointerId }
+    }
+  })
+  wrap.addEventListener('pointermove', function (ev) {
+    if (!pts[ev.pointerId] || !gesture) return
+    pts[ev.pointerId] = local(ev)
+    if (gesture.type === 'pinch') {
+      var ps = pinchState(); if (!ps) return
+      var k = Math.min(2, Math.max(0.15, gesture.k0 * ps.d / gesture.d0))
+      cam = { k: k, x: ps.mx - gesture.wx * k, y: ps.my - gesture.wy * k }
+      apply(); return
+    }
+    if (ev.pointerId !== gesture.pid) return
+    var p = pts[ev.pointerId], dx = p.x - gesture.sx, dy = p.y - gesture.sy
+    if (!gesture.moved && Math.hypot(dx, dy) < 7) return
+    gesture.moved = true
+    if (gesture.type === 'pan') { cam = { k: cam.k, x: gesture.cx + dx, y: gesture.cy + dy }; apply(); return }
+    if (SB_CONNECT) return // in Connect mode a box is tapped, not dragged
+    var n = show.nodes.find(function (x) { return x.id === gesture.id }), sz = nodeSize(n, lib)
+    n.position = { x: Math.round(Math.max(0, Math.min(CANVAS_W - sz[0], gesture.ox + dx / cam.k))), y: Math.round(Math.max(0, Math.min(CANVAS_H - sz[1], gesture.oy + dy / cam.k))) }
+    gesture.el.style.left = n.position.x + 'px'; gesture.el.style.top = n.position.y + 'px'
+    gesture.el.classList.add('dragging')
+    drawEdges()
+  })
+  function up(ev) {
+    if (!pts[ev.pointerId]) return
+    delete pts[ev.pointerId]
+    var g = gesture
+    if (Object.keys(pts).length) { // one finger of a pinch lifted: carry on panning with the other
+      var id = Object.keys(pts)[0], p = pts[id]
+      gesture = { type: 'pan', sx: p.x, sy: p.y, cx: cam.x, cy: cam.y, moved: true, pid: Number(id) }
+      return
+    }
+    gesture = null
+    SB_BUSY = false
+    if (!g || g.type === 'pinch' || g.type === 'pan') return
+    g.el.classList.remove('dragging')
+    if (g.moved && !SB_CONNECT) {
+      var n = show.nodes.find(function (x) { return x.id === g.id })
+      var pos = n.position
+      sbChangeShow(s.id, function (cur) { return moveNode(cur, g.id, pos, lib) })
+      return
+    }
+    if (g.moved) return
+    // A tap.
+    if (SB_CONNECT === 'pick-from') { SB_CONNECT = g.id; paintHint(); return }
+    if (SB_CONNECT) {
+      var from = SB_CONNECT
+      SB_CONNECT = null
+      if (from === g.id) { paintHint(); return }
+      sbChangeShow(s.id, function (cur) { return connectNodes(cur, from, g.id, lib) }, 'Arrow added')
+      return
+    }
+    sbNodeSheet(s.id, g.id)
+  }
+  wrap.addEventListener('pointerup', up)
+  wrap.addEventListener('pointercancel', up)
+  paintHint()
+}
+
+// ---- the libraries ----
+function sbTricksTab(body, redraw) {
+  var head = el('<div class="tabhead"><button class="btn-ghost show-btn">Tags</button></div>')
+  head.firstChild.addEventListener('click', function () { sbTagsSheet(redraw) })
+  head.appendChild(sbAddBtn('New trick', function () { sbEditor('trick', null, null, redraw) }))
+  body.appendChild(head)
+  var q = el('<input class="search" placeholder="Search tricks" autocapitalize="off" autocorrect="off">')
+  q.value = SB_FIND.q
+  body.appendChild(q)
+  var chips = el('<div class="sb-chips sb-filter"></div>')
+  body.appendChild(chips)
+  var list = el('<div class="show-list" style="margin-top:8px"></div>')
+  body.appendChild(list)
+  function drawChips() {
+    chips.innerHTML = ''
+    ;(SB.tag || []).forEach(function (t) {
+      var on = SB_FIND.tags.indexOf(t.id) >= 0
+      var c = el('<button class="sb-chip' + (on ? ' on' : '') + '"></button>'); c.textContent = t.name
+      c.addEventListener('click', function () {
+        SB_FIND.tags = on ? SB_FIND.tags.filter(function (x) { return x !== t.id }) : SB_FIND.tags.concat(t.id)
+        drawChips(); drawList()
+      })
+      chips.appendChild(c)
+    })
+  }
+  function drawList() {
+    list.innerHTML = ''
+    var needle = SB_FIND.q.trim().toLowerCase()
+    var items = SB.trick.filter(function (t) {
+      if (needle && String(t.name || '').toLowerCase().indexOf(needle) < 0) return false
+      return SB_FIND.tags.every(function (id) { return (t.tagIds || []).indexOf(id) >= 0 })
+    })
+    if (!SB.trick.length) { list.appendChild(el('<div class="empty" style="padding:30px 16px">No tricks yet. Tap New trick to add one.</div>')); return }
+    if (!items.length) { list.appendChild(el('<div class="empty">No trick matches.</div>')); return }
+    items.forEach(function (t) {
+      var r = sbRow({ type: 'editable', data: {} }, 'trick', t, '', function () { sbEditor('trick', t, null, redraw) })
+      r.querySelector('.sb-num').remove()
+      list.appendChild(r)
+    })
+  }
+  q.addEventListener('input', function () { SB_FIND.q = q.value; drawList() })
+  drawChips(); drawList()
+}
+
+function sbMusicTab(body, redraw) {
+  var head = el('<div class="tabhead"><span></span></div>')
+  head.appendChild(sbAddBtn('New music cue', function () { sbEditor('music', null, null, redraw) }))
+  body.appendChild(head)
+  var list = el('<div class="show-list"></div>')
+  if (!SB.music.length) list.appendChild(el('<div class="empty" style="padding:24px 16px">No music cues yet.</div>'))
+  SB.music.forEach(function (m) {
+    var r = sbRow({ type: 'music', data: {} }, 'music', m, '♪', function () { sbEditor('music', m, null, redraw) })
+    // The play button sits BESIDE the row, not in it: a button inside a button misbehaves on iOS.
+    var w = el('<div class="sb-row-wrap"></div>')
+    w.appendChild(r)
+    if (m.audioFileId && sbFind('audio', m.audioFileId)) w.appendChild(sbPlayBtn(m.audioFileId))
+    list.appendChild(w)
+  })
+  body.appendChild(list)
+
+  body.appendChild(sectionLabel('Audio files'))
+  var up = el('<button class="btn-ghost" style="width:100%;margin-bottom:8px">Upload audio</button>')
+  up.addEventListener('click', function () { sbUploadAudioPick(function () { redraw() }) })
+  body.appendChild(up)
+  var al = el('<div class="show-list"></div>')
+  if (!SB.audio.length) al.appendChild(el('<div class="empty" style="padding:16px">No audio uploaded yet.</div>'))
+  SB.audio.forEach(function (a) {
+    var r = el('<div class="card sb-audio-row"><span class="sb-audio-n"></span><span class="sb-audio-s"></span><button class="ed-x" aria-label="Rename or delete">&#8943;</button></div>')
+    r.insertBefore(sbPlayBtn(a.id), r.firstChild)
+    r.querySelector('.sb-audio-n').textContent = a.displayName
+    r.querySelector('.sb-audio-s').textContent = a.size ? (a.size / 1048576).toFixed(1) + ' MB' : ''
+    r.querySelector('.ed-x').addEventListener('click', function () { sbAudioOptions(a, redraw) })
+    al.appendChild(r)
+  })
+  body.appendChild(al)
+}
+
+function sbOtherTab(body, redraw) {
+  var head = el('<div class="tabhead"><span></span></div>')
+  head.appendChild(sbAddBtn('New item', function () { sbEditor('other', null, null, redraw) }))
+  body.appendChild(head)
+  body.appendChild(el('<p class="hint" style="margin:0 2px 10px">Anything that takes a slot in a show but is not a trick or a music cue: a joke, a story, a video cue.</p>'))
+  var list = el('<div class="show-list"></div>')
+  if (!SB.other.length) list.appendChild(el('<div class="empty" style="padding:24px 16px">Nothing here yet.</div>'))
+  SB.other.forEach(function (o) {
+    var r = sbRow({ type: 'other', data: {} }, 'other', o, '', function () { sbEditor('other', o, null, redraw) })
+    r.querySelector('.sb-num').remove()
+    list.appendChild(r)
+  })
+  body.appendChild(list)
+}
+
+function sbTagsSheet(redraw) {
+  var sh = makeSheet('Tags')
+  sh.body.appendChild(el('<p class="hint" style="margin:0 0 10px">Removing a tag here takes it off every trick that uses it. Add tags from inside a trick.</p>'))
+  if (!SB.tag.length) sh.body.appendChild(el('<div class="empty">No tags yet.</div>'))
+  SB.tag.forEach(function (t) {
+    var used = SB.trick.filter(function (x) { return (x.tagIds || []).indexOf(t.id) >= 0 }).length
+    var r = el('<div class="sb-ess-row"><span></span><button class="ed-x" aria-label="Delete tag">&times;</button></div>')
+    r.querySelector('span').textContent = t.name + '  (' + used + ')'
+    r.querySelector('button').addEventListener('click', function () {
+      if (!confirm('Delete the tag "' + t.name + '"?' + (used ? '\n\nIt comes off ' + used + ' trick' + (used === 1 ? '' : 's') + '.' : ''))) return
+      doWrite(sbDelete('tag', t.id), 'Tag deleted', function () {
+        sbDrop('tag', t.id)
+        SB.trick = SB.trick.map(function (x) { return Object.assign({}, x, { tagIds: (x.tagIds || []).filter(function (y) { return y !== t.id }) }) })
+        SB_FIND.tags = SB_FIND.tags.filter(function (y) { return y !== t.id })
+        r.remove(); redraw()
+      })
+    })
+    sh.body.appendChild(r)
+  })
+}
+
+function sbUploadAudioPick(after) {
+  var input = document.createElement('input')
+  input.type = 'file'; input.accept = 'audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac'
+  input.style.display = 'none'
+  document.body.appendChild(input)
+  input.addEventListener('change', function () {
+    var f = input.files && input.files[0]
+    input.remove()
+    if (!f) return
+    toast('Uploading ' + f.name + '…')
+    doWrite(sbUploadAudio(f), 'Uploaded', function (a) { sbPut('audio', a); SB_AUDIO_AT = 0; sbPrefetchAudio(); if (after) after(a) })
+  })
+  input.click()
+}
+
+function sbAudioOptions(a, redraw) {
+  var sh = makeSheet(a.displayName)
+  var ren = el('<button class="actrow"><span class="ar-l">Rename</span></button>')
+  ren.addEventListener('click', function () {
+    sh.body.innerHTML = ''
+    var inp = el('<input class="search">'); inp.value = a.displayName
+    sh.body.appendChild(inp)
+    var bar = el('<div class="addrow" style="margin-top:12px"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+    bar.children[0].addEventListener('click', sh.close)
+    bar.children[1].addEventListener('click', function () {
+      var n = inp.value.trim(); if (!n) { inp.focus(); return }
+      doWrite(sbSave('audio', Object.assign({}, a, { displayName: n })), 'Renamed', function (x) { sbPut('audio', x); sh.close(); redraw() })
+    })
+    sh.body.appendChild(bar)
+    setTimeout(function () { inp.focus(); inp.select() }, 40)
+  })
+  var del = el('<button class="actrow"><span class="ar-l" style="color:var(--red)">Delete file</span></button>')
+  del.addEventListener('click', function () {
+    var users = SB.music.filter(function (m) { return m.audioFileId === a.id }).length
+    if (!confirm('Delete "' + a.displayName + '"?' + (users ? '\n\n' + users + ' music cue' + (users === 1 ? '' : 's') + ' will no longer have audio.' : '') + '\n\nThe file cannot be brought back.')) return
+    if (SB_PLAYING === a.id) sbStopAudio()
+    doWrite(sbDelete('audio', a.id), 'Deleted', function () {
+      sbDrop('audio', a.id)
+      SB.music = SB.music.map(function (m) { return m.audioFileId === a.id ? Object.assign({}, m, { audioFileId: null }) : m })
+      sh.close(); redraw()
+    })
+  })
+  sh.body.appendChild(ren); sh.body.appendChild(del)
+}
+
+// ---- the editors: a trick, a music cue, an "other" item, in full ----
+//
+// `item` null = a new one (`seed` can carry a name). `after(saved)` runs once it is saved. Delete is
+// offered on an existing item; it leaves any show slot that used it empty, as the Mac always has.
+function sbEditor(kind, item, seed, after) {
+  var isNew = !item
+  var d = isNew ? normalizeDoc(kind, Object.assign({ id: newId(), name: '' }, seed || {})) : JSON.parse(JSON.stringify(item))
+  var title = isNew ? 'New ' + (kind === 'other' ? 'item' : kind === 'music' ? 'music cue' : 'trick') : (item.name || 'Untitled')
+  var sh = makeSheet(title, true)
+  var form = el('<div class="sb-form"></div>')
+  sh.body.appendChild(form)
+  function field(label, node, hint) {
+    var f = el('<label class="sb-field"><span class="sb-field-l"></span></label>')
+    f.firstChild.textContent = label
+    f.appendChild(node)
+    if (hint) { var h = el('<span class="sb-field-h"></span>'); h.textContent = hint; f.appendChild(h) }
+    form.appendChild(f)
+    return node
+  }
+  function input(val, ph) { var i = el('<input class="search">'); i.value = val || ''; if (ph) i.placeholder = ph; return i }
+  function area(val, rows, ph) { var t = document.createElement('textarea'); t.className = 'field-input sb-area'; t.rows = rows || 3; t.value = val || ''; if (ph) t.placeholder = ph; return t }
+
+  var nameIn = field('Name', input(d.name, kind === 'trick' ? 'Cups and Balls' : kind === 'music' ? 'Opening theme' : 'Opening story'))
+  var tagBox = kind === 'trick' ? sbTagEditor(d, form) : null
+  var durIn = kind !== 'music' ? field('Runtime', input(d.duration, 'M:SS, like 3:30'), 'Counts toward the show\'s total runtime.') : null
+  if (durIn) durIn.setAttribute('inputmode', 'text')
+  var descIn = field('Description', area(d.description, 3))
+  var startIn = kind === 'music' ? field('Starts', input(d.startCue, 'at the start of the trick')) : null
+  var stopIn = kind === 'music' ? field('Stops', input(d.stopCue, 'at the end of the trick')) : null
+  var audioBox = kind === 'music' ? sbAudioChooser(d, form) : null
+  var colorBox = kind === 'other' ? sbColorChooser(d, form) : null
+  var propsBox = kind !== 'music' ? sbPropsEditor(d, form) : null
+  var scriptIn = kind === 'trick' ? field('Script', area(d.script, 10)) : null
+  var sourceIn = kind === 'trick' ? field('Source', input(d.source, 'Where it comes from')) : null
+  var notesIn = kind === 'trick' ? field('Notes', area(d.notes, 3)) : null
+  ;[descIn, scriptIn, notesIn].forEach(function (t) {
+    if (!t) return
+    var grow = function () { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight + 2, 640) + 'px' }
+    t.addEventListener('input', grow); setTimeout(grow, 0)
+  })
+
+  var bar = el('<div class="addrow sb-save"><button class="btn-ghost">Cancel</button><button class="btn-gold">Save</button></div>')
+  bar.children[0].addEventListener('click', sh.close)
+  bar.children[1].addEventListener('click', function () {
+    var n = nameIn.value.trim()
+    if (!n) { toast('Give it a name.', 'err'); nameIn.focus(); return }
+    d.name = n
+    d.description = descIn.value
+    if (durIn) d.duration = durIn.value.trim()
+    if (startIn) { d.startCue = startIn.value.trim(); d.stopCue = stopIn.value.trim() }
+    if (scriptIn) { d.script = scriptIn.value; d.source = sourceIn.value.trim(); d.notes = notesIn.value }
+    if (propsBox) d.props = propsBox.value()
+    if (tagBox) d.tagIds = tagBox.value()
+    if (audioBox) d.audioFileId = audioBox.value()
+    if (colorBox) d.color = colorBox.value()
+    bar.children[1].disabled = true
+    doWrite(sbSave(kind, d), 'Saved', function (saved) {
+      sbPut(kind, saved)
+      sh.close()
+      if (after) after(saved)
+    }).catch(function () { bar.children[1].disabled = false })
+  })
+  sh.body.appendChild(bar)
+
+  if (!isNew) {
+    var users = (SB.show || []).filter(function (s) { return s.nodes.some(function (nd) { return nodeKind(nd) === kind && nodeRef(nd) === item.id }) })
+    var del = el('<button class="btn-ghost sb-danger" style="width:100%;margin-top:10px"></button>')
+    del.textContent = 'Delete this ' + (kind === 'other' ? 'item' : kind === 'music' ? 'music cue' : 'trick')
+    del.addEventListener('click', function () {
+      var msg = 'Delete "' + (item.name || 'Untitled') + '" from your library?'
+      if (users.length) msg += '\n\nIt is in ' + users.map(function (s) { return s.name }).join(', ') + '. Its slot there will be left empty.'
+      if (!confirm(msg)) return
+      doWrite(sbDelete(kind, item.id), 'Deleted', function () { sbDrop(kind, item.id); sh.close(); if (after) after(null) })
+    })
+    sh.body.appendChild(del)
+  }
+  if (isNew) setTimeout(function () { nameIn.focus() }, 80)
+}
+
+// Props: one row each, with a Reusable switch ("I only need one of these for the whole show").
+function sbPropsEditor(d, form) {
+  var props = (d.props || []).map(function (p) { return { name: p.name, reusable: !!p.reusable } })
+  var box = el('<div class="sb-field"><span class="sb-field-l">Props</span><div class="sb-props-ed"></div><button class="btn-ghost sb-add-prop" type="button">+ Add prop</button><span class="sb-field-h">Reusable: you only need one for the whole show, however many tricks use it.</span></div>')
+  var list = box.querySelector('.sb-props-ed')
+  function row(p) {
+    var r = el('<div class="sb-prop"><input class="search" placeholder="Prop"><button type="button" class="sb-reuse-t">Reusable</button><button class="ed-x" type="button" aria-label="Remove">&times;</button></div>')
+    var inp = r.querySelector('input'); inp.value = p.name
+    inp.addEventListener('input', function () { p.name = inp.value })
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); add() } })
+    var t = r.querySelector('.sb-reuse-t')
+    var paint = function () { t.classList.toggle('on', p.reusable); t.setAttribute('aria-pressed', p.reusable ? 'true' : 'false') }
+    t.addEventListener('click', function () { p.reusable = !p.reusable; paint() })
+    paint()
+    r.querySelector('.ed-x').addEventListener('click', function () { props = props.filter(function (x) { return x !== p }); r.remove() })
+    list.appendChild(r)
+    return r
+  }
+  function add() { var p = { name: '', reusable: false }; props.push(p); var r = row(p); setTimeout(function () { r.querySelector('input').focus() }, 30) }
+  props.forEach(row)
+  box.querySelector('.sb-add-prop').addEventListener('click', add)
+  form.appendChild(box)
+  return { value: function () { return props.map(function (p) { return { name: p.name.trim(), reusable: p.reusable } }).filter(function (p) { return p.name }) } }
+}
+
+// Tags on a trick: chips with ×, and a box that finds an existing tag or creates a new one.
+function sbTagEditor(d, form) {
+  var ids = (d.tagIds || []).slice()
+  var box = el('<div class="sb-field"><span class="sb-field-l">Tags</span><div class="sb-chips"></div><input class="search" placeholder="Add a tag" autocapitalize="words"><div class="sb-tag-sug"></div></div>')
+  var chips = box.querySelector('.sb-chips'), inp = box.querySelector('input'), sug = box.querySelector('.sb-tag-sug')
+  function drawChips() {
+    chips.innerHTML = ''
+    ids.forEach(function (id) {
+      var t = sbFind('tag', id); if (!t) return
+      var c = el('<span class="sb-chip on"><span></span><button type="button" aria-label="Remove tag">&times;</button></span>')
+      c.firstChild.textContent = t.name
+      c.querySelector('button').addEventListener('click', function () { ids = ids.filter(function (x) { return x !== id }); drawChips() })
+      chips.appendChild(c)
+    })
+  }
+  function drawSug() {
+    sug.innerHTML = ''
+    var q = inp.value.trim().toLowerCase(); if (!q) return
+    var matches = (SB.tag || []).filter(function (t) { return ids.indexOf(t.id) < 0 && t.name.toLowerCase().indexOf(q) >= 0 }).slice(0, 6)
+    matches.forEach(function (t) {
+      var b = el('<button type="button" class="sb-chip"></button>'); b.textContent = t.name
+      b.addEventListener('click', function () { ids.push(t.id); inp.value = ''; drawChips(); drawSug() })
+      sug.appendChild(b)
+    })
+    var exact = (SB.tag || []).some(function (t) { return t.name.toLowerCase() === q })
+    if (!exact) {
+      var mk = el('<button type="button" class="sb-chip sb-chip-new"></button>'); mk.textContent = 'Create "' + inp.value.trim() + '"'
+      mk.addEventListener('click', create)
+      sug.appendChild(mk)
+    }
+  }
+  function create() {
+    var name = inp.value.trim(); if (!name) return
+    var existing = (SB.tag || []).find(function (t) { return t.name.toLowerCase() === name.toLowerCase() })
+    if (existing) { if (ids.indexOf(existing.id) < 0) ids.push(existing.id); inp.value = ''; drawChips(); drawSug(); return }
+    doWrite(sbSave('tag', { id: newId(), name: name }), null, function (t) { sbPut('tag', t); ids.push(t.id); inp.value = ''; drawChips(); drawSug() })
+  }
+  inp.addEventListener('input', drawSug)
+  inp.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    var q = inp.value.trim().toLowerCase(); if (!q) return
+    var first = (SB.tag || []).find(function (t) { return ids.indexOf(t.id) < 0 && t.name.toLowerCase().indexOf(q) >= 0 })
+    if (first && first.name.toLowerCase() === q) { ids.push(first.id); inp.value = ''; drawChips(); drawSug() } else create()
+  })
+  drawChips()
+  form.appendChild(box)
+  return { value: function () { return ids.slice() } }
+}
+
+// A music cue's audio: pick one already uploaded, or upload from the phone.
+function sbAudioChooser(d, form) {
+  var cur = d.audioFileId || null
+  var box = el('<div class="sb-field"><span class="sb-field-l">Audio</span><div class="sb-audio-pick"></div><button type="button" class="btn-ghost" style="margin-top:6px">Upload audio from this phone</button></div>')
+  var pick = box.querySelector('.sb-audio-pick')
+  function draw() {
+    pick.innerHTML = ''
+    var none = el('<button type="button" class="actrow' + (!cur ? ' on' : '') + '"><span class="ar-l">No audio</span></button>')
+    none.addEventListener('click', function () { cur = null; draw() })
+    pick.appendChild(none)
+    ;(SB.audio || []).forEach(function (a) {
+      var r = el('<div class="actrow sb-audio-opt' + (cur === a.id ? ' on' : '') + '"><span class="ar-l"></span></div>')
+      r.querySelector('.ar-l').textContent = a.displayName
+      r.insertBefore(sbPlayBtn(a.id), r.firstChild)
+      r.addEventListener('click', function () { cur = a.id; draw() })
+      pick.appendChild(r)
+    })
+  }
+  box.querySelector('button.btn-ghost').addEventListener('click', function () { sbUploadAudioPick(function (a) { cur = a.id; draw() }) })
+  draw()
+  form.appendChild(box)
+  return { value: function () { return cur } }
+}
+
+// An "other" item's color: a row of swatches, plus any color at all.
+var SB_SWATCHES = ['#7a8aa0', '#29bcb2', '#c25450', '#8e6cc9', '#d08a3a', '#4f8fd6', '#5b9d6d', '#c95a9a']
+function sbColorChooser(d, form) {
+  var cur = d.color || DEFAULT_OTHER_COLOR
+  var box = el('<div class="sb-field"><span class="sb-field-l">Color</span><div class="sb-swatches"></div></div>')
+  var row = box.querySelector('.sb-swatches')
+  function draw() {
+    row.innerHTML = ''
+    SB_SWATCHES.forEach(function (c) {
+      var b = el('<button type="button" class="sb-swatch' + (c.toLowerCase() === String(cur).toLowerCase() ? ' on' : '') + '"></button>')
+      b.style.background = c
+      b.setAttribute('aria-label', c)
+      b.addEventListener('click', function () { cur = c; draw() })
+      row.appendChild(b)
+    })
+    var any = el('<input type="color" class="sb-swatch-any" aria-label="Any color">'); any.value = /^#[0-9a-f]{6}$/i.test(cur) ? cur : '#7a8aa0'
+    any.addEventListener('input', function () { cur = any.value })
+    row.appendChild(any)
+  }
+  draw()
+  form.appendChild(box)
+  return { value: function () { return cur } }
+}
+
 // ---------- drawer navigation ----------
 // ---- global search (the Mac's SearchPalette) ----
 // Every project in every bucket, then contacts, matched across the same fields the Mac searches:
@@ -5129,7 +6342,7 @@ function openSearch() {
 function openDrawer() { var d = $('#drawer'); if (d) { d.classList.remove('hidden'); updateDrawerActive() } }
 function closeDrawer() { var d = $('#drawer'); if (d) d.classList.add('hidden') }
 function updateDrawerActive() {
-  var here = TAB === 'show' ? 'shows' : TAB
+  var here = TAB === 'show' ? 'shows' : TAB === 'bshow' ? 'builder' : TAB
   document.querySelectorAll('#drawer-nav button').forEach(function (b) { b.classList.toggle('on', b.dataset.page === here) })
 }
 function navigate(page) {
@@ -5159,6 +6372,7 @@ function sameLoc(a, b) {
   if (!a || !b) return false
   if (a.detail || b.detail) return a.detail === b.detail
   if (a.tab === 'show' && b.tab === 'show') return a.show === b.show
+  if (a.tab === 'bshow' && b.tab === 'bshow') return a.show === b.show
   return a.tab === b.tab
 }
 function noteLoc(loc) {
@@ -5182,6 +6396,7 @@ function backTarget() {
     var e = NAV_STACK[i]
     if (e.detail && !(SNAP && SNAP.projects.some(function (x) { return x.id === e.detail }))) continue
     if (e.tab === 'show' && !showById(e.show)) continue // a show deleted since
+    if (e.tab === 'bshow' && SB.show && !sbShow(e.show)) continue // a Show Builder show deleted since
     if (sameLoc(e, LAST_LOC)) continue
     return { e: e, i: i }
   }
@@ -5192,6 +6407,7 @@ function backTarget() {
 // The label is the destination, the way iOS does it, so he knows where he is going before he taps.
 function backLabel(e) {
   if (e.tab === 'show') return (showById(e.show) || {}).name || 'Show'
+  if (e.tab === 'bshow') return (sbShow(e.show) || {}).name || 'Show'
   if (e.detail) {
     var p = SNAP && SNAP.projects.find(function (x) { return x.id === e.detail })
     return (p && p.client) || 'Project'
@@ -5217,6 +6433,7 @@ function goBack() {
   try {
     TAB = e.tab
     if (e.tab === 'show') { SHOW_ID = e.show; SHOW_EDIT = false; SHOW_DRAFT = null }
+    if (e.tab === 'bshow') { SB_SHOW_ID = e.show; SB_EDIT = false; SB_DRAFT = null }
     if (e.detail) { if (e.ptab) PTAB = e.ptab; renderDetail(e.detail) }
     else render()
   } finally { NAV_RESTORING = false }
@@ -7397,6 +8614,7 @@ function enterApp() {
   if (saved && saved.tab && PAGE_TITLES[saved.tab] && !saved.detail) {
     TAB = saved.tab
     if (TAB === 'show') { if (saved.show) SHOW_ID = saved.show; else TAB = 'shows' }
+    if (TAB === 'bshow') { if (saved.show) SB_SHOW_ID = saved.show; else TAB = 'builder' }
   }
   wireWidgets()
   loadAndRender().then(function (r) {

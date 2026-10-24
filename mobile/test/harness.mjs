@@ -41,6 +41,7 @@ src = src.replace(/import\s*\{[\s\S]*?\}\s*from\s*'\.\/supabase-data\.js'\n?/, '
          .replace(/import\s*\{[^}]*\}\s*from\s*'\.\/config\.js'\n?/, '')
          // The template library is plain data, so the test loads the real one rather than a stub.
          .replace("from './email-templates.js'", "from '../email-templates.js'")
+         .replace("from './showbuilder-core.js'", "from '../showbuilder-core.js'")
 // boot() fires on DOMContentLoaded and would go to the network; the harness drives the render
 // functions directly instead, so that listener is dropped.
 src = src.replace("document.addEventListener('DOMContentLoaded', boot)", "")
@@ -56,6 +57,8 @@ const tail = [
   "  bookingTab, proposalSection, emailToProjectIndex, openNewProject,",
   "  refreshNativePushToken, registerNativePush, updatePushButton,",
   "  setSnap: (s) => { SNAP = s }, setTab: (t) => { TAB = t },",
+  "  renderBuilder, renderBShow, openBShow, sbFlushEdit, sbEditor, sbNodeSheet, sbLoad, getSB: () => SB,",
+  "  setSbView: (v) => { SB_VIEW = v }, setSbTab: (v) => { SB_TAB = v }, setSbDraft: (d) => { SB_EDIT = !!d; SB_DRAFT = d },",
   "  setPtab: (t) => { PTAB = t }, setDetail: (d) => { DETAIL_ID = d },",
   "  getPtab: () => PTAB, getStage: () => STAGE, setStageMap: (m) => { STAGE = m },",
   "}",

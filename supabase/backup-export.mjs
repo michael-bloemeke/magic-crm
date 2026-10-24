@@ -16,7 +16,7 @@
 //   crm-payments.json, crm-expenses.json, crm-mileage.json, crm-tasks.json,
 //   crm-emails.json, crm-notifications.json, crm-text-markers.json,
 //   crm-invoices.json, crm-contracts.json, crm-recipients.json, crm-inquiries.json,
-//   crm-config.json, crm-calendar-map.json, crm-shows.json
+//   crm-config.json, crm-calendar-map.json, crm-shows.json, crm-show-builder.json
 // After this, the backup covers ALL crm data (every crm-*.json now lives in Supabase).
 //
 // Run with Node 22:  /Users/michaelbloemeke/.local/node22/bin/node supabase/backup-export.mjs [targetDir]
@@ -703,6 +703,49 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
     })
     writeJson(targetDir, 'crm-shows.json', { shows: records, _meta: meta })
     written.push(`crm-shows.json (${records.length})`)
+  }
+
+  // ---- 22. crm-show-builder.json (added 2026-10-24) ----
+  // The folded-in Show Builder app: { show: [...], trick: [...], tag, music, other, audio, _meta },
+  // each document exactly as stored (the old app's JSON files). The AUDIO itself is binary and too big
+  // for this git-backed folder, so it is mirrored instead into the folder the old app kept it in,
+  // ~/Documents/Show Builder/audio/<storedFilename>, downloading only files not already there and
+  // never deleting anything. That folder already held every file uploaded before the move.
+  {
+    const kinds = ['show', 'trick', 'tag', 'music', 'other', 'audio']
+    const out = {}
+    let total = 0
+    for (const k of kinds) {
+      const { data, error } = await sb().from('show_builder').select('data').eq('kind', k).order('id', { ascending: true })
+      if (error) throw error
+      out[k] = (data || []).map((r) => r.data)
+      total += out[k].length
+    }
+    const meta = carryMeta(readExistingMeta(srcMetaDir, 'crm-show-builder.json'), {
+      fileName: 'crm-show-builder.json',
+      count: total,
+      fallbackPurpose: 'Show Builder: every show (nodes and arrows), trick, tag, music cue, other item and audio-file record, mirrored from Supabase. Audio files themselves are mirrored to ~/Documents/Show Builder/audio/.',
+    })
+    writeJson(targetDir, 'crm-show-builder.json', { ...out, _meta: meta })
+    written.push(`crm-show-builder.json (${out.show.length} shows, ${out.trick.length} tricks)`)
+    try {
+      const audioDir = path.join(os.homedir(), 'Documents', 'Show Builder', 'audio')
+      fs.mkdirSync(audioDir, { recursive: true })
+      let fetched = 0
+      for (const a of out.audio) {
+        const name = path.basename(String(a.storedFilename || ''))
+        if (!name || fs.existsSync(path.join(audioDir, name))) continue
+        const { data, error } = await sb().storage.from('show-builder').download(`audio/${name}`)
+        if (error) throw error
+        fs.writeFileSync(path.join(audioDir, name), Buffer.from(await data.arrayBuffer()))
+        fs.writeFileSync(path.join(audioDir, `${a.id}.audio.json`), JSON.stringify(a, null, 2))
+        fetched++
+      }
+      written.push(`show builder audio: ${out.audio.length} on file, ${fetched} newly copied to ~/Documents/Show Builder/audio`)
+    } catch (e) {
+      // Never let the audio copy fail the backup of everything else.
+      written.push(`show builder audio NOT mirrored: ${e?.message || e}`)
+    }
   }
 
   return { targetDir, written }

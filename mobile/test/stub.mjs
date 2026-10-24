@@ -1,6 +1,40 @@
 // Fake data layer. Every read returns fixtures; every write records the call and resolves.
 export const CALLS = []
 export const SHOW_ROWS = []
+import { normalizeDoc, sortDocs } from '../showbuilder-core.js'
+
+// Show Builder fixtures: one show of five items (three tricks, a music cue and an "other" item). Four
+// are chained by arrows; the "other" item is on the canvas with no arrow, as happens on the Mac.
+const T0 = '2026-06-01T10:00:00.000Z'
+export const SB_DOCS = {
+  tag: [{ id: 'tg-stage', name: 'Stage' }, { id: 'tg-card', name: 'Card Trick' }],
+  trick: [
+    { id: 'tr-cups', name: 'Cups and Balls', duration: '5:00', script: 'Opening line: three cups, one ball.', tagIds: ['tg-stage'], props: [{ name: '3 cups' }, { name: 'Jacket', reusable: true }] },
+    { id: 'tr-rope', name: 'Rope Routine', duration: '3:30', props: [{ name: 'rope' }, { name: 'Jacket', reusable: true }] },
+    { id: 'tr-deck', name: 'Tossed Out Deck', duration: '4:00', tagIds: ['tg-card'], props: [{ name: 'deck' }] },
+  ],
+  music: [{ id: 'mu-walk', name: 'Walk On', startCue: 'at the top', stopCue: 'when the cups land', audioFileId: 'au-walk' }],
+  other: [{ id: 'ot-story', name: 'Opening story', duration: '0:30', color: '#29bcb2', description: 'Thirty seconds before the first trick.' }],
+  audio: [{ id: 'au-walk', displayName: '1 Walk On', originalFilename: '1 Walk On.wav', storedFilename: 'au-walk.wav', mimeType: 'audio/wav', size: 12496940 }],
+  show: [{
+    id: 'sh-family', name: 'Family Show', showProps: ['mic'], updatedAt: '2026-06-02T02:27:12.929Z',
+    nodes: [
+      { id: 'n1', type: 'editable', position: { x: 100, y: 100 }, data: { trickId: 'tr-cups' } },
+      { id: 'n2', type: 'editable', position: { x: 320, y: 100 }, data: { trickId: 'tr-rope' } },
+      { id: 'n3', type: 'editable', position: { x: 540, y: 100 }, data: { trickId: 'tr-deck' } },
+      { id: 'n4', type: 'music', position: { x: 100, y: 300 }, data: { musicId: 'mu-walk' } },
+      { id: 'n5', type: 'other', position: { x: 760, y: 100 }, data: { otherId: 'ot-story' } },
+    ],
+    edges: [
+      { id: 'e1', source: 'n1', sourceHandle: 'right', target: 'n2', targetHandle: 'left' },
+      { id: 'e2', source: 'n2', sourceHandle: 'right', target: 'n3', targetHandle: 'left' },
+      { id: 'e3', source: 'n1', sourceHandle: 'bottom', target: 'n4', targetHandle: 'top' },
+    ],
+  }],
+}
+for (const k of Object.keys(SB_DOCS)) SB_DOCS[k] = SB_DOCS[k].map((d) => normalizeDoc(k, { createdAt: T0, updatedAt: T0, ...d }))
+const sbCopy = (x) => JSON.parse(JSON.stringify(x))
+export function sbFixtureReset(snapshot) { for (const k of Object.keys(snapshot)) SB_DOCS[k] = sbCopy(snapshot[k]) }
 const rec = (name) => (...args) => { CALLS.push({ name, args }); return Promise.resolve({ ok: true }) }
 
 export const FIXTURE_THREADS = [
@@ -13,6 +47,25 @@ export const FIXTURE_THREADS = [
 ]
 
 export const STUB = {
+  // Show Builder (supabase-data.js "show builder" block): an in-memory table.
+  sbList: (kind) => { CALLS.push({ name: 'sbList', args: [kind] }); return Promise.resolve(sortDocs(kind, sbCopy(SB_DOCS[kind] || []))) },
+  sbGet: (kind, id) => { CALLS.push({ name: 'sbGet', args: [kind, id] }); return Promise.resolve(sbCopy((SB_DOCS[kind] || []).find((d) => d.id === id) || null)) },
+  sbSave: (kind, doc) => {
+    CALLS.push({ name: 'sbSave', args: [kind, sbCopy(doc)] })
+    const clean = normalizeDoc(kind, { ...doc, updatedAt: '2026-10-24T12:00:00.000Z' })
+    SB_DOCS[kind] = (SB_DOCS[kind] || []).filter((d) => d.id !== clean.id).concat(clean)
+    return Promise.resolve(sbCopy(clean))
+  },
+  sbMutateShow: (id, fn) => {
+    const cur = SB_DOCS.show.find((d) => d.id === id)
+    const next = normalizeDoc('show', { ...fn(sbCopy(cur)), updatedAt: '2026-10-24T12:00:00.000Z' })
+    CALLS.push({ name: 'sbMutateShow', args: [id, sbCopy(next)] })
+    SB_DOCS.show = SB_DOCS.show.filter((d) => d.id !== id).concat(next)
+    return Promise.resolve(sbCopy(next))
+  },
+  sbDelete: (kind, id) => { CALLS.push({ name: 'sbDelete', args: [kind, id] }); SB_DOCS[kind] = (SB_DOCS[kind] || []).filter((d) => d.id !== id); return Promise.resolve({ ok: true }) },
+  sbAudioUrls: (metas) => Promise.resolve(Object.fromEntries((metas || []).map((m) => [m.id, 'https://example.test/' + m.storedFilename]))),
+
   // phone-api: only the proposal status the project card reads; everything else resolves ok.
   phoneApi: (action, body = {}) => {
     CALLS.push({ name: 'phoneApi', args: [action, body] })

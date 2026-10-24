@@ -9,7 +9,7 @@ import {
   type ReactNode
 } from 'react'
 import type { AudioFile, Music } from '../types'
-import { sbApi } from '../sbApi'
+import { sbApi, useOnFocus } from '../sbApi'
 
 type MusicContextValue = {
   music: Music[]
@@ -56,6 +56,7 @@ export function MusicProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh()
   }, [refresh])
+  useOnFocus(refresh)
 
   const saveMusic = useCallback(async (m: Music) => {
     const saved = await sbApi.saveMusic(m)

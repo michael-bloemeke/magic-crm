@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import type { ShowSummary, Show } from './types'
 import { useTricks } from './tricks/TricksContext'
 import { TagChip } from './tricks/TagChip'
-import { sbApi } from './sbApi'
+import { sbApi, useOnFocus } from './sbApi'
 
 type Props = {
   onOpenShow: (id: string) => void
@@ -42,6 +42,7 @@ export function HomeScreen({ onOpenShow, onOpenTricks, onOpenMusic, onOpenOthers
   useEffect(() => {
     refresh()
   }, [refresh])
+  useOnFocus(refresh)
 
   const createNewShow = async () => {
     const now = new Date().toISOString()

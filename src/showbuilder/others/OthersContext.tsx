@@ -8,7 +8,7 @@ import {
   type ReactNode
 } from 'react'
 import type { Other } from '../types'
-import { sbApi } from '../sbApi'
+import { sbApi, useOnFocus } from '../sbApi'
 
 type OthersContextValue = {
   others: Other[]
@@ -40,6 +40,7 @@ export function OthersProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh()
   }, [refresh])
+  useOnFocus(refresh)
 
   const saveOther = useCallback(async (o: Other) => {
     const saved = await sbApi.saveOther(o)

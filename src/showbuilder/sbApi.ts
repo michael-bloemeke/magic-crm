@@ -8,6 +8,7 @@
 // Kept deliberately as a drop-in: every screen in this folder is the old app's own code with
 // `window.showBuilder` swapped for `sbApi`. Nothing else about them changed.
 
+import { useEffect } from 'react'
 import type { Show, ShowSummary, Trick, Tag, AudioFile, Music, Other } from './types'
 
 async function call<T>(action: string, body: Record<string, unknown> = {}): Promise<T> {
@@ -66,7 +67,9 @@ export const sbApi = {
   // Shows
   listShows: () => list<ShowSummary>('show'),
   loadShow: (id: string) => get<Show>('show', id),
-  saveShow: (show: Show) => save<Show>('show', show).then(() => undefined),
+  // Returns the saved show as the server stored it, so the canvas can tell later whether the copy in
+  // the cloud has moved on (an edit from the phone) since it last saved.
+  saveShow: (show: Show) => save<Show>('show', show),
   deleteShow: (id: string) => del('show', id),
 
   // Tricks
@@ -99,4 +102,18 @@ export const sbApi = {
   loadOther: (id: string) => get<Other>('other', id),
   saveOther: (other: Other) => save<Other>('other', other),
   deleteOther: (id: string) => del('other', id),
+}
+
+// Re-read when the CRM window comes back to the front. The phone edits the same documents, and the
+// Mac's lists (and an open canvas) would otherwise keep showing what they loaded at first.
+export function useOnFocus(fn: () => void) {
+  useEffect(() => {
+    const onVis = () => { if (document.visibilityState === 'visible') fn() }
+    window.addEventListener('focus', fn)
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('focus', fn)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [fn])
 }

@@ -606,7 +606,7 @@
          inherits the light-on-navy palette and vanishes. */
       :is(header.topbar, #view, #login) :is(.card, .search, .btn-ghost, .seg, .msg, .addform, .field-input,
         .stagesel, .stat, .pagenote, .actrow, .phead, .dayof, .emailcard, .bk-gate, .pdfchip, .pdfframe,
-        .statcard, .psection-head, .panel, .tabs, .fin-card, .fin-month, .cal-grid, .chartcard, .cal-grid, .pb-card, .box, input, select, textarea) {
+        .statcard, .psection-head, .panel, .tabs, .fin-card, .fin-month, .cal-grid, .chartcard, .cal-grid, .pb-card, .box, .sb-chip, .sb-play, input, select, textarea) {
         --bg: #eef0f3; --surface: #ffffff; --surface2: #f5f7f9; --surface3: #eaedf1;
         --parchment: #14171b; --muted: #545b64; --faint: #858d97;
         --line: rgba(15, 22, 32, 0.11); --line-strong: rgba(15, 22, 32, 0.18);
@@ -1038,6 +1038,115 @@
       .ed-x { flex: none; width: 36px; height: 36px; border: 0; background: transparent; color: var(--faint); font-size: 22px; line-height: 1; }
       .show-adds { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
       .show-adds .btn-ghost { flex: 1 1 auto; }
+
+      /* ---- Show Builder (2026-10-24): the folded-in Show Builder app, phone layout ---- */
+      .sb-show-card { display: block; width: 100%; text-align: left; padding: 14px 15px; font: inherit; }
+      .sb-show-card .name { font-family: var(--font-display); font-size: 19px; overflow-wrap: anywhere; }
+      .sb-show-card .meta { margin-top: 4px; }
+      .sb-sum { font-size: 13px; color: var(--muted); margin: -4px 2px 10px; font-variant-numeric: tabular-nums; }
+      .sb-note { font-size: 13px; line-height: 1.45; color: var(--muted); padding: 11px 13px; margin-bottom: 10px; }
+      .sb-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 11px 13px 11px 10px; font: inherit; }
+      .sb-num { flex: none; width: 22px; text-align: center; font-size: 13px; font-weight: 700; color: var(--faint); font-variant-numeric: tabular-nums; }
+      .sb-bar { flex: none; width: 4px; align-self: stretch; min-height: 34px; border-radius: 3px; }
+      .sb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .sb-name { font-size: 15.5px; font-weight: 600; color: var(--parchment); overflow-wrap: anywhere; }
+      .sb-name.sb-empty { color: var(--faint); font-style: italic; font-weight: 500; }
+      .sb-meta { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .sb-meta:empty { display: none; }
+      .sb-dur { flex: none; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .sb-row-music .sb-name { font-weight: 500; }
+      .sb-row-wrap { display: flex; align-items: center; gap: 8px; }
+      .sb-row-wrap > .sb-row { flex: 1; min-width: 0; }
+      .sb-ed-name { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; overflow-wrap: anywhere; padding: 6px 0; }
+      .ed-body .sb-bar { min-height: 26px; }
+      .sb-dot { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%; }
+      .sb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+      .sb-filter { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+      .sb-filter::-webkit-scrollbar { display: none; }
+      .sb-chip { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--parchment); font: inherit; font-size: 13px; font-weight: 600; }
+      .sb-chip.on { background: color-mix(in oklab, var(--brass) 14%, var(--surface)); border-color: color-mix(in oklab, var(--brass) 55%, var(--line)); color: var(--brass-bright); }
+      .sb-chip button { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; padding: 0 0 0 2px; }
+      .sb-chip-new { border-style: dashed; }
+      .sb-play { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid color-mix(in oklab, #5b9d6d 55%, var(--line)); background: var(--surface); color: #3f7d50; display: grid; place-items: center; }
+      .sb-play.on { background: #5b9d6d; color: #fff; }
+      .sb-pick-head { position: sticky; top: -1px; background: var(--surface); padding-bottom: 6px; z-index: 2; }
+      .sb-pick-list { display: flex; flex-direction: column; gap: 7px; }
+      .sb-pick-row { gap: 12px; }
+      .sb-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .sb-pick-n { font-size: 15px; font-weight: 600; color: var(--parchment); }
+      .sb-pick-m { font-size: 12.5px; color: var(--muted); }
+      .sb-pick-m:empty { display: none; }
+      .sb-new .ar-l { color: var(--brass-bright); }
+      .sb-detail { display: flex; flex-direction: column; gap: 4px; }
+      .sb-sec { margin-top: 10px; }
+      .sb-sec-l { font-size: 12px; font-weight: 700; color: var(--faint); margin-bottom: 4px; }
+      .sb-text { font-size: 15px; line-height: 1.5; color: var(--parchment); white-space: pre-wrap; overflow-wrap: anywhere; }
+      .sb-script { background: var(--surface2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 15.5px; }
+      .sb-props { margin: 2px 0 0; padding-left: 20px; font-size: 14.5px; line-height: 1.55; color: var(--parchment); }
+      .sb-reuse { margin-left: 8px; font-size: 11.5px; font-weight: 700; color: var(--brass-bright); }
+      .sb-swatch-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+      .sb-audio-line { display: flex; align-items: center; gap: 10px; }
+      .sb-audio-n { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: var(--parchment); overflow-wrap: anywhere; }
+      .sb-audio-s { flex: none; font-size: 12.5px; color: var(--muted); }
+      .sb-audio-row { display: flex; align-items: center; gap: 10px; padding: 9px 8px 9px 10px; }
+      .sb-audio-pick { display: flex; flex-direction: column; gap: 6px; }
+      .sb-audio-opt { cursor: pointer; }
+      .sb-arrow { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--parchment); border-bottom: 1px solid var(--line); padding: 2px 0; }
+      .sb-arrow span { flex: 1; min-width: 0; }
+      .sb-acts { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+      .sb-danger { color: var(--red) !important; border-color: color-mix(in oklab, var(--red) 30%, var(--line)) !important; }
+      .sb-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+      .sb-stats .card { margin-bottom: 0; }
+      .sb-stat { padding: 12px 14px; }
+      .sb-stat-l { font-size: 12px; color: var(--muted); }
+      .sb-stat-v { font-family: var(--font-display); font-size: 26px; color: var(--parchment); margin-top: 2px; }
+      .sb-panel { padding: 12px 14px; }
+      .sb-ess-row { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--parchment); border-bottom: 1px solid var(--line); padding: 1px 0; }
+      .sb-ess-row span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      .sb-ess-add { display: flex; gap: 8px; margin-top: 10px; }
+      .sb-ess-add .search { margin: 0; }
+      .sb-ess-add .btn-ghost { flex: none; }
+      .sb-flow { display: block; width: 100%; text-align: left; padding: 11px 14px; font: inherit; }
+      .sb-flow-h { display: flex; align-items: center; gap: 8px; }
+      .sb-flow-n { flex: none; font-size: 13px; font-weight: 700; color: var(--faint); min-width: 20px; }
+      .sb-flow-t { flex: 1; min-width: 0; font-size: 15.5px; font-weight: 600; color: var(--parchment); overflow-wrap: anywhere; }
+      .sb-flow-d { flex: none; font-size: 13px; color: var(--muted); }
+      .sb-flow-desc { font-size: 13px; color: var(--muted); margin: 4px 0 0 28px; line-height: 1.4; }
+      .sb-flow .sb-props { margin-left: 28px; font-size: 14px; }
+      .sb-form { display: flex; flex-direction: column; gap: 14px; }
+      .sb-field { display: flex; flex-direction: column; gap: 5px; }
+      .sb-field-l { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+      .sb-field-h { font-size: 11.5px; color: var(--faint); }
+      .sb-field .search { margin: 0; }
+      .sb-area { width: 100%; resize: none; font-size: 16px; line-height: 1.45; }
+      .sb-props-ed { display: flex; flex-direction: column; gap: 7px; }
+      .sb-prop { display: flex; align-items: center; gap: 6px; }
+      .sb-prop .search { flex: 1; min-width: 0; }
+      .sb-reuse-t { flex: none; padding: 8px 9px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface2); color: var(--faint); font: inherit; font-size: 12px; font-weight: 700; }
+      .sb-reuse-t.on { background: color-mix(in oklab, var(--brass) 14%, var(--surface)); border-color: color-mix(in oklab, var(--brass) 55%, var(--line)); color: var(--brass-bright); }
+      .sb-add-prop { align-self: flex-start; }
+      .sb-tag-sug { display: flex; flex-wrap: wrap; gap: 6px; }
+      .sb-tag-sug:empty { display: none; }
+      .sb-swatches { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+      .sb-swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px var(--line-strong); }
+      .sb-swatch.on { border-color: var(--surface); box-shadow: 0 0 0 2px var(--parchment); }
+      .sb-swatch-any { width: 40px; height: 36px; border: 1px solid var(--line-strong); border-radius: 9px; padding: 2px; background: var(--surface); }
+      .sb-save { position: sticky; bottom: -1px; background: var(--surface); padding: 10px 0 4px; margin-top: 16px; z-index: 2; }
+      /* The canvas: the Mac's dark page, at any zoom. Its colors are set here outright, not from the
+         page palette, because it is dark inside a light-on-navy page. */
+      .sb-canvas-hint { font-size: 12.5px; color: var(--muted); margin: -4px 2px 8px; }
+      .sb-canvas { position: relative; overflow: hidden; height: 60vh; border-radius: 14px; background: #0f0f10; border: 1px solid rgba(255, 255, 255, 0.14); touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+      .sb-world { position: absolute; left: 0; top: 0; width: 2400px; height: 1500px; transform-origin: 0 0; background-color: #131316; background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px); background-size: 20px 20px; }
+      .sb-edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+      .sb-edge { fill: none; stroke: #b8b8c0; stroke-width: 2; }
+      .sb-node { position: absolute; display: flex; align-items: center; justify-content: center; text-align: center; padding: 8px; border-radius: 10px; background: #1e1e22; border: 1.5px solid #3a3a40; color: #f0f0f2; font-size: 14px; line-height: 1.25; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+      .sb-node-t { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+      .sb-node-trick { border-color: #c89b5c; }
+      .sb-node-music { background: #1c2820; border-color: #7ab787; color: #d8eedc; }
+      .sb-node-empty { border-style: dashed; color: #8a8a92; }
+      .sb-node.dragging { box-shadow: 0 14px 30px rgba(0, 0, 0, 0.6); z-index: 3; }
+      .sb-node.from { box-shadow: 0 0 0 3px #c89b5c, 0 4px 14px rgba(0, 0, 0, 0.45); }
+      .sb-conn.on { color: var(--brass-bright); border-color: var(--brass); }
     </style>
   </head>
   <body>
@@ -1098,6 +1207,7 @@
           <button data-page="contacts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M16 5.2a3 3 0 0 1 0 5.6M17.5 20a5.5 5.5 0 0 0-2.7-4.7"/></svg><span class="dn-l">Contacts</span></button>
           <div class="drawer-group">Library</div>
           <button data-page="shows"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8-4.3-4.1 5.9-.9z"/></svg><span class="dn-l">Shows</span></button>
+          <button data-page="builder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v5"/></svg><span class="dn-l">Show Builder</span></button>
           <button data-page="playbook"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H18a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5.5A1.5 1.5 0 0 1 4 17.5z"/><path d="M4 17.5A1.5 1.5 0 0 1 5.5 16H19"/><path d="M8 8h7M8 11h5"/></svg><span class="dn-l">Playbook</span></button>
           <button data-page="files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="dn-l">Files</span></button>
           <div class="drawer-group">Records</div>

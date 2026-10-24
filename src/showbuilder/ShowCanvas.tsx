@@ -36,7 +36,8 @@ import { OtherSidebar } from './others/OtherSidebar'
 import { useMusic } from './music/MusicContext'
 import { ShowInfo } from './ShowInfo'
 import type { Show } from './types'
-import { sbApi } from './sbApi'
+import { sbApi, useOnFocus } from './sbApi'
+import { cleanShow } from '../../mobile/showbuilder-core.js'
 
 type Props = {
   showId: string
@@ -68,6 +69,13 @@ const pageNode: Node = {
   deletable: false,
   focusable: false,
   zIndex: -1
+}
+
+// A show's CONTENT, cleaned exactly the way the server stores it (showbuilder-core.js), so React
+// Flow's screen-only bookkeeping (measured sizes, selection, drag state) never counts as a change.
+const sigOf = (s: Show) => {
+  const c = cleanShow(s)
+  return JSON.stringify([c.name, c.nodes, c.edges, c.showProps])
 }
 
 function makeId(prefix: string): string {
@@ -138,14 +146,13 @@ export function ShowCanvas({ showId, onBack }: Props) {
     dirtyRef.current = dirty
   }, [dirty])
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      const loadedShow = await sbApi.loadShow(showId)
-      if (cancelled || !loadedShow) {
-        setLoaded(true)
-        return
-      }
+  // What the cloud copy looked like the last time this canvas loaded or saved it. When the window
+  // comes back to the front and the cloud copy differs, the phone (or another window) changed the
+  // show meanwhile, so the canvas reloads instead of later saving its stale copy over that edit.
+  const cloudSig = useRef<string>('')
+
+  const applyShow = useCallback((loadedShow: Show) => {
+      cloudSig.current = sigOf(loadedShow)
       setShowName(loadedShow.name)
       setCreatedAt(loadedShow.createdAt)
       setShowProps(Array.isArray((loadedShow as Show).showProps) ? (loadedShow as Show).showProps! : [])
@@ -204,12 +211,30 @@ export function ShowCanvas({ showId, onBack }: Props) {
       })
       setNodes(hydratedNodes)
       setEdges(loadedShow.edges as Edge[])
+  }, [setNodes, setEdges])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const loadedShow = await sbApi.loadShow(showId)
+      if (cancelled || !loadedShow) {
+        setLoaded(true)
+        return
+      }
+      applyShow(loadedShow)
       setLoaded(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [showId, setNodes, setEdges])
+  }, [showId, applyShow])
+
+  const reloadIfChanged = useCallback(async () => {
+    if (!loaded || dirtyRef.current || saveTimer.current) return
+    const fresh = await sbApi.loadShow(showId).catch(() => null)
+    if (fresh && sigOf(fresh) !== cloudSig.current && !dirtyRef.current) applyShow(fresh)
+  }, [loaded, showId, applyShow])
+  useOnFocus(reloadIfChanged)
 
   // Strip node data down to the persisted shape. Drops any transient fields
   // and any legacy top-level width/height that the old NodeResizer may have
@@ -261,7 +286,8 @@ export function ShowCanvas({ showId, onBack }: Props) {
     const show = buildShow()
     setSaving(true)
     try {
-      await sbApi.saveShow(show)
+      const stored = await sbApi.saveShow(show)
+      cloudSig.current = sigOf(stored)
       setSavedAt(show.updatedAt)
       setDirty(false)
     } finally {
@@ -273,13 +299,21 @@ export function ShowCanvas({ showId, onBack }: Props) {
   // after the initial load.
   useEffect(() => {
     if (!loaded) return
+    // Only a real edit is unsaved. React Flow re-measures boxes and tracks selection after every
+    // load; saving those would bump the show for nothing, and could land on top of an edit just made
+    // on the phone (2026-10-24).
+    if (sigOf(buildShow()) === cloudSig.current) {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+      setDirty(false)
+      return
+    }
     setDirty(true)
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => { saveNow() }, 400)
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
     }
-  }, [nodes, edges, showName, showProps, loaded, saveNow])
+  }, [nodes, edges, showName, showProps, loaded, saveNow, buildShow])
 
   // On unmount: flush any pending changes. Fire-and-forget the IPC since
   // we cannot await during cleanup; the main process still writes the file.
