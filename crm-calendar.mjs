@@ -283,12 +283,33 @@ function errorCode(e) {
   return e?.code || e?.response?.status
 }
 
+// What each event was last written as, so a sync can skip the ones that have not changed.
+//
+// Every sync used to rewrite EVERY event, about one a second, so a full pass took minutes. On
+// 2026-10-27 the 5-minute timer kept starting new passes before the old ones finished, they all
+// queued on the op chain above, and projects created from Oct 26 on (four of them, Envestnet among
+// them) never reached the calendar until the server was restarted.
+//
+// An unchanged event is still rewritten once its last write is more than RECHECK_MS old. That keeps
+// the old self-healing (an event deleted or edited by hand in Google comes back as the CRM has it),
+// just hourly instead of every 5 minutes. Any change to the project heals it at once. In memory
+// only, so every server start does one full pass.
+const RECHECK_MS = 60 * 60 * 1000
+const lastWritten = new Map() // `${bucket}:${key}` -> { eventId, sig, at }
+
 async function upsertEvent(cal, calId, bucket, key, body) {
   return serialize(async () => {
     const existingId = readMap()[bucket][key]
+    const slot = `${bucket}:${key}`
+    const sig = JSON.stringify(body)
     if (existingId) {
+      const prev = lastWritten.get(slot)
+      if (prev && prev.eventId === existingId && prev.sig === sig && Date.now() - prev.at < RECHECK_MS) {
+        return existingId
+      }
       try {
         await cal.events.update({ calendarId: calId, eventId: existingId, requestBody: body })
+        lastWritten.set(slot, { eventId: existingId, sig, at: Date.now() })
         return existingId
       } catch (e) {
         const code = errorCode(e)
@@ -308,12 +329,14 @@ async function upsertEvent(cal, calId, bucket, key, body) {
     const map = readMap()
     map[bucket][key] = res.data.id
     await writeMap(map)
+    lastWritten.set(slot, { eventId: res.data.id, sig, at: Date.now() })
     return res.data.id
   })
 }
 
 async function removeEvent(cal, calId, bucket, key) {
   return serialize(async () => {
+    lastWritten.delete(`${bucket}:${key}`)
     const id = readMap()[bucket][key]
     if (!id) return
     try {
@@ -483,7 +506,41 @@ export async function findUntrackedCrmEvents() {
   }
 }
 
-export async function syncAll() {
+// Wrap an async job so only ONE run is ever in flight. A call that arrives mid-run does not start a
+// second pass beside it; it gets one follow-up run, shared by every caller that arrived in the
+// meantime, which starts when the current one ends. The follow-up matters: whatever changed after
+// the running pass read the CRM (a payment, a new inquiry) is picked up by it, instead of being
+// handed a result that predates it.
+export function singleFlight(fn) {
+  let running = null
+  let queued = null
+  const start = () => {
+    running = Promise.resolve()
+      .then(fn)
+      .finally(() => {
+        running = null
+      })
+    return running
+  }
+  return function () {
+    if (!running) return start()
+    if (!queued) {
+      queued = running
+        .catch(() => {})
+        .then(() => {
+          queued = null
+          return running || start()
+        })
+    }
+    return queued
+  }
+}
+
+// Every caller (the 5-minute timer, the boot sync, "Sync now", the post-payment sync) goes through
+// this one gate. Without it, passes overlapped and piled up on 2026-10-27; see RECHECK_MS above.
+export const syncAll = singleFlight(runSyncAll)
+
+async function runSyncAll() {
   if (!isCalendarConnected()) return { ok: false, error: 'Not connected to Google Calendar.' }
 
   // A RECONCILE, not just a push.
