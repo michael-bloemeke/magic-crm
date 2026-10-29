@@ -61,7 +61,7 @@ export function StageColumn({
   // Quiet until a card is dragged over it, then it shows like any other drop target. The fade sits on
   // the header and body, not the outer div: motion owns that one's opacity for its entrance.
   const faded = ghost && !isDragOver
-  const fade = faded ? 'opacity-45 transition-opacity duration-200 group-hover/stage:opacity-75' : ''
+  const fade = faded ? 'opacity-45 group-hover/stage:opacity-75' : ''
 
   return (
     <motion.div
@@ -77,7 +77,7 @@ export function StageColumn({
       {/* Column header (a rail keeps just the dot, so its body lines up with its neighbours) */}
       <div
         className={[
-          'mb-2.5 flex min-h-5 items-center gap-2',
+          'mb-2.5 flex min-h-5 items-center gap-2 transition-opacity duration-200',
           rail ? 'justify-center' : 'justify-between px-1',
           fade,
         ].join(' ')}
@@ -166,7 +166,7 @@ export function StageColumn({
           if (id) onDropProject(id, stage.id)
         }}
         className={[
-          'group/col relative flex flex-1 flex-col rounded-xl border transition-colors duration-200',
+          'group/col relative flex flex-1 flex-col rounded-xl border transition-all duration-200',
           rail ? 'p-1' : 'p-2',
           ghost ? 'border-dashed' : '',
           faded ? 'bg-transparent' : 'bg-surface/60',
