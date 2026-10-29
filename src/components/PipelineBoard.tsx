@@ -99,11 +99,13 @@ export function PipelineBoard({
 }: Props) {
   let columnIndex = 0
 
-  // A category with ONE stage (Booked, since the two payment stages were merged) gets that stage
-  // stretched across the visible width of the board, with its cards in a grid, so every booked gig
-  // shows at once instead of in a narrow column that has to be scrolled (Michael, 2026-10-22).
-  // The width is the board's visible width, not the row's: the row is as wide as the widest
-  // category (Not Yet Booked, with seven stages), which runs well past the edge of the screen.
+  // A stage that is the only one in its category holding cards gets stretched across the visible
+  // width of the board, with its cards in a grid, so they all show at once instead of in a narrow
+  // column that has to be scrolled. First for one-stage categories like Booked (Michael,
+  // 2026-10-22), then widened on 2026-10-29 to any category where every other stage is empty; those
+  // empty siblings shrink to slim rails beside it. The width is the board's visible width, not the
+  // row's: the row is as wide as the widest category (Not Yet Booked, with seven stages), which runs
+  // well past the edge of the screen.
   const scrollRef = useRef<HTMLDivElement>(null)
   const [visibleWidth, setVisibleWidth] = useState(0)
   useLayoutEffect(() => {
@@ -129,6 +131,11 @@ export function PipelineBoard({
           // Middles live in [1, length-3]; the last two slots are Booked + Post Show.
           const canMoveUp = umbrella.role === null && uIdx > 1
           const canMoveDown = umbrella.role === null && uIdx < pipeline.length - 3
+          // The stage drawn wide, if any (see above). Only when it has cards. In edit mode only a
+          // one-stage category goes wide, so every stage stays full size for renaming and moving.
+          const withCards = umbrella.stages.filter((s) => s.projects.length > 0)
+          const wideId =
+            withCards.length === 1 && (umbrella.stages.length === 1 || !editMode) ? withCards[0].id : null
 
           return (
             <motion.section
@@ -181,16 +188,22 @@ export function PipelineBoard({
                 )}
               </div>
 
-              {/* This category's stage columns (scroll right for more). A one-stage category grows
-                  to fit its cards instead of holding the fixed column height. */}
-              <div className={['flex gap-4', umbrella.stages.length === 1 ? 'min-h-[380px]' : 'h-[380px]'].join(' ')}>
+              {/* This category's stage columns (scroll right for more). A row with a wide stage is
+                  pinned to the visible width and grows to fit its cards instead of holding the fixed
+                  column height. */}
+              <div
+                className={['flex gap-4', wideId ? 'sticky left-0 min-h-[380px]' : 'h-[380px]'].join(' ')}
+                style={wideId && visibleWidth > 0 ? { width: visibleWidth } : undefined}
+              >
                 {umbrella.stages.map((stage, sIdx) => {
                   const isOrphan = stage.id === ORPHAN_STAGE_ID
                   const isLastBookedStage = umbrella.role === 'booked' && umbrella.stages.length === 1
-                  // The two canonical Post Show stages (auto-targets) can't be deleted;
+                  // The canonical Post Show stage (the auto-target) can't be deleted;
                   // any leftover/extra Post Show stages can be (to clean up after migration).
-                  const isProtectedPostshow =
-                    umbrella.role === 'postshow' && (stage.id === 'thank-you' || stage.id === 'thank-you-payment')
+                  const isProtectedPostshow = umbrella.role === 'postshow' && stage.id === 'thank-you'
+                  // An empty stage is ghosted outside edit mode (Michael, 2026-10-29): still there and
+                  // still a drop target, just quiet. Beside a wide stage it shrinks to a slim rail.
+                  const ghost = !editMode && stage.projects.length === 0
                   return (
                     <StageColumn
                       key={stage.id}
@@ -211,12 +224,9 @@ export function PipelineBoard({
                       onMoveLeft={() => onReorderStage(stage.id, -1)}
                       onMoveRight={() => onReorderStage(stage.id, 1)}
                       onDelete={() => onDeleteStage(stage.id)}
-                      wideWidth={
-                        umbrella.stages.length === 1 && visibleWidth > 0
-                          ? // Leave room for the "+ Stage" button (120px plus the 16px gap) in edit mode.
-                            visibleWidth - (editMode && umbrella.role !== 'postshow' ? 136 : 0)
-                          : undefined
-                      }
+                      wide={stage.id === wideId}
+                      ghost={ghost}
+                      rail={ghost && wideId !== null}
                     />
                   )
                 })}

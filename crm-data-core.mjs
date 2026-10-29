@@ -238,17 +238,17 @@ const DEFAULT_STRUCTURE = {
       label: 'Post Show',
       color: 'var(--color-umb-archive)',
       role: 'postshow',
-      stages: [
-        { id: 'thank-you-payment', name: 'Thank You + Payment' },
-        { id: 'thank-you', name: 'Thank You' },
-      ],
+      stages: [{ id: 'thank-you', name: 'Thank You' }],
     },
   ],
 }
 
-// The two auto-only stages in the Post Show category (role 'postshow').
+// The one auto-only stage in the Post Show category (role 'postshow').
 const THANK_YOU = 'thank-you'
-const THANK_YOU_PAYMENT = 'thank-you-payment'
+// Post Show used to have a second stage, "Thank You + Payment", for gigs that ended before being paid
+// in full. Michael removed it on 2026-10-29 (clients now pay in full when they book), so every
+// finished gig lands in Thank You. The id is kept only to rehome anything still carrying it.
+const RETIRED_THANK_YOU_PAYMENT = 'thank-you-payment'
 
 const EVENT_TYPES = new Set(['Wedding', 'Corporate', 'Private Event', 'Bachelor(ette) Party', 'Other'])
 
@@ -265,8 +265,8 @@ function newId(prefix) {
 //   [Inquiry (first)] [...middles...] [Booked] [Post Show (last)]
 // - Inquiry: holds the permanent 'inquiry' stage (the orphanage).
 // - Booked: payment-gated; always >=1 stage; locked just above Post Show.
-// - Post Show: auto-only (projects can't be added manually); always last; its two
-//   stages are exactly "Thank You + Payment" and "Thank You" (auto-targets).
+// - Post Show: auto-only (projects can't be added manually); always last; its one
+//   stage is "Thank You" (the auto-target). The retired "Thank You + Payment" is dropped.
 function normalizeStructure(raw) {
   const src = raw && Array.isArray(raw.umbrellas) && raw.umbrellas.length ? raw.umbrellas : DEFAULT_STRUCTURE.umbrellas
   const seenU = new Set()
@@ -305,16 +305,13 @@ function normalizeStructure(raw) {
 
   if (!postshow) postshow = { id: 'post-show', label: 'Post Show', color: 'var(--color-umb-archive)', role: 'postshow', stages: [] }
   postshow.role = 'postshow'
-  // Post Show always HAS the two auto-target stages (renames preserved by id). Any
+  // Post Show always HAS the auto-target stage (a rename is preserved by id). Any
   // other stages are kept (so projects Michael had already placed in his manual
-  // "Post Show" category aren't orphaned) and can be cleared/deleted afterward.
+  // "Post Show" category aren't orphaned) and can be cleared/deleted afterward. The retired
+  // "Thank You + Payment" stage is dropped; its projects are rehomed to Thank You on load.
   const psName = (id, dflt) => postshow.stages.find((s) => s.id === id)?.name || dflt
-  const psOthers = postshow.stages.filter((s) => s.id !== THANK_YOU && s.id !== THANK_YOU_PAYMENT)
-  postshow.stages = [
-    { id: THANK_YOU_PAYMENT, name: psName(THANK_YOU_PAYMENT, 'Thank You + Payment') },
-    { id: THANK_YOU, name: psName(THANK_YOU, 'Thank You') },
-    ...psOthers,
-  ]
+  const psOthers = postshow.stages.filter((s) => s.id !== THANK_YOU && s.id !== RETIRED_THANK_YOU_PAYMENT)
+  postshow.stages = [{ id: THANK_YOU, name: psName(THANK_YOU, 'Thank You') }, ...psOthers]
 
   return { umbrellas: [first, ...middles, booked, postshow] }
 }
@@ -555,7 +552,7 @@ function stageMeta() {
       'Safe to read. Do NOT delete or overwrite. The CRM auto-creates entries for new projects by inference, but any stage Michael sets in the CRM is saved here. Detail fields are NOT duplicated here; they stay in the canonical JSONs. RULE: a project may only be at stage "deposit-paid" if it has a RECEIVED payment (amount + a real date, not pending) in crm-payments.json. The CRM refuses to set deposit-paid without one; if you set it here by hand, first add the matching received payment to crm-payments.json.',
     keyed_by: 'project id = slug of client_name (lowercase, non-alphanumerics -> hyphens)',
     also_stores_structure:
-      'structure = the editable pipeline: umbrellas[] (categories) each with id, label, color, role ("first"=Inquiry/permanent home; "booked"=payment-gated; "postshow"=auto-only Post Show, always last; null=middle) and stages[] of {id,name}. Order is always [first, ...middles, booked, postshow]. The first category keeps the permanent "inquiry" stage (the orphanage); booked keeps >=1 stage; postshow has exactly "thank-you-payment" + "thank-you". A project may sit at any stage id present here; the day after its event_date a Booked-category project auto-moves to Post Show ("thank-you" if paid in full, else "thank-you-payment").',
+      'structure = the editable pipeline: umbrellas[] (categories) each with id, label, color, role ("first"=Inquiry/permanent home; "booked"=payment-gated; "postshow"=auto-only Post Show, always last; null=middle) and stages[] of {id,name}. Order is always [first, ...middles, booked, postshow]. The first category keeps the permanent "inquiry" stage (the orphanage); booked keeps >=1 stage; postshow has the one auto-target stage "thank-you" (the old "thank-you-payment" was retired 2026-10-29). A project may sit at any stage id present here; the day after its event_date a Booked-category project auto-moves to Post Show ("thank-you").',
     also_stores: 'flowLayout = node positions + links for the CRM flow-chart view (CRM-managed)',
   }
 }
@@ -638,7 +635,11 @@ function loadAllSupabase() {
     }
     const existing = p._storedStage
     delete p._storedStage
-    if (existing && valid.has(existing)) {
+    if (existing === RETIRED_THANK_YOU_PAYMENT) {
+      // The retired Post Show stage: keep the project in Post Show rather than orphaning it.
+      p.stageId = THANK_YOU
+      persist.set(p.id, THANK_YOU)
+    } else if (existing && valid.has(existing)) {
       p.stageId = existing
     } else {
       // Orphaned (stage missing/no longer exists) OR never staged: land in Inquiry. Under
@@ -655,15 +656,7 @@ function loadAllSupabase() {
   const bookedSet = bookedStageIdSet(structure)
   for (const p of projects) {
     if (p.bucket !== 'active') continue
-    const fee = p.totalFee
-    const paidInFull = fee != null && receivedTotalFor(p.id) + 0.005 >= fee
     if (bookedSet.has(p.stageId) && p.eventDate && p.eventDate < todayLocal) {
-      const target = paidInFull ? THANK_YOU : THANK_YOU_PAYMENT
-      if (p.stageId !== target) {
-        p.stageId = target
-        persist.set(p.id, target)
-      }
-    } else if (p.stageId === THANK_YOU_PAYMENT && paidInFull) {
       p.stageId = THANK_YOU
       persist.set(p.id, THANK_YOU)
     }
@@ -718,7 +711,12 @@ function loadAllFiles() {
       continue
     }
     const existing = map.stages[p.id]
-    if (existing && valid.has(existing)) {
+    if (existing === RETIRED_THANK_YOU_PAYMENT) {
+      // The retired Post Show stage: keep the project in Post Show rather than orphaning it.
+      p.stageId = THANK_YOU
+      map.stages[p.id] = THANK_YOU
+      dirty = true
+    } else if (existing && valid.has(existing)) {
       p.stageId = existing
     } else if (existing) {
       // Orphaned: the stage this project was on no longer exists. Land it in Inquiry.
@@ -736,25 +734,14 @@ function loadAllFiles() {
 
   // --- Post Show auto-progression --------------------------------------------
   // The day AFTER the event, a project sitting in the Booked category moves to
-  // Post Show automatically: "Thank You" if it's paid in full, else "Thank You +
-  // Payment". And a project already in "Thank You + Payment" is promoted to
-  // "Thank You" once it becomes fully paid. (No scheduler needed; this runs every
-  // time the projects load.) Projects are NEVER added to Post Show any other way.
+  // Post Show's "Thank You" automatically. (No scheduler needed; this runs every time
+  // the projects load.) Projects are NEVER added to Post Show any other way.
   const now = new Date()
   const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const bookedSet = bookedStageIdSet(structure)
   for (const p of projects) {
     if (p.bucket !== 'active') continue
-    const fee = p.totalFee
-    const paidInFull = fee != null && receivedTotalFor(p.id) + 0.005 >= fee
     if (bookedSet.has(p.stageId) && p.eventDate && p.eventDate < todayLocal) {
-      const target = paidInFull ? THANK_YOU : THANK_YOU_PAYMENT
-      if (p.stageId !== target) {
-        p.stageId = target
-        map.stages[p.id] = target
-        dirty = true
-      }
-    } else if (p.stageId === THANK_YOU_PAYMENT && paidInFull) {
       p.stageId = THANK_YOU
       map.stages[p.id] = THANK_YOU
       dirty = true

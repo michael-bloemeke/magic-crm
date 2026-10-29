@@ -157,10 +157,7 @@ export const DEFAULT_STRUCTURE: PipelineStructure = {
       label: 'Post Show',
       color: 'var(--color-umb-archive)',
       role: 'postshow',
-      stages: [
-        { id: 'thank-you-payment', name: 'Thank You + Payment' },
-        { id: 'thank-you', name: 'Thank You' },
-      ],
+      stages: [{ id: 'thank-you', name: 'Thank You' }],
     },
   ],
 }
