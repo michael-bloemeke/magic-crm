@@ -9,7 +9,7 @@
 // test against, and this must keep working when there are none.
 //
 // Run it:  node crm-gmail.test.mjs      (exits non-zero on failure)
-import { buildThread } from './crm-gmail.mjs'
+import { buildThread, makeRaw, encodeHeaderText } from './crm-gmail.mjs'
 
 const ME = 'michael@michaelbloemeke.com'
 const CLIENT = 'client@example.com'
@@ -100,6 +100,39 @@ const clean = buildThread(
 check('clean thread has no draft flag', clean.hasDraft, false)
 check('clean thread lastDate unchanged', clean.lastDate, 'Jul 29, 2026')
 check('clean thread messages carry dates', clean.messages.map((m) => m.date), ['Jul 21, 2026', 'Jul 29, 2026'])
+
+// --- Case 3: non-ASCII headers are RFC 2047 encoded (added 2026-10-30) --------
+// The bug this guards: makeRaw wrote the subject as raw UTF-8, and Gmail stored a reply to
+// "Hello from Heart of NC Weddings! 💍" as "...Weddings! ðŸ’ ". Decoding each encoded-word on its
+// own also proves no word splits a character in half.
+const headerOf = (raw, name) =>
+  (Buffer.from(raw, 'base64url').toString('utf8').split('\r\n\r\n')[0].split('\r\n').find((l) => l.startsWith(name + ': ')) || '').slice(name.length + 2)
+const decodeWords = (v) =>
+  v.replace(/\?=\s+=\?/g, '?==?').replace(/=\?UTF-8\?B\?([^?]*)\?=/g, (_, b) => Buffer.from(b, 'base64').toString('utf8'))
+const wordsOf = (v) => v.match(/=\?UTF-8\?B\?[^?]*\?=/g) || []
+
+const plainRaw = makeRaw({ from: '"Michael Bloemeke" <me@x.com>', to: 'Client <client@x.com>', subject: 'RE: Holiday Party on Tue 12/8 | Envestnet', body: 'hi' })
+check('an ASCII subject is left exactly as written', headerOf(plainRaw, 'Subject'), 'RE: Holiday Party on Tue 12/8 | Envestnet')
+check('ASCII names are left exactly as written', [headerOf(plainRaw, 'From'), headerOf(plainRaw, 'To')], ['"Michael Bloemeke" <me@x.com>', 'Client <client@x.com>'])
+
+const emoji = 'Re: Hello from Heart of NC Weddings! 💍'
+const emojiSubject = headerOf(makeRaw({ from: 'me@x.com', to: 'c@x.com', subject: emoji, body: 'hi' }), 'Subject')
+check('an emoji subject goes out as ASCII only', /^[\x20-\x7e]*$/.test(emojiSubject), true)
+check('an emoji subject decodes back to the original', decodeWords(emojiSubject), emoji)
+
+const long = 'Zoë and Renée’s wedding 💍✨ at the Château, a long subject with accents: é è ê ë ï ô ü ç ñ 🎩🐇'
+const longSubject = encodeHeaderText(long)
+check('a long subject decodes back intact', decodeWords(longSubject), long)
+check('a long subject is split into several encoded-words', wordsOf(longSubject).length > 1, true)
+check('every encoded-word is within 75 characters', wordsOf(longSubject).every((w) => w.length <= 75), true)
+check('every encoded-word decodes on its own (no split characters)', wordsOf(longSubject).every((w) => !decodeWords(w).includes('\uFFFD')), true)
+check('the subject stays on one header line', /[\r\n]/.test(longSubject), false)
+
+const named = makeRaw({ from: '"Michael Bloemeke" <me@x.com>', to: '"Zoë Smith, Jr." <zoe@x.com>, Bob <bob@x.com>', subject: 'S', body: 'hi' })
+const toHeader = headerOf(named, 'To')
+check('a non-ASCII display name is encoded', /^[\x20-\x7e]*$/.test(toHeader), true)
+check('the addresses themselves are untouched, and the quoted comma does not split the list', toHeader.endsWith('<zoe@x.com>, Bob <bob@x.com>'), true)
+check('the display name decodes back', decodeWords(toHeader.split(' <')[0]), 'Zoë Smith, Jr.')
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
 process.exit(failures === 0 ? 0 : 1)
