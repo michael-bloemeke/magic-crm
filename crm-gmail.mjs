@@ -380,6 +380,42 @@ function encodeText(s) {
   return b64wrap(Buffer.from(String(s ?? ''), 'utf8'))
 }
 
+// Headers must be plain ASCII. Anything else (an emoji, an accent) goes out as RFC 2047 encoded-words,
+// `=?UTF-8?B?...?=`, or Gmail stores the raw bytes as mojibake: a reply to "Hello from Heart of NC
+// Weddings! 💍" landed as "...Weddings! ðŸ’ " on 2026-10-30. Pure-ASCII text is returned untouched.
+// Each word stays within the 75-character limit, splits only between whole characters, and the words
+// are joined by a space on ONE line (decoders drop that space) so the header never folds.
+const ENCODED_WORD_BYTES = 45 // 45 bytes -> 60 base64 chars -> 72 with the =?UTF-8?B??= wrapper
+export function encodeHeaderText(s) {
+  const text = String(s ?? '')
+  if (/^[\x20-\x7e]*$/.test(text)) return text
+  const words = []
+  let chunk = ''
+  for (const ch of text) {
+    if (chunk && Buffer.byteLength(chunk + ch, 'utf8') > ENCODED_WORD_BYTES) {
+      words.push(chunk)
+      chunk = ''
+    }
+    chunk += ch
+  }
+  if (chunk) words.push(chunk)
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w, 'utf8').toString('base64')}?=`).join(' ')
+}
+
+// The same for an address header ("Zoë Smith" <zoe@x.com>, ...): only each display name is encoded,
+// never the address itself. Commas inside a quoted name do not split the list.
+function encodeAddressHeader(s) {
+  const text = String(s ?? '')
+  if (/^[\x20-\x7e]*$/.test(text)) return text
+  const parts = text.match(/(?:"[^"]*"|[^,])+/g) || []
+  return parts
+    .map((part) => {
+      const m = part.trim().match(/^"?(.*?)"?\s*<([^>]+)>$/)
+      return m && m[1] ? `${encodeHeaderText(m[1])} <${m[2]}>` : part.trim()
+    })
+    .join(', ')
+}
+
 // Build a raw RFC-822 message. Plain text by default; if `html` is given it goes out as a
 // multipart/alternative (plain + html); if `inlineImages` are present (e.g. a signature logo the
 // html references via cid:) the alternative is wrapped in a multipart/related; if `attachments`
@@ -391,9 +427,9 @@ export function makeRaw({ from, to, subject, body, html, attachments, inlineImag
   const inlines = (Array.isArray(inlineImages) ? inlineImages : []).filter((a) => a && a.contentBase64 && a.cid)
   const hasHtml = !!(html && String(html).trim())
   const plain = body != null && body !== '' ? String(body) : hasHtml ? htmlToText(String(html)) : ''
-  const headers = [`From: ${from}`, `To: ${to}`]
-  if (replyTo) headers.push(`Reply-To: ${replyTo}`)
-  headers.push(`Subject: ${subject}`, 'MIME-Version: 1.0')
+  const headers = [`From: ${encodeAddressHeader(from)}`, `To: ${encodeAddressHeader(to)}`]
+  if (replyTo) headers.push(`Reply-To: ${encodeAddressHeader(replyTo)}`)
+  headers.push(`Subject: ${encodeHeaderText(subject)}`, 'MIME-Version: 1.0')
   if (date) headers.push(`Date: ${date}`)
 
   // The core content: a single text/plain part, or a multipart/alternative (plain + html).
