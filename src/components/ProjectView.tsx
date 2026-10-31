@@ -40,10 +40,6 @@ function longDate(iso: string): string {
 
 type Props = {
   project: Project
-  // Bumped by the app's Refresh button. The Gmail threads and the project's drafts are NOT part of
-  // refreshAll's data sets, so without this they only ever reload when project.id changes, which is
-  // why leaving the page and coming back used to be the only way to see a new email.
-  refreshKey?: number
   // The website's royal-blue ground. Plain navy, no damask: this is the densest screen in
   // the app and a repeating pattern behind it would fight the content. See index.css.
   groundClass?: string
@@ -79,7 +75,6 @@ type Props = {
 
 export function ProjectView({
   project,
-  refreshKey = 0,
   onPreview,
   groundClass = '',
   dateConflict = false,
@@ -144,7 +139,7 @@ export function ProjectView({
     return () => {
       alive = false
     }
-  }, [project.id, refreshKey])
+  }, [project.id])
 
   // The top-section drafts for this project (reply drafts + new-thread drafts).
   useEffect(() => {
@@ -163,7 +158,7 @@ export function ProjectView({
     return () => {
       alive = false
     }
-  }, [project.id, refreshKey])
+  }, [project.id])
 
   // Keep the local draft list in sync as the composers auto-save / send. A 'draft' upsert replaces
   // the record; anything else (sent) drops it from the list.

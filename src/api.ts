@@ -77,6 +77,20 @@ export type Task = {
   createdAt: string
 }
 
+// Ask the server to re-read everything from Supabase right now (the Refresh button). Waits at most 6
+// seconds: a full re-read took 11 to 16 seconds over the connection in China (2026-10-31), and the
+// button should not sit spinning that long. The server finishes the re-read regardless, and the app's
+// 20-second background refresh picks up anything that lands after the reload.
+export async function refreshServerCache(): Promise<void> {
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), 6000)
+  try {
+    await fetch('/api/refresh-cache', { method: 'POST', signal: ctrl.signal })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 export async function loadTasks(): Promise<Task[]> {
   const res = await fetch('/api/tasks')
   if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`)

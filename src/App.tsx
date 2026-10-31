@@ -99,6 +99,7 @@ import {
   type Contact,
   type ContactType,
   type ProjectLinks,
+  refreshServerCache,
 } from './api'
 import { linkedProjectsFor, contactsForProject } from './contacts'
 
@@ -557,38 +558,23 @@ function App() {
     loadCalendarEvents(from, to).then(setCalEvents).catch(() => {})
   }
 
-  // Bumped on every Refresh press. ProjectView watches it so the Conversations box and the project's
-  // drafts re-pull from Gmail too: those live in ProjectView's own effects, keyed on project.id, so
-  // refreshAll alone never reached them. That is the bug Michael hit repeatedly, where the only way
-  // to see a new email was to leave the project and come back.
-  const [refreshNonce, setRefreshNonce] = useState(0)
-  // True for a moment after a press, purely so the button visibly does something.
+  // The Refresh button reloads the WHOLE app (Michael, 2026-10-31). On a patchy connection a page can
+  // half-load, or an error screen can stick: a delete that failed mid-dropout left "Couldn't load your
+  // projects" up after the connection was back. The old button only re-pulled some data sets and the
+  // open project's email, so it could fix neither. Now it asks the server to re-read everything from
+  // Supabase, then reloads the window. The page, the pipeline view and the open project come back on
+  // their own (remembered in localStorage above), email drafts auto-save, and a Show Builder edit is
+  // saved within half a second.
   const [refreshing, setRefreshing] = useState(false)
-
+  // Set on mousedown (before the click moves focus) if he was typing something into a field.
+  const typingAtPress = useRef(false)
   const refreshAll = () => {
-    setRefreshNonce((n) => n + 1)
+    if (refreshing) return
+    if (typingAtPress.current && !window.confirm("Reload the CRM? Anything you're typing that isn't saved yet will be lost.")) return
     setRefreshing(true)
-    window.setTimeout(() => setRefreshing(false), 650)
-    loadProjects().then(setProjects).catch(() => {})
-    loadTasks().then(setTasks).catch(() => {})
-    loadGigs()
-    loadUnreadByProject().then(setUnread).catch(() => {})
-    loadConfig()
-      .then((c) => {
-        setArchiveReasons(c.archiveReasons)
-        setTagLibrary(c.contactTags ?? [])
-      })
+    refreshServerCache()
       .catch(() => {})
-    loadPayments().then(setPayments).catch(() => {})
-    loadContacts().then(setContacts).catch(() => {})
-    loadLinks().then(setLinks).catch(() => {})
-    loadStructure().then(setStructure).catch(() => {})
-    loadStatusNotifications()
-      .then(setStatusNotifs)
-      .catch(() => {})
-    loadInquiries()
-      .then((d) => setInquiries(d.notifications))
-      .catch(() => {})
+      .finally(() => window.location.reload())
   }
 
   const reloadProjects = () => {
@@ -991,11 +977,19 @@ function App() {
     />
   )
 
+  // Was focus in a field with text in it when Refresh was pressed? Checked on mousedown, before the
+  // click moves focus onto the button.
+  const noteTyping = () => {
+    const el = document.activeElement as HTMLElement | null
+    const text = el && 'value' in el ? String((el as HTMLInputElement).value) : el?.isContentEditable ? el.textContent ?? '' : ''
+    typingAtPress.current = isEditingActive() && text.trim() !== ''
+  }
   const refreshBtn = (
     <button
       type="button"
+      onMouseDown={noteTyping}
       onClick={refreshAll}
-      title="Refresh all data"
+      title="Reload the CRM"
       aria-label="Refresh"
       className="flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface/60 text-muted transition-colors hover:border-line-strong hover:text-parchment"
     >
@@ -1093,7 +1087,6 @@ function App() {
           <ProjectView
             groundClass="brand-ground"
             project={fullProject}
-            refreshKey={refreshNonce}
             onPreview={setPreview}
             dateConflict={dateConflictIds.has(fullProject.id)}
             conflictWith={dateConflictInfo.get(fullProject.id)}

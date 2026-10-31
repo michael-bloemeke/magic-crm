@@ -17,7 +17,7 @@ type Props = {
 
 const byDueAsc = (a: Task, b: Task) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')
 
-// These two RETURN elements; they are not components, and they live at module scope.
+// This RETURNS elements; it is not a component, and it lives at module scope.
 //
 // They used to be components declared inside TasksPage and rendered as <Section />. React identifies
 // a component by its function reference, so a fresh one on every render is a DIFFERENT type: the
@@ -43,26 +43,25 @@ function section(title: string, color: string, items: Task[], row: (t: Task) => 
   )
 }
 
-function completedSection(items: Task[], row: (t: Task) => ReactElement) {
-  if (items.length === 0) return null
-  return (
-    <section className="mt-2 opacity-70" key="completed">
-      <div className="mb-2.5 flex items-center gap-2.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-faint" />
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.18em] text-faint">Completed</h3>
-        <span className="text-[11px] tabular-nums text-faint">{items.length}</span>
-      </div>
-      <div className="space-y-2">{items.map(row)}</div>
-    </section>
-  )
-}
-
 export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, onOpenProject }: Props) {
   const byId = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const today = todayISO()
   const [newTitle, setNewTitle] = useState('')
   const [newDue, setNewDue] = useState('')
   const [newTime, setNewTime] = useState('')
+  // Completed tasks are not listed on this page (Michael, 2026-10-31); each project's page still shows
+  // its own. A task ticked off HERE stays in place, struck through, until he leaves the page, so a
+  // mis-tap can be undone. That matters most for standalone tasks, which have no project page.
+  const [doneHere, setDoneHere] = useState<Set<string>>(() => new Set())
+  const toggle = (id: string, done: boolean) => {
+    setDoneHere((prev) => {
+      const next = new Set(prev)
+      if (done) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    onToggle(id, done)
+  }
   const submitNew = () => {
     const t = newTitle.trim()
     if (!t) return
@@ -88,16 +87,16 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
     return false
   }
 
-  // Bucket any task list into the same four groups. The overdue / due-date logic and the
+  // Bucket any task list into the same three groups. The overdue / due-date logic and the
   // notifications that read these tasks are unchanged; this only splits WHERE they render.
   const bucket = (list: Task[]) => {
-    const active = list.filter((t) => !t.done)
+    const shown = list.filter((t) => !t.done || doneHere.has(t.id))
     return {
-      overdue: active.filter(isOverdue).sort(byDueAsc),
-      dueToday: active.filter((t) => t.dueDate === today && !isOverdue(t)).sort(byDueAsc),
-      upcoming: active.filter((t) => !t.dueDate || t.dueDate > today).sort(byDueAsc),
-      completed: list.filter((t) => t.done).sort(byDueAsc),
-      openCount: active.length,
+      overdue: shown.filter(isOverdue).sort(byDueAsc),
+      dueToday: shown.filter((t) => t.dueDate === today && !isOverdue(t)).sort(byDueAsc),
+      upcoming: shown.filter((t) => !t.dueDate || t.dueDate > today).sort(byDueAsc),
+      openCount: list.filter((t) => !t.done).length,
+      shownCount: shown.length,
     }
   }
 
@@ -115,14 +114,14 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
       key={t.id}
       task={t}
       projectName={t.projectId ? (byId.get(t.projectId)?.client ?? 'Unknown project') : undefined}
-      onToggle={(done) => onToggle(t.id, done)}
+      onToggle={(done) => toggle(t.id, done)}
       onDelete={() => onDelete(t.id)}
       onEdit={(patch) => onEdit(t.id, patch)}
       onOpenProject={t.projectId ? () => open(t.projectId) : undefined}
     />
   )
 
-  // One column = a labeled header + the same four sections, filtered to that group.
+  // One column = a labeled header + the same three sections, filtered to that group.
   const column = (label: string, sub: string, data: ReturnType<typeof bucket>) => (
     <div>
       <div className="mb-4 flex items-baseline justify-between gap-2 border-b border-line pb-2.5">
@@ -132,14 +131,13 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
         </div>
         <span className="shrink-0 text-[11.5px] tabular-nums text-faint">{data.openCount} open</span>
       </div>
-      {data.openCount === 0 && data.completed.length === 0 ? (
+      {data.shownCount === 0 ? (
         <p className="py-10 text-center text-[12.5px] text-faint">Nothing here.</p>
       ) : (
         <>
           {section('Overdue', '#dc2626', data.overdue, taskRow)}
           {section('Due today', 'var(--color-brass)', data.dueToday, taskRow)}
           {section('Upcoming', 'var(--color-umb-postcall)', data.upcoming, taskRow)}
-          {completedSection(data.completed, taskRow)}
         </>
       )}
     </div>

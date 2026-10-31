@@ -1843,6 +1843,16 @@ export function crmDataPlugin() {
             res.end(JSON.stringify({ error: e?.message || 'failed' }))
           })
       })
+      // The app's Refresh button (2026-10-31): re-read every table from Supabase NOW rather than wait
+      // for the 15-second poll, which can quietly fail for a while on a patchy connection. The app
+      // reloads its window straight after this answers.
+      server.middlewares.use('/api/refresh-cache', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async () => {
+          if (CRM_STORE === 'supabase') await initStore({ force: true })
+          return { ok: true }
+        })
+      })
       server.middlewares.use('/api/calendar/sync', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, () => syncCalendarAll())
