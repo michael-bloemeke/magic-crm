@@ -61,7 +61,7 @@ import {
   loadTaskSchedules, addTaskSchedule, updateTaskSchedule, deleteTaskSchedule,
 } from './crm-task-schedules.mjs'
 import { loadShows, createShow, updateShow, setPacked, uncheckAll, duplicateShow, deleteShow } from './crm-shows.mjs'
-import { loadHomeList, addHomeListItem, deleteHomeListItem } from './crm-home-list.mjs'
+import { loadHomeList, addHomeListItem, deleteHomeListItem, renameHomeListItem, saveHomeListLayout } from './crm-home-list.mjs'
 import { listDocs, getDoc, saveDoc, deleteDoc, audioUploadStart, audioUploadFinish, audioRename, audioPlayUrl } from './crm-showbuilder.mjs'
 import { loadCalendarAlerts, updateCalendarAlerts } from './crm-calendar-alerts.mjs'
 import { loadRecipient, saveRecipient } from './crm-recipients.mjs'
@@ -580,7 +580,15 @@ export function crmDataPlugin() {
       // --- Home list: the big things he is working on, under everything on Home (crm-home-list.mjs) ---
       server.middlewares.use('/api/home-list/add', (req, res, next) => {
         if (req.method !== 'POST') return next()
-        withbody(req, res, async (b) => ({ item: await addHomeListItem(b.text) }))
+        withbody(req, res, async (b) => ({ item: await addHomeListItem(b.text, { position: b.position, depth: b.depth }) }))
+      })
+      server.middlewares.use('/api/home-list/rename', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await renameHomeListItem(b.id, b.text))
+      })
+      server.middlewares.use('/api/home-list/layout', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await saveHomeListLayout(b.rows))
       })
       server.middlewares.use('/api/home-list/delete', (req, res, next) => {
         if (req.method !== 'POST') return next()

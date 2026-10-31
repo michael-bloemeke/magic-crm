@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
 import { byEventDateAsc, formatEventDate, todayISO, type Project } from '../pipeline'
 import {
@@ -6,10 +6,31 @@ import {
   loadHomeList,
   addHomeListItem,
   deleteHomeListItem,
+  renameHomeListItem,
+  saveHomeListLayout,
   type FinanceSummary,
   type HomeListItem,
   type Task,
 } from '../api'
+import {
+  MAX_DEPTH,
+  blockEnd,
+  canIndent,
+  canMoveDown,
+  canMoveUp,
+  canOutdent,
+  indent,
+  insertAfter,
+  layoutChanges,
+  moveDown,
+  moveUp,
+  normalize,
+  outdent,
+  removeItem,
+  rename,
+  sortItems,
+  withPositions,
+} from '../../mobile/homelist-core.js'
 import type { Page } from './Sidebar'
 import { TaskRow } from './TaskRow'
 import { ProjectRow } from './ProjectRow'
@@ -366,26 +387,64 @@ function DailyDuties() {
 
 // --- On my plate -------------------------------------------------------------
 // The big things Michael is working on (2026-10-24): "the major elements of my business that I'm
-// working on that still need to be done. The things that are hanging over my head." Add and delete,
-// nothing else: no due date, no checkbox, no rename, and it is NOT a task. The rows live in Supabase
-// (`home_list`, crm-home-list.mjs) and the phone's Home shows the same list.
+// working on that still need to be done. The things that are hanging over my head." No due date, no
+// checkbox, and it is NOT a task. The rows live in Supabase (`home_list`, crm-home-list.mjs) and the
+// phone's Home shows the same list.
+//
+// An OUTLINE since 2026-10-31: "I want to be able to rename it and reorder it... if I press the enter
+// key, it'll make a new line with a new bullet. But if I press the tab key, it would indent that
+// bullet." Click an item to rename it. While typing: Enter starts a new line below, Tab indents,
+// Shift+Tab outdents, Option+Up/Down moves. The same moves sit on each row's hover buttons. The rules
+// (what can indent, what moves with what) are shared with the phone in mobile/homelist-core.js.
 //
 // It is one white card with its heading inside, because the navy band ends somewhere above it and a
 // heading drawn straight on the band turns invisible below it (crm-page-layout-traps).
+type PlateDraft = { afterId: string | null; depth: number; text: string }
+
+const plateBtn =
+  'rounded-md p-1 text-faint transition-colors hover:text-[var(--color-brass-bright)] disabled:pointer-events-none disabled:opacity-25'
+const plateInput =
+  'min-w-0 flex-1 rounded-md border border-brass-dim bg-surface px-2 py-1 text-[14px] leading-snug text-parchment focus:outline-none'
+
+function PlateIcon({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  )
+}
+
+// The bullet, so the levels read at a glance: a filled dot, then a ring, then a dash.
+function PlateBullet({ depth }: { depth: number }) {
+  if (depth === 0) return <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-brass)]" />
+  if (depth === 1) return <span className="mt-[6px] h-2 w-2 shrink-0 rounded-full border border-[var(--color-brass)]" />
+  return <span className="mt-[9px] h-px w-2 shrink-0 bg-[var(--color-brass)]" />
+}
+
+let plateTempSeq = 0
+
 function HomeList() {
   const [items, setItems] = useState<HomeListItem[] | null>(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // Bumped by every add and delete. A refresh that started before one would put the old list back,
-  // so its answer is dropped if the count moved while it was out.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
+  const [draft, setDraft] = useState<PlateDraft | null>(null)
+  const editRef = useRef<HTMLInputElement>(null)
+  const draftRef = useRef<HTMLInputElement>(null)
+  // The latest list, for handlers that run after an await.
+  const itemsRef = useRef<HomeListItem[]>([])
+  itemsRef.current = items ?? []
+  // Bumped by every write. A refresh that started before one would put the old list back, so its
+  // answer is dropped if the count moved while it was out.
   const editSeq = useRef(0)
 
   const refresh = useCallback(() => {
     const seqAtStart = editSeq.current
     loadHomeList()
       .then((fresh) => {
-        if (editSeq.current === seqAtStart) setItems(fresh)
+        if (editSeq.current === seqAtStart) setItems(normalize(sortItems(fresh)))
       })
       .catch(() => setItems((prev) => prev ?? []))
   }, [])
@@ -408,77 +467,267 @@ function HomeList() {
     }
   }, [refresh])
 
-  const add = async () => {
-    const t = text.trim()
-    if (!t || busy) return
-    setBusy(true)
+  // A move re-orders the rows, and the browser drops focus from a row it moves, so put it back.
+  useLayoutEffect(() => {
+    if (editingId && document.activeElement !== editRef.current) editRef.current?.focus()
+  }, [editingId, items])
+  useLayoutEffect(() => {
+    if (draft && document.activeElement !== draftRef.current) draftRef.current?.focus()
+  }, [draft, items])
+
+  const fail = (e: unknown, fallback: string) => {
+    setError(e instanceof Error ? e.message : fallback)
+    editSeq.current++
+    refresh() // puts back whatever the database really holds
+  }
+
+  // Show the new order straight away, then save only the rows that moved.
+  const applyLayout = async (next: HomeListItem[]) => {
+    const before = itemsRef.current
+    if (next === before) return
+    const placed = withPositions(next)
     setError('')
     editSeq.current++
+    setItems(placed)
     try {
-      const item = await addHomeListItem(t)
-      setItems((prev) => [...(prev ?? []), item])
-      setText('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not add that.')
-    } finally {
+      await saveHomeListLayout(layoutChanges(before, placed))
       editSeq.current++
-      setBusy(false)
+    } catch (e) {
+      fail(e, 'Could not save the new order.')
+    }
+  }
+  const indentItem = (id: string) => applyLayout(indent(itemsRef.current, id))
+  const outdentItem = (id: string) => applyLayout(outdent(itemsRef.current, id))
+  const moveItem = (id: string, dir: -1 | 1) => applyLayout(dir < 0 ? moveUp(itemsRef.current, id) : moveDown(itemsRef.current, id))
+
+  const renameItem = async (id: string, value: string) => {
+    const t = value.trim()
+    const cur = itemsRef.current.find((x) => x.id === id)
+    if (!cur || !t || t === cur.text) return
+    setError('')
+    editSeq.current++
+    setItems(rename(itemsRef.current, id, t))
+    try {
+      await renameHomeListItem(id, t)
+      editSeq.current++
+    } catch (e) {
+      fail(e, 'Could not rename that.')
     }
   }
 
-  // Straight away, like deleting a task on the Mac.
-  const remove = async (id: string) => {
+  // A new item after `afterId`'s block at `depth` (or at the bottom, top level). Returns the new id.
+  const addItem = async (value: string, afterId: string | null, depth: number) => {
+    const t = value.trim()
+    if (!t) return null
+    const before = itemsRef.current
+    const tempId = `tmp-${++plateTempSeq}`
+    const temp: HomeListItem = { id: tempId, text: t, createdAt: '', position: null, depth }
+    let next = insertAfter(before, afterId, temp)
+    if (afterId) next = normalize(next.map((x) => (x.id === tempId ? { ...x, depth } : x)))
+    const placed = withPositions(next)
+    const mine = placed.find((x) => x.id === tempId)!
     setError('')
     editSeq.current++
-    setItems((prev) => (prev ?? []).filter((x) => x.id !== id))
+    setItems(placed)
     try {
-      await deleteHomeListItem(id)
+      const item = await addHomeListItem(t, { position: mine.position, depth: mine.depth })
+      setItems((prev) => (prev ?? []).map((x) => (x.id === tempId ? { ...x, id: item.id, createdAt: item.createdAt } : x)))
+      setDraft((d) => (d && d.afterId === tempId ? { ...d, afterId: item.id } : d))
+      await saveHomeListLayout(layoutChanges(before, placed.filter((x) => x.id !== tempId)))
       editSeq.current++
+      return item.id
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete that.')
-      editSeq.current++
-      refresh() // puts the item back, since it is still there
+      fail(e, 'Could not add that.')
+      return null
     }
   }
+
+  const add = async () => {
+    if (!text.trim() || busy) return
+    setBusy(true)
+    const id = await addItem(text, null, 0)
+    if (id) setText('')
+    setBusy(false)
+  }
+
+  // Straight away, like deleting a task on the Mac. Its children stay, pulled out a level if needed.
+  const remove = async (id: string) => {
+    const before = itemsRef.current
+    const placed = withPositions(removeItem(before, id))
+    setError('')
+    editSeq.current++
+    setItems(placed)
+    if (editingId === id) setEditingId(null)
+    try {
+      await deleteHomeListItem(id)
+      await saveHomeListLayout(layoutChanges(before.filter((x) => x.id !== id), placed))
+      editSeq.current++
+    } catch (e) {
+      fail(e, 'Could not delete that.')
+    }
+  }
+
+  const startEdit = (x: HomeListItem) => {
+    setDraft(null)
+    setEditingId(x.id)
+    setEditText(x.text)
+  }
+  // Leaving the box saves it. Checked a beat later, because a move re-focuses the same box.
+  const endEditSoon = () =>
+    window.setTimeout(() => {
+      if (document.activeElement === editRef.current) return
+      setEditingId((id) => {
+        if (id) void renameItem(id, editText)
+        return null
+      })
+    }, 0)
+
+  const onEditKey = (e: React.KeyboardEvent<HTMLInputElement>, x: HomeListItem) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      void renameItem(x.id, editText)
+      setEditingId(null)
+      setDraft({ afterId: x.id, depth: x.depth, text: '' })
+    } else if (e.key === 'Tab') {
+      e.preventDefault()
+      void renameItem(x.id, editText)
+      void (e.shiftKey ? outdentItem(x.id) : indentItem(x.id))
+    } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault()
+      void moveItem(x.id, e.key === 'ArrowUp' ? -1 : 1)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setEditingId(null)
+    }
+  }
+
+  // The deepest a new line may go: one level under the item it follows.
+  const draftMaxDepth = (d: PlateDraft) => {
+    const list = itemsRef.current
+    const i = d.afterId ? list.findIndex((x) => x.id === d.afterId) : -1
+    if (i < 0) return 0
+    return Math.min(MAX_DEPTH, list[blockEnd(list, i) - 1].depth + 1)
+  }
+  const onDraftKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!draft) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (!draft.text.trim()) {
+        setDraft(null)
+        return
+      }
+      const d = draft
+      // The next line goes after this one, at the same level, the way a bulleted list does.
+      setDraft({ afterId: null, depth: d.depth, text: '' })
+      void addItem(d.text, d.afterId, d.depth).then((id) => setDraft((cur) => (cur && id ? { ...cur, afterId: id } : null)))
+    } else if (e.key === 'Tab') {
+      e.preventDefault()
+      const depth = e.shiftKey ? Math.max(0, draft.depth - 1) : Math.min(draftMaxDepth(draft), draft.depth + 1)
+      setDraft({ ...draft, depth })
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setDraft(null)
+    }
+  }
+  const endDraftSoon = () =>
+    window.setTimeout(() => {
+      if (document.activeElement === draftRef.current) return
+      setDraft((d) => {
+        if (d && d.text.trim() && d.afterId) void addItem(d.text, d.afterId, d.depth)
+        return null
+      })
+    }, 0)
+
+  const list = items ?? []
+  // Where the new line sits: right after the block of the item it follows.
+  const draftAt = (() => {
+    if (!draft || !draft.afterId) return -1
+    const i = list.findIndex((x) => x.id === draft.afterId)
+    return i < 0 ? -1 : blockEnd(list, i)
+  })()
+  const draftRow = draft && draftAt >= 0 && (
+    <div key="plate-draft" className="flex items-start gap-2.5 rounded-lg px-3 py-2" style={{ marginLeft: draft.depth * 24 }}>
+      <PlateBullet depth={draft.depth} />
+      <input
+        ref={draftRef}
+        value={draft.text}
+        onChange={(e) => setDraft({ ...draft, text: e.target.value })}
+        onKeyDown={onDraftKey}
+        onBlur={endDraftSoon}
+        placeholder="New item"
+        className={plateInput}
+      />
+    </div>
+  )
 
   return (
     <section className="mt-8 rounded-2xl border border-line bg-surface p-5">
       <div className="mb-3 flex items-center gap-2">
         {/* text-muted, not the band headings' brass-dim: inside a white card brass-dim is a pale blue. */}
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">On my plate</h3>
-        {items && items.length > 0 && (
+        {list.length > 0 && (
           <span className="rounded-full border border-line px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-faint">
-            {items.length}
+            {list.length}
           </span>
         )}
       </div>
 
-      {items && items.length === 0 && (
+      {items && list.length === 0 && (
         <p className="rounded-xl border border-dashed border-line px-4 py-6 text-center text-[12.5px] text-faint">
           Nothing on your plate yet. Add the first thing below.
         </p>
       )}
-      {items && items.length > 0 && (
-        <div className="space-y-2">
-          {items.map((x) => (
-            <div
-              key={x.id}
-              className="group flex items-center gap-3 rounded-lg border border-line bg-surface-2/50 px-3 py-2.5 transition-colors hover:border-line-strong"
-            >
-              <span className="min-w-0 flex-1 text-[14px] leading-snug text-parchment">{x.text}</span>
-              <button
-                type="button"
-                onClick={() => remove(x.id)}
-                aria-label={`Delete ${x.text}`}
-                title="Delete"
-                className="shrink-0 rounded-md p-1 text-faint opacity-0 transition-all hover:text-[var(--color-brass-bright)] focus:opacity-100 group-hover:opacity-100"
+      {list.length > 0 && (
+        <div className="space-y-1.5">
+          {list.map((x, i) => {
+            const editing = editingId === x.id
+            const row = (
+              <div
+                key={x.id}
+                className="group flex items-start gap-2.5 rounded-lg border border-line bg-surface-2/50 px-3 py-2 transition-colors hover:border-line-strong"
+                style={{ marginLeft: x.depth * 24 }}
               >
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
-                </svg>
-              </button>
-            </div>
-          ))}
+                <PlateBullet depth={x.depth} />
+                {editing ? (
+                  <input
+                    ref={editRef}
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={(e) => onEditKey(e, x)}
+                    onBlur={endEditSoon}
+                    className={plateInput}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startEdit(x)}
+                    title="Click to rename"
+                    className="min-w-0 flex-1 cursor-text text-left text-[14px] leading-snug text-parchment"
+                  >
+                    {x.text}
+                  </button>
+                )}
+                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                  <button type="button" className={plateBtn} title="Move up (Option+Up)" aria-label="Move up" disabled={!canMoveUp(list, x.id)} onClick={() => moveItem(x.id, -1)}>
+                    <PlateIcon d="M12 19V5M5 12l7-7 7 7" />
+                  </button>
+                  <button type="button" className={plateBtn} title="Move down (Option+Down)" aria-label="Move down" disabled={!canMoveDown(list, x.id)} onClick={() => moveItem(x.id, 1)}>
+                    <PlateIcon d="M12 5v14M19 12l-7 7-7-7" />
+                  </button>
+                  <button type="button" className={plateBtn} title="Outdent (Shift+Tab)" aria-label="Outdent" disabled={!canOutdent(list, x.id)} onClick={() => outdentItem(x.id)}>
+                    <PlateIcon d="M11 6H20M11 12h9M11 18h9M7 9l-3 3 3 3" />
+                  </button>
+                  <button type="button" className={plateBtn} title="Indent under the item above (Tab)" aria-label="Indent" disabled={!canIndent(list, x.id)} onClick={() => indentItem(x.id)}>
+                    <PlateIcon d="M11 6H20M11 12h9M11 18h9M4 9l3 3-3 3" />
+                  </button>
+                  <button type="button" className={plateBtn} title="Delete" aria-label={`Delete ${x.text}`} onClick={() => remove(x.id)}>
+                    <PlateIcon d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+                  </button>
+                </div>
+              </div>
+            )
+            return draftAt === i + 1 ? [row, draftRow] : row
+          })}
         </div>
       )}
 
@@ -499,6 +748,11 @@ function HomeList() {
           Add
         </button>
       </div>
+      {list.length > 0 && (
+        <p className="mt-2 text-[11px] text-faint">
+          Click an item to rename it. While typing: Enter adds a line below, Tab indents, Shift+Tab outdents, Option+Up/Down moves.
+        </p>
+      )}
       {error && <p className="mt-2 text-[12px] text-[#dc2626]">{error}</p>}
     </section>
   )

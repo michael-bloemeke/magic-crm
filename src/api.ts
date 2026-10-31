@@ -1837,15 +1837,21 @@ export async function deleteShow(id: string): Promise<void> {
 
 // --- Home list: the big things he is working on (crm-home-list.mjs; the phone shares the `home_list` rows) ---
 // Add and delete only, by his design: no due date, no checkbox, no rename.
-export type HomeListItem = { id: string; text: string; createdAt: string }
+export type HomeListItem = { id: string; text: string; createdAt: string; position: number | null; depth: number }
 
 export async function loadHomeList(): Promise<HomeListItem[]> {
   const res = await fetch('/api/home-list')
   if (!res.ok) throw new Error(`Failed to load the list (${res.status})`)
   return ((await res.json()).items ?? []) as HomeListItem[]
 }
-export async function addHomeListItem(text: string): Promise<HomeListItem> {
-  return (await postJsonStrict<{ item: HomeListItem }>('/api/home-list/add', { text }, 'Could not add that')).item
+export async function addHomeListItem(text: string, place?: { position: number | null; depth: number }): Promise<HomeListItem> {
+  return (await postJsonStrict<{ item: HomeListItem }>('/api/home-list/add', { text, ...place }, 'Could not add that')).item
+}
+export async function renameHomeListItem(id: string, text: string): Promise<void> {
+  await postJsonStrict('/api/home-list/rename', { id, text }, 'Could not rename that')
+}
+export async function saveHomeListLayout(rows: { id: string; position: number | null; depth: number }[]): Promise<void> {
+  if (rows.length) await postJsonStrict('/api/home-list/layout', { rows }, 'Could not save the new order')
 }
 export async function deleteHomeListItem(id: string): Promise<void> {
   await postJsonStrict('/api/home-list/delete', { id }, 'Could not delete that')
