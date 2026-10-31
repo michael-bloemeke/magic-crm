@@ -980,14 +980,22 @@
       .duty-rm { flex: none; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--red); font-size: 20px; }
 
       /* Home: "On my plate", the big things he is working on (2026-10-24). One .card under the tiles,
-         so it keeps the card palette (dark text) on the navy damask. Add and delete only. */
+         so it keeps the card palette (dark text) on the navy damask. An outline since 2026-10-31:
+         each row is indented by its depth (set inline) and tapping its text opens the edit sheet. */
       .plate { margin-top: 12px; padding: 14px; cursor: default; }
       .plate-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
       .plate-title { font-size: 16px; font-weight: 700; color: var(--parchment); }
       .plate-n { font-size: 11px; font-weight: 700; color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; font-variant-numeric: tabular-nums; }
       .plate-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
       .plate-row:first-child { border-top: 0; }
-      .plate-text { flex: 1; min-width: 0; font-size: 15px; line-height: 1.35; color: var(--parchment); overflow-wrap: anywhere; }
+      .plate-text { flex: 1; min-width: 0; font-size: 15px; line-height: 1.35; color: var(--parchment); overflow-wrap: anywhere;
+        background: transparent; border: 0; padding: 0; font-family: inherit; text-align: left; cursor: pointer; }
+      .plate-b { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--brass); }
+      .plate-b.d1 { width: 7px; height: 7px; background: transparent; border: 1.5px solid var(--brass); }
+      .plate-b.d2 { width: 8px; height: 1.5px; border-radius: 0; }
+      .plate-hint { color: var(--faint); font-size: 12px; margin-top: 8px; }
+      .plate-moves { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .plate-moves .do-alt:disabled { opacity: 0.35; }
       .plate-empty { color: var(--faint); font-size: 13.5px; padding: 6px 0 2px; }
       .plate-add { margin-top: 10px; }
 
