@@ -42,6 +42,7 @@ src = src.replace(/import\s*\{[\s\S]*?\}\s*from\s*'\.\/supabase-data\.js'\n?/, '
          // The template library is plain data, so the test loads the real one rather than a stub.
          .replace("from './email-templates.js'", "from '../email-templates.js'")
          .replace("from './showbuilder-core.js'", "from '../showbuilder-core.js'")
+         .replace("from './homelist-core.js'", "from '../homelist-core.js'")
 // boot() fires on DOMContentLoaded and would go to the network; the harness drives the render
 // functions directly instead, so that listener is dropped.
 src = src.replace("document.addEventListener('DOMContentLoaded', boot)", "")

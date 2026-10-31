@@ -5,6 +5,11 @@
 //   TASKS  "show all of my tasks... priority to tasks that are overdue above all else, and then it'll
 //          show tasks that are due... beyond that, priority to tasks that are within a specific
 //          project before showing tasks that are more general."
+//          NARROWED 2026-10-31: "it only displays tasks that are due or overdue. I do not want to have
+//          upcoming tasks displayed. If I have a task scheduled for 2 weeks from now, then it should not
+//          show up in the widget." So overdue and due today only; undated tasks are left out too.
+//   PLATE  "On my plate" from the app's Home (home_list), in outline order with each item's indent
+//          (2026-10-31). The order rule is mobile/homelist-core.js sortItems + normalize.
 //   GIGS   the "Gigs next 7 days" cards from the app's Home: name, type of event, date, address, the
 //          quote, and the pipeline stage. Soonest first.
 //   MAIL   unread email to OR from anyone on an active project: the same list as the app's Home
@@ -60,12 +65,13 @@ function money(n: unknown) {
 // is the same QuickBooks-first figure the Finance page shows; without it the CRM's payments are used.
 export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<string>, qbo?: () => Promise<any>) {
   const { date: today, minutes: nowMin } = nowParts()
-  const [{ data: projects, error: e1 }, { data: tasks, error: e2 }, { data: meta }, { data: contacts }, { data: links }] = await Promise.all([
+  const [{ data: projects, error: e1 }, { data: tasks, error: e2 }, { data: meta }, { data: contacts }, { data: links }, { data: plateRows }] = await Promise.all([
     sb.from('projects').select('id,client_name,project_name,bucket,stage_id,event_type,event_date,event_location,venue_type,total_fee,total_fee_text,show_start_time,contact_emails,lead_date,created_at'),
     sb.from('tasks').select('id,title,due_date,due_time,done,project_id').eq('done', false),
     sb.from('pipeline_meta').select('structure').maybeSingle(),
     sb.from('contacts').select('id,emails'),
     sb.from('contact_links').select('project_id,contact_id'),
+    sb.from('home_list').select('id,text,position,depth,created_at'),
   ])
   if (e1) throw e1
   if (e2) throw e2
@@ -96,11 +102,25 @@ export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<s
   // Overdue, then due today, then the rest; inside each, project tasks before general ones; then the
   // soonest due date and time first (the same order the app's Tasks page reads in).
   rows.sort((a, b) => a.rank - b.rank || (a.projectId ? 0 : 1) - (b.projectId ? 0 : 1) || (a.due || '9999').localeCompare(b.due || '9999') || a.mins - b.mins)
+  // Only what is due: overdue, then due today (2026-10-31). `total` is what the widget lists.
+  const dueRows = rows.filter((r) => r.state === 'overdue' || r.state === 'today')
   const taskCounts = {
-    overdue: rows.filter((r) => r.state === 'overdue').length,
-    today: rows.filter((r) => r.state === 'today').length,
-    total: rows.length,
+    overdue: dueRows.filter((r) => r.state === 'overdue').length,
+    today: dueRows.filter((r) => r.state === 'today').length,
+    total: dueRows.length,
   }
+
+  // ---- ON MY PLATE: by position (then when added), each item no deeper than one under the one above
+  const plateSorted = (plateRows || []).slice().sort((a: any, b: any) => {
+    const pa = a.position == null ? Infinity : Number(a.position), pb = b.position == null ? Infinity : Number(b.position)
+    return pa !== pb ? (pa < pb ? -1 : 1) : str(a.created_at).localeCompare(str(b.created_at))
+  })
+  let prevDepth = -1
+  const plate = plateSorted.map((r: any) => {
+    const depth = Math.max(0, Math.min(3, Math.round(Number(r.depth) || 0), prevDepth + 1))
+    prevDepth = depth
+    return { id: str(r.id), text: str(r.text), depth }
+  })
 
   // ---- GIGS: active projects with an event in the next 7 days, soonest first (homeData().gigs) ----
   const end7 = addDays(today, 7)
@@ -257,8 +277,9 @@ export async function buildFeed(sb: SupabaseClient, googleToken: () => Promise<s
     ok: true,
     generatedAt: new Date().toISOString(),
     today,
-    tasks: rows.slice(0, 120).map(({ rank: _r, mins: _m, ...r }) => r),
+    tasks: dueRows.slice(0, 120).map(({ rank: _r, mins: _m, ...r }) => r),
     taskCounts,
+    plate,
     gigs,
     mail: mail.slice(0, 40),
     mailCount: mail.length,

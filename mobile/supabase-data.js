@@ -1306,29 +1306,55 @@ export async function deleteShow(id) {
 }
 
 // ---------- home list: "On my plate" (twin of crm-home-list.mjs on the Mac) ----------
-// The big things Michael is working on, under the tiles on Home (2026-10-24). Add and delete only, by
-// his design: no due date, no checkbox, no rename, and NOT a task. Same `home_list` rows as the Mac.
+// The big things Michael is working on, under the tiles on Home (2026-10-24). No due date, no checkbox,
+// and NOT a task. Same `home_list` rows as the Mac. Since 2026-10-31 it is an outline: each row has a
+// `position` (the order) and a `depth` (the indent level), and the rules for moving and indenting live
+// in homelist-core.js, shared with the Mac. These functions only read and write rows.
+const plateNum = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
+const plateDepth = (v) => Math.max(0, Math.min(3, Math.round(Number(v) || 0)))
 function homeItemFromRow(r) {
-  return { id: str(r.id), text: str(r.text), createdAt: str(r.created_at) }
+  return { id: str(r.id), text: str(r.text), createdAt: str(r.created_at), position: plateNum(r.position), depth: Number(r.depth) || 0 }
 }
-// Oldest first: a new item goes to the bottom. NEVER throws: it is loaded inside loadEverything's
-// batch, where one failed read used to take the whole app down, so a problem here only empties the
-// list and says so (homeListError).
+// In outline order. NEVER throws: it is loaded inside loadEverything's batch, where one failed read
+// used to take the whole app down, so a problem here only empties the list and says so (homeListError).
 export async function loadHomeList() {
   try {
-    const { data, error } = await sb.from('home_list').select('*').order('created_at', { ascending: true })
+    const { data, error } = await sb.from('home_list').select('*')
+      .order('position', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
     if (error) throw error
     return { items: (data || []).map(homeItemFromRow), error: '' }
   } catch (e) {
     return { items: [], error: (e && e.message) || 'Could not load the list.' }
   }
 }
-export async function addHomeListItem(text) {
+// Without a position it goes at the bottom (the database default puts it last), top level.
+export async function addHomeListItem(text, opts) {
   const t = str(text).trim()
   if (!t) throw new Error('Type the item first.')
-  const { data, error } = await sb.from('home_list').insert({ text: t }).select('*').single()
+  const row = { text: t }
+  if (opts && plateNum(opts.position) != null) row.position = Number(opts.position)
+  if (opts && plateNum(opts.depth) != null) row.depth = plateDepth(opts.depth)
+  const { data, error } = await sb.from('home_list').insert(row).select('*').single()
   if (error) throw error
   return homeItemFromRow(data)
+}
+export async function renameHomeListItem(id, text) {
+  const t = str(text).trim()
+  if (!id) throw new Error('Item id is required.')
+  if (!t) throw new Error('An item needs some text.')
+  const { error } = await sb.from('home_list').update({ text: t }).eq('id', id)
+  if (error) throw error
+  return { ok: true }
+}
+// The rows whose order or indent changed: [{ id, position, depth }] (homelist-core layoutChanges).
+export async function saveHomeListLayout(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter((r) => r && r.id)
+  const results = await Promise.all(list.map((r) =>
+    sb.from('home_list').update({ position: plateNum(r.position), depth: plateDepth(r.depth) }).eq('id', r.id)))
+  const failed = results.find((x) => x.error)
+  if (failed) throw failed.error
+  return { ok: true, saved: list.length }
 }
 export async function deleteHomeListItem(id) {
   if (!id) throw new Error('Item id is required.')

@@ -1,6 +1,6 @@
 import { STUB } from './stub.mjs'
 const __S = new Proxy(STUB, { get: (t, k) => (k in t ? t[k] : (...a) => Promise.resolve({ ok: true })) })
-const { loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail, addTask, updateTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage, reloadPaymentsFinance, savePushSubscription, saveNativePushToken, createProject, archiveProject, completeProject, restoreProject, deleteProject, LEAD_SOURCES, updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen, loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl, gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview, saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment, SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule, loadInquiryReview, dismissInquiryReview, loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow, phoneApi, saveConfigPatch, loadRawConfig, loadQuickBooksMonths, loadBankBalances, deletePayment, EXPENSE_CADENCES, loadExpenses, addExpense, deleteExpense, loadMileage, addTrip, deleteTrip, setMileageRate, loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings, listFiles, fileUrl, uploadFile, deleteFile, loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog, sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls, addHomeListItem, deleteHomeListItem, VAPID_PUBLIC_KEY } = __S
+const { loadEverything, dataChangedSinceLastLoad, getSession, signIn, signOut, currentUserEmail, addTask, updateTask, toggleTask, deleteTask, addNote, updateProjectField, addPayment, setStage, reloadPaymentsFinance, savePushSubscription, saveNativePushToken, createProject, archiveProject, completeProject, restoreProject, deleteProject, LEAD_SOURCES, updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen, loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl, gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview, saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment, SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule, loadInquiryReview, dismissInquiryReview, loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow, phoneApi, saveConfigPatch, loadRawConfig, loadQuickBooksMonths, loadBankBalances, deletePayment, EXPENSE_CADENCES, loadExpenses, addExpense, deleteExpense, loadMileage, addTrip, deleteTrip, setMileageRate, loadAnalytics, sbCalendarAlertSettings, saveCalendarAlertSettings, listFiles, fileUrl, uploadFile, deleteFile, loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog, sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls, addHomeListItem, deleteHomeListItem, renameHomeListItem, saveHomeListLayout, VAPID_PUBLIC_KEY } = __S
 /* Bloom CRM mobile. Logs in with Supabase Auth and reads LIVE data straight from the database (RLS
    lets the logged-in user read everything; the publishable key alone reads nothing). Login is
    once-per-device (supabase-js persists the session). Read-only for now: the view renders live data;
@@ -16,6 +16,8 @@ import {
   reorderShow, appendNode, removeNode, assignNode, moveNode, connectNodes, connectedCount,
   duplicateShow as sbDuplicateShow, CANVAS_W, CANVAS_H, DEFAULT_OTHER_COLOR, packingList, packingId,
 } from '../showbuilder-core.js'
+// "On my plate" as an outline (2026-10-31): the move and indent rules, shared with the Mac.
+import * as PLATE from '../homelist-core.js'
 import { TEMPLATE_GROUPS } from '../email-templates.js'
 
 var SNAP = null
@@ -6644,27 +6646,42 @@ function money0(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('en-
 
 // ---- On my plate (the Mac's HomeList) ----
 // The big things he is working on, in the space under the tiles (Michael, 2026-10-24): "the major
-// elements of my business that I'm working on that still need to be done." Add and delete only: no
-// due date, no checkbox, no rename, and NOT a task. The same `home_list` rows as the Mac's Home, so
-// an item added on one shows up on the other. A `.card`, so it keeps the card's dark text on navy.
+// elements of my business that I'm working on that still need to be done." No due date, no checkbox,
+// and NOT a task. The same `home_list` rows as the Mac's Home, so an item added on one shows up on the
+// other. A `.card`, so it keeps the card's dark text on navy.
+//
+// An OUTLINE since 2026-10-31: "I want to be able to rename it and reorder it... make an item a sort
+// of subset of another item." Tap an item to rename, move or indent it. Moving or indenting an item
+// takes its sub-items with it; the rules are homelist-core.js, the same file the Mac uses.
 var PLATE_X = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+function plateItems() { return PLATE.normalize(PLATE.sortItems(SNAP.homeList || [])) }
+function repaintPlate() { if (TAB === 'home' && !DETAIL_ID) render() }
+// A move or an indent: shown straight away, then only the rows that moved are saved. Put back if the
+// write fails.
+function plateLayout(next) {
+  var before = plateItems()
+  var placed = PLATE.withPositions(next)
+  SNAP.homeList = placed
+  repaintPlate()
+  return doWrite(saveHomeListLayout(PLATE.layoutChanges(before, placed)), null)
+    .catch(function () { SNAP.homeList = before; repaintPlate() })
+}
 function plateCard() {
-  var items = SNAP.homeList || []
+  var items = plateItems()
   var card = el('<div class="card plate"><div class="plate-head"><span class="plate-title">On my plate</span></div><div class="plate-list"></div></div>')
   if (items.length) card.querySelector('.plate-head').appendChild(el('<span class="plate-n">' + items.length + '</span>'))
   var list = card.querySelector('.plate-list')
   if (SNAP.homeListError && !items.length) list.appendChild(el('<div class="plate-empty">Could not load the list. Tap Refresh to try again.</div>'))
   else if (!items.length) list.appendChild(el('<div class="plate-empty">Nothing on your plate yet. Add the first thing below.</div>'))
   items.forEach(function (x) {
-    var row = el('<div class="plate-row"><span class="plate-text"></span><button class="taskdel" aria-label="Delete">' + PLATE_X + '</button></div>')
+    var row = el('<div class="plate-row"><span class="plate-b d' + Math.min(x.depth, 2) + '"></span><button class="plate-text"></button><button class="taskdel" aria-label="Delete">' + PLATE_X + '</button></div>')
+    row.style.paddingLeft = (x.depth * 20) + 'px'
     row.querySelector('.plate-text').textContent = x.text
+    row.querySelector('.plate-text').addEventListener('click', function () { openPlateSheet(x.id) })
     row.querySelector('.taskdel').addEventListener('click', function () {
       // Asks first, like deleting a task on the phone.
       if (!confirm('Delete "' + x.text + '"?')) return
-      doWrite(deleteHomeListItem(x.id), 'Deleted', function () {
-        SNAP.homeList = (SNAP.homeList || []).filter(function (y) { return y.id !== x.id })
-        if (TAB === 'home' && !DETAIL_ID) render()
-      }).catch(function () { /* doWrite already said so */ })
+      plateDelete(x.id)
     })
     list.appendChild(row)
   })
@@ -6675,8 +6692,15 @@ function plateCard() {
     var t = inp.value.trim()
     if (!t || busy) return
     busy = true; btn.disabled = true
-    doWrite(addHomeListItem(t), null, function (item) {
-      SNAP.homeList = (SNAP.homeList || []).concat([item])
+    // At the bottom, top level. The list is renumbered with it, so it lands last even beside a row
+    // that has no position yet; any row whose number changed is saved too.
+    var before = plateItems()
+    var placed = PLATE.withPositions(PLATE.insertAfter(before, null, { id: '__new', text: t, createdAt: '', position: null, depth: 0 }))
+    var mine = placed[placed.length - 1]
+    doWrite(addHomeListItem(t, { position: mine.position, depth: 0 }), null, function (item) {
+      SNAP.homeList = placed.map(function (y) { return y.id === '__new' ? item : y })
+      var moved = PLATE.layoutChanges(before, placed.filter(function (y) { return y.id !== '__new' }))
+      if (moved.length) saveHomeListLayout(moved).catch(function () { /* the next refresh tidies it */ })
       if (TAB === 'home' && !DETAIL_ID) {
         render()
         // Back into the box, for the next one.
@@ -6687,7 +6711,90 @@ function plateCard() {
   btn.addEventListener('click', go)
   inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') go() })
   card.appendChild(add)
+  if (items.length) card.appendChild(el('<div class="plate-hint">Tap an item to rename, move or indent it.</div>'))
   return card
+}
+// Deleting leaves its sub-items in place, pulled out a level if they lost their parent.
+function plateDelete(id, after) {
+  var before = plateItems()
+  var placed = PLATE.withPositions(PLATE.removeItem(before, id))
+  return doWrite(deleteHomeListItem(id), 'Deleted', function () {
+    SNAP.homeList = placed
+    repaintPlate()
+    var moved = PLATE.layoutChanges(before.filter(function (y) { return y.id !== id }), placed)
+    if (moved.length) saveHomeListLayout(moved).catch(function () { /* the next refresh tidies it */ })
+    if (after) after()
+  }).catch(function () { /* doWrite already said so */ })
+}
+// One item: rename it, move it, indent it, delete it. The moves apply at once and the sheet stays
+// open, so an item can be walked several places in a row.
+function openPlateSheet(id) {
+  var x = plateItems().find(function (y) { return y.id === id })
+  if (!x) return
+  var sheet = el(
+    '<div class="sheet"><div class="sheet-card">' +
+      '<div class="sheet-head"><div class="sheet-title">On my plate</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.sheet-body')
+  var close = function () { sheet.remove() }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  sheet.addEventListener('click', function (e) { if (e.target === sheet) close() })
+
+  var text = document.createElement('textarea')
+  text.className = 'field-input'
+  text.rows = 2
+  text.value = x.text
+  body.appendChild(text)
+  var save = el('<button class="btn-gold" style="width:100%;margin-top:9px">Save name</button>')
+  save.addEventListener('click', function () {
+    var t = text.value.trim()
+    if (!t) { toast('An item needs some text.', 'err'); return }
+    if (t === x.text) { close(); return }
+    doWrite(renameHomeListItem(id, t), 'Saved', function () {
+      SNAP.homeList = PLATE.rename(plateItems(), id, t)
+      close(); repaintPlate()
+    }).catch(function () { /* doWrite already said so */ })
+  })
+  body.appendChild(save)
+
+  body.appendChild(el('<div class="do-l" style="margin:16px 0 6px">Move</div>'))
+  var moves = el('<div class="plate-moves"></div>')
+  var acts = [
+    ['Move up', PLATE.canMoveUp, PLATE.moveUp],
+    ['Move down', PLATE.canMoveDown, PLATE.moveDown],
+    ['Outdent', PLATE.canOutdent, PLATE.outdent],
+    ['Indent', PLATE.canIndent, PLATE.indent],
+  ]
+  var btns = acts.map(function (a) {
+    var b = el('<button class="do-alt">' + esc(a[0]) + '</button>')
+    b.addEventListener('click', function () {
+      var items = plateItems()
+      if (!a[1](items, id)) return
+      plateLayout(a[2](items, id)).then(paint)
+      paint()
+    })
+    moves.appendChild(b)
+    return b
+  })
+  function paint() {
+    var items = plateItems()
+    acts.forEach(function (a, k) { btns[k].disabled = !a[1](items, id) })
+  }
+  paint()
+  body.appendChild(moves)
+  body.appendChild(el('<div class="plate-hint">Indent puts it under the item above. Its own sub-items move with it.</div>'))
+
+  var del = el('<button class="btn-ghost" style="width:100%;margin-top:16px;color:var(--red);border-color:color-mix(in oklab,var(--red) 40%, var(--line))">Delete</button>')
+  del.addEventListener('click', function () {
+    if (!confirm('Delete "' + x.text + '"?')) return
+    plateDelete(id, close)
+  })
+  body.appendChild(del)
+  document.body.appendChild(sheet)
 }
 
 // ---- daily duties (the Mac's DailyDuties) ----

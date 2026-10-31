@@ -74,10 +74,11 @@
 // Bumping the cache name forces every client to drop the old shell on activate.
 // v28 (2026-10-24): the Show Builder page, and showbuilder-core.js joins the shell.
 // v29 (2026-10-24): "On my plate" under the Home tiles (the home_list table, shared with the Mac).
-var CACHE = 'mcrm-v29'
+// v30 (2026-10-31): "On my plate" becomes an outline (rename, reorder, indent); homelist-core.js joins the shell.
+var CACHE = 'mcrm-v30'
 var SHELL = [
   './', './index.html', './app.js', './config.js', './supabase-data.js',
-  './manifest.webmanifest', './icon-192.png', './icon-512.png', './damask.webp', './email-templates.js', './showbuilder-core.js',
+  './manifest.webmanifest', './icon-192.png', './icon-512.png', './damask.webp', './email-templates.js', './showbuilder-core.js', './homelist-core.js',
   // Vendored supabase-js + its Node shims. Part of the shell now: the app cannot start without them,
   // and they are ours rather than a CDN's, so they belong in the offline cache like everything else.
   './vendor/supabase-js.js', './vendor/node-process.js', './vendor/node-buffer.js',

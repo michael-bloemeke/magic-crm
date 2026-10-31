@@ -680,6 +680,89 @@ console.log('\n== home: On my plate ==')
   SNAP.homeList = []; SNAP.homeListError = ''
 }
 
+console.log('\n== home: On my plate as an outline (2026-10-31) ==')
+{
+  // Michael: rename, reorder, and make an item "a subset of another item... kind of indented".
+  const P = await import('../homelist-core.js')
+  const mk = (spec) => spec.map(([id, depth], k) => ({ id, text: id, createdAt: String(k), position: (k + 1) * 1000, depth }))
+  const shape = (xs) => xs.map((x) => x.depth + x.id).join(' ')
+  let L = mk([['A', 0], ['B', 0], ['C', 0], ['D', 0]])
+  ok(!P.canIndent(L, 'A'), 'the first item cannot be indented (nothing above to belong to)')
+  L = P.indent(L, 'B'); ok(shape(L) === '0A 1B 0C 0D', 'Tab puts B under A', shape(L))
+  ok(!P.canIndent(L, 'B'), 'B cannot go two levels under A')
+  L = P.indent(L, 'C'); L = P.indent(L, 'C'); ok(shape(L) === '0A 1B 2C 0D', 'C goes under B, a level deeper', shape(L))
+  L = P.moveUp(L, 'D'); ok(shape(L) === '0D 0A 1B 2C', 'moving D up jumps the whole A block, children and all', shape(L))
+  L = P.moveDown(L, 'D'); ok(shape(L) === '0A 1B 2C 0D', 'and back down past it', shape(L))
+  ok(!P.canMoveUp(L, 'B') && !P.canMoveDown(L, 'B'), 'B has no sibling under A, so it stays put (outdent to leave A)')
+  L = P.outdent(L, 'B'); ok(shape(L) === '0A 0B 1C 0D', 'Shift+Tab brings B out, and C comes with it', shape(L))
+  L = P.insertAfter(L, 'B', { id: 'N', text: 'N', createdAt: '', position: null, depth: 3 }); ok(shape(L) === '0A 0B 1C 0N 0D', 'Enter adds after B and its sub-items, at B\'s level', shape(L))
+  L = P.removeItem(L, 'B'); ok(shape(L) === '0A 1C 0N 0D', 'deleting B keeps C, now under A', shape(L))
+  ok(shape(P.normalize(mk([['X', 2], ['Y', 3]]))) === '0X 1Y', 'normalize never lets an item hang deeper than one under the item above')
+  const before = P.withPositions(L), after = P.withPositions(P.moveUp(L, 'D'))
+  ok(JSON.stringify(P.layoutChanges(before, after)) === JSON.stringify([{ id: 'D', position: 3000, depth: 0 }, { id: 'N', position: 4000, depth: 0 }]), 'only the rows that moved are saved', JSON.stringify(P.layoutChanges(before, after)))
+  ok(shape(P.sortItems([{ id: 'late', createdAt: '2', position: null, depth: 0 }, { id: 'b', createdAt: '9', position: 2000, depth: 0 }, { id: 'a', createdAt: '1', position: 1000, depth: 0 }])) === '0a 0b 0late', 'sorted by position; a row an old build added without one goes last')
+
+  // The phone: indented rows, and the sheet that renames, moves and indents.
+  const savedConfirm = globalThis.confirm
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('home')
+  SNAP.homeList = [
+    { id: 'p1', text: 'Website', createdAt: '', position: 1000, depth: 0 },
+    { id: 'p2', text: 'Service pages', createdAt: '', position: 2000, depth: 1 },
+    { id: 'p3', text: 'Keynote', createdAt: '', position: 3000, depth: 0 },
+  ]
+  SNAP.homeListError = ''
+  __app.render(); await settle()
+  const rowsP = () => [...document.querySelectorAll('#view .plate-row')]
+  const texts = () => rowsP().map((r) => r.querySelector('.plate-text').textContent).join('|')
+  ok(rowsP()[1].style.paddingLeft === '20px' && rowsP()[0].style.paddingLeft === '0px', 'a sub-item is drawn indented under its parent')
+  ok(rowsP()[1].querySelector('.plate-b.d1') && rowsP()[0].querySelector('.plate-b.d0'), 'with a ring bullet instead of a dot')
+
+  rowsP()[2].querySelector('.plate-text').dispatchEvent(new window.Event('click')); await settle()
+  let sh = document.querySelector('.sheet')
+  ok(!!sh && sh.querySelector('textarea').value === 'Keynote', 'tapping an item opens its sheet with the name ready to edit')
+  const btn = (label) => [...sh.querySelectorAll('.plate-moves .do-alt')].find((b) => b.textContent === label)
+  ok(btn('Move down').disabled && btn('Outdent').disabled && !btn('Move up').disabled && !btn('Indent').disabled, 'only the moves that make sense are enabled')
+
+  CALLS.length = 0
+  btn('Move up').dispatchEvent(new window.Event('click')); await settle()
+  ok(texts() === 'Keynote|Website|Service pages', 'Move up takes it above Website and its sub-item', texts())
+  const lay = CALLS.find((c) => c.name === 'saveHomeListLayout')
+  ok(!!lay && lay.args[0].length === 3, 'and saves the new order', JSON.stringify(CALLS))
+  ok(btn('Move up').disabled && !btn('Move down').disabled, 'the buttons update while the sheet stays open')
+
+  sh.querySelector('textarea').value = '  Write the keynote  '
+  CALLS.length = 0
+  sh.querySelector('.btn-gold').dispatchEvent(new window.Event('click')); await settle()
+  ok(CALLS.some((c) => c.name === 'renameHomeListItem' && c.args[0] === 'p3' && c.args[1] === 'Write the keynote'), 'Save name renames it, trimmed', JSON.stringify(CALLS))
+  ok(!document.querySelector('.sheet') && texts().startsWith('Write the keynote|'), 'and the list shows the new name', texts())
+
+  // Indent Website under the keynote: its own sub-item comes along, a level deeper.
+  rowsP()[1].querySelector('.plate-text').dispatchEvent(new window.Event('click')); await settle()
+  sh = document.querySelector('.sheet')
+  btn('Indent').dispatchEvent(new window.Event('click')); await settle()
+  ok(rowsP()[1].style.paddingLeft === '20px' && rowsP()[2].style.paddingLeft === '40px', 'Indent moves it under the item above, sub-items and all')
+  sh.querySelector('.sheet-x').dispatchEvent(new window.Event('click'))
+
+  // Deleting a parent keeps its sub-item, pulled out a level.
+  globalThis.confirm = () => true
+  CALLS.length = 0
+  rowsP()[1].querySelector('.taskdel').dispatchEvent(new window.Event('click')); await settle()
+  ok(CALLS.some((c) => c.name === 'deleteHomeListItem' && c.args[0] === 'p1'), 'the X still deletes')
+  ok(texts() === 'Write the keynote|Service pages' && rowsP()[1].style.paddingLeft === '20px', 'and its sub-item stays, now under the item above', texts())
+
+  CALLS.length = 0
+  document.querySelector('#view .plate-add input').value = 'Blog'
+  document.querySelector('#view .plate-add button').dispatchEvent(new window.Event('click')); await settle()
+  const addCall = CALLS.find((c) => c.name === 'addHomeListItem')
+  ok(!!addCall && addCall.args[1] && addCall.args[1].depth === 0 && addCall.args[1].position > 2000, 'Add puts a new item at the bottom, top level', JSON.stringify(addCall))
+
+  globalThis.confirm = savedConfirm
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+  SNAP.homeList = []; SNAP.homeListError = ''
+}
+
 console.log('\n== back button ==')
 {
   __app.setDetail(null); __app.setTab('home'); __app.render()

@@ -7,8 +7,10 @@ import AppIntents
 // Michael: "I want to just be able to have my CRM data just in view all the time. So that way it's
 // always at the front of my brain." Three LARGE widgets, meant to be stacked across a home screen:
 //
-//   Tasks    every open task: overdue first, then due today, then the rest; inside each, project
-//            tasks before general ones. (The order is decided by the server, widget-feed/feed.ts.)
+//   Tasks    what is due: overdue first, then due today; inside each, project tasks before general
+//            ones. (The server decides, widget-feed/feed.ts.) Upcoming and undated tasks were dropped
+//            2026-10-31: "If I have a task scheduled for 2 weeks from now, then it should not show up."
+//   Plate    "On my plate" from the app's Home, as the outline it is there (added 2026-10-31).
 //   Gigs     the next 7 days, soonest first, as the cards from the app's Home "Gigs next 7 days".
 //   Mail     unread email FROM anyone on an active project.
 //
@@ -34,6 +36,7 @@ struct FeedTask: Codable, Hashable { let id: String; let title: String; let proj
 struct FeedGig: Codable, Hashable { let id: String; let name: String; let eventType: String; let date: String; let dateLabel: String; let countdown: String; let location: String; let fee: String; let stage: String }
 struct FeedMail: Codable, Hashable { let threadId: String; let from: String; let fromEmail: String; let outbound: Bool?; let subject: String; let snippet: String; let ts: Double; let projectId: String; let project: String }
 struct TaskCounts: Codable, Hashable { let overdue: Int; let today: Int; let total: Int }
+struct FeedPlate: Codable, Hashable { let id: String; let text: String; let depth: Int }
 struct NextGig: Codable, Hashable { let id: String; let name: String; let eventType: String; let dateLabel: String; let daysAway: Int; let countdown: String; let location: String; let fee: String; let showTime: String }
 struct Money: Codable, Hashable { let monthLabel: String; let yearLabel: String; let monthReceived: Double; let monthEarned: Double; let monthlyGoal: Double; let yearReceived: Double; let yearEarned: Double; let yearGoal: Double }
 struct LeadRow: Codable, Hashable { let id: String; let name: String; let eventDate: String }
@@ -53,6 +56,8 @@ struct Feed: Codable {
     let finance: Money?
     let leads: Leads?
     let booked: Booked?
+    // "On my plate" (2026-10-31). Optional for the same reason.
+    let plate: [FeedPlate]?
 }
 
 enum FeedState { case ok, notConnected, rejected, failed }
@@ -270,10 +275,10 @@ struct TasksView: View {
             let (page, pages) = pageOf(entry.page, count: tasks.count, per: per)
             let c = entry.feed?.taskCounts
             WidgetShell(title: "Tasks",
-                        subtitle: c.map { "\($0.overdue) overdue · \($0.today) due today · \($0.total) open" } ?? "",
+                        subtitle: c.map { "\($0.overdue) overdue · \($0.today) due today" } ?? "",
                         updated: entry.fetchedAt, kind: "tasks", page: page, pages: pages) {
                 if let note = stateNote(entry) { Note(text: note) }
-                else if tasks.isEmpty { Note(text: "All caught up.") }
+                else if tasks.isEmpty { Note(text: "Nothing due. All caught up.") }
                 else {
                     VStack(spacing: 4) {
                         ForEach(Array(tasks.dropFirst(page * per).prefix(per)), id: \.id) { t in
@@ -427,6 +432,57 @@ struct MailRow: View {
     }
 }
 
+// MARK: - On my plate
+
+// The list under the tiles on the app's Home: the big things he is working on, drawn as the outline it
+// is there (each level indented, a dot, then a ring, then a dash). Tapping it opens Home.
+struct PlateView: View {
+    let entry: FeedEntry
+    var body: some View {
+        GeometryReader { geo in
+            let items = entry.feed?.plate ?? []
+            let per = fit(geo.size.height, row: 28, spacing: 4)
+            let (page, pages) = pageOf(entry.page, count: items.count, per: per)
+            WidgetShell(title: "On my plate",
+                        subtitle: items.isEmpty ? "" : "\(items.count) item\(items.count == 1 ? "" : "s")",
+                        updated: entry.fetchedAt, kind: "plate", page: page, pages: pages) {
+                if let note = stateNote(entry) { Note(text: note) }
+                else if entry.feed?.plate == nil { Note(text: "Loading…") } // a feed saved before this widget existed
+                else if items.isEmpty { Note(text: "Nothing on your plate.") }
+                else {
+                    VStack(spacing: 4) {
+                        ForEach(Array(items.dropFirst(page * per).prefix(per)), id: \.id) { x in PlateRow(x: x) }
+                    }
+                }
+            }
+        }
+        .widgetURL(link("bloomcrm://home"))
+    }
+}
+
+struct PlateRow: View {
+    let x: FeedPlate
+    var body: some View {
+        HStack(spacing: 8) {
+            bullet.frame(width: 8)
+            Text(x.text).font(.system(size: 13, weight: x.depth == 0 ? .semibold : .medium))
+                .foregroundStyle(x.depth == 0 ? ink : muted).lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white))
+        .padding(.leading, CGFloat(min(x.depth, 3)) * 16)
+    }
+    @ViewBuilder private var bullet: some View {
+        switch x.depth {
+        case 0: Circle().fill(amber).frame(width: 6, height: 6)
+        case 1: Circle().stroke(amber, lineWidth: 1.5).frame(width: 7, height: 7)
+        default: Rectangle().fill(amber).frame(width: 8, height: 1.5)
+        }
+    }
+}
+
 // MARK: - The three widgets
 
 private struct Ground: View {
@@ -454,6 +510,10 @@ struct GigsEntryView: View {
         else { LockNextGig(entry: entry, family: family).lockBackground(family) }
     }
 }
+struct PlateEntryView: View {
+    let entry: FeedEntry
+    var body: some View { PlateView(entry: entry).containerBackground(for: .widget) { Ground() } }
+}
 struct MailEntryView: View {
     @Environment(\.widgetFamily) var family
     let entry: FeedEntry
@@ -467,7 +527,7 @@ struct TasksWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "BloomTasks", provider: Provider(kind: "tasks")) { e in TasksEntryView(entry: e) }
         .configurationDisplayName("Tasks")
-        .description("Overdue first, then due today. Project tasks before general ones.")
+        .description("What is due: overdue first, then due today. Project tasks before general ones.")
         .supportedFamilies([.systemLarge] + lockFamilies)
     }
 }
@@ -487,6 +547,15 @@ struct MailWidget: Widget {
         .configurationDisplayName("Unread email")
         .description("Unread email to or from anyone on an active project.")
         .supportedFamilies([.systemLarge] + lockFamilies)
+    }
+}
+
+struct PlateWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "BloomPlate", provider: Provider(kind: "plate")) { e in PlateEntryView(entry: e) }
+        .configurationDisplayName("On my plate")
+        .description("The big things you are working on, from Home.")
+        .supportedFamilies([.systemLarge])
     }
 }
 
@@ -540,6 +609,7 @@ struct BloomWidgetsBundle: WidgetBundle {
         TasksWidget()
         GigsWidget()
         MailWidget()
+        PlateWidget()
         MoneyMonthWidget()
         MoneyYearWidget()
         LeadsWidget()

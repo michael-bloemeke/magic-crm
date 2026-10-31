@@ -28,6 +28,7 @@ const FILES = [
   'damask.webp',
   'email-templates.js',
   'showbuilder-core.js',
+  'homelist-core.js',
   'vendor/supabase-js.js',
   'vendor/node-process.js',
   'vendor/node-buffer.js',

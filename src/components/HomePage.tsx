@@ -433,9 +433,12 @@ function HomeList() {
   const [draft, setDraft] = useState<PlateDraft | null>(null)
   const editRef = useRef<HTMLInputElement>(null)
   const draftRef = useRef<HTMLInputElement>(null)
-  // The latest list, for handlers that run after an await.
+  // The latest list, for handlers that run after an await. setList keeps it and the state in step.
   const itemsRef = useRef<HomeListItem[]>([])
-  itemsRef.current = items ?? []
+  const setList = useCallback((next: HomeListItem[]) => {
+    itemsRef.current = next
+    setItems(next)
+  }, [])
   // Bumped by every write. A refresh that started before one would put the old list back, so its
   // answer is dropped if the count moved while it was out.
   const editSeq = useRef(0)
@@ -444,10 +447,10 @@ function HomeList() {
     const seqAtStart = editSeq.current
     loadHomeList()
       .then((fresh) => {
-        if (editSeq.current === seqAtStart) setItems(normalize(sortItems(fresh)))
+        if (editSeq.current === seqAtStart) setList(normalize(sortItems(fresh)))
       })
       .catch(() => setItems((prev) => prev ?? []))
-  }, [])
+  }, [setList])
 
   useEffect(() => {
     refresh()
@@ -488,7 +491,7 @@ function HomeList() {
     const placed = withPositions(next)
     setError('')
     editSeq.current++
-    setItems(placed)
+    setList(placed)
     try {
       await saveHomeListLayout(layoutChanges(before, placed))
       editSeq.current++
@@ -506,7 +509,7 @@ function HomeList() {
     if (!cur || !t || t === cur.text) return
     setError('')
     editSeq.current++
-    setItems(rename(itemsRef.current, id, t))
+    setList(rename(itemsRef.current, id, t))
     try {
       await renameHomeListItem(id, t)
       editSeq.current++
@@ -528,10 +531,10 @@ function HomeList() {
     const mine = placed.find((x) => x.id === tempId)!
     setError('')
     editSeq.current++
-    setItems(placed)
+    setList(placed)
     try {
       const item = await addHomeListItem(t, { position: mine.position, depth: mine.depth })
-      setItems((prev) => (prev ?? []).map((x) => (x.id === tempId ? { ...x, id: item.id, createdAt: item.createdAt } : x)))
+      setList(itemsRef.current.map((x) => (x.id === tempId ? { ...x, id: item.id, createdAt: item.createdAt } : x)))
       setDraft((d) => (d && d.afterId === tempId ? { ...d, afterId: item.id } : d))
       await saveHomeListLayout(layoutChanges(before, placed.filter((x) => x.id !== tempId)))
       editSeq.current++
@@ -556,7 +559,7 @@ function HomeList() {
     const placed = withPositions(removeItem(before, id))
     setError('')
     editSeq.current++
-    setItems(placed)
+    setList(placed)
     if (editingId === id) setEditingId(null)
     try {
       await deleteHomeListItem(id)
