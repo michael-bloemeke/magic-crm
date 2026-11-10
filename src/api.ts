@@ -1302,6 +1302,11 @@ export type EmailMessage = {
   // An unsent Gmail draft sitting in the thread. It must never read as a message the client
   // received; render it as a draft with no send date.
   isDraft?: boolean
+  // The Gmail DRAFT id for a draft message (a different id from the message's own). Needed to open,
+  // edit, send or discard it. Absent only if Gmail's draft list could not be read.
+  draftId?: string
+  // Recipients on the To line.
+  to?: string[]
 }
 export type EmailThread = {
   id: string
@@ -1488,6 +1493,70 @@ export async function markThreadRead(threadId: string): Promise<{ ok: boolean; n
   })
   if (!res.ok) return { ok: false }
   return (await res.json()) as { ok: boolean; needsReconnect?: boolean }
+}
+
+// ---- Gmail drafts (2026-11-10): the one draft store for every composer -------------------------
+// Typing in a CRM composer saves straight into Gmail Drafts, and any Gmail draft on a project's
+// conversation opens here for editing and sending. Server side: crm-drafts.mjs.
+
+export type GmailAttachment = { name: string; size: number; contentType?: string }
+
+export type GmailDraft = {
+  draftId: string
+  messageId: string
+  threadId: string
+  to: string
+  cc: string
+  bcc: string
+  subject: string
+  // The editable part of the body. A reply started in Gmail keeps its quoted history separately in
+  // quoteHtml, which is handed back untouched on every save.
+  html: string
+  quoteHtml: string
+  // Files that live inside the Gmail draft (added in Gmail, or carried over from an earlier save).
+  gmailAttachments: GmailAttachment[]
+  inReplyTo: string
+  references: string
+}
+
+export type DraftFields = {
+  draftId?: string
+  threadId?: string
+  projectId?: string
+  to: string
+  cc?: string
+  bcc?: string
+  subject: string
+  html: string
+  quoteHtml?: string
+  // CRM attachments (Files page / one-off uploads), as references.
+  attachments?: EmailAttachment[]
+  // Which of the draft's own Gmail attachments to keep.
+  keepGmailAttachments?: GmailAttachment[]
+  inReplyTo?: string
+  references?: string
+}
+
+export type DraftSaved = {
+  draftId: string
+  messageId: string
+  threadId: string
+  inReplyTo: string
+  references: string
+  savedAt: string
+}
+
+export function getGmailDraft(draftId: string): Promise<GmailDraft> {
+  return postJsonStrict<GmailDraft>('/api/gdrafts/get', { draftId }, 'Could not open the draft')
+}
+export function saveGmailDraft(fields: DraftFields): Promise<DraftSaved> {
+  return postJsonStrict<DraftSaved>('/api/gdrafts/save', fields, 'Could not save the draft to Gmail')
+}
+export function sendGmailDraft(fields: DraftFields): Promise<{ ok: boolean; id: string; threadId: string }> {
+  return postJsonStrict<{ ok: boolean; id: string; threadId: string }>('/api/gdrafts/send', fields, 'Could not send')
+}
+export function discardGmailDraft(draftId: string): Promise<{ ok: boolean }> {
+  return postJsonStrict<{ ok: boolean }>('/api/gdrafts/delete', { draftId }, 'Could not discard the draft')
 }
 
 export async function loadThreads(projectId: string): Promise<CommsData> {

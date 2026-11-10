@@ -1,17 +1,17 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { formatFee, type CategoryDef, type Project } from '../pipeline'
 import {
   loadThreads,
-  loadProjectEmails,
-  deleteProjectEmail,
+  discardGmailDraft,
+  sendGmailDraft,
   starThread,
   starMessage,
   type CommsData,
   type Contact,
+  type DraftFields,
   type EmailMessage,
   type Payment,
-  type ProjectEmail,
   type ProjectLinks,
   type Task,
 } from '../api'
@@ -110,12 +110,15 @@ export function ProjectView({
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [notesOpen, setNotesOpen] = useState(false)
   const [writeOpen, setWriteOpen] = useState(false)
-  // The custom (new-thread) draft being edited in the composer, or null when writing a fresh email.
-  const [editingDraft, setEditingDraft] = useState<ProjectEmail | null>(null)
+  // The Gmail draft open in the "Write email" composer, or null for a fresh email.
+  const [composerDraftId, setComposerDraftId] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
-  // The project's saved drafts (top email section): new-thread drafts (kind 'custom') and per-thread
-  // reply drafts (kind 'reply-<threadId>'). Auto-saved by the composers; surfaced in the list below.
-  const [drafts, setDrafts] = useState<ProjectEmail[]>([])
+  // Drafts inside their discard Undo window: hidden everywhere, deleted from Gmail when it closes.
+  const [hiddenDraftIds, setHiddenDraftIds] = useState<Set<string>>(new Set())
+  // The bar at the bottom of the page for a send or a discard that can still be undone.
+  const [undoBar, setUndoBar] = useState<UndoBarState | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const undoCommit = useRef<(() => void) | null>(null)
 
   // Recipient emails for the one-off "Write email" composer: every email on the
   // project's linked contacts.
@@ -141,41 +144,92 @@ export function ProjectView({
     }
   }, [project.id])
 
-  // The top-section drafts for this project (reply drafts + new-thread drafts).
-  useEffect(() => {
-    let alive = true
-    loadProjectEmails()
-      .then(
-        (all) =>
-          alive &&
-          setDrafts(
-            all.filter(
-              (e) => e.projectId === project.id && e.status === 'draft' && (e.kind === 'custom' || e.kind.startsWith('reply-')),
-            ),
-          ),
-      )
-      .catch(() => alive && setDrafts([]))
-    return () => {
-      alive = false
-    }
-  }, [project.id])
-
-  // Keep the local draft list in sync as the composers auto-save / send. A 'draft' upsert replaces
-  // the record; anything else (sent) drops it from the list.
-  const upsertDraft = (email: ProjectEmail) =>
-    setDrafts((prev) => (email.status === 'draft' ? [...prev.filter((x) => x.id !== email.id), email] : prev.filter((x) => x.id !== email.id)))
-  const removeDraft = (id: string) => setDrafts((prev) => prev.filter((x) => x.id !== id))
-
-  // reply-<threadId> drafts keyed by their thread; custom drafts are standalone new-thread rows.
-  const replyDraftByThread: Record<string, ProjectEmail> = {}
-  for (const d of drafts) if (d.kind.startsWith('reply-')) replyDraftByThread[d.kind.slice('reply-'.length)] = d
-  const newThreadDrafts = drafts.filter((d) => d.kind === 'custom')
-
-  // Re-fetch threads from Gmail (used to resync after a star write fails).
+  // Re-fetch threads from Gmail: after a star write fails, and after any draft is saved, sent or
+  // discarded, so the list always shows what Gmail actually holds.
   const resyncComms = () => {
     loadThreads(project.id)
       .then(setComms)
       .catch(() => {})
+  }
+
+  // ---- Undo bar: a send or a discard is held for a few seconds, Gmail-style -----------------------
+  const finishUndo = () => {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = null
+    const commit = undoCommit.current
+    undoCommit.current = null
+    commit?.()
+  }
+  const startUndo = (state: UndoBarState, commit: () => void) => {
+    finishUndo() // a second action commits the first rather than losing it
+    undoCommit.current = commit
+    setUndoBar(state)
+    undoTimer.current = setTimeout(finishUndo, UNDO_MS)
+  }
+  // Leaving the project commits whatever is still waiting, so nothing is silently dropped.
+  useEffect(() => () => finishUndo(), [])
+
+  const hideDraft = (id: string, hide: boolean) =>
+    setHiddenDraftIds((prev) => {
+      const next = new Set(prev)
+      if (hide) next.add(id)
+      else next.delete(id)
+      return next
+    })
+
+  // Discard a Gmail draft with Undo: hidden now, deleted when the window closes.
+  const discardDraft = (draftId: string) => {
+    hideDraft(draftId, true)
+    startUndo({ message: 'Draft discarded.', undo: () => hideDraft(draftId, false) }, () => {
+      discardGmailDraft(draftId)
+        .catch(() => {})
+        .finally(() => {
+          hideDraft(draftId, false)
+          resyncComms()
+        })
+      setUndoBar((b) => (b?.message === 'Draft discarded.' ? null : b))
+    })
+  }
+
+  // Send a new email from the composer with Undo: Gmail sends it when the window closes.
+  const queueNewEmail = (fields: DraftFields, label: string) => {
+    if (fields.draftId) hideDraft(fields.draftId, true)
+    const message = `Sending to ${label}…`
+    startUndo(
+      {
+        message,
+        undo: () => {
+          if (fields.draftId) {
+            hideDraft(fields.draftId, false)
+            setComposerDraftId(fields.draftId)
+            setWriteOpen(true)
+          }
+        },
+      },
+      () => {
+        sendGmailDraft(fields)
+          .then(() => {
+            setUndoBar({ message: 'Sent.', done: true })
+            setTimeout(() => setUndoBar((b) => (b?.message === 'Sent.' ? null : b)), 2500)
+          })
+          .catch((e) => {
+            // Nothing went out. The draft is still in Gmail, so it reappears in the list.
+            setUndoBar({ message: `Not sent: ${e instanceof Error ? e.message : e}. The draft is still saved.`, done: true, error: true })
+          })
+          .finally(() => {
+            if (fields.draftId) hideDraft(fields.draftId, false)
+            resyncComms()
+          })
+      },
+    )
+  }
+  const undoNow = () => {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = null
+    undoCommit.current = null
+    const u = undoBar?.undo
+    setUndoBar(null)
+    u?.()
   }
   // Star / unstar a whole conversation, optimistically, writing through to Gmail.
   const toggleThreadStar = (threadId: string, starred: boolean) => {
@@ -223,9 +277,9 @@ export function ProjectView({
       .catch(resyncComms)
   }
 
-  // Open a new-thread draft back in the composer.
-  const openDraft = (email: ProjectEmail) => {
-    setEditingDraft(email)
+  // Open a new-email Gmail draft in the composer.
+  const openDraft = (draftId: string) => {
+    setComposerDraftId(draftId)
     setWriteOpen(true)
   }
 
@@ -283,7 +337,11 @@ export function ProjectView({
     return () => window.removeEventListener('keydown', onKey)
   }, [openThreadId])
 
-  const openThreadObj = openThreadId ? comms?.threads.find((t) => t.id === openThreadId) ?? null : null
+  const openThreadRaw = openThreadId ? comms?.threads.find((t) => t.id === openThreadId) ?? null : null
+  // A draft being discarded is gone from the reader too.
+  const openThreadObj = openThreadRaw
+    ? { ...openThreadRaw, messages: openThreadRaw.messages.filter((m) => !(m.isDraft && m.draftId && hiddenDraftIds.has(m.draftId))) }
+    : null
 
   return (
     <motion.div
@@ -407,13 +465,12 @@ export function ProjectView({
               <MiniComms
                 data={comms}
                 error={commsError}
-                replyDrafts={replyDraftByThread}
-                newThreadDrafts={newThreadDrafts}
+                hiddenDraftIds={hiddenDraftIds}
                 onOpen={openThread}
                 onOpenDraft={openDraft}
                 onToggleStar={toggleThreadStar}
                 onWrite={() => {
-                  setEditingDraft(null)
+                  setComposerDraftId(null)
                   setWriteOpen(true)
                 }}
               />
@@ -430,20 +487,14 @@ export function ProjectView({
         open={writeOpen}
         project={project}
         recipientEmails={recipientEmails}
-        existing={editingDraft}
-        kind="custom"
-        title={editingDraft ? 'Edit draft' : 'New email'}
-        defaultSubject=""
-        autosave
+        draftId={composerDraftId}
         onClose={() => {
           setWriteOpen(false)
-          setEditingDraft(null)
+          setComposerDraftId(null)
         }}
-        onSaved={upsertDraft}
-        onDiscard={(id) => {
-          removeDraft(id)
-          deleteProjectEmail(id).catch(() => {})
-        }}
+        onChanged={resyncComms}
+        onQueueSend={queueNewEmail}
+        onDiscard={discardDraft}
       />
 
       {/* Reading a thread opens a big window over the project, instead of swapping
@@ -470,19 +521,52 @@ export function ProjectView({
                 thread={openThreadObj}
                 project={project}
                 canMarkRead={comms?.canMarkRead !== false}
-                existingDraft={replyDraftByThread[openThreadObj.id] ?? null}
                 onRead={() => markThreadReadLocal(openThreadObj.id)}
                 onBack={closeThread}
-                onDraftChange={upsertDraft}
-                onDraftDeleted={removeDraft}
                 onStarMessage={toggleMessageStar}
                 onReplySent={appendReply}
                 onReplyUndone={removeReply}
+                onDraftsChanged={resyncComms}
+                onDiscardDraft={discardDraft}
               />
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Undo bar for a send or a discard that has not happened yet. */}
+      <AnimatePresence>
+        {undoBar && (
+          <motion.div
+            className="fixed bottom-6 left-1/2 z-[70] -translate-x-1/2"
+            initial={{ y: 16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 16, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <div
+              className={[
+                'flex items-center gap-4 rounded-xl px-4 py-3 text-[13px] shadow-[0_18px_40px_-18px_rgba(0,0,0,0.45)]',
+                undoBar.error ? 'bg-[#7a1810] text-white' : 'bg-[#14171b] text-white',
+              ].join(' ')}
+            >
+              <span>{undoBar.message}</span>
+              {undoBar.done ? (
+                <button type="button" onClick={() => setUndoBar(null)} className="text-[12.5px] font-semibold text-white/70 hover:text-white">
+                  Dismiss
+                </button>
+              ) : (
+                <button type="button" onClick={undoNow} className="text-[12.5px] font-semibold text-[#8ab4ff] hover:text-white">
+                  Undo
+                </button>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
   )
 }
+
+const UNDO_MS = 5000
+type UndoBarState = { message: string; undo?: () => void; done?: boolean; error?: boolean }

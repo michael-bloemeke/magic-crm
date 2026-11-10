@@ -213,6 +213,7 @@ function InboxThreadDrawer({
                         <span className="shrink-0 font-medium text-[#545b64]">Not sent</span>
                       </div>
                       <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#4a5058]">{m.body}</p>
+                      <p className="mt-2 text-[11px] text-[#545b64]">Open the project to edit or send this draft. It opens in the reply box.</p>
                     </div>
                   )
                 }

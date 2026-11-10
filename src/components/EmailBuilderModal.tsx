@@ -2,331 +2,183 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { type Project } from '../pipeline'
 import {
-  saveProjectEmail,
-  sendProjectEmail,
-  loadThreads,
+  getGmailDraft,
   deleteEmailAttachment,
   loadConfig,
   loadCustomValues,
-  type ProjectEmail,
   type EmailAttachment,
-  type EmailThread,
+  type GmailAttachment,
+  type DraftFields,
 } from '../api'
 import { RichTextEditor } from './RichTextEditor'
-import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields, textToHtml } from '../smartFields'
+import { SMART_FIELDS, resolveSmartField, resolveMergeFields, unfilledFields } from '../smartFields'
 import { findTemplate } from '../emailTemplates'
 import { TemplateMenu } from './TemplateMenu'
 import { hasSignature, withSignature, withoutSignature } from '../emailSignature'
 import { EmailAttachments } from './EmailAttachments'
-import { attachKey, fmtSize } from '../attachments'
+import { GmailAttachmentChips } from './ThreadReader'
+import { DraftSession, draftStatusText, htmlHasContent, type DraftStatus } from '../gmailDraft'
 
-const MICHAEL = 'michael@michaelbloemeke.com'
-// Normalize a thread subject to a reply subject so Gmail keeps the message in that conversation.
-function reSubject(s: string): string {
-  const t = (s || '').trim()
-  return /^re:/i.test(t) ? t : `Re: ${t}`
-}
-
-// True if the HTML body has any actual text/content (ignoring empty tags), for send checks.
-function htmlHasContent(html: string): boolean {
-  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() !== ''
-}
-
-// The email composer: the top-of-page "New email", thread replies, and the questionnaire invite.
-// Michael writes the note, then either Sends it to the client(s) or saves it as a CRM draft
-// (closing with content also saves).
+// The "Write email" composer for a NEW email on a project.
+//
+// IT WRITES A GMAIL DRAFT (2026-11-10). Everything typed is saved straight into Gmail Drafts, so the
+// email is in Gmail too, and a draft started in Gmail to this client opens here to finish. Closing
+// keeps the draft. Send hands the email to the project page, which holds it for a few seconds with
+// an Undo before Gmail sends it. Discard does the same with a delete.
 //
 // A template picker sits between To and Subject. Picking one fills the subject and the message with
-// a Ghostbuster follow-up (see src/emailTemplates.ts); "No template" clears both back to empty so
-// the box behaves exactly as it did before. Everything a template inserts is ordinary editor
-// content, so it can be rewritten freely before sending.
+// a Ghostbuster follow-up (see src/emailTemplates.ts). Everything a template inserts is ordinary
+// editor content, so it can be rewritten freely before sending.
 //
-// The Claude drafting panel was removed 2026-08-31: these follow-ups are templated, and Michael
-// writes the rest by hand.
+// Replies are written in the conversation itself (ThreadReader), not here.
 export function EmailBuilderModal({
   open,
   project,
   recipientEmails,
-  existing,
-  kind,
-  title,
-  defaultSubject,
-  defaultBody,
-  autosave = false,
+  draftId,
   onClose,
-  onSaved,
+  onChanged,
+  onQueueSend,
   onDiscard,
 }: {
   open: boolean
   project: Project
   recipientEmails: string[]
-  existing: ProjectEmail | null
-  kind: string
-  title: string
-  defaultSubject: string
-  defaultBody?: string
-  // When true (the top "New email" composer), anything written auto-saves to drafts and the manual
-  // "Save draft" button is hidden. Closing keeps the draft (it's already saved). The section cards
-  // leave this off and keep the explicit Save-draft button.
-  autosave?: boolean
+  // A Gmail draft to open, or null for a fresh email.
+  draftId: string | null
   onClose: () => void
-  onSaved: (email: ProjectEmail) => void
-  // Permanently delete this saved draft (parent removes it + calls deleteProjectEmail).
-  onDiscard?: (id: string) => void
+  // A draft was created or saved: re-read the conversations so the list matches Gmail.
+  onChanged: () => void
+  // Send this (the parent shows "Sending… Undo" and sends after a few seconds).
+  onQueueSend: (fields: DraftFields & { draftId?: string }, label: string) => void
+  // Discard this Gmail draft (the parent deletes it after an Undo window).
+  onDiscard: (draftId: string) => void
 }) {
   const [to, setTo] = useState('')
-  const [subject, setSubject] = useState(defaultSubject)
+  const [cc, setCc] = useState('')
+  const [bcc, setBcc] = useState('')
+  const [showCc, setShowCc] = useState(false)
+  const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [attachments, setAttachments] = useState<EmailAttachment[]>([])
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState<string | null>(null)
-  // Reply-into-an-existing-thread: when on, this email is added to the chosen Gmail conversation
-  // instead of starting a new one (so e.g. follow-up #2 lands in follow-up #1's thread). The project's
-  // threads load lazily the first time reply mode is on. Hidden in the top "New email" (autosave) mode.
-  const [replyMode, setReplyMode] = useState(false)
-  const [threadId, setThreadId] = useState('')
-  const [threadSubject, setThreadSubject] = useState('')
-  // null = not loaded yet (shows "Loading…" while reply mode is on); [] = loaded, none found.
-  const [threads, setThreads] = useState<EmailThread[] | null>(null)
-  const [threadsError, setThreadsError] = useState(false)
-  const threadsFetched = useRef(false)
+  const [gmailAtts, setGmailAtts] = useState<GmailAttachment[]>([])
+  const [loading, setLoading] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const [draftStatus, setDraftStatus] = useState<DraftStatus>({ kind: 'idle' })
   // Set once the user has been warned that the email still has unfilled placeholders, so a
   // second Send click goes through.
   const [confirmUnfilled, setConfirmUnfilled] = useState(false)
-  // Which template is currently selected ('' = No template). Purely a picker: once applied, the
-  // subject and body are just editable content, so editing them does not clear this back to ''.
+  // Which template is currently selected ('' = No template). Purely a picker.
   const [templateId, setTemplateId] = useState('')
-  // The signature CONTENT (configured in Settings). Whether this particular email carries it is not
-  // tracked here: it is derived from the body, because ticking the box literally puts the signature
-  // block into the message. One source of truth, so a reopened draft can never disagree with itself.
+  // The signature CONTENT (configured in Settings). Whether this email carries it is derived from the
+  // body, because ticking the box literally puts the signature block into the message.
   const [sig, setSig] = useState<{ enabled: boolean; html: string }>({ enabled: false, html: '' })
   const signatureOn = hasSignature(body)
-  // Custom event fields (definitions for the merge-field dropdown) + this project's values (so a
-  // custom merge field resolves to its value, like the built-in smart fields).
   const [customFields, setCustomFields] = useState<{ id: string; label: string }[]>([])
   const [customVals, setCustomVals] = useState<Record<string, string>>({})
   const smartFieldList = [...SMART_FIELDS, ...customFields.map((f) => ({ key: f.id, label: f.label }))]
-  // Ids of attachments uploaded during THIS editing session. If the user cancels (closes
-  // without saving or sending), they were never persisted to an email record, so we delete
-  // them from the server to avoid orphaned files. Saving/sending references them instead.
+  // Ids of one-off uploads made in THIS editing session (EmailAttachments tracks them).
   const sessionUploads = useRef<Set<string>>(new Set())
-  // In autosave mode the first save (existing === null) creates a record; this holds its id so the
-  // following autosaves update the same draft instead of spawning duplicates. savingRef serializes
-  // saves so two triggers (debounce + close flush) can't both create before the id comes back.
-  const savedIdRef = useRef<string | undefined>(existing?.id)
-  const savingRef = useRef<Promise<ProjectEmail | null> | null>(null)
-  // The live draft id (existing or just-autosaved), so the Discard control appears even for a
-  // brand-new email that has only been auto-saved this session.
-  const [draftId, setDraftId] = useState<string | undefined>(existing?.id)
-  // A sent email is locked: the dialog becomes a read-only receipt of what went out. No
-  // editing, no template/attach, no save, no re-send. "Once it's sent, it's sent."
-  const readOnly = existing?.status === 'sent'
+  const session = useRef<DraftSession | null>(null)
+  // True after a real edit, so opening a draft never re-saves it untouched.
+  const dirty = useRef(false)
 
   useEffect(() => {
     if (!open) return
-    setTo((existing?.to?.length ? existing.to : recipientEmails).join(', '))
-    setSubject(existing?.subject || defaultSubject)
-    // Drafts are HTML now; an old text draft is converted so it renders in the rich editor. Any
-    // placeholders whose project value is now available fill in on open.
-    {
-      const raw = existing?.body
-        ? existing.format === 'html'
-          ? existing.body
-          : textToHtml(existing.body)
-        : defaultBody || ''
-      // Resolve built-in merge fields now; custom-field chips fill in once this project's custom
-      // values load below (avoids using a previous project's stale values).
-      setBody(resolveMergeFields(raw, project))
-    }
-    setConfirmUnfilled(false)
-    setAttachments(existing?.attachments ?? [])
-    setReplyMode(!!existing?.threadId)
-    setThreadId(existing?.threadId || '')
-    setThreadSubject(existing?.threadSubject || '')
-    setThreads(null)
-    setThreadsError(false)
-    threadsFetched.current = false
+    dirty.current = false
+    session.current = new DraftSession({ draftId: draftId || undefined }, setDraftStatus)
     sessionUploads.current = new Set()
-    savedIdRef.current = existing?.id
-    savingRef.current = null
-    setDraftId(existing?.id)
-    setStatus(existing?.status === 'sent' && existing.sentAt ? `Sent ${fmtDate(existing.sentAt)}.` : null)
+    setTo(recipientEmails.join(', '))
+    setCc('')
+    setBcc('')
+    setShowCc(false)
+    setSubject('')
+    setBody('')
+    setAttachments([])
+    setGmailAtts([])
+    setConfirmUnfilled(false)
     setTemplateId('')
+    setNote(null)
+    setDraftStatus(draftId ? { kind: 'saved', at: Date.now() } : { kind: 'idle' })
+    let alive = true
     loadConfig()
       .then((c) => {
+        if (!alive) return
         setSig({ enabled: !!c.signatureEnabled, html: c.signatureHtml || '' })
         setCustomFields(c.customFields || [])
-        // Settings' "signature enabled" is the DEFAULT for the checkbox, applied only to a brand-new
-        // email. A saved draft keeps whatever was decided when it was written: re-adding a signature
-        // that was deliberately unticked would be the CRM overruling him.
-        if (!existing && c.signatureEnabled) setBody((b) => (hasSignature(b) ? b : withSignature(b, c.signatureHtml || '')))
+        // Settings' "signature enabled" is the DEFAULT for a brand-new email only. An existing draft
+        // keeps whatever was decided when it was written.
+        if (!draftId && c.signatureEnabled) setBody((b) => (hasSignature(b) ? b : withSignature(b, c.signatureHtml || '')))
       })
       .catch(() => setSig({ enabled: false, html: '' }))
     loadCustomValues(project.id)
       .then((cv) => {
+        if (!alive) return
         setCustomVals(cv)
-        // Fill any custom-field chips now that this project's values are known.
         setBody((b) => resolveMergeFields(b, project, cv))
       })
       .catch(() => setCustomVals({}))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  const toList = () => to.split(',').map((s) => s.trim()).filter(Boolean)
-
-  // Load the project's threads the first time reply mode is on (so the conversation picker can fill).
-  // A ref guards against a double fetch without a synchronous setState in the effect body. On failure
-  // the guard is released so a retry (or a project change) can fetch again.
-  useEffect(() => {
-    if (!open || !replyMode || threadsFetched.current) return
-    threadsFetched.current = true
-    loadThreads(project.id)
-      .then((d) => setThreads(d.threads || []))
-      .catch(() => {
-        threadsFetched.current = false
-        setThreadsError(true)
-      })
-  }, [open, replyMode, project.id])
-
-  const retryLoadThreads = () => {
-    threadsFetched.current = false
-    setThreadsError(false)
-    setThreads(null)
-  }
-
-  const toggleReplyMode = (checked: boolean) => {
-    setReplyMode(checked)
-    if (!checked) {
-      setThreadId('')
-      setThreadSubject('')
-    }
-  }
-  // Picking a conversation targets that thread and aligns the subject + recipients to it so the
-  // message threads cleanly in Gmail.
-  const pickThread = (tid: string) => {
-    setThreadId(tid)
-    const t = threads?.find((x) => x.id === tid)
-    if (t) {
-      setThreadSubject(t.subject)
-      setSubject(reSubject(t.subject))
-      const recips = t.participants.filter((p) => p !== MICHAEL).join(', ')
-      if (recips) setTo(recips)
-    } else {
-      setThreadSubject('')
-    }
-    setConfirmUnfilled(false)
-  }
-
-  // Saves are serialized through savingRef: if one is already in flight, the next waits for it before
-  // reading the id, so concurrent triggers (the debounce + the close-flush) update the same record
-  // instead of each creating a fresh one with id === undefined.
-  const persist = async (bodyToSave: string = body): Promise<ProjectEmail | null> => {
-    const prev = savingRef.current
-    const p = (async (): Promise<ProjectEmail | null> => {
-      if (prev) {
-        try {
-          await prev
-        } catch {
-          // ignore; we still attempt our own save below
-        }
-      }
-      try {
-        const saved = await saveProjectEmail({
-          id: existing?.id ?? savedIdRef.current,
-          projectId: project.id,
-          kind,
-          to: toList(),
-          subject: subject.trim() || defaultSubject || '(no subject)',
-          body: bodyToSave,
-          format: 'html',
-          attachments,
-          threadId: replyMode ? threadId : '',
-          threadSubject: replyMode ? threadSubject : '',
+    if (draftId) {
+      setLoading(true)
+      getGmailDraft(draftId)
+        .then((d) => {
+          if (!alive) return
+          setTo(d.to)
+          setCc(d.cc)
+          setBcc(d.bcc)
+          setShowCc(!!(d.cc || d.bcc))
+          setSubject(d.subject)
+          setBody(resolveMergeFields(d.html, project))
+          setGmailAtts(d.gmailAttachments)
         })
-        savedIdRef.current = saved.id
-        setDraftId(saved.id)
-        onSaved(saved)
-        return saved
-      } catch {
-        setStatus('Could not save right now.')
-        return null
-      }
-    })()
-    savingRef.current = p
-    const res = await p
-    if (savingRef.current === p) savingRef.current = null
-    return res
-  }
-
-  // Drop the auto-saved draft when it's emptied (so an emptied "New email" doesn't linger as a blank
-  // draft row). Waits for any in-flight save so a create that's still landing can't leave an orphan.
-  // onDiscard removes it from the parent list and deletes it server-side.
-  const dropAutosaved = async () => {
-    if (savingRef.current) {
-      try {
-        await savingRef.current
-      } catch {
-        // ignore; we still drop by whatever id we have
-      }
+        .catch((e) => alive && setNote(`Could not open the draft: ${e instanceof Error ? e.message : e}`))
+        .finally(() => alive && setLoading(false))
     }
-    const id = savedIdRef.current
-    if (!id) return
-    savedIdRef.current = undefined
-    setDraftId(undefined)
-    onDiscard?.(id)
-  }
-
-  // Autosave (debounced): the top "New email" composer persists whatever's written without a Save
-  // button, so a started email shows in the conversations list as a draft and survives a close.
-  // Emptying it back out deletes the draft (mirrors the thread reply box).
-  useEffect(() => {
-    if (!open || !autosave || readOnly) return
-    const t = setTimeout(() => {
-      if (htmlHasContent(body) || attachments.length > 0) void persist()
-      else void dropAutosaved()
-    }, 800)
-    return () => clearTimeout(t)
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [body, subject, to, attachments, autosave, open])
+  }, [open, draftId])
 
-  const saveAndClose = async () => {
-    setBusy(true)
-    const saved = await persist()
-    setBusy(false)
-    if (saved) onClose()
+  const fields = (over: Partial<DraftFields> = {}): DraftFields => ({
+    projectId: project.id,
+    to,
+    cc,
+    bcc,
+    subject: subject.trim(),
+    html: body,
+    attachments,
+    keepGmailAttachments: gmailAtts,
+    ...over,
+  })
+
+  // Autosave into Gmail after a real edit. Emptying a draft this window created deletes it, so an
+  // abandoned blank email never lingers in Gmail.
+  useEffect(() => {
+    if (!open || !dirty.current) return
+    const s = session.current!
+    if (htmlHasContent(body) || subject.trim() || attachments.length > 0 || gmailAtts.length > 0) {
+      s.schedule(fields())
+    } else if (s.draftId) {
+      void s.release().then((id) => {
+        if (id) onDiscard(id)
+      })
+    } else {
+      s.cancelPending()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [body, subject, to, cc, bcc, attachments, gmailAtts])
+
+  const edit = <T,>(set: (v: T) => void) => (v: T) => {
+    dirty.current = true
+    setConfirmUnfilled(false)
+    set(v)
   }
 
-  // Permanently delete a saved draft (distinct from Cancel, which just keeps it as-is).
-  const discard = () => {
-    const id = existing?.id ?? savedIdRef.current
-    if (busy || !id) return
-    if (!window.confirm('Discard this draft? This permanently deletes it.')) return
-    // Drop any attachments uploaded this session that were never saved into the record.
-    for (const uid of sessionUploads.current) deleteEmailAttachment(uid).catch(() => {})
-    sessionUploads.current = new Set()
-    savedIdRef.current = undefined
-    onDiscard?.(id)
-    onClose()
-  }
-
-  // Closing DISCARDS unsaved changes — saving is explicit now (the "Save draft" button), so a
-  // block never silently accumulates a draft just because the dialog was opened and closed. Any
-  // one-off attachments uploaded this session but never saved/sent are cleaned up so they don't
-  // orphan on the server. (Save draft / Send call onClose directly and keep their uploads.)
+  // Closing KEEPS the draft: whatever was typed is flushed into Gmail first.
   const handleClose = () => {
-    if (busy) return
-    // Autosave mode keeps the draft (and its uploads): flush a final save for any edits the debounce
-    // hasn't caught yet, then close without discarding anything.
-    if (autosave) {
-      if (!readOnly && (htmlHasContent(body) || attachments.length > 0)) void persist()
-      else if (!readOnly) void dropAutosaved()
-      onClose()
-      return
-    }
-    if (!readOnly && sessionUploads.current.size > 0) {
-      for (const id of sessionUploads.current) deleteEmailAttachment(id).catch(() => {})
-      sessionUploads.current = new Set()
-    }
+    const s = session.current
+    if (s && dirty.current) void s.flush().then(onChanged)
     onClose()
   }
   const closeRef = useRef(handleClose)
@@ -342,199 +194,71 @@ export function EmailBuilderModal({
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
+  const discard = async () => {
+    const s = session.current!
+    const id = await s.release()
+    // One-off uploads made this session belonged only to this email.
+    for (const uid of sessionUploads.current) deleteEmailAttachment(uid).catch(() => {})
+    sessionUploads.current = new Set()
+    dirty.current = false
+    if (id) onDiscard(id)
+    onClose()
+  }
+
   const send = async () => {
-    // Reply mode with no conversation chosen would silently start a new thread, so block it.
-    if (replyMode && !threadId) {
-      setStatus('Pick a conversation to reply to, or turn off "reply to a thread".')
+    if (!to.trim() && !cc.trim() && !bcc.trim()) {
+      setNote('Add who this goes to.')
       return
     }
     if (!subject.trim()) {
-      setStatus('Add a subject before sending.')
+      setNote('Add a subject before sending.')
       return
     }
-    // Fill any placeholders the project can now resolve; warn (once) about any that remain so a
-    // raw "[Client name]" doesn't go out unnoticed. The stored/sent body has chip markup stripped.
+    // Fill any placeholders the project can now resolve; warn (once) about any that remain so a raw
+    // "[Client name]" doesn't go out unnoticed.
     const resolved = resolveMergeFields(body, project, customVals)
     const remaining = unfilledFields(resolved)
     if (remaining.length > 0 && !confirmUnfilled) {
-      setStatus(`These placeholders still need filling: ${remaining.join(', ')}. Fill them in, or click Send again to send as-is.`)
+      setNote(`These placeholders still need filling: ${remaining.join(', ')}. Fill them in, or press Send again to send as-is.`)
       setConfirmUnfilled(true)
       return
     }
-    setBusy(true)
-    setStatus('Sending…')
-    // Persist the resolved body WITH any unfilled chips intact; the server strips chips from the
-    // outgoing email and only rewrites the stored body once the send actually succeeds. So a
-    // demo/failed send never destroys the draft's placeholders.
-    const saved = await persist(resolved)
-    if (!saved) {
-      setBusy(false)
-      return
-    }
-    try {
-      const r = await sendProjectEmail(saved.id)
-      if (r.demo) {
-        setStatus('Gmail is not connected, so nothing was sent. Connect it on the Inbox page to send for real.')
-        setBusy(false)
-        return
-      }
-      onSaved(r.email)
-      setBusy(false)
-      onClose()
-    } catch {
-      setStatus('Something went wrong sending.')
-      setBusy(false)
-    }
+    // Save the final version first, so Undo can bring back exactly this email.
+    const s = session.current!
+    s.schedule(fields({ html: resolved }))
+    await s.flush()
+    const id = s.draftId
+    dirty.current = false
+    onQueueSend({ ...fields({ html: resolved }), draftId: id }, to.split(',')[0].trim() || 'your recipient')
+    onClose()
   }
 
-  // --- Templates -------------------------------------------------------------
-  // Applying a template REPLACES the subject and the message. Anything already typed would be lost,
-  // so that only happens after a confirm; an empty box swaps silently. Merge-field chips resolve
-  // immediately against this project (and its custom values), so [Client first name] is already the
-  // client's name by the time the box appears.
-  // Add or remove the signature block at the end of the message. Nothing else in the body is
-  // touched, so it can be ticked and unticked at any point while writing.
+  // Add or remove the signature block at the end of the message. Nothing else in the body is touched.
   const toggleSignature = (on: boolean) => {
+    dirty.current = true
     setBody((b) => (on ? withSignature(b, sig.html) : withoutSignature(b)))
     setConfirmUnfilled(false)
   }
 
+  // Applying a template REPLACES the subject and the message, after a confirm if anything is typed.
   const applyTemplate = (id: string) => {
     const t = id ? findTemplate(id) : null
     if (id && !t) return
-    const dirty = htmlHasContent(body) || subject.trim() !== ''
+    const hasText = htmlHasContent(body) || subject.trim() !== ''
     const label = t ? `Replace what's here with "${t.name}"?` : 'Clear the subject and message?'
-    if (dirty && !window.confirm(label)) return
+    if (hasText && !window.confirm(label)) return
+    dirty.current = true
     setTemplateId(id)
     setSubject(t ? t.subject : '')
-    // A template replaces the message, but not the signature decision: if the box is ticked it
-    // stays ticked, and the block is re-appended below the new text.
-    const keepSig = signatureOn
     const next = t ? resolveMergeFields(t.body, project, customVals) : ''
-    setBody(keepSig ? withSignature(next, sig.html) : next)
+    setBody(signatureOn ? withSignature(next, sig.html) : next)
     setConfirmUnfilled(false)
-    setStatus(null)
+    setNote(null)
   }
 
-  // Attachments live in <EmailAttachments/>, shared with the thread reply box.
-
-  const canSend = toList().length > 0 && subject.trim().length > 0 && (htmlHasContent(body) || attachments.length > 0) && !busy
-
-  // Read-only receipt for a sent email: a distinct render with NO editable controls, so a sent
-  // email can never be edited, re-drafted, or re-sent from its block.
-  if (readOnly && existing) {
-    return (
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-          >
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-            <motion.div
-              className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-[0_40px_90px_-40px_rgba(0,0,0,0.18)]"
-              initial={{ y: 16, opacity: 0, scale: 0.98 }}
-              animate={{ y: 0, opacity: 1, scale: 1 }}
-              exit={{ y: 16, opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <div className="flex items-start justify-between gap-4 border-b border-line px-6 pb-4 pt-5">
-                <div className="min-w-0">
-                  <h2 className="font-display text-[20px] leading-tight text-parchment">{title}</h2>
-                  <p className="mt-0.5 truncate text-[12.5px] text-muted">{project.client}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
-                    style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
-                  >
-                    Sent
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    aria-label="Close"
-                    className="rounded-lg border border-line p-1.5 text-muted transition-colors hover:border-line-strong hover:text-parchment"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div className="board-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
-                <p className="text-[11.5px] text-faint">
-                  Sent {fmtDate(existing.sentAt)}. This is a record of what went out, and can't be changed.
-                </p>
-                <div>
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">To</span>
-                  <p className="text-[13px] text-parchment">{existing.to.join(', ') || '(no recipients)'}</p>
-                </div>
-                <div>
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject</span>
-                  <p className="text-[13px] text-parchment">{existing.subject || '(no subject)'}</p>
-                </div>
-                {existing.threadId && (
-                  <div>
-                    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Thread</span>
-                    <p className="text-[13px] text-parchment">Added as a reply to “{existing.threadSubject || 'an existing conversation'}”.</p>
-                  </div>
-                )}
-                <div>
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
-                  {existing.format === 'html' ? (
-                    <div
-                      className="email-rte rounded-lg border border-line px-3 py-3"
-                      dangerouslySetInnerHTML={{ __html: existing.body }}
-                    />
-                  ) : (
-                    // A legacy email sent as plain text: show it verbatim (whitespace preserved)
-                    // rather than HTML-converted, so the receipt matches what actually went out.
-                    <div className="rounded-lg border border-line bg-surface-2 px-3 py-3 text-[13px] leading-relaxed text-parchment whitespace-pre-wrap break-words">
-                      {existing.body}
-                    </div>
-                  )}
-                </div>
-                {existing.attachments.length > 0 && (
-                  <div>
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Attachments</span>
-                    <ul className="flex flex-wrap gap-1.5">
-                      {existing.attachments.map((a) => (
-                        <li
-                          key={attachKey(a)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-[11.5px] text-parchment"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-faint" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21.4 11.05 12.25 20.2a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                          </svg>
-                          <span className="max-w-[16rem] truncate">{a.name}</span>
-                          {a.size ? <span className="text-faint">{fmtSize(a.size)}</span> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-end gap-3 border-t border-line px-6 py-4">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110"
-                >
-                  Done
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    )
-  }
+  const canSend = !!(to.trim() || cc.trim() || bcc.trim()) && subject.trim().length > 0 && (htmlHasContent(body) || attachments.length > 0 || gmailAtts.length > 0) && !loading
+  const statusText = note || draftStatusText(draftStatus)
+  const field = 'w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none'
 
   return (
     <AnimatePresence>
@@ -553,206 +277,135 @@ export function EmailBuilderModal({
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 16, opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSend) {
+                e.preventDefault()
+                void send()
+              }
+            }}
           >
             <div className="flex items-start justify-between gap-4 border-b border-line px-6 pb-4 pt-5">
               <div className="min-w-0">
-                <h2 className="font-display text-[20px] leading-tight text-parchment">{title}</h2>
+                <h2 className="font-display text-[20px] leading-tight text-parchment">{draftId ? 'Draft' : 'New email'}</h2>
                 <p className="mt-0.5 truncate text-[12.5px] text-muted">{project.client}</p>
               </div>
-              <div className="flex items-center gap-2">
-                {existing?.status === 'sent' && (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
-                    style={{ color: 'var(--color-umb-booked)', backgroundColor: 'color-mix(in oklab, var(--color-umb-booked) 16%, transparent)' }}
-                  >
-                    Sent
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  aria-label="Close"
-                  className="rounded-lg border border-line p-1.5 text-muted transition-colors hover:border-line-strong hover:text-parchment"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleClose}
+                aria-label="Close"
+                title="Close (the draft stays in Gmail)"
+                className="rounded-lg border border-line p-1.5 text-muted transition-colors hover:border-line-strong hover:text-parchment"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
             </div>
 
-            <div className="board-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
-              <label className="block">
-                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">To</span>
-                <input
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  placeholder="client@email.com"
-                  className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
-                />
-                <span className="mt-1 block text-[10.5px] text-faint">Separate multiple addresses with commas.</span>
-              </label>
+            {loading ? (
+              <div className="animate-pulse px-6 py-16 text-center text-[13px] text-muted">Opening your Gmail draft…</div>
+            ) : (
+              <div className="board-scroll min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">To</span>
+                    {!showCc && (
+                      <button type="button" onClick={() => setShowCc(true)} className="text-[11px] font-medium text-muted hover:text-parchment">
+                        Cc / Bcc
+                      </button>
+                    )}
+                  </div>
+                  <input value={to} onChange={(e) => edit(setTo)(e.target.value)} placeholder="client@email.com" className={field} />
+                  <span className="mt-1 block text-[10.5px] text-faint">Separate multiple addresses with commas.</span>
+                </div>
+                {showCc && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Cc</span>
+                      <input value={cc} onChange={(e) => edit(setCc)(e.target.value)} className={field} />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Bcc</span>
+                      <input value={bcc} onChange={(e) => edit(setBcc)(e.target.value)} className={field} />
+                    </label>
+                  </div>
+                )}
 
-              {/* Template picker: folders that fly out into their templates. Fills the subject +
-                  message below; "No template" clears both. */}
-              <div className="block">
-                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Template</span>
-                <TemplateMenu value={templateId} onPick={applyTemplate} />
-                <span className="mt-1 block text-[10.5px] text-faint">
-                  Fills the subject and message below. Edit them freely before sending.
-                </span>
-              </div>
+                {/* Template picker: folders that fly out into their templates. Fills the subject +
+                    message below; "No template" clears both. */}
+                <div className="block">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Template</span>
+                  <TemplateMenu value={templateId} onPick={applyTemplate} />
+                  <span className="mt-1 block text-[10.5px] text-faint">Fills the subject and message below. Edit them freely before sending.</span>
+                </div>
 
-              {/* Reply into an existing conversation instead of starting a new thread. */}
-              {!autosave && (
-                <div className="rounded-lg border border-line bg-surface-2/40 px-3 py-2.5">
-                  <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-parchment">
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject</span>
+                  <input value={subject} onChange={(e) => edit(setSubject)(e.target.value)} className={field} />
+                </label>
+
+                <div className="block">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
+                  <RichTextEditor
+                    value={body}
+                    onChange={edit(setBody)}
+                    smartFields={smartFieldList}
+                    resolveField={(key) => resolveSmartField(key, project, customVals)}
+                    placeholder="Write your message…"
+                  />
+                  {/* Ticking this puts the signature block into the message above, so what you see
+                      in the editor is exactly what the client receives. */}
+                  <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-[12.5px] text-parchment">
                     <input
                       type="checkbox"
-                      checked={replyMode}
-                      onChange={(e) => toggleReplyMode(e.target.checked)}
+                      checked={signatureOn}
+                      onChange={(e) => toggleSignature(e.target.checked)}
                       className="h-3.5 w-3.5 rounded border-line"
                       style={{ accentColor: 'var(--color-brass)' }}
                     />
-                    Send as a reply in an existing email thread
+                    Signature
+                    <span className="text-[11px] text-faint">adds your name, website and number at the bottom</span>
                   </label>
-                  {replyMode && (
-                    <div className="mt-2">
-                      {threadsError ? (
-                        <p className="text-[11.5px] text-[#dc2626]">
-                          Couldn’t load conversations.{' '}
-                          <button type="button" onClick={retryLoadThreads} className="font-semibold underline hover:text-parchment">
-                            Retry
-                          </button>
-                        </p>
-                      ) : threads === null ? (
-                        <p className="text-[11.5px] text-faint">Loading conversations…</p>
-                      ) : threads.length > 0 || threadId ? (
-                        // Show the picker when there are threads, or when one is already chosen (so a
-                        // saved/aged-out selection stays visible even if it isn't in the current list).
-                        <div className="relative">
-                          <select
-                            value={threadId}
-                            onChange={(e) => pickThread(e.target.value)}
-                            className="w-full cursor-pointer appearance-none rounded-lg border border-line bg-surface-2 py-2 pl-3 pr-8 text-[12.5px] text-parchment focus:border-brass-dim focus:outline-none"
-                          >
-                            <option value="">Choose a conversation…</option>
-                            {threadId && threadSubject && !threads.some((t) => t.id === threadId) && (
-                              <option value={threadId}>{threadSubject}</option>
-                            )}
-                            {threads.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.subject}
-                                {t.lastDate ? ` · ${t.lastDate}` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          <svg viewBox="0 0 24 24" className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M6 9l6 6 6-6" />
-                          </svg>
-                        </div>
-                      ) : (
-                        <p className="text-[11.5px] text-faint">No conversations on this project yet to reply to.</p>
-                      )}
-                      {threadId && threadSubject && (
-                        <p className="mt-1.5 text-[11px] text-brass-dim">This will be added to “{threadSubject}”.</p>
-                      )}
-                    </div>
-                  )}
                 </div>
-              )}
 
-              <div className="flex flex-wrap items-end gap-2">
-                <label className="min-w-[12rem] flex-1">
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Subject <span className="text-[#ef4444]">*</span></span>
-                  <input
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Required"
-                    className={[
-                      'w-full rounded-lg border bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:outline-none',
-                      subject.trim() ? 'border-line focus:border-brass-dim' : 'border-[#ef4444]/60 focus:border-[#ef4444]',
-                    ].join(' ')}
-                  />
-                </label>
+                {/* Attachments: what the Gmail draft already holds, then the Files page or a one-off upload. */}
+                <div className="space-y-2">
+                  {gmailAtts.length > 0 && (
+                    <GmailAttachmentChips
+                      dark
+                      list={gmailAtts}
+                      onRemove={(name) => edit(setGmailAtts)(gmailAtts.filter((a) => a.name !== name))}
+                    />
+                  )}
+                  <EmailAttachments attachments={attachments} onChange={edit(setAttachments)} onStatus={setNote} sessionUploads={sessionUploads} />
+                </div>
               </div>
-
-              <div className="block">
-                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">Message</span>
-                <RichTextEditor
-                  value={body}
-                  onChange={(html) => {
-                    setBody(html)
-                    setConfirmUnfilled(false)
-                  }}
-                  smartFields={smartFieldList}
-                  resolveField={(key) => resolveSmartField(key, project, customVals)}
-                  placeholder="Write a message, or have Claude draft one…"
-                />
-                {/* Ticking this puts the signature block into the message above, so what you see in
-                    the editor is exactly what the client receives. */}
-                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-[12.5px] text-parchment">
-                  <input
-                    type="checkbox"
-                    checked={signatureOn}
-                    onChange={(e) => toggleSignature(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-line"
-                    style={{ accentColor: 'var(--color-brass)' }}
-                  />
-                  Signature
-                  <span className="text-[11px] text-faint">adds your name, website and number at the bottom</span>
-                </label>
-              </div>
-
-              {/* Attachments: pick from the Files page, or upload a one-off. */}
-              <EmailAttachments
-                attachments={attachments}
-                onChange={setAttachments}
-                onStatus={setStatus}
-                sessionUploads={sessionUploads}
-              />
-            </div>
+            )}
 
             <div className="flex items-center justify-between gap-3 border-t border-line px-6 py-4">
               <div className="flex min-w-0 items-center gap-3">
-                {(existing || draftId) && (
+                {(draftId || draftStatus.kind === 'saved' || draftStatus.kind === 'saving') && (
                   <button
                     type="button"
-                    onClick={discard}
-                    disabled={busy}
-                    className="shrink-0 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-[#dc2626] transition-colors hover:brightness-110 disabled:opacity-40"
+                    onClick={() => void discard()}
+                    className="shrink-0 rounded-lg px-1 py-2 text-[12.5px] font-medium text-[#dc2626] transition-colors hover:brightness-110"
                   >
-                    Discard draft
+                    Discard
                   </button>
                 )}
-                <span className="truncate text-[11.5px] text-muted">{status}</span>
+                <span className={['truncate text-[11.5px]', draftStatus.kind === 'error' && !note ? 'text-[#dc2626]' : 'text-muted'].join(' ')}>
+                  {statusText}
+                </span>
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                <span className="hidden text-[10.5px] text-faint sm:inline">⌘ Enter</span>
                 <button
                   type="button"
-                  onClick={handleClose}
-                  disabled={busy}
-                  className="rounded-lg px-3 py-2 text-[12.5px] font-medium text-faint transition-colors hover:text-parchment disabled:opacity-40"
-                >
-                  {autosave ? 'Close' : 'Cancel'}
-                </button>
-                {!autosave && (
-                  <button
-                    type="button"
-                    onClick={saveAndClose}
-                    disabled={busy}
-                    className="rounded-lg border border-line px-3.5 py-2 text-[12.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment disabled:opacity-40"
-                  >
-                    Save draft
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={send}
+                  onClick={() => void send()}
                   disabled={!canSend}
                   className="rounded-lg bg-brass px-4 py-2 text-[12.5px] font-semibold text-[#ffffff] transition-all hover:brightness-110 disabled:opacity-40"
                 >
-                  {busy ? 'Working…' : confirmUnfilled ? 'Send anyway' : 'Send'}
+                  {confirmUnfilled ? 'Send anyway' : 'Send'}
                 </button>
               </div>
             </div>
@@ -761,10 +414,4 @@ export function EmailBuilderModal({
       )}
     </AnimatePresence>
   )
-}
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }

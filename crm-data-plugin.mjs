@@ -217,17 +217,23 @@ export function crmDataPlugin() {
           }
         }, 15 * 1000)
       }
+      // CRM_QUIET=1 runs a TEST copy of the server (another port, for Claude to check screens in a
+      // headless browser) with every background job switched off: no contract publish, no git
+      // backup, no calendar sync, no QuickBooks sweep. Those belong to the real app alone, and two
+      // copies running them at once would race each other. The API routes all work as normal.
+      const quiet = process.env.CRM_QUIET === '1'
+      if (quiet) console.log('[crm-data] CRM_QUIET=1: background jobs are off (test server).')
       // Push the contract wording (every variant, fields unfilled) up to Supabase so the CLOUD can
       // build a booking agreement. Without this the phone cannot issue a booking form at all, because
       // the template needs JSDOM and only exists here. Cheap and idempotent; runs once per boot, so
       // editing the template and relaunching is all it takes to update it everywhere.
-      publishContractTemplates()
+      if (!quiet) publishContractTemplates()
         .then((r) => { if (r?.ok) console.log(`[crm-data] contract templates published: ${r.variants.join(', ')}`) })
         .catch((e) => console.error('[crm-data] could not publish contract templates:', e?.message || e))
 
       // Back up shortly after the app starts, then every 4 hours it stays running.
-      const t1 = setTimeout(runBackup, 90_000)
-      const t2 = setInterval(runBackup, 4 * 60 * 60 * 1000)
+      const t1 = quiet ? null : setTimeout(runBackup, 90_000)
+      const t2 = quiet ? null : setInterval(runBackup, 4 * 60 * 60 * 1000)
       // (The phone app reads Supabase directly now, so the old Vercel Blob snapshot upload was
       // removed 2026-08-03 along with everything else on Vercel.)
       // Keep the Gigs calendar in step with EVERY active/completed dated project, including
@@ -237,8 +243,8 @@ export function crmDataPlugin() {
       // calendar isn't connected. Only one pass ever runs at a time (singleFlight in crm-calendar.mjs),
       // so a slow pass can no longer pile up behind the next tick, and unchanged events are skipped.
       const syncCal = () => { syncCalendarAll().catch(() => {}) }
-      const t5 = setTimeout(syncCal, 20_000)
-      const t6 = setInterval(syncCal, 5 * 60 * 1000)
+      const t5 = quiet ? null : setTimeout(syncCal, 20_000)
+      const t6 = quiet ? null : setInterval(syncCal, 5 * 60 * 1000)
       // Watch for returned booking forms and mail the agreement out on its own. Every 2 minutes:
       // fast enough that a client submitting the form has their contract within a couple of minutes,
       // slow enough to be nothing traffic-wise. Costs ZERO database calls when no project is waiting
@@ -274,8 +280,8 @@ export function crmDataPlugin() {
           autoSending = false
         }
       }
-      const t7 = setTimeout(sweepBooking, 30_000)
-      const t8 = setInterval(sweepBooking, 2 * 60 * 1000)
+      const t7 = quiet ? null : setTimeout(sweepBooking, 30_000)
+      const t8 = quiet ? null : setInterval(sweepBooking, 2 * 60 * 1000)
 
       server.httpServer?.on('close', () => {
         clearTimeout(t1)

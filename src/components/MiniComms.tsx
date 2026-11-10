@@ -1,28 +1,21 @@
-import type { CommsData, EmailThread, ProjectEmail } from '../api'
+import type { CommsData, EmailMessage, EmailThread } from '../api'
 
 // The project's conversations box on Details. A fixed-height box about five rows tall; with more
 // threads you just scroll inside it. Clicking a thread opens the full-page reader; "Write email"
 // composes a new one. Starred conversations are highlighted (and can be starred right here, which
-// carries through to Gmail). Drafts show inline: a "Draft" badge on a thread you've started a reply
-// to, and standalone rows for new emails you've begun but not sent.
+// carries through to Gmail).
+//
+// DRAFTS ARE GMAIL DRAFTS (2026-11-10). A conversation with a reply waiting carries a "Draft" badge
+// and opens with the draft in its reply box. A new email that has not been sent yet (a "thread" that
+// holds nothing but a draft) is its own Draft row and opens in the composer. Either one may have been
+// started here or in Gmail; they are the same draft.
 
 const ME = 'michael@michaelbloemeke.com'
-
-// Strip HTML to a short plain-text preview for a draft row.
-function htmlPreview(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
 
 export function MiniComms({
   data,
   error,
-  replyDrafts = {},
-  newThreadDrafts = [],
+  hiddenDraftIds,
   onOpen,
   onOpenDraft,
   onToggleStar,
@@ -30,22 +23,23 @@ export function MiniComms({
 }: {
   data: CommsData | null
   error?: string | null
-  // threadId -> the saved reply draft for that thread (shows a "Draft" badge on the row).
-  replyDrafts?: Record<string, ProjectEmail>
-  // New-thread drafts (not yet sent), shown as their own rows.
-  newThreadDrafts?: ProjectEmail[]
+  // Drafts being discarded (inside their Undo window): already gone as far as this list is concerned.
+  hiddenDraftIds?: Set<string>
   onOpen: (threadId: string) => void
-  onOpenDraft?: (email: ProjectEmail) => void
+  onOpenDraft?: (draftId: string) => void
   onToggleStar?: (threadId: string, starred: boolean) => void
   onWrite?: () => void
 }) {
-  // Combined, recency-sorted feed of real threads and new-thread drafts.
-  type Row =
-    | { kind: 'thread'; thread: EmailThread; ts: number }
-    | { kind: 'draft'; email: ProjectEmail; ts: number }
+  // One feed, newest first. A thread that holds only drafts is a new email not yet sent.
+  type Row = { kind: 'thread'; thread: EmailThread; ts: number } | { kind: 'draft'; thread: EmailThread; draft: EmailMessage; ts: number }
+  const hidden = hiddenDraftIds ?? new Set<string>()
   const rows: Row[] = []
-  if (data) for (const t of data.threads) rows.push({ kind: 'thread', thread: t, ts: t.lastTs ?? 0 })
-  for (const e of newThreadDrafts) rows.push({ kind: 'draft', email: e, ts: Date.parse(e.updatedAt || '') || 0 })
+  for (const t of data?.threads ?? []) {
+    const drafts = t.messages.filter((m) => m.isDraft && !(m.draftId && hidden.has(m.draftId)))
+    const sent = t.messages.filter((m) => !m.isDraft)
+    if (sent.length > 0) rows.push({ kind: 'thread', thread: { ...t, hasDraft: drafts.length > 0 }, ts: t.lastTs ?? 0 })
+    else if (drafts.length > 0) rows.push({ kind: 'draft', thread: t, draft: drafts[drafts.length - 1], ts: drafts[drafts.length - 1].ts ?? 0 })
+  }
   rows.sort((a, b) => b.ts - a.ts)
   const total = rows.length
 
@@ -93,13 +87,18 @@ export function MiniComms({
               <ThreadRow
                 key={r.thread.id}
                 thread={r.thread}
-                // Either kind of unsent draft: one saved in the CRM, or one sitting in Gmail.
-                hasDraft={!!replyDrafts[r.thread.id] || !!r.thread.hasDraft}
+                hasDraft={!!r.thread.hasDraft}
                 onOpen={() => onOpen(r.thread.id)}
                 onToggleStar={onToggleStar ? () => onToggleStar(r.thread.id, !r.thread.starred) : undefined}
               />
             ) : (
-              <DraftRow key={r.email.id} email={r.email} onOpen={() => onOpenDraft?.(r.email)} />
+              <DraftRow
+                key={r.thread.id}
+                thread={r.thread}
+                draft={r.draft}
+                // Without a draft id (Gmail's draft list could not be read) it can still be read.
+                onOpen={() => (r.draft.draftId ? onOpenDraft?.(r.draft.draftId) : onOpen(r.thread.id))}
+              />
             ),
           )}
         </div>
@@ -184,8 +183,9 @@ function ThreadRow({
   )
 }
 
-function DraftRow({ email, onOpen }: { email: ProjectEmail; onOpen: () => void }) {
-  const preview = htmlPreview(email.body)
+function DraftRow({ thread, draft, onOpen }: { thread: EmailThread; draft: EmailMessage; onOpen: () => void }) {
+  const preview = draft.body.replace(/\s+/g, ' ').trim()
+  const to = (draft.to ?? []).join(', ')
   return (
     <button
       type="button"
@@ -197,12 +197,15 @@ function DraftRow({ email, onOpen }: { email: ProjectEmail; onOpen: () => void }
       </svg>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="truncate text-[12.5px] text-parchment/90">{email.subject || '(no subject)'}</p>
+          <p className="truncate text-[12.5px] text-parchment/90">{thread.subject || '(no subject)'}</p>
           <span className="shrink-0 rounded-full border border-[#a9c2f6]/40 bg-[#ca8a04]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#2563eb]">
             Draft
           </span>
         </div>
-        <p className="mt-0.5 truncate text-[11px] text-faint">{preview || 'New email'}</p>
+        <p className="mt-0.5 truncate text-[11px] text-faint">
+          {to ? `To ${to}` : 'New email'}
+          {preview ? ` · ${preview}` : ''}
+        </p>
       </div>
     </button>
   )
