@@ -236,6 +236,7 @@ export function buildThread(full, me) {
       id: m.id,
       from: emailFromAddr(from),
       fromName: nameFromAddr(from) || emailFromAddr(from),
+      to: emailsFromHeader(header(m.payload, 'To')),
       // A draft's internalDate is when it was last SAVED, not sent. Keep it for ordering but never
       // present it as a send date; the UI shows "Unsent draft" instead.
       date: isDraft ? '' : fmt(m.internalDate),
@@ -294,7 +295,7 @@ export async function searchThreads(contactEmails, max = 10) {
   }
   // Most-recent thread first (used by the project tab and the Inbox).
   out.sort((a, b) => b.lastTs - a.lastTs)
-  return out
+  return tagDraftIds(out)
 }
 
 // Run async fn over items with bounded concurrency (keeps Gmail fan-out fast
@@ -360,10 +361,63 @@ export async function inboxSearch(contactEmails, cap = 100) {
       return null
     }
   })
-  return fetched
-    .filter(Boolean)
-    .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0))
-    .slice(0, cap)
+  return tagDraftIds(
+    fetched
+      .filter(Boolean)
+      .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0))
+      .slice(0, cap),
+  )
+}
+
+// ---- Drafts: which message is which draft ----------------------------------
+//
+// Gmail drafts are the CRM's ONE draft store (2026-11-10, Michael: "I want to be able to see and edit
+// and send drafts from my CRM that I made in Gmail and vice versa"). A thread fetch shows a draft as a
+// message with the DRAFT label, but editing or sending it needs the DRAFT id, which is a different id
+// and is not on the message. drafts.list is the only map from one to the other, so it is fetched once
+// per load (only when a thread actually holds a draft) and kept briefly. A draft's message id changes
+// every time the draft is saved, so a miss forces one fresh read before giving up.
+const DRAFT_INDEX_TTL_MS = 15_000
+let draftIndex = { at: 0, map: null }
+
+export function invalidateDraftIndex() {
+  draftIndex = { at: 0, map: null }
+}
+
+export async function draftIdsByMessage({ force = false } = {}) {
+  if (!force && draftIndex.map && Date.now() - draftIndex.at < DRAFT_INDEX_TTL_MS) return draftIndex.map
+  const map = new Map()
+  let pageToken
+  do {
+    const r = await api().users.drafts.list({ userId: 'me', maxResults: 500, pageToken })
+    for (const d of r.data.drafts || []) if (d.message?.id) map.set(d.message.id, d.id)
+    pageToken = r.data.nextPageToken || undefined
+  } while (pageToken)
+  draftIndex = { at: Date.now(), map }
+  return map
+}
+
+async function tagDraftIds(threads) {
+  if (!threads.some((t) => t.hasDraft)) return threads
+  const apply = (map) => {
+    let missing = 0
+    for (const t of threads) {
+      for (const m of t.messages) {
+        if (!m.isDraft) continue
+        const id = map.get(m.id)
+        if (id) m.draftId = id
+        else missing++
+      }
+    }
+    return missing
+  }
+  try {
+    if (apply(await draftIdsByMessage()) > 0) apply(await draftIdsByMessage({ force: true }))
+  } catch (e) {
+    // Without ids the drafts still SHOW (as before); they just cannot be opened for editing.
+    console.warn('[crm-gmail] could not map drafts:', e?.message || e)
+  }
+  return threads
 }
 
 // ---- Sending ----------------------------------------------------------------
@@ -422,13 +476,21 @@ function encodeAddressHeader(s) {
 // are present everything is wrapped in a multipart/mixed.
 //   attachments:  [{ filename, contentType, contentBase64 }]
 //   inlineImages: [{ cid, contentType, contentBase64, filename? }]  (cid referenced as src="cid:..")
-export function makeRaw({ from, to, subject, body, html, attachments, inlineImages, replyTo, date }) {
+export function makeRaw({ from, to, cc, bcc, subject, body, html, attachments, inlineImages, replyTo, date, inReplyTo, references }) {
   const atts = (Array.isArray(attachments) ? attachments : []).filter((a) => a && a.contentBase64)
   const inlines = (Array.isArray(inlineImages) ? inlineImages : []).filter((a) => a && a.contentBase64 && a.cid)
   const hasHtml = !!(html && String(html).trim())
   const plain = body != null && body !== '' ? String(body) : hasHtml ? htmlToText(String(html)) : ''
   const headers = [`From: ${encodeAddressHeader(from)}`, `To: ${encodeAddressHeader(to)}`]
+  if (cc && String(cc).trim()) headers.push(`Cc: ${encodeAddressHeader(cc)}`)
+  // Bcc rides in the raw message; Gmail delivers to it and strips the header from what others see.
+  if (bcc && String(bcc).trim()) headers.push(`Bcc: ${encodeAddressHeader(bcc)}`)
   if (replyTo) headers.push(`Reply-To: ${encodeAddressHeader(replyTo)}`)
+  // Reply headers. Gmail threads on threadId plus a matching subject, but every OTHER mail client
+  // (Apple Mail, Outlook) threads on these, so without them a reply lands in the client's inbox as a
+  // brand-new conversation.
+  if (inReplyTo) headers.push(`In-Reply-To: ${String(inReplyTo).replace(/[\r\n]/g, '')}`)
+  if (references) headers.push(`References: ${String(references).replace(/[\r\n]/g, ' ')}`)
   headers.push(`Subject: ${encodeHeaderText(subject)}`, 'MIME-Version: 1.0')
   if (date) headers.push(`Date: ${date}`)
 
@@ -728,3 +790,7 @@ export async function unreadByProject({ force = false } = {}) {
 export function invalidateUnreadCache() {
   unreadCache = { at: 0, counts: null }
 }
+
+// The pieces crm-drafts.mjs builds on. Kept here so there is still exactly one Gmail client, one
+// sender line and one header reader.
+export { api as gmailApi, myEmail as mailboxAddress, fromHeader as senderHeader, header as headerValue, htmlToText }

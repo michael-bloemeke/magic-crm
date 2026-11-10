@@ -122,6 +122,8 @@ export function extractInlineImages(html) {
 // rather than depending on whatever the live Settings happen to say.
 export function signatureFor(tightenedHtml, cfg) {
   if (String(tightenedHtml || '').includes('data-crm-signature')) return ''
+  // A draft started in Gmail carries Gmail's own signature block. That IS a signature too.
+  if (String(tightenedHtml || '').includes('gmail_signature')) return ''
   if (!cfg || !cfg.signatureEnabled) return ''
   const sig = tightenEmailHtml(String(cfg.signatureHtml || ''))
   return sig ? `<div style="margin-top:16px">${sig}</div>` : ''

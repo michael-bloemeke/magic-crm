@@ -200,7 +200,8 @@ export function draftReply({ projectId }) {
   return { draft, demo: !isClaudeConnected() }
 }
 
-function invalidateInbox() {
+// Exported for crm-drafts.mjs: sending a draft from the CRM must refresh the Inbox like a reply does.
+export function invalidateInbox() {
   _inboxCacheTs = 0
 }
 

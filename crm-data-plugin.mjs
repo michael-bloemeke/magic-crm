@@ -35,6 +35,7 @@ import {
   appendActivityLog,
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
+import { getDraft, saveDraft, sendDraft, discardDraft } from './crm-drafts.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail, resolveAttachments } from './crm-emails.mjs'
 import { emailGifPath } from './crm-email-render.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
@@ -403,6 +404,25 @@ export function crmDataPlugin() {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
         }
+      })
+
+      // GMAIL DRAFTS (2026-11-10): the one draft store for every CRM composer. See crm-drafts.mjs.
+      // Its own prefix so nothing under /api/comms or /api/gmail can shadow it.
+      server.middlewares.use('/api/gdrafts/get', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => getDraft(b.draftId))
+      })
+      server.middlewares.use('/api/gdrafts/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => saveDraft(b))
+      })
+      server.middlewares.use('/api/gdrafts/send', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => sendDraft(b))
+      })
+      server.middlewares.use('/api/gdrafts/delete', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => discardDraft(b.draftId))
       })
 
       server.middlewares.use('/api/comms/draft', (req, res, next) => {
