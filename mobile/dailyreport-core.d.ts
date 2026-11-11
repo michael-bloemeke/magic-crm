@@ -55,4 +55,4 @@ export function localToday(now?: Date): string
 export function dayBounds(dateISO: string): { from: string; to: string }
 export function longDate(iso: string, withYear?: boolean): string
 export function buildReport(input: ReportInput): ReportModel
-export function renderReportHtml(model: ReportModel, opts?: { nowMin?: number | null }): string
+export function renderReportHtml(model: ReportModel): string

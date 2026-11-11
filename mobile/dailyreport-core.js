@@ -519,10 +519,11 @@ function taskHtml(t) {
 </li>`
 }
 
-function timelineHtml(tl, nowMin) {
+function timelineHtml(tl, dateISO) {
   const H = (m) => Math.round((m - tl.startMin) * PX_PER_MIN)
   const height = H(tl.endMin)
-  let out = `<div class="tl" style="height:${height + 8}px">`
+  // The data attributes let the page's own script draw the "now" line and keep it moving.
+  let out = `<div class="tl" style="height:${height + 8}px" data-date="${esc(dateISO)}" data-start="${tl.startMin}" data-end="${tl.endMin}" data-scale="${PX_PER_MIN}">`
   for (let m = tl.startMin; m <= tl.endMin; m += 30) {
     const hour = m % 60 === 0
     out += `<div class="hr${hour ? '' : ' half'}" style="top:${H(m)}px">${hour ? `<span>${esc(clock(m).replace(':00', ''))}</span>` : ''}</div>`
@@ -540,7 +541,6 @@ function timelineHtml(tl, nowMin) {
   }
   out += '</div>'
   if (tl.deskAt > tl.startMin && tl.deskAt < tl.endMin) out += `<div class="desk" style="top:${H(tl.deskAt)}px"><span>At the computer</span></div>`
-  if (nowMin != null && nowMin >= tl.startMin && nowMin <= tl.endMin) out += `<div class="now" style="top:${H(nowMin)}px" aria-label="Now"></div>`
   return out + '</div>'
 }
 
@@ -557,10 +557,11 @@ function notesLine(model) {
 }
 
 // The whole report as ONE self-contained HTML document.
-//   opts.nowMin   minutes after midnight, to draw the "now" line (leave out for a past or future day)
 // Clicking a project name or a checkbox posts a message to the page that framed it:
 //   { source: 'daily-report', type: 'open-project' | 'toggle-task', id }
-export function renderReportHtml(model, opts = {}) {
+// A tick is drawn by the document itself, at once, so the app never has to rebuild the page for it.
+// The red "now" line is the document's own too: it places itself and moves every minute.
+export function renderReportHtml(model) {
   const hasTasks = model.counts.total > 0
   let n = 0
   const groupsHtml = model.groups
@@ -609,7 +610,7 @@ export function renderReportHtml(model, opts = {}) {
 ${hasTasks ? groupsHtml : '<p class="clear">Nothing is overdue and nothing is due today. Straight to the project below.</p>'}
 </section>
 <section class="day" aria-label="Schedule"><h2>The day</h2><p class="lede">${scheduled ? 'Everything with a set time, from every calendar.' : 'Nothing has a set time today.'}</p>
-${allDay}${timelineHtml(tl, opts.nowMin)}
+${allDay}${timelineHtml(tl, model.dateISO)}
 </section>
 <section class="next" aria-label="After the tasks"><h2>After the tasks</h2>
 ${next}
@@ -621,11 +622,34 @@ ${next}
 document.addEventListener('click', function (e) {
   var el = e.target && e.target.closest ? e.target.closest('[data-project],[data-task]') : null
   if (!el) return
-  var msg = el.hasAttribute('data-project')
-    ? { source: 'daily-report', type: 'open-project', id: el.getAttribute('data-project') }
-    : { source: 'daily-report', type: 'toggle-task', id: el.getAttribute('data-task') }
+  var msg
+  if (el.hasAttribute('data-project')) {
+    msg = { source: 'daily-report', type: 'open-project', id: el.getAttribute('data-project') }
+  } else {
+    var row = el.closest('.task')
+    var done = row ? row.classList.toggle('done') : false
+    el.setAttribute('aria-checked', done ? 'true' : 'false')
+    msg = { source: 'daily-report', type: 'toggle-task', id: el.getAttribute('data-task') }
+  }
   try { window.parent.postMessage(msg, '*') } catch (err) {}
 })
+;(function () {
+  var tl = document.querySelector('.tl')
+  if (!tl) return
+  var line = null
+  function place() {
+    var d = new Date()
+    var today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+    var now = d.getHours() * 60 + d.getMinutes()
+    var start = Number(tl.getAttribute('data-start')), end = Number(tl.getAttribute('data-end'))
+    var show = today === tl.getAttribute('data-date') && now >= start && now <= end
+    if (!show) { if (line) { line.remove(); line = null } return }
+    if (!line) { line = document.createElement('div'); line.className = 'now'; line.setAttribute('aria-label', 'Now'); tl.appendChild(line) }
+    line.style.top = Math.round((now - start) * Number(tl.getAttribute('data-scale'))) + 'px'
+  }
+  place()
+  setInterval(place, 60000)
+})()
 </script>
 </body></html>`
 }

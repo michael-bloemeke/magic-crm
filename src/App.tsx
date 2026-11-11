@@ -20,6 +20,7 @@ import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
 import { ProposalsPage } from './components/ProposalsPage'
 import { PlaybookPage } from './components/PlaybookPage'
 import { PreviewPage, type PreviewTarget } from './components/PreviewPage'
+import { DailyReportPage } from './components/DailyReportPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { FilesPage } from './components/FilesPage'
@@ -117,6 +118,7 @@ const PAGE_META: Record<Page, { kicker: string; title: string }> = {
   website: { kicker: 'Website', title: 'Website Analytics' },
   contacts: { kicker: 'Contacts', title: 'Contacts' },
   playbook: { kicker: 'Library', title: 'Playbook' },
+  report: { kicker: 'Home', title: 'Daily report' },
   shows: { kicker: 'Library', title: 'Shows' },
   showbuilder: { kicker: 'Library', title: 'Show Builder' },
   files: { kicker: 'Library', title: 'Files' },
@@ -1064,7 +1066,9 @@ function App() {
                 : fullProject.bucket === 'deleted'
                   ? 'deleted'
                   : 'pipeline'
-            : page
+            : page === 'report'
+              ? 'home' // the daily report is opened from Home and has no sidebar item of its own
+              : page
         }
         onNavigate={(p) => {
           setContactPane(null)
@@ -1324,6 +1328,16 @@ function App() {
                 <FinancePage projects={liveProjects} onOpenProject={openFull} />
               ) : page === 'stats' ? (
                 <StatsPage projects={liveProjects} onOpenProject={openFull} onSaveField={saveField} />
+              ) : page === 'report' ? (
+                <DailyReportPage
+                  projects={liveProjects}
+                  tasks={liveTasks}
+                  structure={structure}
+                  bookedIds={bookedIds}
+                  unreadMail={inboxUnread}
+                  onOpenProject={openProjectById}
+                  onToggleTask={toggleTask}
+                />
               ) : page === 'playbook' ? (
                 <PlaybookPage />
               ) : page === 'shows' ? (

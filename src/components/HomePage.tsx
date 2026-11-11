@@ -102,6 +102,25 @@ export function HomePage({
       transition={{ duration: 0.35 }}
       className="board-scroll h-full overflow-y-auto px-8 pb-12"
     >
+      {/* The daily report (2026-11-11): one button that opens today's tasks, schedule and larger
+          project as a single page. The only filled button on Home, because it is where the day starts. */}
+      <button
+        type="button"
+        onClick={() => onNavigate('report')}
+        className="group mb-4 flex w-full items-center gap-5 rounded-2xl border border-line bg-surface-2/50 px-5 py-4 text-left transition-colors hover:border-line-strong hover:bg-surface-3/60"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-[22px] leading-tight text-parchment">Daily report</p>
+          <p className="mt-1 truncate text-[12.5px] text-muted">
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}. Your tasks in order, the day's
+            schedule, and what to work on after.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-xl bg-[#e3c279] px-4 py-2.5 text-[13px] font-semibold text-[#14161c] shadow-[0_10px_24px_-12px_rgba(227,194,121,0.9)] transition-colors group-hover:bg-[#f0d69b]">
+          Open today's report
+        </span>
+      </button>
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Money in this month" onClick={() => onNavigate('finance')}>

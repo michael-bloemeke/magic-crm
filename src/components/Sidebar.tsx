@@ -12,6 +12,8 @@ export type Page =
   | 'proposals'
   | 'contacts'
   | 'playbook'
+  // The daily report. Opened from the button on Home, not from this sidebar.
+  | 'report'
   | 'shows'
   | 'showbuilder'
   | 'files'
