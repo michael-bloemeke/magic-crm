@@ -203,6 +203,60 @@ export async function calendarEvents(sb: SupabaseClient, from: string, to: strin
   return { ok: errors.length === 0, events, ...(errors.length ? { errors } : {}) }
 }
 
+// THE DAILY REPORT's calendar (2026-11-11): every event between two instants, from EVERY calendar he
+// has switched on (Work, Gigs, the personal ones, the Mastermind feed, holidays). The report is "my
+// whole day", so unlike the Calendar page above it keeps the CRM's own events too and only LABELS
+// them (`crm`), and it reads personal calendars as well.
+//
+// ⚠️ A TWIN of dayEvents in crm-daily-report.mjs on the Mac. Same shape out of both, because one
+// file (mobile/dailyreport-core.js) reads either. The instants go back untouched: turning them into
+// "minutes into his day" is the device's job, since only it knows what time zone he is standing in.
+export async function dailyEvents(sb: SupabaseClient, from: string, to: string) {
+  if (Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) throw new Error('from and to must be ISO instants.')
+  const token = await googleToken(sb)
+  const { data: mapRow } = await sb.from('calendar_map').select('*').eq('id', 1).maybeSingle()
+  const taskIds = new Set<string>(Object.values(mapRow?.tasks || {}).map(String))
+  const projectIds = new Set<string>(Object.values(mapRow?.projects || {}).map(String))
+  const calendars: any[] = []
+  let pageToken = ''
+  do {
+    const r = await gcal(token, 'users/me/calendarList', {}, { maxResults: 250, pageToken })
+    calendars.push(...(r.items || []))
+    pageToken = r.nextPageToken || ''
+  } while (pageToken)
+  const events: any[] = []
+  const errors: string[] = []
+  const seen = new Set<string>()
+  for (const c of calendars) {
+    if (c.hidden || c.deleted || c.selected === false) continue // a calendar he has unticked stays out
+    const name = String(c.summaryOverride || c.summary || '').trim()
+    try {
+      const r = await gcal(token, `calendars/${encodeURIComponent(c.id)}/events`, {}, { timeMin: from, timeMax: to, singleEvents: true, orderBy: 'startTime', maxResults: 250 })
+      for (const e of r.items || []) {
+        if (e.status === 'cancelled') continue
+        if (e.eventType === 'workingLocation' || e.eventType === 'focusTime') continue
+        if ((e.attendees || []).some((a: any) => a.self && a.responseStatus === 'declined')) continue
+        const allDay = !!e.start?.date
+        // The same event can sit on two of his calendars (an invite on Work and on Personal Gmail).
+        const key = `${e.iCalUID || e.id}|${e.start?.dateTime || e.start?.date || ''}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const marked = String(e.description || '').includes(CRM_MARKER)
+        const crm = taskIds.has(String(e.id)) ? 'task' : projectIds.has(String(e.id)) ? 'project' : marked ? (name.toLowerCase() === 'gigs' ? 'project' : 'task') : ''
+        events.push({
+          id: String(e.id), calendar: name, title: e.summary || '(untitled)', allDay,
+          start: allDay ? '' : String(e.start?.dateTime || ''), end: allDay ? '' : String(e.end?.dateTime || ''),
+          startDate: allDay ? String(e.start?.date || '') : '', endDate: allDay ? String(e.end?.date || '') : '',
+          busy: e.transparency !== 'transparent', location: e.location || '', booking: isTidyCal(e), crm,
+        })
+      }
+    } catch (e) {
+      errors.push(`${name}: ${String((e as Error)?.message || e)}`)
+    }
+  }
+  return { ok: errors.length === 0, events, ...(errors.length ? { errors } : {}) }
+}
+
 // "2:00 PM", "14:00", "2pm" -> { h, m }
 function parseTime(s: string): { h: number; m: number } | null {
   const t = String(s || '').trim().toLowerCase()

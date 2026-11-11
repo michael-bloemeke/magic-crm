@@ -325,8 +325,13 @@ export function buildReport(input) {
   // ---- Claude's notes ----
   const noted = groups.reduce((s, g) => s + g.items.filter((i) => i.how || i.send).length, 0)
   const total = groups.reduce((s, g) => s + g.items.length, 0)
-  let notesState = 'none' // none | writing | fresh | old | error
-  if (row && (row.status === 'writing' || row.status === 'requested')) notesState = 'writing'
+  // Tasks Claude has not SEEN (added after the notes were written). A task it saw and left without
+  // a note, because the title says it all, is not missing anything.
+  const covered = new Set(Array.isArray(n.covered) ? n.covered : Object.keys(taskNotes))
+  const unseen = row ? groups.reduce((s, g) => s + g.items.filter((i) => !covered.has(i.id)).length, 0) : 0
+  let notesState = 'none' // none | asked | writing | fresh | old | error
+  if (row && row.status === 'requested') notesState = 'asked' // the phone asked; the Mac has not started
+  else if (row && row.status === 'writing') notesState = 'writing'
   else if (row && row.status === 'error' && !n.briefing && !noted) notesState = 'error'
   else if (row && (n.briefing || n.focus || noted)) notesState = row.reportDate === dateISO ? 'fresh' : 'old'
   const focus = n.focus && str(n.focus.title).trim()
@@ -344,7 +349,7 @@ export function buildReport(input) {
     facts,
     briefing: tidy(n.briefing),
     groups,
-    counts: { overdue, dueToday, total, noted },
+    counts: { overdue, dueToday, total, noted, unseen },
     timeline: { startMin, endMin, blocks, allDay: placed.allDay, deskAt: ROUTINE.deskAt },
     focus,
     alsoOpen,
@@ -389,16 +394,18 @@ h1,h2,h3,p,ul{margin:0}
 ul{padding:0;list-style:none}
 
 /* ---- top: the date, and where things stand ---- */
-.top{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:8px 40px;align-items:end;padding-bottom:22px;border-bottom:1px solid var(--line)}
+.top{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:8px 40px;align-items:start;padding-bottom:22px;border-bottom:1px solid var(--line)}
 .date{font:500 40px/1.05 var(--display);letter-spacing:-.01em;color:var(--navy)}
 .doc{margin-top:8px;font-size:13px;color:var(--muted)}
 .facts{font-size:14.5px;line-height:1.55;color:var(--ink)}
 .brief{margin-top:8px;font-size:14px;line-height:1.6;color:var(--muted);max-width:68ch}
 .brief+.brief{margin-top:6px}
+.after{margin-top:14px;font-size:14px;line-height:1.5;color:var(--ink)}
+.after a{font-weight:600;color:var(--navy);text-decoration:underline;text-decoration-color:var(--gold);text-decoration-thickness:2px;text-underline-offset:3px}
 
 .cols{display:grid;grid-template-columns:minmax(0,1fr) 318px;grid-template-areas:"tasks day" "next day";gap:0 40px;align-items:start}
 .tasks{grid-area:tasks;padding-top:22px}
-.day{grid-area:day;padding-top:22px}
+.day{grid-area:day;padding-top:22px;position:sticky;top:0}
 .next{grid-area:next;margin-top:30px}
 h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .lede{margin-top:3px;font-size:12.5px;color:var(--muted)}
@@ -440,16 +447,16 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .hr span{position:absolute;left:0;top:-8px;width:42px;text-align:right;font-size:11.5px;line-height:16px;color:var(--faint);font-variant-numeric:tabular-nums;background:var(--paper)}
 .lane{position:absolute;left:50px;right:0;top:0;bottom:0}
 .blk{position:absolute;overflow:hidden;border-radius:4px;padding:3px 8px 3px 9px;font-size:12.5px;line-height:1.3;border-left:3px solid var(--navy);background:var(--navy-soft);color:var(--ink)}
-.blk .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.blk.tall .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.blk .t{font-weight:600;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow-wrap:anywhere}
 .blk .w{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .blk.routine{background:repeating-linear-gradient(135deg,#f3f5f8 0 6px,#fafbfc 6px 12px);border-left-color:#b6bdc7;color:var(--muted)}
 .blk.gig{background:var(--navy);border-left-color:var(--gold);color:#fff}
 .blk.gig .w{color:#cfd6ea}
 .blk.personal{background:var(--gold-soft);border-left-color:var(--gold)}
 .blk.task{background:#fff;border:1px solid #b9c3dc;border-left:3px solid var(--blue)}
-.blk.short{padding-top:1px;padding-bottom:1px;display:flex;gap:6px;align-items:center}
+.blk.short{padding-top:0;padding-bottom:0;display:flex;gap:7px;align-items:center}
 .blk.short .w{flex:none}
+.blk.short .t{display:block;white-space:nowrap;text-overflow:ellipsis;min-width:0}
 .desk{position:absolute;left:50px;right:0;border-top:2px solid var(--ink)}
 .desk span{position:absolute;right:0;top:3px;font-size:11.5px;font-weight:600;color:var(--ink);background:var(--paper);padding-left:6px}
 .now{position:absolute;left:44px;right:0;border-top:2px solid var(--red);z-index:3}
@@ -474,13 +481,14 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .foot{margin-top:26px;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
 .foot.warn{color:var(--red)}
 
-@media (max-width:820px){
+/* Screen only: a printed page is narrower than this and must keep its two columns. */
+@media screen and (max-width:820px){
   body{background:var(--paper)}
   .sheet{margin:0;border-radius:0;box-shadow:none;padding:20px 18px 32px}
   .top{grid-template-columns:1fr;gap:12px}
   .date{font-size:31px}
   .cols{grid-template-columns:1fr;grid-template-areas:"tasks" "day" "next"}
-  .day{padding-top:30px}
+  .day{padding-top:30px;position:static}
   .box{width:22px;height:22px;margin-top:0}
   .task{grid-template-columns:26px minmax(0,1fr);padding:12px 0}
   .plate ul{columns:1}
@@ -494,6 +502,8 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
   .facts{font-size:12px}.brief{font-size:11.5px}
   .cols{grid-template-columns:minmax(0,1fr) 250px;gap:0 26px}
   .tasks,.day{padding-top:14px}
+  .day{position:static}
+  .after a{color:var(--ink);text-decoration:none}
   .tt{font-size:12px}.how,.send{font-size:11px}.meta{font-size:10.5px}
   .task{padding:6px 0}
   .group{margin-top:12px}
@@ -535,9 +545,17 @@ function timelineHtml(tl, dateISO) {
     const w = 100 / (b.lanes || 1)
     const label = KIND_LABEL[b.kind] || ''
     const when = clockRange(b.startMin, b.endMin)
-    const sub = [when, b.where && h > 44 ? b.where : ''].filter(Boolean).join(', ')
-    const cls = `blk ${b.kind}${h < 34 ? ' short' : ''}${h > 62 ? ' tall' : ''}`
-    out += `<div class="${cls}" style="top:${top + 1}px;height:${h}px;left:calc(${w * (b.lane || 0)}% + ${(b.lane || 0) ? 2 : 0}px);width:calc(${w}% - ${(b.lanes || 1) > 1 ? 2 : 0}px)" title="${esc(`${b.title}, ${when}${label ? ` (${label})` : ''}`)}"><div class="t">${esc(b.title)}</div><div class="w">${esc(sub)}</div></div>`
+    const place = `top:${top + 1}px;height:${h}px;left:calc(${w * (b.lane || 0)}% + ${(b.lane || 0) ? 2 : 0}px);width:calc(${w}% - ${(b.lanes || 1) > 1 ? 2 : 0}px)`
+    const tip = esc(`${b.title}, ${when}${label ? ` (${label})` : ''}${b.where ? `, ${b.where}` : ''}`)
+    if (h < 38) {
+      // Under 45 minutes there is one line: the start time, then as much of the title as fits.
+      out += `<div class="blk ${b.kind} short" style="${place}" title="${tip}"><span class="w">${esc(clock(b.startMin))}</span><span class="t">${esc(b.title)}</span></div>`
+      continue
+    }
+    // Taller blocks: the title wraps for as many lines as the block has room for, above its times.
+    const lines = Math.max(1, Math.floor((h - 8) / 16) - 1)
+    const sub = [when, b.where && h > 60 ? b.where : ''].filter(Boolean).join(', ')
+    out += `<div class="blk ${b.kind}" style="${place}" title="${tip}"><div class="t" style="-webkit-line-clamp:${lines}">${esc(b.title)}</div><div class="w">${esc(sub)}</div></div>`
   }
   out += '</div>'
   if (tl.deskAt > tl.startMin && tl.deskAt < tl.endMin) out += `<div class="desk" style="top:${H(tl.deskAt)}px"><span>At the computer</span></div>`
@@ -546,10 +564,11 @@ function timelineHtml(tl, dateISO) {
 
 function notesLine(model) {
   const s = model.notes
+  if (s.state === 'asked') return { text: 'Your Mac has been asked to write today’s notes. It writes them as soon as Bloom CRM is open there, and they appear here on their own.', warn: false }
   if (s.state === 'writing') return { text: 'Claude is writing today’s notes. They appear here on their own, usually within a couple of minutes.', warn: false }
   if (s.state === 'error') return { text: `Claude could not write today’s notes: ${s.error || 'no reason given'}. The tasks and the schedule above are complete without them.`, warn: true }
   if (s.state === 'fresh') {
-    const missing = model.counts.total - model.counts.noted
+    const missing = model.counts.unseen
     return { text: `Notes written by Claude at ${timeOfDay(s.generatedAt)}.${missing > 0 ? ` ${plural(missing, 'task')} added since then ${missing === 1 ? 'has' : 'have'} no note yet.` : ''} The tasks and the schedule are always live.`, warn: false }
   }
   if (s.state === 'old') return { text: `These notes are from ${longDate(s.reportDate, false)}. Today’s have not been written yet. The tasks and the schedule are live.`, warn: false }
@@ -602,7 +621,7 @@ export function renderReportHtml(model) {
 <style>${CSS}</style></head>
 <body><main class="sheet">
 <header class="top">
-<div><h1 class="date">${esc(model.dateLabel)}</h1><p class="doc">Daily report, ${esc(model.year)}</p></div>
+<div><h1 class="date">${esc(model.dateLabel)}</h1><p class="doc">Daily report, ${esc(model.year)}</p>${model.focus ? `<p class="after">After the tasks: <a href="#next">${esc(model.focus.title)}</a></p>` : ''}</div>
 <div><p class="facts">${model.facts.map(esc).join(' ')}</p>${paras(model.briefing, 'brief')}</div>
 </header>
 <div class="cols">
@@ -612,7 +631,7 @@ ${hasTasks ? groupsHtml : '<p class="clear">Nothing is overdue and nothing is du
 <section class="day" aria-label="Schedule"><h2>The day</h2><p class="lede">${scheduled ? 'Everything with a set time, from every calendar.' : 'Nothing has a set time today.'}</p>
 ${allDay}${timelineHtml(tl, model.dateISO)}
 </section>
-<section class="next" aria-label="After the tasks"><h2>After the tasks</h2>
+<section class="next" id="next" aria-label="After the tasks"><h2>After the tasks</h2>
 ${next}
 </section>
 </div>
@@ -649,6 +668,16 @@ document.addEventListener('click', function (e) {
   }
   place()
   setInterval(place, 60000)
+})()
+// Beside a long task list the schedule stays in view. It is often taller than the window, so it
+// sticks by its BOTTOM edge: it scrolls until its last hour shows, then holds there.
+;(function () {
+  var rail = document.querySelector('.day')
+  if (!rail) return
+  function pin() { rail.style.top = Math.min(0, window.innerHeight - rail.offsetHeight - 16) + 'px' }
+  pin()
+  window.addEventListener('resize', pin)
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(pin)
 })()
 </script>
 </body></html>`

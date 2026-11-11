@@ -548,6 +548,9 @@ export function writeNotes(dateISO, { by = 'mac' } = {}) {
         tasks,
         focus: answer.focus ? { title: tidy(answer.focus.title), why: tidy(answer.focus.why), firstStep: tidy(answer.focus.firstStep) } : null,
         alsoOpen: (Array.isArray(answer.alsoOpen) ? answer.alsoOpen : []).map((x) => ({ title: tidy(x.title), why: tidy(x.why) })).filter((x) => x.title).slice(0, 3),
+        // Every task the writer was shown, noted or not, so the page can tell "added since" from
+        // "seen, and needed no note".
+        covered: refs.map((r) => r.id),
         model,
       }
       const { error } = await sb().from('daily_reports').update({ status: 'ready', notes, generated_at: new Date().toISOString(), error: null }).eq('report_date', date)
@@ -572,6 +575,11 @@ export async function serveRequests() {
   try {
     const { data } = await sb().from('daily_reports').select('report_date').eq('status', 'requested').limit(3)
     for (const r of data || []) {
+      // A request from a day that has passed (the Mac was off) is not worth two minutes of writing.
+      if (r.report_date < localToday()) {
+        await sb().from('daily_reports').update({ status: 'error', error: 'The Mac was not on that day, so these notes were never written.' }).eq('report_date', r.report_date).eq('status', 'requested')
+        continue
+      }
       const { data: claimed } = await sb().from('daily_reports').update({ status: 'writing', requested_at: new Date().toISOString() }).eq('report_date', r.report_date).eq('status', 'requested').select('report_date')
       if (claimed && claimed.length) void writeNotes(r.report_date, { by: 'phone' })
     }

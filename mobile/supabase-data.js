@@ -1530,6 +1530,46 @@ export async function reloadPaymentsFinance(projects, config) {
 // same rows the same way, so the Mac picks the change up on its next data_version poll.
 // ============================================================================
 
+// ---------- the daily report (2026-11-11) ----------
+// The page and its rules are dailyreport-core.js. The phone already holds the tasks, the projects
+// and On my plate; these three calls fetch the rest. The Mac's twin is crm-daily-report.mjs.
+
+// One day's events from every calendar, between two instants the PHONE works out (its own midnight
+// to midnight, wherever he is).
+export async function loadDayEvents(from, to) {
+  return phoneApi('daily-events', { from, to })
+}
+function dailyRow(r) {
+  if (!r) return null
+  return {
+    reportDate: str(r.report_date), status: str(r.status), error: str(r.error),
+    generatedAt: r.generated_at ? new Date(r.generated_at).toISOString() : '',
+    requestedAt: r.requested_at ? new Date(r.requested_at).toISOString() : '',
+    notes: r.notes || null,
+  }
+}
+// Claude's notes for a day: that day's row, with the last notes written laid under it while today's
+// are still on their way, so the page is never emptier than it was yesterday. Mirrors loadNotes.
+export async function loadDailyNotes(dateISO) {
+  const { data, error } = await sb.from('daily_reports').select('*').lte('report_date', dateISO).order('report_date', { ascending: false }).limit(8)
+  if (error) throw error
+  const rows = data || []
+  const today = rows.find((r) => r.report_date === dateISO) || null
+  const last = rows.find((r) => r.notes && r.generated_at) || null
+  if (today && !today.notes && last) return { ...dailyRow(today), notes: last.notes, generatedAt: dailyRow(last).generatedAt }
+  return dailyRow(today || last)
+}
+// ⚠️ THE PHONE CANNOT WRITE THE NOTES. Claude and his planning files live on the Mac. So the phone
+// ASKS: it marks the day `requested`, and the Mac writes them (at once if Bloom CRM is open there,
+// otherwise the next time it is). The last notes stay in the row until new ones replace them.
+export async function requestDailyNotes(dateISO) {
+  const { error } = await sb.from('daily_reports').upsert(
+    { report_date: dateISO, status: 'requested', requested_by: 'phone', requested_at: new Date().toISOString(), error: null },
+    { onConflict: 'report_date' },
+  )
+  if (error) throw error
+}
+
 // The phone's server-side half (supabase/functions/phone-api). Everything that needs a secret the
 // phone must never hold: QuickBooks, Google Calendar, calendar-alert status.
 export async function phoneApi(action, body = {}) {

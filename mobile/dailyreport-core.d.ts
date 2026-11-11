@@ -19,6 +19,8 @@ export type ReportNotes = {
   tasks?: Record<string, { how: string; send: string }>
   focus?: { title: string; why: string; firstStep: string } | null
   alsoOpen?: { title: string; why: string }[]
+  // Every task Claude was shown when it wrote the notes, noted or not.
+  covered?: string[]
   model?: string
 }
 // The `daily_reports` row for the day, as both servers hand it over.
@@ -45,8 +47,8 @@ export type ReportInput = {
 export type ReportModel = {
   dateISO: string
   dateLabel: string
-  counts: { overdue: number; dueToday: number; total: number; noted: number }
-  notes: { state: 'none' | 'writing' | 'fresh' | 'old' | 'error'; generatedAt: string; reportDate: string; error: string }
+  counts: { overdue: number; dueToday: number; total: number; noted: number; unseen: number }
+  notes: { state: 'none' | 'asked' | 'writing' | 'fresh' | 'old' | 'error'; generatedAt: string; reportDate: string; error: string }
   [key: string]: unknown
 }
 export const ROUTINE: { wake: number; deskAt: number }

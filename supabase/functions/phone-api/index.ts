@@ -21,7 +21,7 @@
 // token, and write a rotated refresh token straight back.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { financeQbo, calendarEvents, calendarInvite, googleToken } from './logic.ts'
+import { financeQbo, calendarEvents, calendarInvite, googleToken, dailyEvents } from './logic.ts'
 import { proposalStatus, proposalStart, proposalPublish, proposalDraftEmail, proposalRetire, proposalResetViews } from './proposals.ts'
 
 const cors = {
@@ -56,6 +56,9 @@ Deno.serve(async (req) => {
         return json(await calendarEvents(admin, String(b.from || ''), String(b.to || '')))
       case 'calendar-invite':
         return json(await calendarInvite(admin, b))
+      // The daily report's schedule: one day's events from every calendar, personal ones included.
+      case 'daily-events':
+        return json(await dailyEvents(admin, String(b.from || ''), String(b.to || '')))
       case 'alert-state': {
         const { data } = await admin.from('calendar_alert_state').select('*').eq('id', 1).maybeSingle()
         return json({ ok: true, state: data || null })
