@@ -1116,8 +1116,11 @@ export async function loadEmails() {
 // threadId replies inside that Gmail conversation; emailId completes one saved draft row (otherwise a
 // new sent row is written, so a draft the Mac is still writing is never overwritten); html sends a
 // formatted body; signature:false leaves the Settings signature off this one email.
-export async function sendEmail({ to, subject, body, html, projectId, kind, threadId, emailId, signature } = {}) {
-  const { data, error } = await sb.functions.invoke('send-email', { body: { to, subject, body, html, projectId, kind, threadId, emailId, signature } })
+// Everything the composer hands over goes to send-email. It used to pass only a fixed list of fields,
+// which silently dropped `attachments` and `threadSubject`: a file attached on the phone never went
+// out (found 2026-11-10). With a `draftId`, Gmail sends that draft itself.
+export async function sendEmail(fields = {}) {
+  const { data, error } = await sb.functions.invoke('send-email', { body: fields })
   if (error) {
     let msg = error.message || 'Could not send.'
     try { const j = await error.context.json(); if (j && j.error) msg = j.error } catch (_) { /* keep msg */ }
@@ -1191,6 +1194,20 @@ export async function gmailThread(threadId) {
 
 export async function gmailMarkRead(threadId) {
   return gmail({ action: 'markRead', threadId })
+}
+
+// ---- Gmail drafts: the CRM's one draft store (2026-11-10) ----
+// A draft typed here is saved into Gmail Drafts, so it is in Gmail and on the Mac too, and any draft
+// started there opens here. Sending one is sendEmail with its draftId.
+export async function gmailGetDraft(draftId) {
+  const r = await gmail({ action: 'getDraft', draftId })
+  return r.draft || {}
+}
+export async function gmailSaveDraft(fields) {
+  return gmail({ action: 'saveDraft', ...fields })
+}
+export async function gmailDeleteDraft(draftId) {
+  return gmail({ action: 'deleteDraft', draftId })
 }
 
 // The unread inbox: the true count AND the threads, in ONE call.
@@ -1463,42 +1480,8 @@ export function describeSchedule(s) {
 // A draft is an `emails` row with status 'draft', kind 'custom', HTML body: exactly what the Mac's
 // "New email" composer autosaves, so a draft started on either device opens on the other. Saved BY ID,
 // never by "the latest draft of this kind", so two drafts can never overwrite each other.
-export async function saveComposeDraft({ id, projectId, to, subject, html, threadId, threadSubject, attachments } = {}) {
-  if (!projectId) throw new Error('Project id is required.')
-  const toArr = Array.isArray(to) ? to : String(to || '').split(/[,;]/).map((s) => s.trim()).filter(Boolean)
-  const nowIso = new Date().toISOString()
-  const row = {
-    project_id: projectId, kind: 'custom', to: toArr, subject: String(subject || '') || '(no subject)', body: String(html || ''), format: 'html',
-    status: 'draft', updated_at: nowIso, thread_id: threadId || '', thread_subject: threadSubject || '',
-    attachments: (attachments || []).map((a) => ({ source: 'cloud', name: a.name, id: a.path, size: a.size || undefined })),
-  }
-  if (id) {
-    const { error } = await sb.from('emails').update(row).eq('id', id).neq('status', 'sent')
-    if (error) throw error
-    return id
-  }
-  const newId = uuid()
-  const { error } = await sb.from('emails').insert({ id: newId, created_at: nowIso, ...row })
-  if (error) throw error
-  return newId
-}
-// Only ever a DRAFT: the status guard means a sent receipt can never be removed from here.
-export async function deleteDraft(id) {
-  if (!id) return
-  const { error } = await sb.from('emails').delete().eq('id', id).eq('status', 'draft')
-  if (error) throw error
-}
-export async function loadProjectDrafts(projectId) {
-  const { data, error } = await sb.from('emails').select('id,project_id,kind,to,subject,body,format,status,thread_id,thread_subject,attachments,updated_at')
-    .eq('project_id', projectId).eq('status', 'draft').order('updated_at', { ascending: false })
-  if (error) throw error
-  return (data || []).map((e) => ({
-    id: str(e.id), projectId: str(e.project_id), kind: str(e.kind), to: Array.isArray(e.to) ? e.to.map(String) : [],
-    subject: str(e.subject), body: str(e.body), format: str(e.format) || 'text', threadId: str(e.thread_id), threadSubject: str(e.thread_subject),
-    attachments: (Array.isArray(e.attachments) ? e.attachments : []).filter((a) => a && a.source === 'cloud' && a.id).map((a) => ({ name: str(a.name), path: str(a.id), size: Number(a.size) || 0 })),
-    updatedAt: str(e.updated_at),
-  }))
-}
+// (saveComposeDraft / deleteDraft / loadProjectDrafts lived here: drafts in the `emails` table. Gone
+// 2026-11-10, when Gmail drafts became the one draft store. Sent receipts still go to `emails`.)
 // A one-off attachment picked from the phone. Kept apart from the Files library, under its own folder.
 export async function uploadEmailAttachment(file) {
   const name = String(file.name || 'file').replace(/[\\/]/g, '-')

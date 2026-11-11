@@ -160,6 +160,7 @@ export function EmailBuilderModal({
     if (htmlHasContent(body) || subject.trim() || attachments.length > 0 || gmailAtts.length > 0) {
       s.schedule(fields())
     } else if (s.draftId) {
+      s.cancelPending()
       void s.release().then((id) => {
         if (id) onDiscard(id)
       })

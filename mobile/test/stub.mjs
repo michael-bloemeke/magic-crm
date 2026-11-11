@@ -45,6 +45,10 @@ export const FIXTURE_THREADS = [
     subject: 'New lead', date: '', ts: Date.now() - 86400e3 * 3, snippet: 'A new lead is waiting', unread: false, labels: [] },
   { id: 'm3', threadId: 'th3', from: 'Michael Bloemeke', fromEmail: 'michael@michaelbloemeke.com', to: ['sarah@duke.edu'],
     subject: 'Re: Booking details', date: '', ts: Date.now() - 7200e3, snippet: 'Here are the details we discussed', unread: false, labels: [] },
+  // A new email not sent yet: a Gmail "thread" holding only a draft (Gmail drafts are the CRM's
+  // drafts since 2026-11-10).
+  { id: 'm4', threadId: 'th4', from: 'Draft', fromEmail: '', to: ['sarah@duke.edu'], subject: 'Quick question', date: '',
+    ts: Date.now() - 1800e3, snippet: 'Half written', unread: false, labels: ['DRAFT'], hasDraft: true, draftOnly: true, draftId: 'draft-9' },
 ]
 
 export const STUB = {
@@ -152,11 +156,12 @@ export const STUB = {
   renameHomeListItem: (id, text) => { CALLS.push({ name: 'renameHomeListItem', args: [id, text] }); return Promise.resolve({ ok: true }) },
   saveHomeListLayout: (rows) => { CALLS.push({ name: 'saveHomeListLayout', args: [rows] }); return Promise.resolve({ ok: true, saved: rows.length }) },
   deleteHomeListItem: (id) => { CALLS.push({ name: 'deleteHomeListItem', args: [id] }); return Promise.resolve({ ok: true }) },
-  saveComposeDraft: (a) => { CALLS.push({ name: 'saveComposeDraft', args: [a] }); return Promise.resolve(a.id || 'draft-1') },
-  deleteDraft: rec('deleteDraft'),
-  loadProjectDrafts: (id) => { CALLS.push({ name: 'loadProjectDrafts', args: [id] }); return Promise.resolve(id === 'sarah-whitfield' ? [
-    { id: 'draft-9', projectId: id, kind: 'custom', to: ['sarah@duke.edu'], subject: 'Quick question', body: '<p>Half written</p>', format: 'html', threadId: '', threadSubject: '', attachments: [], updatedAt: '2026-10-22T15:00:00Z' },
-  ] : []) },
+  // Gmail drafts (2026-11-10).
+  gmailSaveDraft: (a) => { CALLS.push({ name: 'gmailSaveDraft', args: [a] }); return Promise.resolve({ ok: true, draftId: a.draftId || 'draft-1', threadId: 'th-new', inReplyTo: '', references: '' }) },
+  gmailDeleteDraft: rec('gmailDeleteDraft'),
+  gmailGetDraft: (id) => { CALLS.push({ name: 'gmailGetDraft', args: [id] }); return Promise.resolve({
+    draftId: id, threadId: 'th4', to: 'sarah@duke.edu', cc: '', bcc: '', subject: 'Quick question', html: '<p>Half written</p>',
+    quoteHtml: '', gmailAttachments: [{ name: 'run-of-show.pdf', size: 20480 }], inReplyTo: '', references: '' }) },
   loadProposalsOverview: () => { CALLS.push({ name: 'loadProposalsOverview', args: [] }); return Promise.resolve({
     items: [
       { projectId: 'sarah-whitfield', projectName: 'Sarah Whitfield', eventType: 'Gala', eventDate: '2026-10-04',

@@ -27,9 +27,20 @@
 //
 // The plain `body` text path is unchanged, so any old caller still works.
 //
+// GMAIL DRAFTS (2026-11-10). Gmail drafts are now the CRM's one draft store, phone and Mac alike. With
+// a `draftId` the draft is brought up to date and sent with Gmail's own drafts.send, so it leaves
+// Drafts the way a Gmail send does. `cc`, `bcc`, `quoteHtml` (a Gmail reply's quoted history) and
+// `keepGmailAttachments` (files that live in the draft) travel with it. The email-building code now
+// lives in ../_shared/mail.ts, shared with the `gmail` function that SAVES the drafts.
+//
 // NOTE: the booking chain needs to attach a PDF and runs unattended (no user JWT), so it does its own
 // Gmail send inside `booking-complete` rather than calling here. Both read the same email_config row.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+import {
+  EMAIL_BASE_STYLE, textToHtml, stripMergeFields, tightenEmailHtml, signatureFor, extractGifImages, extractInlineImages,
+  makeRaw, normalizeAddresses, gmailJson, replyHeaders, keptGmailAttachments, type Part,
+} from '../_shared/mail.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -38,154 +49,6 @@ const cors = {
 }
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
-}
-
-function escHtml(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-// Plain text -> simple HTML (blank line = paragraph, single newline = <br>). The old phone path.
-function textToHtml(t: string) {
-  return String(t || '')
-    .split(/\n{2,}/)
-    .map((p) => '<p>' + escHtml(p).replace(/\n/g, '<br>') + '</p>')
-    .join('')
-}
-
-// ---- crm-email-render.mjs, ported --------------------------------------------------------------
-const PARA_STYLE = 'margin:0 0 12px 0'
-const BLANK_SPACER = '<div style="margin:0;line-height:12px;font-size:1px">&nbsp;</div>'
-const LINK_STYLE = 'color:#1155cc;text-decoration:underline'
-const EMAIL_BASE_STYLE = 'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222'
-
-function stripMergeFields(html: string) {
-  return String(html || '').replace(/<span\b[^>]*\bclass="[^"]*\bmerge-field\b[^"]*"[^>]*>([\s\S]*?)<\/span>/gi, (_, inner) => inner)
-}
-function tightenEmailHtml(html: string) {
-  let s = String(html || '')
-  if (!s) return s
-  s = s.replace(/>\s+</g, '><')
-  s = s.replace(/<(p|div)\b([^>]*)>(?:\s|&nbsp;|<br\s*\/?>)*<\/\1>/gi, (m, _tag, attrs) => (/border|background/i.test(attrs) ? m : BLANK_SPACER))
-  s = s.replace(/<p(?![^>]*\bstyle=)([^>]*)>/gi, `<p$1 style="${PARA_STYLE}">`)
-  s = s.replace(/<a(?![^>]*\bstyle=)([^>]*)>/gi, `<a$1 style="${LINK_STYLE}">`)
-  return s
-}
-function signatureFor(tightened: string, cfg: any) {
-  if (String(tightened || '').includes('data-crm-signature')) return ''
-  if (!cfg || !cfg.signatureEnabled) return ''
-  const sig = tightenEmailHtml(String(cfg.signatureHtml || ''))
-  return sig ? `<div style="margin-top:16px">${sig}</div>` : ''
-}
-function htmlToText(html: string) {
-  return String(html || '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h\d)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-type Part = { cid?: string; contentType: string; bytes: Uint8Array; filename: string }
-
-// Template GIFs: <img data-crm-gif="slug"> -> cid: inline part with the GIF bytes from `email-gifs`.
-async function extractGifImages(admin: any, html: string) {
-  const tags = String(html || '').match(/<img\b[^>]*>/gi) || []
-  const images: Part[] = []
-  let out = html
-  let n = 0
-  for (const tag of tags) {
-    const m = /\bdata-crm-gif="([^"]+)"/i.exec(tag)
-    if (!m || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(m[1])) continue
-    const { data, error } = await admin.storage.from('email-gifs').download(m[1] + '.gif')
-    if (error || !data) continue // left as-is rather than shipping a broken cid
-    const cid = `gif${n++}@magic-crm`
-    images.push({ cid, contentType: 'image/gif', bytes: new Uint8Array(await data.arrayBuffer()), filename: m[1] + '.gif' })
-    const next = /\bsrc="[^"]*"/i.test(tag) ? tag.replace(/\bsrc="[^"]*"/i, `src="cid:${cid}"`) : tag.replace(/^<img\b/i, `<img src="cid:${cid}"`)
-    out = out.replace(tag, next)
-  }
-  return { html: out, images }
-}
-// data: images (a signature logo) -> cid: inline parts, because Gmail strips data: images on receipt.
-function extractInlineImages(html: string) {
-  const images: Part[] = []
-  let n = 0
-  const out = String(html || '').replace(/(<img\b[^>]*\bsrc=")data:([^;"]+);base64,([^"]+)(")/gi, (_m, pre, contentType, b64s, post) => {
-    const cid = `sig${n++}@magic-crm`
-    const ext = (String(contentType).split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')
-    images.push({ cid, contentType, bytes: Uint8Array.from(atob(b64s), (c) => c.charCodeAt(0)), filename: `signature-${n}.${ext}` })
-    return `${pre}cid:${cid}${post}`
-  })
-  return { html: out, images }
-}
-
-// ---- crm-gmail.mjs makeRaw, ported ---------------------------------------------------------------
-function bytesB64(bytes: Uint8Array) {
-  let bin = ''
-  const CH = 0x8000
-  for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode(...bytes.subarray(i, i + CH))
-  return btoa(bin)
-}
-const enc = (s: string) => new TextEncoder().encode(s)
-const wrap76 = (b64s: string) => b64s.replace(/(.{76})/g, '$1\r\n')
-const b64text = (s: string) => wrap76(bytesB64(enc(String(s ?? ''))))
-function boundary(tag: string) {
-  const r = crypto.getRandomValues(new Uint8Array(12))
-  return `=_${tag}_${Array.from(r, (b) => b.toString(16).padStart(2, '0')).join('')}`
-}
-function encodeHeader(s: string) {
-  return /^[\x20-\x7e]*$/.test(s) ? s : '=?UTF-8?B?' + bytesB64(enc(s)) + '?='
-}
-function safeName(s: string) {
-  return String(s || 'attachment').replace(/["\r\n]/g, '_')
-}
-function makeRaw(o: { from: string; to: string[]; subject: string; html: string; inline: Part[]; attachments: Part[]; reply?: { inReplyTo: string; references: string } }) {
-  const headers = [`From: ${o.from}`, `To: ${o.to.join(', ')}`, `Subject: ${encodeHeader(o.subject)}`]
-  // A reply carries In-Reply-To and References so every mail client files it in the same
-  // conversation, not just Gmail (which also needs the threadId on the send request).
-  if (o.reply && o.reply.inReplyTo) {
-    headers.push(`In-Reply-To: ${o.reply.inReplyTo}`, `References: ${o.reply.references ? o.reply.references + ' ' : ''}${o.reply.inReplyTo}`)
-  }
-  headers.push('MIME-Version: 1.0')
-  const alt = boundary('alt')
-  let content = {
-    header: `Content-Type: multipart/alternative; boundary="${alt}"`,
-    body: [
-      `--${alt}`, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', b64text(htmlToText(o.html)), '',
-      `--${alt}`, 'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: base64', '', b64text(o.html), '',
-      `--${alt}--`,
-    ].join('\r\n'),
-  }
-  if (o.inline.length) {
-    const rel = boundary('rel')
-    const parts = o.inline.map((a) => [
-      `Content-Type: ${a.contentType}; name="${safeName(a.filename)}"`, 'Content-Transfer-Encoding: base64',
-      `Content-ID: <${a.cid}>`, `Content-Disposition: inline; filename="${safeName(a.filename)}"`, '', wrap76(bytesB64(a.bytes)),
-    ].join('\r\n'))
-    content = {
-      header: `Content-Type: multipart/related; boundary="${rel}"`,
-      body: [`--${rel}\r\n${content.header}\r\n\r\n${content.body}`, ...parts.map((p) => `--${rel}\r\n${p}`)].join('\r\n') + `\r\n--${rel}--`,
-    }
-  }
-  let msg: string
-  if (!o.attachments.length) {
-    msg = [...headers, content.header, '', content.body].join('\r\n')
-  } else {
-    const mixed = boundary('mix')
-    const parts = [`${content.header}\r\n\r\n${content.body}`]
-    for (const a of o.attachments) {
-      parts.push([
-        `Content-Type: ${a.contentType || 'application/octet-stream'}; name="${safeName(a.filename)}"`, 'Content-Transfer-Encoding: base64',
-        `Content-Disposition: attachment; filename="${safeName(a.filename)}"`, '', wrap76(bytesB64(a.bytes)),
-      ].join('\r\n'))
-    }
-    msg = [...headers, `Content-Type: multipart/mixed; boundary="${mixed}"`, '', parts.map((p) => `--${mixed}\r\n${p}`).join('\r\n') + `\r\n--${mixed}--`].join('\r\n')
-  }
-  return bytesB64(enc(msg)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
-function normalizeTo(to: unknown): string[] {
-  const arr = Array.isArray(to) ? to : String(to || '').split(/[,;]/)
-  return arr.map((s) => String(s).trim()).filter((s) => /.+@.+\..+/.test(s))
 }
 
 Deno.serve(async (req) => {
@@ -204,7 +67,12 @@ Deno.serve(async (req) => {
   // ---- input ----
   let payload: any
   try { payload = await req.json() } catch { return json({ ok: false, error: 'Bad JSON.' }, 400) }
-  const to = normalizeTo(payload.to)
+  const to = normalizeAddresses(payload.to)
+  const cc = normalizeAddresses(payload.cc)
+  const bcc = normalizeAddresses(payload.bcc)
+  const draftId = String(payload.draftId || '')
+  const quoteHtml = String(payload.quoteHtml || '')
+  const keepGmail = Array.isArray(payload.keepGmailAttachments) ? payload.keepGmailAttachments : []
   const subject = String(payload.subject || '').trim()
   const bodyText = String(payload.body || '')
   const bodyHtml = String(payload.html || '')
@@ -214,10 +82,10 @@ Deno.serve(async (req) => {
   const emailId = String(payload.emailId || '')
   // [{ path, name, size?, type? }] in the crm-files bucket (uploaded by the phone).
   const attachIn = (Array.isArray(payload.attachments) ? payload.attachments : []).filter((a: any) => a && a.path)
-  if (!to.length) return json({ ok: false, error: 'Add at least one valid recipient email.' }, 400)
+  if (!to.length && !cc.length && !bcc.length) return json({ ok: false, error: 'Add at least one valid recipient email.' }, 400)
   if (!subject) return json({ ok: false, error: 'Add a subject.' }, 400)
   const bodyHasText = bodyHtml.replace(/<(?!img)[^>]*>/gi, '').replace(/&nbsp;/gi, ' ').trim() || /<img\b/i.test(bodyHtml)
-  if (!bodyText.trim() && !bodyHasText) return json({ ok: false, error: 'The email body is empty.' }, 400)
+  if (!bodyText.trim() && !bodyHasText && !attachIn.length && !keepGmail.length) return json({ ok: false, error: 'The email body is empty.' }, 400)
 
   // ---- Gmail creds ----
   const { data: cfg, error: cfgErr } = await admin.from('email_config').select('*').eq('id', 1).single()
@@ -243,7 +111,8 @@ Deno.serve(async (req) => {
     const { data: conf } = await admin.from('crm_config').select('data').eq('id', 1).maybeSingle()
     crmCfg = (conf && conf.data) || {}
   } catch { /* a missing config never blocks a send */ }
-  const tightened = tightenEmailHtml(stripMergeFields(bodyHtml.trim() ? bodyHtml : textToHtml(bodyText)))
+  // A Gmail reply's quoted history goes after the body, exactly as the Mac sends it.
+  const tightened = tightenEmailHtml(stripMergeFields(bodyHtml.trim() ? bodyHtml : textToHtml(bodyText)) + quoteHtml)
   const inner = tightened + signatureFor(tightened, crmCfg)
   const wrapBase = (h: string) => `<div style="${EMAIL_BASE_STYLE}">${h}</div>`
   const gifs = await extractGifImages(admin, inner)
@@ -263,6 +132,17 @@ Deno.serve(async (req) => {
     total += bytes.length
     attachments.push({ contentType: String(a.type || data.type || 'application/octet-stream'), bytes, filename: String(a.name || path.split('/').pop()) })
   }
+  // Files that live in the Gmail draft itself (added in Gmail, or on an earlier save).
+  if (draftId && keepGmail.length) {
+    try {
+      for (const f of await keptGmailAttachments(tok.access_token, draftId, keepGmail)) {
+        total += f.bytes.length
+        attachments.push(f)
+      }
+    } catch (e) {
+      return json({ ok: false, error: 'Could not read the attachments in the Gmail draft: ' + ((e as Error)?.message || e) }, 502)
+    }
+  }
   // Gmail's own ceiling is 25 MB for the whole message, and base64 adds a third.
   if (total > 18 * 1024 * 1024) return json({ ok: false, error: 'The attachments are too large to email (18 MB at most).' }, 400)
 
@@ -270,33 +150,33 @@ Deno.serve(async (req) => {
   let reply: { inReplyTo: string; references: string } | undefined
   if (threadId) {
     try {
-      const tr = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/threads/' + encodeURIComponent(threadId) + '?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References', {
-        headers: { Authorization: `Bearer ${tok.access_token}` },
-      })
-      const th = await tr.json()
-      const msgs = (th && th.messages) || []
-      const last = msgs.filter((m: any) => !(m.labelIds || []).includes('DRAFT')).pop() || msgs[msgs.length - 1]
-      const hdr = (n: string) => ((last && last.payload && last.payload.headers) || []).find((h: any) => String(h.name).toLowerCase() === n.toLowerCase())?.value || ''
-      if (last) reply = { inReplyTo: hdr('Message-ID'), references: hdr('References') }
+      reply = await replyHeaders(tok.access_token, threadId)
     } catch { /* still sends; Gmail threads it by threadId */ }
   }
 
   // ---- send ----
   const from = cfg.sender ? `"Michael Bloemeke" <${cfg.sender}>` : 'me'
-  const raw = makeRaw({ from, to, subject, html: sendHtml, inline: [...gifs.images, ...inl.images], attachments, reply })
-  const sendRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${tok.access_token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(threadId ? { raw, threadId } : { raw }),
-  })
-  const sent = await sendRes.json()
-  if (!sendRes.ok) return json({ ok: false, error: 'Gmail rejected the send: ' + (sent?.error?.message || sendRes.status) }, 502)
+  const raw = makeRaw({ from, to, cc, bcc, subject, html: sendHtml, inline: [...gifs.images, ...inl.images], attachments, reply })
+  const message = threadId ? { raw, threadId } : { raw }
+  // deno-lint-ignore no-explicit-any
+  let sent: any
+  try {
+    if (draftId) {
+      // Bring the Gmail draft up to date, then send it as Gmail would: it leaves Drafts.
+      await gmailJson(tok.access_token, `drafts/${encodeURIComponent(draftId)}`, { method: 'PUT', body: JSON.stringify({ id: draftId, message }) })
+      sent = await gmailJson(tok.access_token, 'drafts/send', { method: 'POST', body: JSON.stringify({ id: draftId }) })
+    } else {
+      sent = await gmailJson(tok.access_token, 'messages/send', { method: 'POST', body: JSON.stringify(message) })
+    }
+  } catch (e) {
+    return json({ ok: false, error: 'Gmail rejected the send: ' + ((e as Error)?.message || e) }, 502)
+  }
 
   // ---- record it ----
   const nowIso = new Date().toISOString()
   const attachRecord = attachIn.map((a: any) => ({ source: 'cloud', name: String(a.name || String(a.path).split('/').pop()), id: String(a.path), size: Number(a.size) || undefined }))
   const row: Record<string, unknown> = {
-    project_id: projectId, kind, to, subject, body: receiptHtml, format: 'html', status: 'sent', sent_at: nowIso, updated_at: nowIso,
+    project_id: projectId, kind, to: [...to, ...cc], subject, body: receiptHtml, format: 'html', status: 'sent', sent_at: nowIso, updated_at: nowIso,
     thread_id: sent.threadId || '', attachments: attachRecord,
   }
   if (payload.threadSubject) row.thread_subject = String(payload.threadSubject)
@@ -315,7 +195,7 @@ Deno.serve(async (req) => {
       const { data: p } = await admin.from('projects').select('activity_log').eq('id', projectId).maybeSingle()
       if (p) {
         const day = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'long', day: 'numeric', year: 'numeric' })
-        await admin.from('projects').update({ activity_log: [`${day}: Sent email to ${to.join(', ')}.`, ...(p.activity_log || [])], updated_at: nowIso }).eq('id', projectId)
+        await admin.from('projects').update({ activity_log: [`${day}: Sent email to ${[...to, ...cc].join(', ')}.`, ...(p.activity_log || [])], updated_at: nowIso }).eq('id', projectId)
       }
     } catch { /* the send already happened; the log line is best effort */ }
   }

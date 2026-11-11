@@ -166,6 +166,7 @@ export function ThreadReader({
     const id = draftMsg?.draftId
     if (!id || id === loadedDraftId.current || dirty.current) return
     let alive = true
+    let done = false
     loadedDraftId.current = id
     getGmailDraft(id)
       .then((d) => {
@@ -187,9 +188,15 @@ export function ThreadReader({
         requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: 'end' }))
       })
       .catch((e) => alive && setNote(`Could not open the Gmail draft: ${e instanceof Error ? e.message : e}`))
-      .finally(() => alive && setLoadingDraft(false))
+      .finally(() => {
+        done = true
+        if (alive) setLoadingDraft(false)
+      })
     return () => {
       alive = false
+      // Cancelled before it finished (React runs effects twice in development, and a quick close
+      // does the same): forget it, so the next run loads it instead of skipping it as "loaded".
+      if (!done) loadedDraftId.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftMsg?.draftId])
@@ -214,6 +221,7 @@ export function ThreadReader({
     if (htmlHasContent(reply) || attachments.length > 0 || gmailAtts.length > 0) {
       s.schedule(fields())
     } else if (s.draftId) {
+      s.cancelPending()
       void s.release().then((id) => {
         if (id) onDiscardDraft?.(id)
       })

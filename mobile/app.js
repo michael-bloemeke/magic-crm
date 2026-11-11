@@ -15,7 +15,7 @@ import {
   updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
   gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview,
-  saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment,
+  gmailGetDraft, gmailSaveDraft, gmailDeleteDraft, uploadEmailAttachment,
   SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule,
   loadInquiryReview, dismissInquiryReview,
   loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow,
@@ -3082,9 +3082,25 @@ function renderInbox() {
 // thread is a contact on one of his projects is the client, and if that is a recipient rather than
 // the sender the row says "To" so a conversation he is waiting on still reads differently from one
 // he last spoke in. Same convention Mail uses, for the same reason.
-function mailRow(t, ix, after) {
+function mailRow(t, ix, after, project) {
   var pid = ix ? ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || '' : ''
-  var pr = pid ? SNAP.projects.find(function (x) { return x.id === pid }) : null
+  var pr = project || (pid ? SNAP.projects.find(function (x) { return x.id === pid }) : null)
+  // A new email not sent yet (a Gmail "thread" holding nothing but a draft). Gmail drafts are the
+  // CRM's drafts (2026-11-10), so this may have been started here, on the Mac, or in Gmail itself.
+  if (t.draftOnly) {
+    var dr = el(
+      '<button class="mailrow"><span class="maildot" style="background:var(--gold)"></span><span class="mailbody">' +
+        '<span class="mailtop"><span class="mailfrom"><span class="mailto">Draft</span> ' + esc((t.to || []).join(', ') || 'No recipient yet') + '</span><span class="mailwhen">' + esc(mailWhen(t.ts)) + '</span></span>' +
+        '<span class="mailsub">' + esc(t.subject) + '</span>' +
+        '<span class="mailsnip">' + esc(String(t.snippet || '').slice(0, 130)) + '</span>' +
+      '</span></button>'
+    )
+    dr.addEventListener('click', function () {
+      if (t.draftId) openCompose({ project: pr, draftId: t.draftId, after: after })
+      else openThread(t, pr, after)
+    })
+    return dr
+  }
   var who = t.from || t.fromEmail
   var outbound = false
   if (ix && !ix[t.fromEmail]) {
@@ -3096,7 +3112,7 @@ function mailRow(t, ix, after) {
       '<span class="maildot"></span>' +
       '<span class="mailbody">' +
         '<span class="mailtop"><span class="mailfrom">' + (outbound ? '<span class="mailto">To</span> ' : '') + esc(who) + '</span><span class="mailwhen">' + esc(mailWhen(t.ts)) + '</span></span>' +
-        '<span class="mailsub">' + esc(t.subject) + '</span>' +
+        '<span class="mailsub">' + (t.hasDraft ? '<span class="mailto" style="color:var(--gold)">Draft</span> ' : '') + esc(t.subject) + '</span>' +
         '<span class="mailsnip">' + esc(String(t.snippet || '').slice(0, 130)) + '</span>' +
         (pr ? '<span class="mailproj">' + esc(pr.client) + '</span>' : '') +
       '</span>' +
@@ -3145,7 +3161,12 @@ function openThread(t, project, after) {
       go.addEventListener('click', function () { close(); closeDrawer(); TAB = pageForBucket(project.bucket); renderDetail(project.id) })
       body.appendChild(go)
     }
-    th.messages.forEach(function (m) {
+    // An unsent draft is never shown as a message the client received. The newest one becomes the
+    // reply: "Continue draft" opens it in the composer.
+    var draft = null
+    th.messages.forEach(function (m) { if (m.isDraft && m.draftId) draft = m })
+    var sentMsgs = th.messages.filter(function (m) { return !m.isDraft })
+    sentMsgs.forEach(function (m) {
       var msg = el('<div class="msg"></div>')
       msg.appendChild(el('<div class="msg-h"><span class="msg-from">' + esc(m.from || m.fromEmail) + '</span><span class="msg-when">' + esc(mailWhen(m.ts)) + '</span></div>'))
       msg.appendChild(el('<div class="msg-to">to ' + esc((m.to || []).join(', ') || 'me') + '</div>'))
@@ -3153,11 +3174,13 @@ function openThread(t, project, after) {
       body.appendChild(msg)
     })
 
-    var last = th.messages[th.messages.length - 1] || {}
+    if (draft) body.appendChild(el('<div class="cmp-status" style="margin-top:10px">You have an unsent reply saved in Gmail drafts.</div>'))
+    var last = sentMsgs[sentMsgs.length - 1] || th.messages[th.messages.length - 1] || {}
     var bar = el('<div class="addrow" style="margin-top:14px"></div>')
-    var rep = el('<button class="btn-gold">Reply</button>')
+    var rep = el('<button class="btn-gold">' + (draft ? 'Continue draft' : 'Reply') + '</button>')
     rep.addEventListener('click', function () {
       close()
+      if (draft) { openCompose({ project: project, draftId: draft.draftId, threadId: t.threadId, after: after }); return }
       openCompose({
         to: last.fromEmail && last.fromEmail !== 'me' ? last.fromEmail : (last.to || [])[0] || '',
         subject: /^re:/i.test(th.subject) ? th.subject : 'Re: ' + th.subject,
@@ -3186,7 +3209,8 @@ function openThread(t, project, after) {
 //     function's Settings signature stands down and an email never gets two
 //   - reply into an existing conversation with this client (the Mac's "reply to a thread")
 //   - attachments, from the Files library or picked from the phone
-//   - autosaved drafts on a project, by id, so one opened on the Mac carries on here and vice versa
+//   - autosave into GMAIL DRAFTS (2026-11-10). Gmail drafts are the CRM's one draft store, so a draft
+//     started here, on the Mac, or in Gmail itself opens in any of them and sends from any of them
 //   - the one-time "these placeholders still need filling" warning before a send
 // The send itself goes through send-email, which renders exactly like the Mac (GIFs embedded, not
 // linked).
@@ -3239,15 +3263,21 @@ function plainToHtml(t) {
 function openCompose(opts) {
   var o = opts || {}
   var project = o.project || null
-  var existing = o.existing || null // a saved draft row from loadProjectDrafts
-  var sh = makeSheet(existing ? 'Draft' : o.threadId ? 'Reply' : 'New email', true)
+  // A Gmail draft to open (o.draftId), started here, on the Mac, or in Gmail. Its content arrives a
+  // moment after the sheet opens; until then the fields are locked so nothing typed is overwritten.
+  var opening = !!o.draftId
+  var sh = makeSheet(opening ? 'Draft' : o.threadId ? 'Reply' : 'New email', true)
   var body = sh.body
   sh.sheet.classList.add('compose-sheet')
 
-  var draftId = existing ? existing.id : ''
-  var threadId = o.threadId || (existing && existing.threadId) || ''
-  var threadSubject = (existing && existing.threadSubject) || ''
-  var attachments = existing ? existing.attachments.slice() : []
+  var draftId = o.draftId || ''
+  var threadId = o.threadId || ''
+  var threadSubject = ''
+  var attachments = []
+  var gmailAtts = []       // files that live in the Gmail draft itself; kept unless removed
+  var quoteHtml = ''       // a Gmail reply's quoted history, handed back untouched on every save
+  var cc = '', bcc = ''
+  var inReplyTo = '', references = ''
   var sessionUploads = [] // uploaded this session; removed again if the email is abandoned unsaved
   var sigCfg = { enabled: false, html: '' }
   var confirmUnfilled = false
@@ -3257,7 +3287,7 @@ function openCompose(opts) {
   var to = document.createElement('input')
   to.className = 'search'; to.type = 'email'; to.placeholder = 'To'
   to.autocapitalize = 'off'; to.autocorrect = 'off'
-  to.value = existing ? existing.to.join(', ') : o.to || ''
+  to.value = o.to || ''
   body.appendChild(el('<div class="do-l" style="margin-bottom:6px">To</div>'))
   body.appendChild(to)
   if (project) {
@@ -3293,7 +3323,7 @@ function openCompose(opts) {
   // --- Subject ---
   var subj = document.createElement('input')
   subj.className = 'search'; subj.placeholder = 'Subject'
-  subj.value = existing ? (existing.subject === '(no subject)' ? '' : existing.subject) : o.subject || ''
+  subj.value = o.subject || ''
   body.appendChild(el('<div class="do-l" style="margin:14px 0 6px">Subject</div>'))
   body.appendChild(subj)
 
@@ -3309,8 +3339,7 @@ function openCompose(opts) {
     '</div>')
   var ed = document.createElement('div')
   ed.className = 'rte'; ed.contentEditable = 'true'; ed.setAttribute('role', 'textbox'); ed.setAttribute('aria-multiline', 'true')
-  if (existing) ed.innerHTML = existing.format === 'html' ? existing.body : plainToHtml(existing.body)
-  else if (o.body) ed.innerHTML = plainToHtml(o.body)
+  if (o.body) ed.innerHTML = plainToHtml(o.body)
   resolveChips(ed, project)
   var savedRange = null
   ed.addEventListener('blur', function () {
@@ -3381,6 +3410,13 @@ function openCompose(opts) {
   })
   function drawAtt() {
     attList.innerHTML = ''
+    gmailAtts.forEach(function (a) {
+      var chip = el('<span class="cmp-att-chip"><span class="cmp-att-n"></span><span class="cmp-att-s"></span><button aria-label="Remove">&times;</button></span>')
+      chip.querySelector('.cmp-att-n').textContent = a.name
+      chip.querySelector('.cmp-att-s').textContent = fmtBytes(a.size)
+      chip.querySelector('button').addEventListener('click', function () { gmailAtts.splice(gmailAtts.indexOf(a), 1); drawAtt(); changed() })
+      attList.appendChild(chip)
+    })
     attachments.forEach(function (a) {
       var chip = el('<span class="cmp-att-chip"><span class="cmp-att-n"></span><span class="cmp-att-s"></span><button aria-label="Remove">&times;</button></span>')
       chip.querySelector('.cmp-att-n').textContent = a.name
@@ -3406,51 +3442,62 @@ function openCompose(opts) {
   var discardBtn = el('<button class="cmp-discard">Discard draft</button>')
   discardBtn.style.display = draftId ? '' : 'none'
   discardBtn.addEventListener('click', function () {
-    if (!draftId || !confirm('Discard this draft? This permanently deletes it.')) return
+    if (!draftId || !confirm('Discard this draft? It is deleted from Gmail too.')) return
+    clearTimeout(saveTimer)
     var id = draftId; draftId = ''
-    deleteDraft(id).catch(function () {})
+    saving.then(function () { return gmailDeleteDraft(id) }).then(function () { mailForget() }).catch(function () {})
     cleanupUploads()
     shut(true)
   })
-  if (project) body.appendChild(discardBtn)
+  body.appendChild(discardBtn)
 
   // Settings' signature is the DEFAULT for a brand-new email only. A saved draft keeps the choice it
   // was written with, exactly like the Mac.
   loadRawConfig().then(function (c) {
     sigCfg = { enabled: !!c.signatureEnabled, html: c.signatureHtml || '' }
-    if (!existing && sigCfg.enabled && !ed.querySelector('[data-crm-signature]')) {
+    if (!o.draftId && sigCfg.enabled && !ed.querySelector('[data-crm-signature]')) {
       ed.insertAdjacentHTML('beforeend', signatureBlockHtml(sigCfg.html)); sigBox.checked = true
     }
   }).catch(function () {})
 
-  // --- autosave (projects only: a draft row belongs to a project) ---
+  // --- autosave into Gmail Drafts ---
   var saveTimer = null
   var saving = Promise.resolve()
   function changed() {
     confirmUnfilled = false
-    if (!project || sending) return
+    if (sending || opening) return
     clearTimeout(saveTimer)
-    saveTimer = setTimeout(persist, 800)
+    say('Saving to Gmail drafts…')
+    saveTimer = setTimeout(persist, 1200)
   }
   function payload() {
     return {
-      id: draftId, projectId: project.id, to: to.value, subject: subj.value.trim(), html: ed.innerHTML,
-      threadId: threadId, threadSubject: threadSubject, attachments: attachments.filter(function (a) { return a.path }),
+      draftId: draftId, threadId: threadId, to: to.value, cc: cc, bcc: bcc, subject: subj.value.trim(), html: ed.innerHTML,
+      quoteHtml: quoteHtml, attachments: attachments.filter(function (a) { return a.path }), keepGmailAttachments: gmailAtts,
+      inReplyTo: inReplyTo, references: references,
     }
   }
   function persist() {
     clearTimeout(saveTimer)
     saving = saving.then(function () {
-      if (!project) return
-      if (!htmlHasContent(ed.innerHTML) && !attachments.length) {
-        if (!draftId) return
+      if (opening) return
+      if (!htmlHasContent(ed.innerHTML) && !subj.value.trim() && !attachments.length && !gmailAtts.length) {
+        if (!draftId) { say(''); return }
         var id = draftId; draftId = ''; discardBtn.style.display = 'none'
-        return deleteDraft(id).catch(function () {})
+        say('')
+        return gmailDeleteDraft(id).then(function () { mailForget() }).catch(function () {})
       }
-      return saveComposeDraft(payload()).then(function (id) {
-        draftId = id; discardBtn.style.display = ''; sessionUploads = []
-        say('Draft saved')
-      }).catch(function () { say('Could not save the draft right now.', true) })
+      return gmailSaveDraft(payload()).then(function (r) {
+        // threadId is NOT adopted from the save: a new email's draft gets a thread of its own, and
+        // treating that as "a reply" would change how it is sent.
+        draftId = r.draftId || draftId
+        inReplyTo = r.inReplyTo || inReplyTo
+        references = r.references || references
+        discardBtn.style.display = ''
+        sessionUploads = [] // the bytes are in the Gmail draft now
+        mailForget()
+        say('Saved to Gmail drafts')
+      }).catch(function (e) { say('Not saved to Gmail: ' + (e.message || 'try again in a moment') + '.', true) })
     })
     return saving
   }
@@ -3459,25 +3506,23 @@ function openCompose(opts) {
     sessionUploads = []
   }
   function shut(skipFlush) {
-    if (!skipFlush) {
-      if (project) persist()
-      else cleanupUploads()
-    }
+    if (!skipFlush) persist()
     sh.close()
     if (o.after) o.after()
   }
   leftBtn.addEventListener('click', function () { shut(false) })
   // The X and a tap outside close through makeSheet; both still keep the draft (or tidy uploads).
-  var flushOnClose = function () { if (sending) return; if (project) persist(); else cleanupUploads() }
+  var flushOnClose = function () { if (sending) return; persist() }
   sh.sheet.querySelector('.sheet-x').addEventListener('click', flushOnClose)
   sh.sheet.addEventListener('click', function (e) { if (e.target === sh.sheet) flushOnClose() })
 
   // --- send ---
   sendBtn.addEventListener('click', function () {
     var list = to.value.split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
+    if (opening) return
     if (!list.length || list.some(function (a) { return !/.+@.+\..+/.test(a) })) { say('Add a valid recipient.', true); return }
     if (!subj.value.trim()) { say('Add a subject before sending.', true); return }
-    if (!htmlHasContent(ed.innerHTML) && !attachments.length) { say('The message is empty.', true); return }
+    if (!htmlHasContent(ed.innerHTML) && !attachments.length && !gmailAtts.length) { say('The message is empty.', true); return }
     if (attachments.some(function (a) { return a.uploading })) { say('Wait for the attachment to finish uploading.', true); return }
     resolveChips(ed, project)
     var left = chipLabels(ed)
@@ -3492,12 +3537,15 @@ function openCompose(opts) {
     clearTimeout(saveTimer)
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; say('')
     saving.then(function () {
+      // With a draftId, Gmail sends the draft itself, so it leaves Drafts the way a Gmail send does.
       return sendEmail({
-        to: list, subject: subj.value.trim(), html: ed.innerHTML, projectId: project ? project.id : '', kind: 'custom',
-        threadId: threadId, threadSubject: threadSubject, emailId: draftId,
+        to: list, cc: cc, bcc: bcc, subject: subj.value.trim(), html: ed.innerHTML, quoteHtml: quoteHtml,
+        projectId: project ? project.id : '', kind: 'custom', threadId: threadId, threadSubject: threadSubject, draftId: draftId,
         attachments: attachments.map(function (a) { return { path: a.path, name: a.name, size: a.size } }),
+        keepGmailAttachments: gmailAtts,
       })
     }).then(function () {
+      draftId = ''
       toast('Email sent')
       mailForget()
       // The reply settles the thread, so it is no longer unread. Failing to mark it is not worth
@@ -3636,7 +3684,32 @@ function openCompose(opts) {
     }).catch(function (e) { ps.body.innerHTML = ''; ps.body.appendChild(el('<div class="empty"></div>')).textContent = e.message || 'Could not load Files.' })
   }
 
-  if (existing && existing.threadId && thrBtn) thrBtn.querySelector('.cmp-pick-v').textContent = existing.threadSubject || 'Conversation'
+  // Open a Gmail draft: fill every field from Gmail, then unlock the editor.
+  if (opening) {
+    ed.contentEditable = 'false'
+    say('Opening your Gmail draft…')
+    gmailGetDraft(o.draftId).then(function (d) {
+      to.value = d.to || ''
+      cc = d.cc || ''; bcc = d.bcc || ''
+      subj.value = d.subject === '(no subject)' ? '' : d.subject || ''
+      ed.innerHTML = d.html || ''
+      resolveChips(ed, project)
+      quoteHtml = d.quoteHtml || ''
+      gmailAtts = (d.gmailAttachments || []).slice()
+      threadId = d.threadId || threadId
+      inReplyTo = d.inReplyTo || ''; references = d.references || ''
+      sigBox.checked = !!ed.querySelector('[data-crm-signature]')
+      drawAtt()
+      opening = false
+      ed.contentEditable = 'true'
+      say(quoteHtml ? 'Saved to Gmail drafts. The earlier messages stay quoted below it.' : 'Saved to Gmail drafts')
+    }).catch(function (e) {
+      opening = false
+      ed.contentEditable = 'true'
+      say('Could not open the draft: ' + (e.message || 'try again') + '.', true)
+    })
+    return
+  }
   setTimeout(function () { (to.value ? ed : to).focus() }, 60)
 }
 function fmtBytes(n) {
@@ -3666,25 +3739,11 @@ function emailTab(p) {
     return wrap
   }
 
-  // Drafts saved in the CRM (by this composer or the Mac's), above the mailbox, so a half-written
-  // email is one tap from carrying on.
+  // New emails not sent yet, above the mailbox, so a half-written one is a tap from carrying on.
+  // They are GMAIL drafts (2026-11-10), so one started on the Mac or in Gmail shows here too. A reply
+  // in progress stays with its conversation below, tagged Draft.
   var drafts = el('<div></div>')
   wrap.appendChild(drafts)
-  loadProjectDrafts(p.id).then(function (rows) {
-    if (DETAIL_ID !== p.id || !rows.length) return
-    drafts.appendChild(sectionLabel('Drafts · ' + rows.length))
-    rows.forEach(function (d) {
-      var tmp = document.createElement('div'); tmp.innerHTML = d.format === 'html' ? d.body : esc(d.body)
-      tmp.querySelectorAll('[data-crm-signature]').forEach(function (n) { n.remove() })
-      var r = el('<button class="mailrow"><span class="maildot" style="background:var(--gold)"></span><span class="mailbody">' +
-        '<span class="mailtop"><span class="mailfrom"><span class="mailto">Draft</span> ' + esc(d.to.join(', ') || 'No recipient yet') + '</span><span class="mailwhen">' + esc(mailWhen(Date.parse(d.updatedAt))) + '</span></span>' +
-        '<span class="mailsub">' + esc(d.subject) + '</span><span class="mailsnip">' + esc((tmp.textContent || '').slice(0, 130)) + '</span></span></button>')
-      r.addEventListener('click', function () {
-        openCompose({ project: p, existing: d, after: function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) } })
-      })
-      drafts.appendChild(r)
-    })
-  }).catch(function () {})
 
   var list = el('<div></div>')
   list.appendChild(el('<div class="empty" style="padding:18px 2px">Loading their emails…</div>'))
@@ -3698,9 +3757,16 @@ function emailTab(p) {
     if (DETAIL_ID !== p.id) return
     list.innerHTML = ''
     if (err) { list.appendChild(mailError(err, function () { mailForget(); renderDetail(p.id, true) })); return }
-    if (!threads.length) { list.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nothing in the mailbox with them yet.</div>')); return }
-    threads.forEach(function (t) {
-      list.appendChild(mailRow(t, null, function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }))
+    var refresh = function () { mailForget(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
+    var newDrafts = threads.filter(function (t) { return t.draftOnly })
+    var convos = threads.filter(function (t) { return !t.draftOnly })
+    if (newDrafts.length) {
+      drafts.appendChild(sectionLabel('Drafts · ' + newDrafts.length))
+      newDrafts.forEach(function (t) { drafts.appendChild(mailRow(t, null, refresh, p)) })
+    }
+    if (!convos.length) { list.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nothing in the mailbox with them yet.</div>')); return }
+    convos.forEach(function (t) {
+      list.appendChild(mailRow(t, null, refresh))
     })
   })
   return wrap

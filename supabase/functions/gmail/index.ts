@@ -20,7 +20,17 @@
 // holds every contact and every project-contact link in memory, so matching a From address to a
 // project is free there and would be a second, drifting copy of that logic here. This function is
 // a thin, honest Gmail proxy and nothing more.
+//
+// GMAIL DRAFTS (2026-11-10). Gmail drafts are now the CRM's one draft store, phone and Mac alike, so
+// this function also opens (getDraft), saves (saveDraft) and discards (deleteDraft) them, and marks
+// drafts in the lists it returns: `hasDraft` / `draftOnly` / `draftId` on a list row, `isDraft` /
+// `draftId` on a thread's messages. Sending a draft is `send-email` with a draftId. The building
+// blocks are in ../_shared/mail.ts, kept in step with the Mac's crm-drafts.mjs.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import {
+  extractGifImages, extractInlineImages, makeRaw, normalizeAddresses, gmailJson, replyHeaders, draftIdsByMessage,
+  readDraft, keptGmailAttachments, type Part,
+} from '../_shared/mail.ts'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -224,8 +234,17 @@ Deno.serve(async (req) => {
       // per-message, so a five-reply exchange would otherwise fill the whole screen with one
       // conversation.
       const byThread = new Map<string, any>()
+      // Drafts are kept apart: a row shows the newest message that was actually SENT, so an unsent
+      // draft never reads as the latest thing the client saw. A thread of nothing but drafts is a
+      // new email not sent yet, and becomes a draftOnly row.
+      const draftsByThread = new Map<string, any>()
       for (const m of metas) {
         if (!m) continue
+        if ((m.labelIds || []).includes('DRAFT')) {
+          const prev = draftsByThread.get(m.threadId)
+          if (!prev || (Number(m.internalDate) || 0) > (Number(prev.internalDate) || 0)) draftsByThread.set(m.threadId, m)
+          continue
+        }
         const hs = m.payload?.headers || []
         const from = parseAddr(header(hs, 'From'))
         const row = {
@@ -244,6 +263,36 @@ Deno.serve(async (req) => {
         const prev = byThread.get(row.threadId)
         if (!prev || row.ts > prev.ts) byThread.set(row.threadId, { ...row, unread: row.unread || !!prev?.unread })
         else if (row.unread) prev.unread = true
+      }
+      if (draftsByThread.size) {
+        let draftIds = new Map<string, string>()
+        try { draftIds = await draftIdsByMessage(googleAccessToken) } catch { /* rows still show, just not editable */ }
+        for (const [threadId, d] of draftsByThread) {
+          const row = byThread.get(threadId)
+          const draftId = draftIds.get(d.id) || ''
+          if (row) {
+            row.hasDraft = true
+            row.draftId = draftId
+            continue
+          }
+          const hs = d.payload?.headers || []
+          byThread.set(threadId, {
+            id: d.id,
+            threadId,
+            from: 'Draft',
+            fromEmail: '',
+            to: (header(hs, 'To') || '').split(',').map((x) => parseAddr(x).email).filter(Boolean),
+            subject: header(hs, 'Subject') || '(no subject)',
+            date: '',
+            ts: Number(d.internalDate) || 0,
+            snippet: String(d.snippet || '').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&'),
+            unread: false,
+            labels: d.labelIds || [],
+            hasDraft: true,
+            draftOnly: true,
+            draftId,
+          })
+        }
       }
       const threads = [...byThread.values()].sort((a, b) => b.ts - a.ts)
       // The count is the number of THREADS actually resolved, not Gmail's estimate. Across several
@@ -265,10 +314,18 @@ Deno.serve(async (req) => {
       const r = await fetch(api(`threads/${threadId}?format=full`), { headers: auth })
       const t = await r.json()
       if (!r.ok) return json({ ok: false, error: t?.error?.message || 'Gmail thread failed.' }, 502)
+      const anyDraft = (t.messages || []).some((m: any) => (m.labelIds || []).includes('DRAFT'))
+      let draftIds = new Map<string, string>()
+      if (anyDraft) {
+        try { draftIds = await draftIdsByMessage(googleAccessToken) } catch { /* shown, just not editable */ }
+      }
       const messages = (t.messages || []).map((m: any) => {
         const hs = m.payload?.headers || []
         const from = parseAddr(header(hs, 'From'))
+        const isDraft = (m.labelIds || []).includes('DRAFT')
         return {
+          isDraft,
+          draftId: isDraft ? draftIds.get(m.id) || '' : '',
           id: m.id,
           from: from.name,
           fromEmail: from.email,
@@ -282,6 +339,73 @@ Deno.serve(async (req) => {
       })
       const subject = messages.length ? messages[0].subject || '(no subject)' : '(no subject)'
       return json({ ok: true, threadId, subject, messages })
+    }
+
+    // ---- getDraft: one Gmail draft, ready for the composer ----
+    if (action === 'getDraft') {
+      const draftId = String(payload.draftId || '')
+      if (!draftId) return json({ ok: false, error: 'draftId is required.' }, 400)
+      const gifBase = `${Deno.env.get('SUPABASE_URL')}/storage/v1/object/public/email-gifs/`
+      return json({ ok: true, draft: await readDraft(googleAccessToken, draftId, gifBase) })
+    }
+
+    // ---- saveDraft: create (no draftId) or update a Gmail draft ----
+    //
+    // The draft holds the email as he WROTE it, not as it will be sent: send-email does the final
+    // tidy-up. Pictures become cid: parts because Gmail cannot show a data: image or a bucket URL
+    // inside a draft reliably, and the phone's uploaded attachments are copied into the draft so it
+    // is complete in Gmail too.
+    if (action === 'saveDraft') {
+      const draftId = String(payload.draftId || '')
+      const threadId = String(payload.threadId || '')
+      let inReplyTo = String(payload.inReplyTo || '')
+      let references = String(payload.references || '')
+      if (threadId && !inReplyTo) {
+        try { ({ inReplyTo, references } = await replyHeaders(googleAccessToken, threadId)) } catch { /* Gmail still threads by id */ }
+      }
+      const html = String(payload.html || '') + String(payload.quoteHtml || '')
+      const gifs = await extractGifImages(admin, html)
+      const pics = extractInlineImages(gifs.html)
+      const files: Part[] = []
+      for (const a of (Array.isArray(payload.attachments) ? payload.attachments : []).filter((x: any) => x && x.path)) {
+        const path = String(a.path)
+        if (path.includes('..')) return json({ ok: false, error: 'Bad attachment path.' }, 400)
+        const { data, error } = await admin.storage.from('crm-files').download(path)
+        if (error || !data) return json({ ok: false, error: `Could not read the attachment "${a.name || path}".` }, 400)
+        files.push({ contentType: String(a.type || data.type || 'application/octet-stream'), bytes: new Uint8Array(await data.arrayBuffer()), filename: String(a.name || path.split('/').pop()) })
+      }
+      if (draftId) files.push(...(await keptGmailAttachments(googleAccessToken, draftId, payload.keepGmailAttachments || [])))
+      const { data: cfg } = await admin.from('email_config').select('sender').eq('id', 1).maybeSingle()
+      const from = cfg && cfg.sender ? `"Michael Bloemeke" <${cfg.sender}>` : 'me'
+      const raw = makeRaw({
+        from,
+        to: normalizeAddresses(payload.to),
+        cc: normalizeAddresses(payload.cc),
+        bcc: normalizeAddresses(payload.bcc),
+        subject: String(payload.subject || '').trim() || '(no subject)',
+        html: pics.html,
+        inline: [...gifs.images, ...pics.images],
+        attachments: files,
+        reply: inReplyTo ? { inReplyTo, references } : undefined,
+      })
+      const message = threadId ? { raw, threadId } : { raw }
+      const r = draftId
+        ? await gmailJson(googleAccessToken, `drafts/${encodeURIComponent(draftId)}`, { method: 'PUT', body: JSON.stringify({ id: draftId, message }) })
+        : await gmailJson(googleAccessToken, 'drafts', { method: 'POST', body: JSON.stringify({ message }) })
+      return json({ ok: true, draftId: r.id, messageId: r.message?.id || '', threadId: r.message?.threadId || threadId, inReplyTo, references })
+    }
+
+    // ---- deleteDraft: discard a Gmail draft ----
+    if (action === 'deleteDraft') {
+      const draftId = String(payload.draftId || '')
+      if (!draftId) return json({ ok: false, error: 'draftId is required.' }, 400)
+      try {
+        await gmailJson(googleAccessToken, `drafts/${encodeURIComponent(draftId)}`, { method: 'DELETE' })
+      } catch (e) {
+        // Already gone (sent, or deleted in Gmail) is the outcome that was wanted.
+        if (!/not found|404/i.test(String((e as Error)?.message || e))) throw e
+      }
+      return json({ ok: true })
     }
 
     // ---- markRead: drop the UNREAD label from a whole thread ----

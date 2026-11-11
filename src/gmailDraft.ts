@@ -51,6 +51,8 @@ export class DraftSession {
     this.pending = fields
     if (this.timer) clearTimeout(this.timer)
     this.timer = setTimeout(() => void this.flush(), SAVE_DELAY_MS)
+    // Say so straight away: "Saved" must never show while an edit is still waiting to go up.
+    this.onStatus({ kind: 'saving' })
   }
 
   // Save whatever is pending now. Resolves once every save queued so far has finished.
@@ -67,7 +69,8 @@ export class DraftSession {
         try {
           const r = await saveGmailDraft(this.withIds(fields))
           this.draftId = r.draftId
-          this.threadId = r.threadId || this.threadId
+          // threadId is NOT adopted from the save: a new email's draft gets a thread of its own, and
+          // treating that as "a reply" would change how it is sent.
           this.inReplyTo = r.inReplyTo || this.inReplyTo
           this.references = r.references || this.references
           this.onStatus({ kind: 'saved', at: Date.now() })
@@ -96,10 +99,10 @@ export class DraftSession {
     return r
   }
 
-  // Hand the draft id over (to be discarded with an Undo, by the caller) and forget it here.
+  // Hand the draft id over (to be discarded with an Undo, by the caller) and forget it here. The last
+  // keystrokes are saved first, so if the discard is undone the draft comes back exactly as it was.
   async release(): Promise<string | undefined> {
-    this.cancelPending()
-    await this.chain
+    await this.flush()
     const id = this.draftId
     this.draftId = undefined
     this.onStatus({ kind: 'idle' })
