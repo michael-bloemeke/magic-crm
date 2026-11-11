@@ -26,6 +26,7 @@ import {
   loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog,
   sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls,
   addHomeListItem, deleteHomeListItem, renameHomeListItem, saveHomeListLayout,
+  loadDayEvents, loadDailyNotes, loadDailyStatus, requestDailyNotes,
 } from './supabase-data.js'
 // The Show Builder's rules, shared with the Mac's server (see showbuilder-core.js).
 import {
@@ -35,6 +36,8 @@ import {
 } from './showbuilder-core.js'
 // "On my plate" as an outline (2026-10-31): the move and indent rules, shared with the Mac.
 import * as PLATE from './homelist-core.js'
+// The daily report (2026-11-11): what is on it and the page itself, shared with the Mac.
+import * as DR from './dailyreport-core.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 import { TEMPLATE_GROUPS } from './email-templates.js'
 
@@ -3986,6 +3989,200 @@ function openPreview(opts) {
   document.body.classList.add('previewing')
 }
 
+// ---------- The daily report ----------
+//
+// THE DAILY REPORT ON THE PHONE (2026-11-11). The button at the top of Home. Michael: "all I do is I
+// just click a button and it generates the report", "either on the laptop or on my phone app".
+//
+// The page is ONE self-contained document in a frame, built by dailyreport-core.js: the same file
+// the Mac uses, so the two can never show different reports. Read the top of that file for what is
+// on the report and why. This function only gathers what the document needs and listens to it.
+//
+// THE FACTS ARE LIVE, THE NOTES ARE THE MAC'S. Tasks, projects and On my plate are already in SNAP;
+// the calendar comes from phone-api `daily-events`. Claude's notes are written on the Mac (Claude and
+// his planning files live there), so the phone shows the last ones written and ASKS for new ones by
+// marking the day `requested`. See requestDailyNotes.
+//
+// ⚠️ THE FRAME IS REBUILT ONLY WHEN ITS CONTENT CHANGES, never when a box is ticked: the document
+// draws its own tick, so the page does not jump to the top under his thumb. A ticked task stays on
+// the page, struck through, until he leaves. Same rule as DailyReportPage.tsx on the Mac.
+var DR_OPEN = false
+var DR_SCROLL = { date: '', y: 0 } // where he was reading, so coming back from a project lands there
+function openDailyReport() {
+  if (DR_OPEN) return
+  DR_OPEN = true
+  var date = todayStr()
+  var st = { events: null, calendarOk: true, notes: null, notesError: '', loaded: false, checked: {}, key: '', asking: false, seen: '', ticks: 0 }
+  // A real printer is a computer's job. On a phone the button would print the wrong thing or nothing.
+  var canPrint = !isNativeApp() && window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  var pane = el(
+    '<div class="previewpane dr-pane">' +
+      '<div class="pv-bar">' +
+        '<button class="pv-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
+        '<span>Home</span></button>' +
+        '<div class="pv-t"><div class="pv-title">Daily report</div><div class="pv-sub"></div></div>' +
+        '<button class="dr-btn dr-rewrite" disabled>Write notes</button>' +
+        (canPrint ? '<button class="dr-btn dr-print">Print</button>' : '') +
+      '</div>' +
+      '<div class="pv-body"><div class="pv-load">Putting today together…</div></div>' +
+    '</div>'
+  )
+  var body = pane.querySelector('.pv-body')
+  var sub = pane.querySelector('.pv-sub')
+  var rewrite = pane.querySelector('.dr-rewrite')
+  var frame = document.createElement('iframe')
+  frame.className = 'pv-frame'
+  frame.title = 'Daily report'
+  if (DR_SCROLL.date !== date) DR_SCROLL = { date: date, y: 0 }
+  frame.addEventListener('load', function () {
+    var l = body.querySelector('.pv-load')
+    if (l) l.remove()
+    try {
+      var w = frame.contentWindow
+      if (DR_SCROLL.y) w.scrollTo(0, DR_SCROLL.y)
+      w.addEventListener('scroll', function () { DR_SCROLL.y = w.scrollY }, { passive: true })
+    } catch (_) { /* a frame that will not scroll is not worth an error */ }
+  })
+
+  var todayStatus = function () { return st.notes && st.notes.reportDate === date ? st.notes.status : '' }
+  var waiting = function () { var x = todayStatus(); return x === 'requested' || x === 'writing' }
+
+  var paint = function () {
+    if (!st.loaded || !DR_OPEN) return
+    var status = todayStatus()
+    sub.textContent = status === 'writing' ? 'Claude is writing today’s notes…'
+      : status === 'requested' ? 'Waiting for your Mac to write the notes'
+      : st.notesError ? 'The notes could not be loaded'
+      : !st.calendarOk ? 'The calendar could not be read'
+      : DR.longDate(date, false)
+    rewrite.disabled = waiting() || st.asking
+    rewrite.textContent = waiting() || st.asking ? 'Writing…' : status === 'ready' ? 'Rewrite notes' : 'Write notes'
+    // Everything that decides what the document says, EXCEPT which boxes are ticked.
+    var plate = plateItems()
+    var onReport = (SNAP.tasks || [])
+      .filter(function (t) { return t.dueDate && t.dueDate <= date && (!t.done || st.checked[t.id]) })
+      .map(function (t) { return [t.id, t.title, t.dueDate, t.dueTime, t.projectId] })
+    var named = (SNAP.projects || []).map(function (p) { return [p.id, p.client, p.stageId, p.eventDate, p.bucket] })
+    var key = JSON.stringify([date, onReport, named, st.events, plate, st.notes, UNREAD_MAIL])
+    if (key === st.key) return
+    st.key = key
+    var stageNames = {}
+    Object.keys(STAGE).forEach(function (id) { stageNames[id] = STAGE[id].name })
+    var model = DR.buildReport({
+      dateISO: date,
+      tasks: SNAP.tasks || [],
+      projects: SNAP.projects || [],
+      stageNames: stageNames,
+      bookedStageIds: Object.keys(stageSetForRole('booked')),
+      events: st.events || [],
+      plate: plate,
+      notes: st.notes,
+      unreadMail: UNREAD_AT ? UNREAD_MAIL : null,
+      checkedIds: Object.keys(st.checked),
+    })
+    frame.srcdoc = DR.renderReportHtml(model)
+    if (!frame.parentNode) body.appendChild(frame)
+  }
+
+  var loadNotes = function () {
+    return loadDailyNotes(date)
+      .then(function (n) { st.notes = n; st.notesError = '' })
+      .catch(function (e) { st.notesError = (e && e.message) || 'Could not load the notes.' })
+  }
+  var loadCalendar = function () {
+    var b = DR.dayBounds(date)
+    return loadDayEvents(b.from, b.to)
+      .then(function (r) { st.events = (r && r.events) || []; st.calendarOk = !r || r.ok !== false })
+      .catch(function () { st.events = st.events || []; st.calendarOk = false })
+  }
+  // Ask the Mac for notes. The row keeps the last notes until new ones replace them.
+  var ask = function () {
+    if (st.asking || waiting()) return
+    st.asking = true
+    paint()
+    requestDailyNotes(date).then(loadNotes).then(function () { st.asking = false; paint() })
+      .catch(function (e) { st.asking = false; paint(); toast((e && e.message) || 'Could not ask for the notes.', 'err') })
+  }
+  rewrite.addEventListener('click', ask)
+  if (canPrint) pane.querySelector('.dr-print').addEventListener('click', function () {
+    try { frame.contentWindow.focus(); frame.contentWindow.print() } catch (_) { toast('Could not open the print window.', 'err') }
+  })
+
+  // The document's two buttons: a project name, and a task's checkbox.
+  var onMessage = function (e) {
+    var m = e.data
+    if (!m || m.source !== 'daily-report' || !m.id || e.source !== frame.contentWindow) return
+    if (m.type === 'open-project') {
+      close()
+      try { history.back() } catch (_) { /* the pushed state is harmless if it stays */ }
+      openProjectById(m.id)
+    }
+    if (m.type === 'toggle-task') {
+      var t = (SNAP.tasks || []).find(function (x) { return x.id === m.id })
+      if (!t) return
+      var done = !st.checked[t.id]
+      if (done) st.checked[t.id] = 1; else delete st.checked[t.id]
+      doWrite(toggleTask(t.id, done), null, function () {
+        // By id, not by reference: a background refresh may have replaced the task list meanwhile.
+        var now = (SNAP.tasks || []).find(function (x) { return x.id === m.id })
+        if (now) now.done = done
+      }).catch(function () {
+        // The save failed: put the box back the way it was, which needs the page rebuilt.
+        if (done) delete st.checked[t.id]; else st.checked[t.id] = 1
+        st.key = ''
+        paint()
+      })
+    }
+  }
+  window.addEventListener('message', onMessage)
+
+  // Every five seconds: pick up anything that changed in the app (a task added, mail read), and
+  // while notes are on their way, look for them. The status check is a few bytes; the notes
+  // themselves are fetched only when it changes. Slower once the Mac has plainly not answered.
+  var timer = setInterval(function () {
+    if (document.hidden || !st.loaded) return
+    st.ticks++
+    if (!waiting()) { paint(); return }
+    if (todayStatus() === 'requested' && st.ticks > 24 && st.ticks % 6) return
+    loadDailyStatus(date).then(function (now) {
+      if (now === st.seen) return
+      st.seen = now
+      return loadNotes().then(paint)
+    }).catch(function () { /* try again on the next tick */ })
+  }, 5000)
+
+  var close = function () {
+    if (!DR_OPEN) return
+    DR_OPEN = false
+    clearInterval(timer)
+    pane.remove()
+    document.body.classList.remove('previewing')
+    window.removeEventListener('popstate', onPop)
+    window.removeEventListener('message', onMessage)
+    // Tasks ticked off in the report are done now: the page underneath should say so.
+    if (Object.keys(st.checked).length) refreshView()
+  }
+  var onPop = function () { close() }
+  try { history.pushState({ report: 1 }, '') } catch (_) { /* not fatal */ }
+  window.addEventListener('popstate', onPop)
+  pane.querySelector('.pv-back').addEventListener('click', function () {
+    try { history.back() } catch (_) { close() }
+  })
+
+  document.body.appendChild(pane)
+  document.body.classList.add('previewing')
+
+  Promise.all([loadNotes(), loadCalendar()]).then(function () {
+    st.loaded = true
+    st.seen = st.notes && st.notes.reportDate === date ? st.notes.status + '|' : ''
+    paint()
+    // The first open of the day asks for notes without being told to. Never over a failed write:
+    // that one waits for him to press the button.
+    if (!st.notesError && todayStatus() === '') ask()
+  })
+}
+
 // ---------- Finance ----------
 //
 // ⚠️ A PORT OF src/components/FinancePage.tsx ON THE MAC (2026-10-23). Michael: "the finance page is
@@ -6703,6 +6900,11 @@ function renderHome() {
   // The greeting is the page title now, in the header, the way the Mac's Home does it.
 
   var grid = el('<div class="statgrid"></div>')
+  // The daily report (2026-11-11), across the top of the grid: one tap and today is on the screen.
+  var report = el('<button class="statcard dr-open"><span class="dr-open-t"><span class="dr-open-h">Daily report</span><span class="l"></span></span><span class="dr-open-go">Open</span></button>')
+  report.querySelector('.l').textContent = DR.longDate(todayStr(), false)
+  report.addEventListener('click', openDailyReport)
+  grid.appendChild(report)
   // Unread mail took the money tile, 2026-09-21. Michael: "I don't expect to use the finance page
   // on my phone", and in the same breath, "I want to be able to see notifications when I have
   // unread emails." Money is still a tap away in the drawer; this tile now answers a question he

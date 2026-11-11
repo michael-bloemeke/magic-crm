@@ -1549,15 +1549,27 @@ function dailyRow(r) {
   }
 }
 // Claude's notes for a day: that day's row, with the last notes written laid under it while today's
-// are still on their way, so the page is never emptier than it was yesterday. Mirrors loadNotes.
+// are still on their way, so the page is never emptier than it was yesterday. Mirrors loadNotes on
+// the Mac. Two small reads rather than one wide one: a row of notes is around 20 KB, and this runs
+// on a phone signal.
 export async function loadDailyNotes(dateISO) {
-  const { data, error } = await sb.from('daily_reports').select('*').lte('report_date', dateISO).order('report_date', { ascending: false }).limit(8)
+  const { data: today, error } = await sb.from('daily_reports').select('*').eq('report_date', dateISO).maybeSingle()
   if (error) throw error
-  const rows = data || []
-  const today = rows.find((r) => r.report_date === dateISO) || null
-  const last = rows.find((r) => r.notes && r.generated_at) || null
-  if (today && !today.notes && last) return { ...dailyRow(today), notes: last.notes, generatedAt: dailyRow(last).generatedAt }
+  if (today && today.notes) return dailyRow(today)
+  const { data: older, error: e2 } = await sb.from('daily_reports').select('*')
+    .lt('report_date', dateISO).not('notes', 'is', null).not('generated_at', 'is', null)
+    .order('report_date', { ascending: false }).limit(1)
+  if (e2) throw e2
+  const last = (older || [])[0] || null
+  if (today && last) return { ...dailyRow(today), notes: last.notes, generatedAt: dailyRow(last).generatedAt, borrowedFrom: str(last.report_date) }
   return dailyRow(today || last)
+}
+// Where the day's notes stand, in a few bytes. The report screen polls THIS while it waits, and only
+// fetches the notes themselves when the answer changes.
+export async function loadDailyStatus(dateISO) {
+  const { data, error } = await sb.from('daily_reports').select('status,generated_at').eq('report_date', dateISO).maybeSingle()
+  if (error) throw error
+  return data ? str(data.status) + '|' + str(data.generated_at) : ''
 }
 // ⚠️ THE PHONE CANNOT WRITE THE NOTES. Claude and his planning files live on the Mac. So the phone
 // ASKS: it marks the day `requested`, and the Mac writes them (at once if Bloom CRM is open there,

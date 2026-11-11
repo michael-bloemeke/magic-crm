@@ -241,8 +241,11 @@ export function buildReport(input) {
   const byId = new Map(projects.map((p) => [p.id, p]))
   const projectIds = new Set(byId.keys())
   const checked = new Set(input.checkedIds || [])
-  const row = input.notes && input.notes.notes ? input.notes : null
+  // The row can exist with no notes in it yet (asked for, or being written, for the first time ever).
+  const row = input.notes || null
   const n = (row && row.notes) || {}
+  // Notes laid under today's row from an earlier day are still that earlier day's notes.
+  const notesDate = row ? str(row.borrowedFrom || row.reportDate) : ''
   const taskNotes = n.tasks || {}
 
   // ---- tasks ----
@@ -328,12 +331,12 @@ export function buildReport(input) {
   // Tasks Claude has not SEEN (added after the notes were written). A task it saw and left without
   // a note, because the title says it all, is not missing anything.
   const covered = new Set(Array.isArray(n.covered) ? n.covered : Object.keys(taskNotes))
-  const unseen = row ? groups.reduce((s, g) => s + g.items.filter((i) => !covered.has(i.id)).length, 0) : 0
+  const unseen = row && row.notes ? groups.reduce((s, g) => s + g.items.filter((i) => !covered.has(i.id)).length, 0) : 0
   let notesState = 'none' // none | asked | writing | fresh | old | error
   if (row && row.status === 'requested') notesState = 'asked' // the phone asked; the Mac has not started
   else if (row && row.status === 'writing') notesState = 'writing'
-  else if (row && row.status === 'error' && !n.briefing && !noted) notesState = 'error'
-  else if (row && (n.briefing || n.focus || noted)) notesState = row.reportDate === dateISO ? 'fresh' : 'old'
+  else if (row && row.status === 'error' && row.reportDate === dateISO && (notesDate !== dateISO || (!n.briefing && !noted))) notesState = 'error'
+  else if (row && (n.briefing || n.focus || noted)) notesState = notesDate === dateISO ? 'fresh' : 'old'
   const focus = n.focus && str(n.focus.title).trim()
     ? { title: tidy(n.focus.title), why: tidy(n.focus.why), firstStep: tidy(n.focus.firstStep) }
     : null
@@ -357,8 +360,10 @@ export function buildReport(input) {
     notes: {
       state: notesState,
       generatedAt: row ? str(row.generatedAt) : '',
-      reportDate: row ? str(row.reportDate) : '',
+      reportDate: notesDate,
       error: row ? str(row.error) : '',
+      // Older notes are on the page under a newer request, a write in progress, or a failed write.
+      showingOld: !!(n.briefing || n.focus || noted) && notesDate !== dateISO,
     },
   }
 }
@@ -564,9 +569,10 @@ function timelineHtml(tl, dateISO) {
 
 function notesLine(model) {
   const s = model.notes
-  if (s.state === 'asked') return { text: 'Your Mac has been asked to write today’s notes. It writes them as soon as Bloom CRM is open there, and they appear here on their own.', warn: false }
-  if (s.state === 'writing') return { text: 'Claude is writing today’s notes. They appear here on their own, usually within a couple of minutes.', warn: false }
-  if (s.state === 'error') return { text: `Claude could not write today’s notes: ${s.error || 'no reason given'}. The tasks and the schedule above are complete without them.`, warn: true }
+  const old = s.showingOld && s.reportDate ? ` The notes on this page are from ${longDate(s.reportDate, false)}.` : ''
+  if (s.state === 'asked') return { text: `Your Mac has been asked to write today’s notes. It writes them as soon as Bloom CRM is open there, and they appear here on their own.${old}`, warn: false }
+  if (s.state === 'writing') return { text: `Claude is writing today’s notes. They appear here on their own, usually within a couple of minutes.${old}`, warn: false }
+  if (s.state === 'error') return { text: `Claude could not write today’s notes: ${s.error || 'no reason given'}.${old || ' The tasks and the schedule above are complete without them.'}`, warn: true }
   if (s.state === 'fresh') {
     const missing = model.counts.unseen
     return { text: `Notes written by Claude at ${timeOfDay(s.generatedAt)}.${missing > 0 ? ` ${plural(missing, 'task')} added since then ${missing === 1 ? 'has' : 'have'} no note yet.` : ''} The tasks and the schedule are always live.`, warn: false }

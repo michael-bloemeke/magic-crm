@@ -31,6 +31,8 @@ export type ReportNotesRow = {
   requestedAt?: string
   error: string
   notes: ReportNotes | null
+  /** Set when today's row has no notes yet and an earlier day's are laid under it. */
+  borrowedFrom?: string
 }
 export type ReportInput = {
   dateISO: string
@@ -48,7 +50,7 @@ export type ReportModel = {
   dateISO: string
   dateLabel: string
   counts: { overdue: number; dueToday: number; total: number; noted: number; unseen: number }
-  notes: { state: 'none' | 'asked' | 'writing' | 'fresh' | 'old' | 'error'; generatedAt: string; reportDate: string; error: string }
+  notes: { state: 'none' | 'asked' | 'writing' | 'fresh' | 'old' | 'error'; generatedAt: string; reportDate: string; error: string; showingOld: boolean }
   [key: string]: unknown
 }
 export const ROUTINE: { wake: number; deskAt: number }
