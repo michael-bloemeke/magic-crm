@@ -384,7 +384,7 @@ function timeOfDay(iso) {
   return Number.isNaN(d.getTime()) ? '' : clock(d.getHours() * 60 + d.getMinutes())
 }
 
-const PX_PER_MIN = 0.8 // 48px to the hour: half hours are easy to see, 6 AM to 9 PM fits a page
+const PX_PER_MIN = 0.65 // 39px to the hour: half hours still read clearly, and 6 AM to 9 PM is under 600px tall
 
 const KIND_LABEL = { gig: 'Show', call: 'Call', mastermind: 'Mastermind', personal: 'Personal', work: 'Calendar', task: 'Task', routine: '' }
 
@@ -394,7 +394,7 @@ const CSS = `
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--ground);color:var(--ink);font:400 14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
-.sheet{max-width:1040px;margin:20px auto 40px;background:var(--paper);border-radius:6px;box-shadow:0 1px 2px rgba(20,23,27,.08),0 12px 32px -18px rgba(20,23,27,.28);border-top:6px solid var(--navy);padding:30px 36px 36px}
+.sheet{max-width:1120px;margin:20px auto 40px;background:var(--paper);border-radius:6px;box-shadow:0 1px 2px rgba(20,23,27,.08),0 12px 32px -18px rgba(20,23,27,.28);border-top:6px solid var(--navy);padding:30px 36px 36px}
 h1,h2,h3,p,ul{margin:0}
 ul{padding:0;list-style:none}
 
@@ -406,12 +406,18 @@ ul{padding:0;list-style:none}
 .brief{margin-top:8px;font-size:14px;line-height:1.6;color:var(--muted);max-width:68ch}
 .brief+.brief{margin-top:6px}
 .after{margin-top:14px;font-size:14px;line-height:1.5;color:var(--ink)}
-.after a{font-weight:600;color:var(--navy);text-decoration:underline;text-decoration-color:var(--gold);text-decoration-thickness:2px;text-underline-offset:3px}
+.after b{font-weight:600;color:var(--navy)}
 
-.cols{display:grid;grid-template-columns:minmax(0,1fr) 318px;grid-template-areas:"tasks day" "next day";gap:0 40px;align-items:start}
-.tasks{grid-area:tasks;padding-top:22px}
-.day{grid-area:day;padding-top:22px;position:sticky;top:0}
-.next{grid-area:next;margin-top:30px}
+/* The schedule is a block at the top right and the task list wraps around it: beside it at first,
+   then the full width of the page. It does NOT follow the scroll (he tried that and dropped it,
+   2026-11-11: it "is causing everything else to have less space, so it's more crammed into more of
+   a vertical thing"). Every row is its own grid or flex box, so a row beside the schedule narrows
+   instead of running underneath it. */
+.cols{display:block}
+.cols::after{content:"";display:block;clear:both}
+.day{float:right;width:300px;margin:22px 0 20px 38px}
+.tasks{padding-top:22px}
+.next{margin-top:28px}
 h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .lede{margin-top:3px;font-size:12.5px;color:var(--muted)}
 
@@ -424,21 +430,22 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .gh .c{margin-left:auto;font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .group.late .gh{border-color:var(--red)}
 .group.late .gh .n{background:var(--red)}
-.task{display:grid;grid-template-columns:20px minmax(0,1fr);gap:0 10px;padding:10px 0;border-bottom:1px solid var(--line);break-inside:avoid}
+/* What it is on the left, how to handle it on the right: half the height of stacking them. */
+.task{display:grid;grid-template-columns:20px minmax(0,34%) minmax(0,1fr);gap:0 14px;padding:10px 0;border-bottom:1px solid var(--line);break-inside:avoid}
 .box{appearance:none;-webkit-appearance:none;width:17px;height:17px;margin:2px 0 0;border:1.5px solid #7a828c;border-radius:3px;background:#fff;cursor:pointer;padding:0;display:block}
 .box:hover{border-color:var(--blue)}
-.box:focus-visible,.pl:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.box:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .task.done .box{background:var(--ink);border-color:var(--ink);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
 .tt{font-weight:600;font-size:14.5px;line-height:1.35}
 .task.done .tt,.task.done .how,.task.done .send{text-decoration:line-through;color:var(--faint)}
 .who{font-weight:400;color:var(--muted)}
-.pl{font:inherit;font-weight:600;color:var(--navy);background:none;border:0;padding:0;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:#b9c3dc;text-underline-offset:2px}
-.pl:hover{text-decoration-color:var(--navy)}
+.who b{font-weight:600;color:var(--navy)}
 .meta{margin-top:1px;font-size:12.5px;color:var(--muted)}
 .meta .late{color:var(--red);font-weight:600}
 .meta .at{color:var(--navy);font-weight:600}
-.how{margin-top:5px;font-size:13.5px;line-height:1.5;color:#2a2f36;max-width:70ch}
-.send{margin-top:3px;font-size:13.5px;line-height:1.5;color:#2a2f36;max-width:70ch}
+.how{font-size:13.5px;line-height:1.5;color:#2a2f36;max-width:74ch}
+.send{font-size:13.5px;line-height:1.5;color:#2a2f36;max-width:74ch}
+.how+.send{margin-top:4px}
 .send b{font-weight:600}
 .none{padding:10px 0;font-size:13px;color:var(--faint);border-bottom:1px solid var(--line)}
 .clear{margin-top:16px;padding:16px 18px;background:var(--soft);border-radius:5px;font-size:14px;color:var(--muted)}
@@ -469,7 +476,12 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .quiet{margin-top:10px;font-size:12.5px;color:var(--faint)}
 
 /* ---- after the tasks ---- */
-.next{border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:5px;padding:18px 20px 18px 20px;background:#fff}
+.next{display:flow-root;container-type:inline-size;border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:5px;padding:18px 20px 18px 20px;background:#fff}
+@container (min-width:700px){
+  .nx{display:grid;grid-template-columns:minmax(0,11fr) minmax(0,9fr);gap:0 40px;align-items:start}
+  .nx-b .also{margin-top:12px}
+  .nx-b .plate:first-child{margin-top:12px;padding-top:0;border-top:0}
+}
 .focus{margin-top:12px;font:500 25px/1.2 var(--display);color:var(--navy);letter-spacing:-.005em}
 .why{margin-top:8px;font-size:14px;line-height:1.6;max-width:66ch}
 .step{margin-top:10px;font-size:14px;line-height:1.55;padding:9px 12px;background:var(--gold-soft);border-radius:4px;max-width:66ch}
@@ -479,43 +491,55 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .also b{font-weight:600;color:var(--ink)}
 .plate{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
 .plate h4{margin:0;font:600 13px/1.3 var(--sans);color:var(--ink)}
-.plate ul{margin-top:6px;columns:2;column-gap:28px;font-size:13px;color:var(--muted)}
+.plate ul{margin-top:6px;columns:2 190px;column-gap:28px;font-size:13px;color:var(--muted)}
 .plate li{break-inside:avoid;padding:1.5px 0}
 .plate li.d1{padding-left:14px}.plate li.d2{padding-left:28px}.plate li.d3{padding-left:42px}
 
 .foot{margin-top:26px;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
 .foot.warn{color:var(--red)}
 
-/* Screen only: a printed page is narrower than this and must keep its two columns. */
+/* Screen only: a printed page is narrower than this and must keep the wide layout. */
 @media screen and (max-width:820px){
   body{background:var(--paper)}
   .sheet{margin:0;border-radius:0;box-shadow:none;padding:20px 18px 32px}
   .top{grid-template-columns:1fr;gap:12px}
   .date{font-size:31px}
-  .cols{grid-template-columns:1fr;grid-template-areas:"tasks" "day" "next"}
-  .day{padding-top:30px;position:static}
+  /* One column, in his order: the tasks, then the day, then the project. */
+  .cols{display:flex;flex-direction:column}
+  .cols::after{display:none}
+  .tasks{order:1}
+  .day{order:2;float:none;width:auto;margin:30px 0 0}
+  .next{order:3}
   .box{width:22px;height:22px;margin-top:0}
   .task{grid-template-columns:26px minmax(0,1fr);padding:12px 0}
+  .notes{grid-column:2;margin-top:5px}
+  .notes:empty{display:none}
   .plate ul{columns:1}
 }
 @media print{
   @page{size:letter;margin:.5in}
   body{background:#fff;font-size:11.5px}
-  .sheet{max-width:none;margin:0;padding:0;box-shadow:none;border-radius:0;border-top-width:4px;padding-top:14px}
+  .sheet{max-width:none;margin:0;padding:14px 0 0;box-shadow:none;border-radius:0;border-top-width:4px}
   .top{padding-bottom:12px}
   .date{font-size:30px}
-  .facts{font-size:12px}.brief{font-size:11.5px}
-  .cols{grid-template-columns:minmax(0,1fr) 250px;gap:0 26px}
-  .tasks,.day{padding-top:14px}
-  .day{position:static}
-  .after a{color:var(--ink);text-decoration:none}
+  .facts{font-size:12px}.brief{font-size:11.5px}.after{font-size:12px;margin-top:10px}
+  /* The same layout as the screen, at paper size: the schedule at the top right of page one, the
+     list beside it and then the full width of every later page. */
+  .day{width:226px;margin:14px 0 12px 24px}
+  .tl{zoom:.86}
+  .tasks{padding-top:14px}
+  .task{grid-template-columns:16px minmax(0,34%) minmax(0,1fr);gap:0 10px}
+  .gh{break-after:avoid}
+  .clear{display:flow-root}
   .tt{font-size:12px}.how,.send{font-size:11px}.meta{font-size:10.5px}
   .task{padding:6px 0}
+  .box{width:13px;height:13px;border-color:#14171b;cursor:default}
   .group{margin-top:12px}
-  .pl{color:var(--ink);text-decoration:none}
   .now{display:none}
   .next{margin-top:16px;break-inside:avoid}
   .focus{font-size:19px}
+  .plate ul{font-size:11px}
+  .foot{margin-top:16px;font-size:10px}
   .blk,.gh .n,.step,.task.done .box{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 `
@@ -525,12 +549,12 @@ function taskHtml(t) {
   if (t.timeLabel) meta.push(`<span class="at">At ${esc(t.timeLabel)}</span>`)
   if (t.lateLabel) meta.push(`<span class="late">${esc(t.lateLabel)}</span>`)
   if (t.projectLine) meta.push(esc(t.projectLine))
-  const who = t.projectName
-    ? ` <span class="who">for</span> <button type="button" class="pl" data-project="${esc(t.projectId)}">${esc(t.projectName)}</button>`
-    : ''
+  // The project is NAMED, never linked (see the note above renderReportHtml).
+  const who = t.projectName ? ` <span class="who">for <b>${esc(t.projectName)}</b></span>` : ''
   return `<li class="task${t.done ? ' done' : ''}">
 <button type="button" class="box" data-task="${esc(t.id)}" role="checkbox" aria-checked="${t.done ? 'true' : 'false'}" aria-label="Done: ${esc(t.title)}"></button>
-<div><div class="tt">${esc(t.title)}${who}</div>${meta.length ? `<div class="meta">${meta.join('. ')}</div>` : ''}${t.how ? `<p class="how">${esc(t.how)}</p>` : ''}${t.send ? `<p class="send"><b>Send:</b> ${esc(t.send)}</p>` : ''}</div>
+<div class="what"><div class="tt">${esc(t.title)}${who}</div>${meta.length ? `<div class="meta">${meta.join('. ')}</div>` : ''}</div>
+<div class="notes">${t.how ? `<p class="how">${esc(t.how)}</p>` : ''}${t.send ? `<p class="send"><b>Send:</b> ${esc(t.send)}</p>` : ''}</div>
 </li>`
 }
 
@@ -548,19 +572,17 @@ function timelineHtml(tl, dateISO) {
     const top = H(b.startMin)
     const h = Math.max(18, H(b.endMin) - top - 2)
     const w = 100 / (b.lanes || 1)
-    const label = KIND_LABEL[b.kind] || ''
     const when = clockRange(b.startMin, b.endMin)
     const place = `top:${top + 1}px;height:${h}px;left:calc(${w * (b.lane || 0)}% + ${(b.lane || 0) ? 2 : 0}px);width:calc(${w}% - ${(b.lanes || 1) > 1 ? 2 : 0}px)`
-    const tip = esc(`${b.title}, ${when}${label ? ` (${label})` : ''}${b.where ? `, ${b.where}` : ''}`)
     if (h < 38) {
       // Under 45 minutes there is one line: the start time, then as much of the title as fits.
-      out += `<div class="blk ${b.kind} short" style="${place}" title="${tip}"><span class="w">${esc(clock(b.startMin))}</span><span class="t">${esc(b.title)}</span></div>`
+      out += `<div class="blk ${b.kind} short" style="${place}"><span class="w">${esc(clock(b.startMin))}</span><span class="t">${esc(b.title)}</span></div>`
       continue
     }
     // Taller blocks: the title wraps for as many lines as the block has room for, above its times.
     const lines = Math.max(1, Math.floor((h - 8) / 16) - 1)
     const sub = [when, b.where && h > 60 ? b.where : ''].filter(Boolean).join(', ')
-    out += `<div class="blk ${b.kind}" style="${place}" title="${tip}"><div class="t" style="-webkit-line-clamp:${lines}">${esc(b.title)}</div><div class="w">${esc(sub)}</div></div>`
+    out += `<div class="blk ${b.kind}" style="${place}"><div class="t" style="-webkit-line-clamp:${lines}">${esc(b.title)}</div><div class="w">${esc(sub)}</div></div>`
   }
   out += '</div>'
   if (tl.deskAt > tl.startMin && tl.deskAt < tl.endMin) out += `<div class="desk" style="top:${H(tl.deskAt)}px"><span>At the computer</span></div>`
@@ -582,9 +604,27 @@ function notesLine(model) {
 }
 
 // The whole report as ONE self-contained HTML document.
-// Clicking a project name or a checkbox posts a message to the page that framed it:
-//   { source: 'daily-report', type: 'open-project' | 'toggle-task', id }
-// A tick is drawn by the document itself, at once, so the app never has to rebuild the page for it.
+//
+// ⚠️ IT IS A SIMPLE DOCUMENT, NOT A SCREEN OF THE APP (Michael, 2026-11-11): "I just want it to
+// basically generate a document for me that I can reference, whether that be like a PDF I can pull
+// up on my computer or something I want to print... I don't want it to be so embedded in the app."
+//   - NO LINKS, of any kind. Not to projects ("the whole ability to click on a project and it takes
+//     me there is not really needed"), and not within the page. This document is shown from a
+//     `srcdoc` frame, where even href="#next" resolves against the APP's address and loads the whole
+//     CRM inside the report ("a report inside of a report... up until infinity"). That happened.
+//   - NO HOVER TOOLTIPS. Anything worth saying is printed on the page.
+//   - THE ONE INTERACTIVE THING IS THE CHECKBOX, which he asked to keep: "I do want to maintain the
+//     ability to click a checkbox and it completely crosses off everything." On paper it is an empty
+//     box to tick with a pen. Clicking one posts { source: 'daily-report', type: 'toggle-task', id }
+//     to the page that framed it, and the document draws the tick itself, at once, so the app never
+//     has to rebuild the page for it.
+//   - IT MUST PRINT WELL AS IT IS. There is no Print button in the CRM, by his choice ("I don't need
+//     the CRM to connect to my printer"); the Mac's "Open as PDF" runs this same document through the
+//     print styles below.
+//   - THE SCHEDULE DOES NOT FOLLOW THE SCROLL. It did at first, and he dropped it the same day: a
+//     column held open down the whole page left the tasks "crammed into more of a vertical thing".
+//     It is a block at the top right; the list wraps around it and then runs the full width. Do not
+//     bring back `position: sticky` here.
 // The red "now" line is the document's own too: it places itself and moves every minute.
 export function renderReportHtml(model) {
   const hasTasks = model.counts.total > 0
@@ -602,19 +642,21 @@ export function renderReportHtml(model) {
   const allDay = tl.allDay.length ? `<p class="allday"><b>All day:</b> ${tl.allDay.map((a) => esc(a.title)).join(', ')}</p>` : ''
   const scheduled = tl.blocks.filter((b) => b.kind !== 'routine').length
 
-  let next = ''
+  // Left: the one project to work on. Right: the fallbacks and his own list.
+  let nextA = '', nextB = ''
   if (model.focus) {
-    next += `<p class="focus">${esc(model.focus.title)}</p>${paras(model.focus.why, 'why')}`
-    if (model.focus.firstStep) next += `<p class="step"><b>Start with:</b> ${esc(model.focus.firstStep)}</p>`
+    nextA += `<p class="focus">${esc(model.focus.title)}</p>${paras(model.focus.why, 'why')}`
+    if (model.focus.firstStep) nextA += `<p class="step"><b>Start with:</b> ${esc(model.focus.firstStep)}</p>`
     if (model.alsoOpen.length) {
-      next += `<div class="also">If that one is blocked:<ul>${model.alsoOpen.map((a) => `<li><b>${esc(a.title)}.</b> ${esc(a.why)}</li>`).join('')}</ul></div>`
+      nextB += `<div class="also">If that one is blocked:<ul>${model.alsoOpen.map((a) => `<li><b>${esc(a.title)}.</b> ${esc(a.why)}</li>`).join('')}</ul></div>`
     }
   } else {
-    next += `<p class="why">Claude picks one of these for the day once the notes are written. Until then, this is your own list.</p>`
+    nextA += `<p class="why">Claude picks one of these for the day once the notes are written. Until then, this is your own list.</p>`
   }
   if (model.plate.length) {
-    next += `<div class="plate"><h4>On my plate</h4><ul>${model.plate.map((p) => `<li class="d${Math.min(3, p.depth)}">${esc(p.text)}</li>`).join('')}</ul></div>`
+    nextB += `<div class="plate"><h4>On my plate</h4><ul>${model.plate.map((p) => `<li class="d${Math.min(3, p.depth)}">${esc(p.text)}</li>`).join('')}</ul></div>`
   }
+  const next = `<div class="nx"><div class="nx-a">${nextA}</div>${nextB ? `<div class="nx-b">${nextB}</div>` : ''}</div>`
 
   const foot = notesLine(model)
 
@@ -627,17 +669,17 @@ export function renderReportHtml(model) {
 <style>${CSS}</style></head>
 <body><main class="sheet">
 <header class="top">
-<div><h1 class="date">${esc(model.dateLabel)}</h1><p class="doc">Daily report, ${esc(model.year)}</p>${model.focus ? `<p class="after">After the tasks: <a href="#next">${esc(model.focus.title)}</a></p>` : ''}</div>
+<div><h1 class="date">${esc(model.dateLabel)}</h1><p class="doc">Daily report, ${esc(model.year)}</p>${model.focus ? `<p class="after">After the tasks: <b>${esc(model.focus.title)}</b></p>` : ''}</div>
 <div><p class="facts">${model.facts.map(esc).join(' ')}</p>${paras(model.briefing, 'brief')}</div>
 </header>
 <div class="cols">
-<section class="tasks" aria-label="Tasks"><h2>Do these first</h2><p class="lede">No set time. Work down the list in this order.</p>
-${hasTasks ? groupsHtml : '<p class="clear">Nothing is overdue and nothing is due today. Straight to the project below.</p>'}
-</section>
 <section class="day" aria-label="Schedule"><h2>The day</h2><p class="lede">${scheduled ? 'Everything with a set time, from every calendar.' : 'Nothing has a set time today.'}</p>
 ${allDay}${timelineHtml(tl, model.dateISO)}
 </section>
-<section class="next" id="next" aria-label="After the tasks"><h2>After the tasks</h2>
+<section class="tasks" aria-label="Tasks"><h2>Do these first</h2><p class="lede">No set time. Work down the list in this order.</p>
+${hasTasks ? groupsHtml : '<p class="clear">Nothing is overdue and nothing is due today. Straight to the project below.</p>'}
+</section>
+<section class="next" aria-label="After the tasks"><h2>After the tasks</h2>
 ${next}
 </section>
 </div>
@@ -645,18 +687,12 @@ ${next}
 </main>
 <script>
 document.addEventListener('click', function (e) {
-  var el = e.target && e.target.closest ? e.target.closest('[data-project],[data-task]') : null
+  var el = e.target && e.target.closest ? e.target.closest('[data-task]') : null
   if (!el) return
-  var msg
-  if (el.hasAttribute('data-project')) {
-    msg = { source: 'daily-report', type: 'open-project', id: el.getAttribute('data-project') }
-  } else {
-    var row = el.closest('.task')
-    var done = row ? row.classList.toggle('done') : false
-    el.setAttribute('aria-checked', done ? 'true' : 'false')
-    msg = { source: 'daily-report', type: 'toggle-task', id: el.getAttribute('data-task') }
-  }
-  try { window.parent.postMessage(msg, '*') } catch (err) {}
+  var row = el.closest('.task')
+  var done = row ? row.classList.toggle('done') : false
+  el.setAttribute('aria-checked', done ? 'true' : 'false')
+  try { window.parent.postMessage({ source: 'daily-report', type: 'toggle-task', id: el.getAttribute('data-task') }, '*') } catch (err) {}
 })
 ;(function () {
   var tl = document.querySelector('.tl')
@@ -674,16 +710,6 @@ document.addEventListener('click', function (e) {
   }
   place()
   setInterval(place, 60000)
-})()
-// Beside a long task list the schedule stays in view. It is often taller than the window, so it
-// sticks by its BOTTOM edge: it scrolls until its last hour shows, then holds there.
-;(function () {
-  var rail = document.querySelector('.day')
-  if (!rail) return
-  function pin() { rail.style.top = Math.min(0, window.innerHeight - rail.offsetHeight - 16) + 'px' }
-  pin()
-  window.addEventListener('resize', pin)
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(pin)
 })()
 </script>
 </body></html>`
