@@ -36,6 +36,7 @@ import {
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { getDraft, saveDraft, sendDraft, discardDraft } from './crm-drafts.mjs'
+import { reportData as dailyReportData, writeNotes as writeDailyNotes, serveRequests as serveDailyReportRequests } from './crm-daily-report.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail, resolveAttachments } from './crm-emails.mjs'
 import { emailGifPath } from './crm-email-render.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
@@ -209,7 +210,13 @@ export function crmDataPlugin() {
           refreshing = true
           try {
             const { changed } = await checkDataVersion()
-            if (changed) await initStore({ force: true })
+            if (changed) {
+              await initStore({ force: true })
+              // The phone asks for the daily report's notes by setting a row to `requested`. That
+              // is a data change like any other, so this is the moment to look for one. Not in a
+              // test copy: only the real app writes notes.
+              if (process.env.CRM_QUIET !== '1') void serveDailyReportRequests()
+            }
           } catch (e) {
             console.error('[crm-data] cache refresh failed (will retry next tick):', e?.message || e)
           } finally {
@@ -223,6 +230,8 @@ export function crmDataPlugin() {
       // copies running them at once would race each other. The API routes all work as normal.
       const quiet = process.env.CRM_QUIET === '1'
       if (quiet) console.log('[crm-data] CRM_QUIET=1: background jobs are off (test server).')
+      // A request the phone made while the Mac was off is picked up as soon as the app starts.
+      if (!quiet) setTimeout(() => void serveDailyReportRequests(), 15_000)
       // Push the contract wording (every variant, fields unfilled) up to Supabase so the CLOUD can
       // build a booking agreement. Without this the phone cannot issue a booking form at all, because
       // the template needs JSDOM and only exists here. Cheap and idempotent; runs once per boot, so
@@ -410,6 +419,31 @@ export function crmDataPlugin() {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e?.message || e) }))
         }
+      })
+
+      // THE DAILY REPORT (2026-11-11). The page builds itself from what the app already holds plus
+      // this: the day's events from every calendar, Claude's notes for the day, and On my plate.
+      // `/write` starts the notes and answers at once; the page then re-reads until they are in.
+      // (Registered before the bare path, which would otherwise match it by prefix.)
+      server.middlewares.use('/api/daily-report/write', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          void writeDailyNotes(b.date, { by: 'mac' })
+          return { ok: true, started: true }
+        })
+      })
+      server.middlewares.use('/api/daily-report', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        dailyReportData({ date: url.searchParams.get('date') || '', from: url.searchParams.get('from') || '', to: url.searchParams.get('to') || '' })
+          .then((r) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(r))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
       })
 
       // GMAIL DRAFTS (2026-11-10): the one draft store for every CRM composer. See crm-drafts.mjs.

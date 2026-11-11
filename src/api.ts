@@ -1495,6 +1495,35 @@ export async function markThreadRead(threadId: string): Promise<{ ok: boolean; n
   return (await res.json()) as { ok: boolean; needsReconnect?: boolean }
 }
 
+// ---- The daily report (2026-11-11) --------------------------------------------------------------
+// The page (mobile/dailyreport-core.js) builds itself from the tasks and projects the app already
+// holds, plus this: the day's events from every calendar, Claude's notes for the day, On my plate.
+export type DailyReportData = {
+  date: string
+  events: import('../mobile/dailyreport-core.js').ReportEvent[]
+  calendarOk: boolean
+  calendarNote: string
+  notes: import('../mobile/dailyreport-core.js').ReportNotesRow | null
+  plate: HomeListItem[]
+  writing: boolean
+}
+export async function loadDailyReport(date: string, from: string, to: string): Promise<DailyReportData> {
+  const res = await fetch(`/api/daily-report?date=${encodeURIComponent(date)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+  const text = await res.text()
+  try {
+    const d = JSON.parse(text)
+    if (!res.ok || d.error) throw new Error(d.error || `Could not load the daily report (${res.status})`)
+    return d as DailyReportData
+  } catch (e) {
+    if (e instanceof SyntaxError) throw new Error('The CRM server is running an older build. Quit Bloom CRM and reopen it, then try again.')
+    throw e
+  }
+}
+// Ask Claude to write (or rewrite) the day's notes. Answers at once; the notes arrive in the row.
+export function writeDailyNotes(date: string): Promise<{ ok: boolean }> {
+  return postJsonStrict<{ ok: boolean }>('/api/daily-report/write', { date }, 'Could not start the notes')
+}
+
 // ---- Gmail drafts (2026-11-10): the one draft store for every composer -------------------------
 // Typing in a CRM composer saves straight into Gmail Drafts, and any Gmail draft on a project's
 // conversation opens here for editing and sending. Server side: crm-drafts.mjs.
