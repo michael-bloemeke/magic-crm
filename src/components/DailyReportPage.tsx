@@ -39,7 +39,6 @@ export function DailyReportPage({
   const [date] = useState(() => localToday())
   const [data, setData] = useState<DailyReportData | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [asked, setAsked] = useState(false) // a write was started from this screen
   // Tasks ticked off on this screen. They stay on the page, struck through, until he leaves.
   const [checked, setChecked] = useState<Set<string>>(() => new Set())
   const frame = useRef<HTMLIFrameElement>(null)
@@ -73,24 +72,20 @@ export function DailyReportPage({
   useEffect(() => {
     if (!data || autoWrote.current || writing || haveToday || status === 'error') return
     autoWrote.current = true
-    setAsked(true)
     writeDailyNotes(date)
       .then(() => load())
       .catch((e) => setLoadError(String(e instanceof Error ? e.message : e)))
   }, [data, writing, haveToday, status, date, load])
 
-  // While Claude writes, look again every few seconds. Stops the moment the notes are in.
+  // While Claude writes, look again every few seconds. Stops the moment the notes are in. (The
+  // server reports `writing` from the instant a write is started, so no local flag is needed.)
   useEffect(() => {
-    if (!writing && !(asked && !haveToday && status !== 'error')) return
+    if (!writing) return
     const t = setInterval(() => void load(), 4000)
     return () => clearInterval(t)
-  }, [writing, asked, haveToday, status, load])
-  useEffect(() => {
-    if (haveToday || status === 'error') setAsked(false)
-  }, [haveToday, status])
+  }, [writing, load])
 
   const rewrite = () => {
-    setAsked(true)
     writeDailyNotes(date)
       .then(() => load())
       .catch((e) => setLoadError(String(e instanceof Error ? e.message : e)))

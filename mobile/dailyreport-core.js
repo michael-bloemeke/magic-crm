@@ -331,7 +331,7 @@ export function buildReport(input) {
   // Tasks Claude has not SEEN (added after the notes were written). A task it saw and left without
   // a note, because the title says it all, is not missing anything.
   const covered = new Set(Array.isArray(n.covered) ? n.covered : Object.keys(taskNotes))
-  const unseen = row && row.notes ? groups.reduce((s, g) => s + g.items.filter((i) => !covered.has(i.id)).length, 0) : 0
+  const unseen = row && row.notes ? groups.reduce((s, g) => s + g.items.filter((i) => !i.done && !covered.has(i.id)).length, 0) : 0
   let notesState = 'none' // none | asked | writing | fresh | old | error
   if (row && row.status === 'requested') notesState = 'asked' // the phone asked; the Mac has not started
   else if (row && row.status === 'writing') notesState = 'writing'

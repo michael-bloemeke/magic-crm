@@ -3,7 +3,7 @@ const SD = new URL('.', import.meta.url).pathname
 process.argv[2] = SD + 'app.built.mjs'
 await import('./harness.mjs')
 const { __app } = await import('./app.built.mjs')
-const { CALLS, FIXTURE_THREADS, SB_DOCS, sbFixtureReset } = await import('./stub.mjs')
+const { CALLS, FIXTURE_THREADS, SB_DOCS, sbFixtureReset, DAILY } = await import('./stub.mjs')
 const CORE = await import('../showbuilder-core.js')
 
 let fails = 0
@@ -583,7 +583,7 @@ console.log('\n== home: each tile opens its own list ==')
   document.querySelectorAll('.sheet').forEach((x) => x.remove())
   __app.setDetail(null); __app.setTab('home'); __app.render()
   await settle()
-  ok(document.querySelectorAll('.statcard').length === 6, 'Home shows the four tiles plus the Mac\'s money and daily-duties tiles')
+  ok(document.querySelectorAll('.statcard:not(.dr-open)').length === 6, 'Home shows the four tiles plus the Mac\'s money and daily-duties tiles')
   ok(!!document.querySelector('.statcard.s-duty') && document.querySelector('.statcard.s-duty .n').textContent === '0/3', 'daily duties start at 0 of the three defaults')
   ok(!has('Needs attention') && !has('Next 7 days') && document.querySelectorAll('#view .card').length === 1 && !!document.querySelector('#view .card.plate'),
      'and under them only the On my plate list')
@@ -1101,6 +1101,137 @@ console.log('\n== show builder: the phone ==')
   document.querySelectorAll('.sheet').forEach((x) => x.remove())
   sbFixtureReset(SNAPSHOT)
   __app.setSbView('flow')
+}
+
+console.log('\n== the daily report: the rules (dailyreport-core.js) ==')
+{
+  const D = await import('../dailyreport-core.js')
+  const day = '2026-11-11'
+  const at = (h, m = 0) => new Date(2026, 10, 11, h, m).toISOString()
+  const tasks = [
+    { id: 'a', projectId: 'p1', title: 'Send the Hendersons a proposal', dueDate: '2026-11-08', dueTime: '', done: false },
+    { id: 'b', projectId: '', title: 'Renew the business license', dueDate: '2026-11-10', dueTime: '', done: false },
+    { id: 'c', projectId: 'p1', title: 'Call the venue', dueDate: day, dueTime: '14:30', done: false },
+    { id: 'd', projectId: '', title: 'Post the reel', dueDate: day, dueTime: '', done: false },
+    { id: 'e', projectId: '', title: 'Next week thing', dueDate: '2026-11-18', dueTime: '', done: false },
+    { id: 'f', projectId: 'p1', title: 'Already done', dueDate: '2026-11-09', dueTime: '', done: true },
+  ]
+  const projects = [{ id: 'p1', client: 'Henderson wedding', bucket: 'active', stageId: 's1', eventDate: '2026-12-12' }]
+  const events = [
+    { id: 'e1', calendar: 'Work', title: 'Mastermind', allDay: false, start: at(11), end: at(12), busy: true, location: '', booking: false, crm: '' },
+    { id: 'e2', calendar: 'Personal', title: 'Dinner with Meg', allDay: false, start: at(18, 30), end: at(20), busy: true, location: '', booking: false, crm: '' },
+    { id: 'e3', calendar: 'Work', title: 'Call the venue', allDay: false, start: at(14, 30), end: at(15), busy: true, location: '', booking: false, crm: 'task' },
+  ]
+  const model = D.buildReport({ dateISO: day, tasks, projects, stageNames: { s1: 'Proposal' }, bookedStageIds: [], events, plate: [{ id: 'x', text: 'Holiday outreach', depth: 0 }], notes: null, unreadMail: 3, checkedIds: [] })
+  ok(model.groups.map((g) => g.key + ':' + g.items.map((i) => i.id).join('')).join(' ') === 'overdueProject:a overdueOwn:b todayProject:c todayOwn:d',
+    'four groups in his order: overdue on projects, overdue own, today on projects, today own', model.groups.map((g) => g.key + ':' + g.items.map((i) => i.id).join('')).join(' '))
+  ok(model.counts.total === 4 && model.counts.overdue === 2 && model.counts.dueToday === 2, 'future and finished tasks stay off the report')
+  const blocks = model.timeline.blocks
+  ok(blocks.filter((b) => b.kind === 'task').length === 1 && blocks.some((b) => b.kind === 'task' && b.title.startsWith('Call the venue') && b.startMin === 870) && blocks.filter((b) => b.title.startsWith('Call the venue')).length === 1, 'a task WITH a time is on the timeline once (its calendar copy is dropped)', JSON.stringify(blocks.map((b) => [b.kind, b.title, b.startMin])))
+  ok(!blocks.some((b) => ['a', 'b', 'd'].includes(b.id) || /proposal|license|reel/i.test(b.title)), 'tasks with no time are NEVER placed on the timeline (no guessed durations)')
+  ok(blocks.some((b) => b.title === 'Dinner with Meg' && b.kind === 'personal') && blocks.some((b) => b.title === 'Mastermind'), 'calendar events are on it, personal ones included')
+  ok(model.timeline.startMin === 360 && model.timeline.deskAt === 480, 'the day starts at 6:00 AM, desk at 8:00 AM')
+  ok(model.notes.state === 'none', 'no notes row reads as none')
+  ok(D.buildReport({ dateISO: day, tasks, projects, events: [], notes: { reportDate: day, status: 'requested', generatedAt: '', error: '', notes: null } }).notes.state === 'asked', 'a first-ever request (no notes at all) reads as asked')
+  const borrowed = { reportDate: day, status: 'requested', generatedAt: at(7), error: '', borrowedFrom: '2026-11-10', notes: { briefing: 'Old briefing.', tasks: { a: { how: 'Do the thing.', send: '' } } } }
+  const mb = D.buildReport({ dateISO: day, tasks, projects, events: [], notes: borrowed })
+  ok(mb.notes.state === 'asked' && mb.notes.showingOld && mb.notes.reportDate === '2026-11-10', 'yesterday\'s notes under today\'s request are labelled as yesterday\'s')
+  ok(D.buildReport({ dateISO: day, tasks, projects, events: [], notes: { ...borrowed, status: 'error', error: 'boom' } }).notes.state === 'error', 'a failed write today is an error even with older notes underneath')
+  const ready = { reportDate: day, status: 'ready', generatedAt: at(7), error: '', notes: { briefing: 'Two overdue.', tasks: { a: { how: 'Open the thread — reply.', send: 'A **short** note.' } }, covered: ['a', 'b', 'c'], focus: { title: 'Holiday outreach', why: 'Leads.', firstStep: 'Pull the list.' } } }
+  const mr = D.buildReport({ dateISO: day, tasks, projects, events, notes: ready, checkedIds: ['f'] })
+  ok(mr.notes.state === 'fresh' && mr.counts.unseen === 1, 'fresh notes; only a task Claude never SAW counts as missing a note', String(mr.counts.unseen))
+  const ia = mr.groups[0].items.find((i) => i.id === 'a')
+  ok(ia.how === 'Open the thread, reply.' || (!/[—–]/.test(ia.how) && !/\*\*/.test(ia.send)), 'dashes and markdown stars are cleaned out of the notes', ia.how + ' | ' + ia.send)
+  ok(mr.groups[0].items.some((i) => i.id === 'f' && i.done), 'a task ticked on this screen stays, marked done')
+  const html = D.renderReportHtml(mr)
+  ok(html.startsWith('<!doctype html>') || html.startsWith('<!DOCTYPE html>'), 'the report is one whole document')
+  ok(html.includes('Send the Hendersons a proposal') && html.includes('Dinner with Meg') && html.includes('Holiday outreach'), 'tasks, the schedule, and the focus are all in it')
+  ok(!/[—–]/.test(html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<script[\s\S]*?<\/script>/g, '')), 'no em or en dashes anywhere in the page text')
+  ok(html.indexOf('Do these first') < html.indexOf('id="next"'), 'tasks come before the larger project')
+}
+
+console.log('\n== the daily report: the phone ==')
+{
+  const D = await import('../dailyreport-core.js')
+  const today = D.localToday()
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return D.localToday(d) })()
+  const savedTasks = SNAP.tasks, savedList = SNAP.homeList
+  SNAP.tasks = [
+    { id: 'dr1', projectId: 'sarah-whitfield', title: 'Send Sarah the contract', dueDate: yesterday, dueTime: '', done: false },
+    { id: 'dr2', projectId: '', title: 'Order new decks', dueDate: today, dueTime: '', done: false },
+  ]
+  SNAP.homeList = [{ id: 'hl-1', text: 'Holiday outreach', createdAt: '', position: 1000, depth: 0 }]
+  document.querySelectorAll('.sheet, .previewpane').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('home')
+  __app.render(); await settle()
+  const btn = document.querySelector('#view .statgrid > .dr-open')
+  ok(!!btn && btn === document.querySelector('#view .statgrid').firstElementChild, 'the Daily report button is the first thing on Home')
+  ok(btn.textContent.includes('Daily report') && btn.textContent.includes(D.longDate(today, false)), 'it names the report and the day', btn.textContent)
+
+  // First open of the day: no notes yet, so the phone asks the Mac without being told to.
+  DAILY.row = null; DAILY.events = []; DAILY.calendarFails = false
+  CALLS.length = 0
+  btn.dispatchEvent(new window.Event('click'))
+  await settle(); await settle()
+  let pane = document.querySelector('.previewpane.dr-pane')
+  ok(!!pane, 'one tap opens the report over the app')
+  const ev = CALLS.find((c) => c.name === 'loadDayEvents')
+  ok(!!ev && !Number.isNaN(Date.parse(ev.args[0])) && Date.parse(ev.args[1]) - Date.parse(ev.args[0]) >= 23 * 3600e3, 'the calendar is asked for this phone\'s own midnight to midnight', JSON.stringify(ev && ev.args))
+  ok(CALLS.some((c) => c.name === 'requestDailyNotes' && c.args[0] === today), 'the first open of the day asks the Mac for notes', JSON.stringify(CALLS.map((c) => c.name)))
+  let frame = pane.querySelector('iframe.pv-frame')
+  ok(!!frame && frame.srcdoc.includes('Send Sarah the contract') && frame.srcdoc.includes('Order new decks'), 'the report shows the overdue task and the one due today')
+  ok(frame.srcdoc.includes('Sarah Whitfield') && frame.srcdoc.includes('Holiday outreach'), 'with the project named and On my plate listed')
+  ok(pane.querySelector('.pv-sub').textContent.includes('Waiting for your Mac') && pane.querySelector('.dr-rewrite').disabled, 'and says it is waiting for the Mac', pane.querySelector('.pv-sub').textContent)
+  ok(!pane.querySelector('.dr-print'), 'no Print button on a phone')
+
+  // A box ticked inside the document.
+  CALLS.length = 0
+  const before = frame.srcdoc
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2' }, source: frame.contentWindow }))
+  await settle()
+  ok(CALLS.some((c) => c.name === 'toggleTask' && c.args[0] === 'dr2' && c.args[1] === true), 'ticking a box in the report completes the task', JSON.stringify(CALLS))
+  ok(SNAP.tasks.find((t) => t.id === 'dr2').done === true && frame.srcdoc === before, 'and the page is NOT rebuilt under his thumb')
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2' }, source: frame.contentWindow }))
+  await settle()
+  ok(SNAP.tasks.find((t) => t.id === 'dr2').done === false, 'ticking it again reopens it')
+  CALLS.length = 0
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr1' }, source: window }))
+  await settle()
+  ok(!CALLS.some((c) => c.name === 'toggleTask'), 'a message from anywhere but the report is ignored')
+
+  // A project name tapped inside the document.
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'open-project', id: 'sarah-whitfield' }, source: frame.contentWindow }))
+  await settle()
+  ok(!document.querySelector('.previewpane.dr-pane') && __app.getDetail() === 'sarah-whitfield', 'tapping a project name closes the report and opens that project')
+
+  // Notes already written today: nothing is asked for, and the button offers a rewrite.
+  DAILY.row = { reportDate: today, status: 'ready', error: '', generatedAt: new Date().toISOString(),
+    notes: { briefing: 'One overdue contract.', tasks: { dr1: { how: 'Open the booking tab and send it.', send: 'A two-line nudge.' } }, covered: ['dr1', 'dr2'], focus: { title: 'Holiday outreach', why: 'It is leads work.', firstStep: 'Pull last year\'s list.' } } }
+  DAILY.calendarFails = true
+  CALLS.length = 0
+  __app.setDetail(null); __app.setTab('home'); __app.render(); await settle()
+  __app.openDailyReport()
+  await settle(); await settle()
+  pane = document.querySelector('.previewpane.dr-pane'); frame = pane.querySelector('iframe.pv-frame')
+  ok(!CALLS.some((c) => c.name === 'requestDailyNotes'), 'notes already written today are not asked for again')
+  ok(frame.srcdoc.includes('Open the booking tab and send it.') && frame.srcdoc.includes('One overdue contract.'), 'Claude\'s notes are on the page')
+  ok(pane.querySelector('.pv-sub').textContent.includes('calendar could not be read'), 'a calendar that cannot be read says so, and the report still opens', pane.querySelector('.pv-sub').textContent)
+  const rw = pane.querySelector('.dr-rewrite')
+  ok(rw.textContent === 'Rewrite notes' && !rw.disabled, 'the button offers a rewrite')
+  rw.dispatchEvent(new window.Event('click'))
+  await settle()
+  ok(CALLS.some((c) => c.name === 'requestDailyNotes' && c.args[0] === today), 'Rewrite notes asks the Mac again')
+  ok(frame.srcdoc.includes('Open the booking tab and send it.'), 'and the last notes stay on the page while it waits')
+  __app.openDailyReport()
+  ok(document.querySelectorAll('.previewpane.dr-pane').length === 1, 'opening it twice does not stack two reports')
+  pane.querySelector('.pv-back').dispatchEvent(new window.Event('click'))
+  await settle(); await settle()
+  if (document.querySelector('.previewpane.dr-pane')) { window.dispatchEvent(new window.Event('popstate')); await settle() }
+  ok(!document.querySelector('.previewpane.dr-pane') && !document.body.classList.contains('previewing'), 'Home (back) closes it')
+
+  DAILY.row = null; DAILY.calendarFails = false
+  SNAP.tasks = savedTasks; SNAP.homeList = savedList
+  __app.setDetail(null)
 }
 
 console.log('\n== el() never gets two top-level elements ==')

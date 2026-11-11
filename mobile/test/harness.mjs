@@ -43,6 +43,7 @@ src = src.replace(/import\s*\{[\s\S]*?\}\s*from\s*'\.\/supabase-data\.js'\n?/, '
          .replace("from './email-templates.js'", "from '../email-templates.js'")
          .replace("from './showbuilder-core.js'", "from '../showbuilder-core.js'")
          .replace("from './homelist-core.js'", "from '../homelist-core.js'")
+         .replace("from './dailyreport-core.js'", "from '../dailyreport-core.js'")
 // boot() fires on DOMContentLoaded and would go to the network; the harness drives the render
 // functions directly instead, so that listener is dropped.
 src = src.replace("document.addEventListener('DOMContentLoaded', boot)", "")
@@ -54,6 +55,7 @@ const tail = [
   "  renderProposals, proposalCard, openPreview, copyText, renderPipeline, projectCard,",
   "  buildClientMailQueries, activeProjectEmails, openContactSheet, openSearch, openScheduleSheet,",
   "  handleWidgetLink, connectWidgets, forgetReadHere: () => { READ_HERE = {} }, mailForget, alertCard, getPtab: () => PTAB, getSnap: () => SNAP, setSnapRaw: (s) => { SNAP = s },",
+  "  openDailyReport,",
   "  renderHome, openHomeSheet, goBack, homeData, getNav: () => NAV_STACK, getTab: () => TAB, getDetail: () => DETAIL_ID,",
   "  bookingTab, proposalSection, emailToProjectIndex, openNewProject,",
   "  refreshNativePushToken, registerNativePush, updatePushButton,",

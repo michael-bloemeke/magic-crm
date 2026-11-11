@@ -1,5 +1,7 @@
 // Fake data layer. Every read returns fixtures; every write records the call and resolves.
 export const CALLS = []
+// The daily report (2026-11-11): what the notes row and the calendar answer, set by each test.
+export const DAILY = { row: null, events: [], calendarFails: false }
 export const SHOW_ROWS = []
 import { normalizeDoc, sortDocs } from '../showbuilder-core.js'
 
@@ -156,6 +158,11 @@ export const STUB = {
   renameHomeListItem: (id, text) => { CALLS.push({ name: 'renameHomeListItem', args: [id, text] }); return Promise.resolve({ ok: true }) },
   saveHomeListLayout: (rows) => { CALLS.push({ name: 'saveHomeListLayout', args: [rows] }); return Promise.resolve({ ok: true, saved: rows.length }) },
   deleteHomeListItem: (id) => { CALLS.push({ name: 'deleteHomeListItem', args: [id] }); return Promise.resolve({ ok: true }) },
+  // The daily report (2026-11-11).
+  loadDailyNotes: (date) => { CALLS.push({ name: 'loadDailyNotes', args: [date] }); return Promise.resolve(DAILY.row ? JSON.parse(JSON.stringify(DAILY.row)) : null) },
+  loadDailyStatus: (date) => { CALLS.push({ name: 'loadDailyStatus', args: [date] }); return Promise.resolve(DAILY.row ? DAILY.row.status + '|' + (DAILY.row.generatedAt || '') : '') },
+  requestDailyNotes: (date) => { CALLS.push({ name: 'requestDailyNotes', args: [date] }); DAILY.row = { reportDate: date, status: 'requested', error: '', generatedAt: (DAILY.row && DAILY.row.generatedAt) || '', notes: (DAILY.row && DAILY.row.notes) || null }; return Promise.resolve() },
+  loadDayEvents: (from, to) => { CALLS.push({ name: 'loadDayEvents', args: [from, to] }); return DAILY.calendarFails ? Promise.reject(new Error('calendar down')) : Promise.resolve({ ok: true, events: JSON.parse(JSON.stringify(DAILY.events)) }) },
   // Gmail drafts (2026-11-10).
   gmailSaveDraft: (a) => { CALLS.push({ name: 'gmailSaveDraft', args: [a] }); return Promise.resolve({ ok: true, draftId: a.draftId || 'draft-1', threadId: 'th-new', inReplyTo: '', references: '' }) },
   gmailDeleteDraft: rec('gmailDeleteDraft'),

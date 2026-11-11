@@ -29,6 +29,7 @@ const FILES = [
   'email-templates.js',
   'showbuilder-core.js',
   'homelist-core.js',
+  'dailyreport-core.js',
   'vendor/supabase-js.js',
   'vendor/node-process.js',
   'vendor/node-buffer.js',
