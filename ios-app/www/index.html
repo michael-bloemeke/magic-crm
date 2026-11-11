@@ -509,6 +509,17 @@
       .greeting { font-size: 22px; font-weight: 600; margin: 6px 2px 14px; }
       .greeting .sub2 { display: block; font-size: 13px; color: var(--faint); font-weight: 400; margin-top: 3px; }
       .statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+      /* The daily report: the button across the top of Home, and its two buttons in the pane's bar. */
+      .statcard.dr-open { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; border-left-color: #b8923c; }
+      .dr-open-t { min-width: 0; flex: 1; display: block; }
+      .dr-open-h { display: block; font-family: var(--font-display); font-weight: 500; font-size: 19px; line-height: 1.2; letter-spacing: -0.01em; color: var(--parchment); }
+      .dr-open .l { display: block; }
+      .dr-open-go { flex: none; padding: 8px 14px; border-radius: 10px; background: #e3c279; color: #14161c; font-size: 13px; font-weight: 700; }
+      .dr-pane .pv-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dr-btn { flex: none; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface2);
+        color: var(--parchment); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+      .dr-btn:disabled { opacity: 0.55; }
+      .dr-pane .pv-body { background: #eef0f3; }
       .statcard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; text-align: left; }
       .statcard:active { background: var(--surface2); }
       .statcard .n { font-size: 23px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--parchment); }

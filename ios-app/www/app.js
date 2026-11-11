@@ -15,7 +15,7 @@ import {
   updateContact, loadContacts, linkOrCreateContact, unlinkContact, loadLinks, setNotificationSeen,
   loadBookingProgress, loadContractVariants, readyToBookOnPhone, resetBookingOnPhone, agreementPdfUrl,
   gmailList, gmailThread, gmailMarkRead, gmailUnread, sendEmail, loadProposalsOverview,
-  saveComposeDraft, deleteDraft, loadProjectDrafts, uploadEmailAttachment,
+  gmailGetDraft, gmailSaveDraft, gmailDeleteDraft, uploadEmailAttachment,
   SCHEDULE_FREQUENCIES, DAY_LABELS, loadTaskSchedules, saveTaskSchedule, deleteTaskSchedule, describeSchedule,
   loadInquiryReview, dismissInquiryReview,
   loadShows, createShow, updateShow, setPacked, uncheckAllPacked, duplicateShow, deleteShow,
@@ -26,6 +26,7 @@ import {
   loadInquiryForm, loadInvoice, createContact, deleteContact, reloadProjectLog,
   sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls,
   addHomeListItem, deleteHomeListItem, renameHomeListItem, saveHomeListLayout,
+  loadDayEvents, loadDailyNotes, loadDailyStatus, requestDailyNotes,
 } from './supabase-data.js'
 // The Show Builder's rules, shared with the Mac's server (see showbuilder-core.js).
 import {
@@ -35,6 +36,8 @@ import {
 } from './showbuilder-core.js'
 // "On my plate" as an outline (2026-10-31): the move and indent rules, shared with the Mac.
 import * as PLATE from './homelist-core.js'
+// The daily report (2026-11-11): what is on it and the page itself, shared with the Mac.
+import * as DR from './dailyreport-core.js'
 import { VAPID_PUBLIC_KEY } from './config.js'
 import { TEMPLATE_GROUPS } from './email-templates.js'
 
@@ -3082,9 +3085,25 @@ function renderInbox() {
 // thread is a contact on one of his projects is the client, and if that is a recipient rather than
 // the sender the row says "To" so a conversation he is waiting on still reads differently from one
 // he last spoke in. Same convention Mail uses, for the same reason.
-function mailRow(t, ix, after) {
+function mailRow(t, ix, after, project) {
   var pid = ix ? ix[t.fromEmail] || (t.to || []).map(function (e) { return ix[e] }).filter(Boolean)[0] || '' : ''
-  var pr = pid ? SNAP.projects.find(function (x) { return x.id === pid }) : null
+  var pr = project || (pid ? SNAP.projects.find(function (x) { return x.id === pid }) : null)
+  // A new email not sent yet (a Gmail "thread" holding nothing but a draft). Gmail drafts are the
+  // CRM's drafts (2026-11-10), so this may have been started here, on the Mac, or in Gmail itself.
+  if (t.draftOnly) {
+    var dr = el(
+      '<button class="mailrow"><span class="maildot" style="background:var(--gold)"></span><span class="mailbody">' +
+        '<span class="mailtop"><span class="mailfrom"><span class="mailto">Draft</span> ' + esc((t.to || []).join(', ') || 'No recipient yet') + '</span><span class="mailwhen">' + esc(mailWhen(t.ts)) + '</span></span>' +
+        '<span class="mailsub">' + esc(t.subject) + '</span>' +
+        '<span class="mailsnip">' + esc(String(t.snippet || '').slice(0, 130)) + '</span>' +
+      '</span></button>'
+    )
+    dr.addEventListener('click', function () {
+      if (t.draftId) openCompose({ project: pr, draftId: t.draftId, after: after })
+      else openThread(t, pr, after)
+    })
+    return dr
+  }
   var who = t.from || t.fromEmail
   var outbound = false
   if (ix && !ix[t.fromEmail]) {
@@ -3096,7 +3115,7 @@ function mailRow(t, ix, after) {
       '<span class="maildot"></span>' +
       '<span class="mailbody">' +
         '<span class="mailtop"><span class="mailfrom">' + (outbound ? '<span class="mailto">To</span> ' : '') + esc(who) + '</span><span class="mailwhen">' + esc(mailWhen(t.ts)) + '</span></span>' +
-        '<span class="mailsub">' + esc(t.subject) + '</span>' +
+        '<span class="mailsub">' + (t.hasDraft ? '<span class="mailto" style="color:var(--gold)">Draft</span> ' : '') + esc(t.subject) + '</span>' +
         '<span class="mailsnip">' + esc(String(t.snippet || '').slice(0, 130)) + '</span>' +
         (pr ? '<span class="mailproj">' + esc(pr.client) + '</span>' : '') +
       '</span>' +
@@ -3145,7 +3164,12 @@ function openThread(t, project, after) {
       go.addEventListener('click', function () { close(); closeDrawer(); TAB = pageForBucket(project.bucket); renderDetail(project.id) })
       body.appendChild(go)
     }
-    th.messages.forEach(function (m) {
+    // An unsent draft is never shown as a message the client received. The newest one becomes the
+    // reply: "Continue draft" opens it in the composer.
+    var draft = null
+    th.messages.forEach(function (m) { if (m.isDraft && m.draftId) draft = m })
+    var sentMsgs = th.messages.filter(function (m) { return !m.isDraft })
+    sentMsgs.forEach(function (m) {
       var msg = el('<div class="msg"></div>')
       msg.appendChild(el('<div class="msg-h"><span class="msg-from">' + esc(m.from || m.fromEmail) + '</span><span class="msg-when">' + esc(mailWhen(m.ts)) + '</span></div>'))
       msg.appendChild(el('<div class="msg-to">to ' + esc((m.to || []).join(', ') || 'me') + '</div>'))
@@ -3153,11 +3177,13 @@ function openThread(t, project, after) {
       body.appendChild(msg)
     })
 
-    var last = th.messages[th.messages.length - 1] || {}
+    if (draft) body.appendChild(el('<div class="cmp-status" style="margin-top:10px">You have an unsent reply saved in Gmail drafts.</div>'))
+    var last = sentMsgs[sentMsgs.length - 1] || th.messages[th.messages.length - 1] || {}
     var bar = el('<div class="addrow" style="margin-top:14px"></div>')
-    var rep = el('<button class="btn-gold">Reply</button>')
+    var rep = el('<button class="btn-gold">' + (draft ? 'Continue draft' : 'Reply') + '</button>')
     rep.addEventListener('click', function () {
       close()
+      if (draft) { openCompose({ project: project, draftId: draft.draftId, threadId: t.threadId, after: after }); return }
       openCompose({
         to: last.fromEmail && last.fromEmail !== 'me' ? last.fromEmail : (last.to || [])[0] || '',
         subject: /^re:/i.test(th.subject) ? th.subject : 'Re: ' + th.subject,
@@ -3186,7 +3212,8 @@ function openThread(t, project, after) {
 //     function's Settings signature stands down and an email never gets two
 //   - reply into an existing conversation with this client (the Mac's "reply to a thread")
 //   - attachments, from the Files library or picked from the phone
-//   - autosaved drafts on a project, by id, so one opened on the Mac carries on here and vice versa
+//   - autosave into GMAIL DRAFTS (2026-11-10). Gmail drafts are the CRM's one draft store, so a draft
+//     started here, on the Mac, or in Gmail itself opens in any of them and sends from any of them
 //   - the one-time "these placeholders still need filling" warning before a send
 // The send itself goes through send-email, which renders exactly like the Mac (GIFs embedded, not
 // linked).
@@ -3239,15 +3266,21 @@ function plainToHtml(t) {
 function openCompose(opts) {
   var o = opts || {}
   var project = o.project || null
-  var existing = o.existing || null // a saved draft row from loadProjectDrafts
-  var sh = makeSheet(existing ? 'Draft' : o.threadId ? 'Reply' : 'New email', true)
+  // A Gmail draft to open (o.draftId), started here, on the Mac, or in Gmail. Its content arrives a
+  // moment after the sheet opens; until then the fields are locked so nothing typed is overwritten.
+  var opening = !!o.draftId
+  var sh = makeSheet(opening ? 'Draft' : o.threadId ? 'Reply' : 'New email', true)
   var body = sh.body
   sh.sheet.classList.add('compose-sheet')
 
-  var draftId = existing ? existing.id : ''
-  var threadId = o.threadId || (existing && existing.threadId) || ''
-  var threadSubject = (existing && existing.threadSubject) || ''
-  var attachments = existing ? existing.attachments.slice() : []
+  var draftId = o.draftId || ''
+  var threadId = o.threadId || ''
+  var threadSubject = ''
+  var attachments = []
+  var gmailAtts = []       // files that live in the Gmail draft itself; kept unless removed
+  var quoteHtml = ''       // a Gmail reply's quoted history, handed back untouched on every save
+  var cc = '', bcc = ''
+  var inReplyTo = '', references = ''
   var sessionUploads = [] // uploaded this session; removed again if the email is abandoned unsaved
   var sigCfg = { enabled: false, html: '' }
   var confirmUnfilled = false
@@ -3257,7 +3290,7 @@ function openCompose(opts) {
   var to = document.createElement('input')
   to.className = 'search'; to.type = 'email'; to.placeholder = 'To'
   to.autocapitalize = 'off'; to.autocorrect = 'off'
-  to.value = existing ? existing.to.join(', ') : o.to || ''
+  to.value = o.to || ''
   body.appendChild(el('<div class="do-l" style="margin-bottom:6px">To</div>'))
   body.appendChild(to)
   if (project) {
@@ -3293,7 +3326,7 @@ function openCompose(opts) {
   // --- Subject ---
   var subj = document.createElement('input')
   subj.className = 'search'; subj.placeholder = 'Subject'
-  subj.value = existing ? (existing.subject === '(no subject)' ? '' : existing.subject) : o.subject || ''
+  subj.value = o.subject || ''
   body.appendChild(el('<div class="do-l" style="margin:14px 0 6px">Subject</div>'))
   body.appendChild(subj)
 
@@ -3309,8 +3342,7 @@ function openCompose(opts) {
     '</div>')
   var ed = document.createElement('div')
   ed.className = 'rte'; ed.contentEditable = 'true'; ed.setAttribute('role', 'textbox'); ed.setAttribute('aria-multiline', 'true')
-  if (existing) ed.innerHTML = existing.format === 'html' ? existing.body : plainToHtml(existing.body)
-  else if (o.body) ed.innerHTML = plainToHtml(o.body)
+  if (o.body) ed.innerHTML = plainToHtml(o.body)
   resolveChips(ed, project)
   var savedRange = null
   ed.addEventListener('blur', function () {
@@ -3381,6 +3413,13 @@ function openCompose(opts) {
   })
   function drawAtt() {
     attList.innerHTML = ''
+    gmailAtts.forEach(function (a) {
+      var chip = el('<span class="cmp-att-chip"><span class="cmp-att-n"></span><span class="cmp-att-s"></span><button aria-label="Remove">&times;</button></span>')
+      chip.querySelector('.cmp-att-n').textContent = a.name
+      chip.querySelector('.cmp-att-s').textContent = fmtBytes(a.size)
+      chip.querySelector('button').addEventListener('click', function () { gmailAtts.splice(gmailAtts.indexOf(a), 1); drawAtt(); changed() })
+      attList.appendChild(chip)
+    })
     attachments.forEach(function (a) {
       var chip = el('<span class="cmp-att-chip"><span class="cmp-att-n"></span><span class="cmp-att-s"></span><button aria-label="Remove">&times;</button></span>')
       chip.querySelector('.cmp-att-n').textContent = a.name
@@ -3406,51 +3445,62 @@ function openCompose(opts) {
   var discardBtn = el('<button class="cmp-discard">Discard draft</button>')
   discardBtn.style.display = draftId ? '' : 'none'
   discardBtn.addEventListener('click', function () {
-    if (!draftId || !confirm('Discard this draft? This permanently deletes it.')) return
+    if (!draftId || !confirm('Discard this draft? It is deleted from Gmail too.')) return
+    clearTimeout(saveTimer)
     var id = draftId; draftId = ''
-    deleteDraft(id).catch(function () {})
+    saving.then(function () { return gmailDeleteDraft(id) }).then(function () { mailForget() }).catch(function () {})
     cleanupUploads()
     shut(true)
   })
-  if (project) body.appendChild(discardBtn)
+  body.appendChild(discardBtn)
 
   // Settings' signature is the DEFAULT for a brand-new email only. A saved draft keeps the choice it
   // was written with, exactly like the Mac.
   loadRawConfig().then(function (c) {
     sigCfg = { enabled: !!c.signatureEnabled, html: c.signatureHtml || '' }
-    if (!existing && sigCfg.enabled && !ed.querySelector('[data-crm-signature]')) {
+    if (!o.draftId && sigCfg.enabled && !ed.querySelector('[data-crm-signature]')) {
       ed.insertAdjacentHTML('beforeend', signatureBlockHtml(sigCfg.html)); sigBox.checked = true
     }
   }).catch(function () {})
 
-  // --- autosave (projects only: a draft row belongs to a project) ---
+  // --- autosave into Gmail Drafts ---
   var saveTimer = null
   var saving = Promise.resolve()
   function changed() {
     confirmUnfilled = false
-    if (!project || sending) return
+    if (sending || opening) return
     clearTimeout(saveTimer)
-    saveTimer = setTimeout(persist, 800)
+    say('Saving to Gmail drafts…')
+    saveTimer = setTimeout(persist, 1200)
   }
   function payload() {
     return {
-      id: draftId, projectId: project.id, to: to.value, subject: subj.value.trim(), html: ed.innerHTML,
-      threadId: threadId, threadSubject: threadSubject, attachments: attachments.filter(function (a) { return a.path }),
+      draftId: draftId, threadId: threadId, to: to.value, cc: cc, bcc: bcc, subject: subj.value.trim(), html: ed.innerHTML,
+      quoteHtml: quoteHtml, attachments: attachments.filter(function (a) { return a.path }), keepGmailAttachments: gmailAtts,
+      inReplyTo: inReplyTo, references: references,
     }
   }
   function persist() {
     clearTimeout(saveTimer)
     saving = saving.then(function () {
-      if (!project) return
-      if (!htmlHasContent(ed.innerHTML) && !attachments.length) {
-        if (!draftId) return
+      if (opening) return
+      if (!htmlHasContent(ed.innerHTML) && !subj.value.trim() && !attachments.length && !gmailAtts.length) {
+        if (!draftId) { say(''); return }
         var id = draftId; draftId = ''; discardBtn.style.display = 'none'
-        return deleteDraft(id).catch(function () {})
+        say('')
+        return gmailDeleteDraft(id).then(function () { mailForget() }).catch(function () {})
       }
-      return saveComposeDraft(payload()).then(function (id) {
-        draftId = id; discardBtn.style.display = ''; sessionUploads = []
-        say('Draft saved')
-      }).catch(function () { say('Could not save the draft right now.', true) })
+      return gmailSaveDraft(payload()).then(function (r) {
+        // threadId is NOT adopted from the save: a new email's draft gets a thread of its own, and
+        // treating that as "a reply" would change how it is sent.
+        draftId = r.draftId || draftId
+        inReplyTo = r.inReplyTo || inReplyTo
+        references = r.references || references
+        discardBtn.style.display = ''
+        sessionUploads = [] // the bytes are in the Gmail draft now
+        mailForget()
+        say('Saved to Gmail drafts')
+      }).catch(function (e) { say('Not saved to Gmail: ' + (e.message || 'try again in a moment') + '.', true) })
     })
     return saving
   }
@@ -3459,25 +3509,23 @@ function openCompose(opts) {
     sessionUploads = []
   }
   function shut(skipFlush) {
-    if (!skipFlush) {
-      if (project) persist()
-      else cleanupUploads()
-    }
+    if (!skipFlush) persist()
     sh.close()
     if (o.after) o.after()
   }
   leftBtn.addEventListener('click', function () { shut(false) })
   // The X and a tap outside close through makeSheet; both still keep the draft (or tidy uploads).
-  var flushOnClose = function () { if (sending) return; if (project) persist(); else cleanupUploads() }
+  var flushOnClose = function () { if (sending) return; persist() }
   sh.sheet.querySelector('.sheet-x').addEventListener('click', flushOnClose)
   sh.sheet.addEventListener('click', function (e) { if (e.target === sh.sheet) flushOnClose() })
 
   // --- send ---
   sendBtn.addEventListener('click', function () {
     var list = to.value.split(/[,;]/).map(function (s) { return s.trim() }).filter(Boolean)
+    if (opening) return
     if (!list.length || list.some(function (a) { return !/.+@.+\..+/.test(a) })) { say('Add a valid recipient.', true); return }
     if (!subj.value.trim()) { say('Add a subject before sending.', true); return }
-    if (!htmlHasContent(ed.innerHTML) && !attachments.length) { say('The message is empty.', true); return }
+    if (!htmlHasContent(ed.innerHTML) && !attachments.length && !gmailAtts.length) { say('The message is empty.', true); return }
     if (attachments.some(function (a) { return a.uploading })) { say('Wait for the attachment to finish uploading.', true); return }
     resolveChips(ed, project)
     var left = chipLabels(ed)
@@ -3492,12 +3540,15 @@ function openCompose(opts) {
     clearTimeout(saveTimer)
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; say('')
     saving.then(function () {
+      // With a draftId, Gmail sends the draft itself, so it leaves Drafts the way a Gmail send does.
       return sendEmail({
-        to: list, subject: subj.value.trim(), html: ed.innerHTML, projectId: project ? project.id : '', kind: 'custom',
-        threadId: threadId, threadSubject: threadSubject, emailId: draftId,
+        to: list, cc: cc, bcc: bcc, subject: subj.value.trim(), html: ed.innerHTML, quoteHtml: quoteHtml,
+        projectId: project ? project.id : '', kind: 'custom', threadId: threadId, threadSubject: threadSubject, draftId: draftId,
         attachments: attachments.map(function (a) { return { path: a.path, name: a.name, size: a.size } }),
+        keepGmailAttachments: gmailAtts,
       })
     }).then(function () {
+      draftId = ''
       toast('Email sent')
       mailForget()
       // The reply settles the thread, so it is no longer unread. Failing to mark it is not worth
@@ -3636,7 +3687,32 @@ function openCompose(opts) {
     }).catch(function (e) { ps.body.innerHTML = ''; ps.body.appendChild(el('<div class="empty"></div>')).textContent = e.message || 'Could not load Files.' })
   }
 
-  if (existing && existing.threadId && thrBtn) thrBtn.querySelector('.cmp-pick-v').textContent = existing.threadSubject || 'Conversation'
+  // Open a Gmail draft: fill every field from Gmail, then unlock the editor.
+  if (opening) {
+    ed.contentEditable = 'false'
+    say('Opening your Gmail draft…')
+    gmailGetDraft(o.draftId).then(function (d) {
+      to.value = d.to || ''
+      cc = d.cc || ''; bcc = d.bcc || ''
+      subj.value = d.subject === '(no subject)' ? '' : d.subject || ''
+      ed.innerHTML = d.html || ''
+      resolveChips(ed, project)
+      quoteHtml = d.quoteHtml || ''
+      gmailAtts = (d.gmailAttachments || []).slice()
+      threadId = d.threadId || threadId
+      inReplyTo = d.inReplyTo || ''; references = d.references || ''
+      sigBox.checked = !!ed.querySelector('[data-crm-signature]')
+      drawAtt()
+      opening = false
+      ed.contentEditable = 'true'
+      say(quoteHtml ? 'Saved to Gmail drafts. The earlier messages stay quoted below it.' : 'Saved to Gmail drafts')
+    }).catch(function (e) {
+      opening = false
+      ed.contentEditable = 'true'
+      say('Could not open the draft: ' + (e.message || 'try again') + '.', true)
+    })
+    return
+  }
   setTimeout(function () { (to.value ? ed : to).focus() }, 60)
 }
 function fmtBytes(n) {
@@ -3666,25 +3742,11 @@ function emailTab(p) {
     return wrap
   }
 
-  // Drafts saved in the CRM (by this composer or the Mac's), above the mailbox, so a half-written
-  // email is one tap from carrying on.
+  // New emails not sent yet, above the mailbox, so a half-written one is a tap from carrying on.
+  // They are GMAIL drafts (2026-11-10), so one started on the Mac or in Gmail shows here too. A reply
+  // in progress stays with its conversation below, tagged Draft.
   var drafts = el('<div></div>')
   wrap.appendChild(drafts)
-  loadProjectDrafts(p.id).then(function (rows) {
-    if (DETAIL_ID !== p.id || !rows.length) return
-    drafts.appendChild(sectionLabel('Drafts · ' + rows.length))
-    rows.forEach(function (d) {
-      var tmp = document.createElement('div'); tmp.innerHTML = d.format === 'html' ? d.body : esc(d.body)
-      tmp.querySelectorAll('[data-crm-signature]').forEach(function (n) { n.remove() })
-      var r = el('<button class="mailrow"><span class="maildot" style="background:var(--gold)"></span><span class="mailbody">' +
-        '<span class="mailtop"><span class="mailfrom"><span class="mailto">Draft</span> ' + esc(d.to.join(', ') || 'No recipient yet') + '</span><span class="mailwhen">' + esc(mailWhen(Date.parse(d.updatedAt))) + '</span></span>' +
-        '<span class="mailsub">' + esc(d.subject) + '</span><span class="mailsnip">' + esc((tmp.textContent || '').slice(0, 130)) + '</span></span></button>')
-      r.addEventListener('click', function () {
-        openCompose({ project: p, existing: d, after: function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) } })
-      })
-      drafts.appendChild(r)
-    })
-  }).catch(function () {})
 
   var list = el('<div></div>')
   list.appendChild(el('<div class="empty" style="padding:18px 2px">Loading their emails…</div>'))
@@ -3698,9 +3760,16 @@ function emailTab(p) {
     if (DETAIL_ID !== p.id) return
     list.innerHTML = ''
     if (err) { list.appendChild(mailError(err, function () { mailForget(); renderDetail(p.id, true) })); return }
-    if (!threads.length) { list.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nothing in the mailbox with them yet.</div>')); return }
-    threads.forEach(function (t) {
-      list.appendChild(mailRow(t, null, function () { if (DETAIL_ID === p.id) renderDetail(p.id, true) }))
+    var refresh = function () { mailForget(); if (DETAIL_ID === p.id) renderDetail(p.id, true) }
+    var newDrafts = threads.filter(function (t) { return t.draftOnly })
+    var convos = threads.filter(function (t) { return !t.draftOnly })
+    if (newDrafts.length) {
+      drafts.appendChild(sectionLabel('Drafts · ' + newDrafts.length))
+      newDrafts.forEach(function (t) { drafts.appendChild(mailRow(t, null, refresh, p)) })
+    }
+    if (!convos.length) { list.appendChild(el('<div class="empty" style="padding:6px 2px;text-align:left">Nothing in the mailbox with them yet.</div>')); return }
+    convos.forEach(function (t) {
+      list.appendChild(mailRow(t, null, refresh))
     })
   })
   return wrap
@@ -3918,6 +3987,200 @@ function openPreview(opts) {
 
   document.body.appendChild(pane)
   document.body.classList.add('previewing')
+}
+
+// ---------- The daily report ----------
+//
+// THE DAILY REPORT ON THE PHONE (2026-11-11). The button at the top of Home. Michael: "all I do is I
+// just click a button and it generates the report", "either on the laptop or on my phone app".
+//
+// The page is ONE self-contained document in a frame, built by dailyreport-core.js: the same file
+// the Mac uses, so the two can never show different reports. Read the top of that file for what is
+// on the report and why. This function only gathers what the document needs and listens to it.
+//
+// THE FACTS ARE LIVE, THE NOTES ARE THE MAC'S. Tasks, projects and On my plate are already in SNAP;
+// the calendar comes from phone-api `daily-events`. Claude's notes are written on the Mac (Claude and
+// his planning files live there), so the phone shows the last ones written and ASKS for new ones by
+// marking the day `requested`. See requestDailyNotes.
+//
+// ⚠️ THE FRAME IS REBUILT ONLY WHEN ITS CONTENT CHANGES, never when a box is ticked: the document
+// draws its own tick, so the page does not jump to the top under his thumb. A ticked task stays on
+// the page, struck through, until he leaves. Same rule as DailyReportPage.tsx on the Mac.
+var DR_OPEN = false
+var DR_SCROLL = { date: '', y: 0 } // where he was reading, so coming back from a project lands there
+function openDailyReport() {
+  if (DR_OPEN) return
+  DR_OPEN = true
+  var date = todayStr()
+  var st = { events: null, calendarOk: true, notes: null, notesError: '', loaded: false, checked: {}, key: '', asking: false, seen: '', ticks: 0 }
+  // A real printer is a computer's job. On a phone the button would print the wrong thing or nothing.
+  var canPrint = !isNativeApp() && window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+  var pane = el(
+    '<div class="previewpane dr-pane">' +
+      '<div class="pv-bar">' +
+        '<button class="pv-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>' +
+        '<span>Home</span></button>' +
+        '<div class="pv-t"><div class="pv-title">Daily report</div><div class="pv-sub"></div></div>' +
+        '<button class="dr-btn dr-rewrite" disabled>Write notes</button>' +
+        (canPrint ? '<button class="dr-btn dr-print">Print</button>' : '') +
+      '</div>' +
+      '<div class="pv-body"><div class="pv-load">Putting today together…</div></div>' +
+    '</div>'
+  )
+  var body = pane.querySelector('.pv-body')
+  var sub = pane.querySelector('.pv-sub')
+  var rewrite = pane.querySelector('.dr-rewrite')
+  var frame = document.createElement('iframe')
+  frame.className = 'pv-frame'
+  frame.title = 'Daily report'
+  if (DR_SCROLL.date !== date) DR_SCROLL = { date: date, y: 0 }
+  frame.addEventListener('load', function () {
+    var l = body.querySelector('.pv-load')
+    if (l) l.remove()
+    try {
+      var w = frame.contentWindow
+      if (DR_SCROLL.y) w.scrollTo(0, DR_SCROLL.y)
+      w.addEventListener('scroll', function () { DR_SCROLL.y = w.scrollY }, { passive: true })
+    } catch (_) { /* a frame that will not scroll is not worth an error */ }
+  })
+
+  var todayStatus = function () { return st.notes && st.notes.reportDate === date ? st.notes.status : '' }
+  var waiting = function () { var x = todayStatus(); return x === 'requested' || x === 'writing' }
+
+  var paint = function () {
+    if (!st.loaded || !DR_OPEN) return
+    var status = todayStatus()
+    sub.textContent = status === 'writing' ? 'Claude is writing the notes…'
+      : status === 'requested' ? 'Waiting for your Mac'
+      : st.notesError ? 'The notes could not be loaded'
+      : !st.calendarOk ? 'The calendar could not be read'
+      : DR.longDate(date, false)
+    rewrite.disabled = waiting() || st.asking
+    rewrite.textContent = waiting() || st.asking ? 'Writing…' : status === 'ready' ? 'Rewrite notes' : 'Write notes'
+    // Everything that decides what the document says, EXCEPT which boxes are ticked.
+    var plate = plateItems()
+    var onReport = (SNAP.tasks || [])
+      .filter(function (t) { return t.dueDate && t.dueDate <= date && (!t.done || st.checked[t.id]) })
+      .map(function (t) { return [t.id, t.title, t.dueDate, t.dueTime, t.projectId] })
+    var named = (SNAP.projects || []).map(function (p) { return [p.id, p.client, p.stageId, p.eventDate, p.bucket] })
+    var key = JSON.stringify([date, onReport, named, st.events, plate, st.notes, UNREAD_MAIL])
+    if (key === st.key) return
+    st.key = key
+    var stageNames = {}
+    Object.keys(STAGE).forEach(function (id) { stageNames[id] = STAGE[id].name })
+    var model = DR.buildReport({
+      dateISO: date,
+      tasks: SNAP.tasks || [],
+      projects: SNAP.projects || [],
+      stageNames: stageNames,
+      bookedStageIds: Object.keys(stageSetForRole('booked')),
+      events: st.events || [],
+      plate: plate,
+      notes: st.notes,
+      unreadMail: UNREAD_AT ? UNREAD_MAIL : null,
+      checkedIds: Object.keys(st.checked),
+    })
+    frame.srcdoc = DR.renderReportHtml(model)
+    if (!frame.parentNode) body.appendChild(frame)
+  }
+
+  var loadNotes = function () {
+    return loadDailyNotes(date)
+      .then(function (n) { st.notes = n; st.notesError = '' })
+      .catch(function (e) { st.notesError = (e && e.message) || 'Could not load the notes.' })
+  }
+  var loadCalendar = function () {
+    var b = DR.dayBounds(date)
+    return loadDayEvents(b.from, b.to)
+      .then(function (r) { st.events = (r && r.events) || []; st.calendarOk = !r || r.ok !== false })
+      .catch(function () { st.events = st.events || []; st.calendarOk = false })
+  }
+  // Ask the Mac for notes. The row keeps the last notes until new ones replace them.
+  var ask = function () {
+    if (st.asking || waiting()) return
+    st.asking = true
+    paint()
+    requestDailyNotes(date).then(loadNotes).then(function () { st.asking = false; paint() })
+      .catch(function (e) { st.asking = false; paint(); toast((e && e.message) || 'Could not ask for the notes.', 'err') })
+  }
+  rewrite.addEventListener('click', ask)
+  if (canPrint) pane.querySelector('.dr-print').addEventListener('click', function () {
+    try { frame.contentWindow.focus(); frame.contentWindow.print() } catch (_) { toast('Could not open the print window.', 'err') }
+  })
+
+  // The document's two buttons: a project name, and a task's checkbox.
+  var onMessage = function (e) {
+    var m = e.data
+    if (!m || m.source !== 'daily-report' || !m.id || e.source !== frame.contentWindow) return
+    if (m.type === 'open-project') {
+      close()
+      try { history.back() } catch (_) { /* the pushed state is harmless if it stays */ }
+      openProjectById(m.id)
+    }
+    if (m.type === 'toggle-task') {
+      var t = (SNAP.tasks || []).find(function (x) { return x.id === m.id })
+      if (!t) return
+      var done = !st.checked[t.id]
+      if (done) st.checked[t.id] = 1; else delete st.checked[t.id]
+      doWrite(toggleTask(t.id, done), null, function () {
+        // By id, not by reference: a background refresh may have replaced the task list meanwhile.
+        var now = (SNAP.tasks || []).find(function (x) { return x.id === m.id })
+        if (now) now.done = done
+      }).catch(function () {
+        // The save failed: put the box back the way it was, which needs the page rebuilt.
+        if (done) delete st.checked[t.id]; else st.checked[t.id] = 1
+        st.key = ''
+        paint()
+      })
+    }
+  }
+  window.addEventListener('message', onMessage)
+
+  // Every five seconds: pick up anything that changed in the app (a task added, mail read), and
+  // while notes are on their way, look for them. The status check is a few bytes; the notes
+  // themselves are fetched only when it changes. Slower once the Mac has plainly not answered.
+  var timer = setInterval(function () {
+    if (document.hidden || !st.loaded) return
+    st.ticks++
+    if (!waiting()) { paint(); return }
+    if (todayStatus() === 'requested' && st.ticks > 24 && st.ticks % 6) return
+    loadDailyStatus(date).then(function (now) {
+      if (now === st.seen) return
+      st.seen = now
+      return loadNotes().then(paint)
+    }).catch(function () { /* try again on the next tick */ })
+  }, 5000)
+
+  var close = function () {
+    if (!DR_OPEN) return
+    DR_OPEN = false
+    clearInterval(timer)
+    pane.remove()
+    document.body.classList.remove('previewing')
+    window.removeEventListener('popstate', onPop)
+    window.removeEventListener('message', onMessage)
+    // Tasks ticked off in the report are done now: the page underneath should say so.
+    if (Object.keys(st.checked).length) refreshView()
+  }
+  var onPop = function () { close() }
+  try { history.pushState({ report: 1 }, '') } catch (_) { /* not fatal */ }
+  window.addEventListener('popstate', onPop)
+  pane.querySelector('.pv-back').addEventListener('click', function () {
+    try { history.back() } catch (_) { close() }
+  })
+
+  document.body.appendChild(pane)
+  document.body.classList.add('previewing')
+
+  Promise.all([loadNotes(), loadCalendar()]).then(function () {
+    st.loaded = true
+    st.seen = st.notes && st.notes.reportDate === date ? st.notes.status + '|' : ''
+    paint()
+    // The first open of the day asks for notes without being told to. Never over a failed write:
+    // that one waits for him to press the button.
+    if (!st.notesError && todayStatus() === '') ask()
+  })
 }
 
 // ---------- Finance ----------
@@ -6637,6 +6900,11 @@ function renderHome() {
   // The greeting is the page title now, in the header, the way the Mac's Home does it.
 
   var grid = el('<div class="statgrid"></div>')
+  // The daily report (2026-11-11), across the top of the grid: one tap and today is on the screen.
+  var report = el('<button class="statcard dr-open"><span class="dr-open-t"><span class="dr-open-h">Daily report</span><span class="l"></span></span><span class="dr-open-go">Open</span></button>')
+  report.querySelector('.l').textContent = DR.longDate(todayStr(), false)
+  report.addEventListener('click', openDailyReport)
+  grid.appendChild(report)
   // Unread mail took the money tile, 2026-09-21. Michael: "I don't expect to use the finance page
   // on my phone", and in the same breath, "I want to be able to see notifications when I have
   // unread emails." Money is still a tap away in the drawer; this tile now answers a question he

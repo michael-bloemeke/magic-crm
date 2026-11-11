@@ -4032,8 +4032,8 @@ function openDailyReport() {
   var paint = function () {
     if (!st.loaded || !DR_OPEN) return
     var status = todayStatus()
-    sub.textContent = status === 'writing' ? 'Claude is writing today’s notes…'
-      : status === 'requested' ? 'Waiting for your Mac to write the notes'
+    sub.textContent = status === 'writing' ? 'Claude is writing the notes…'
+      : status === 'requested' ? 'Waiting for your Mac'
       : st.notesError ? 'The notes could not be loaded'
       : !st.calendarOk ? 'The calendar could not be read'
       : DR.longDate(date, false)
