@@ -149,12 +149,14 @@ export function DailyReportPage({
   // The one thing the document ever reports: a task's checkbox.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      const m = e.data as { source?: string; type?: string; id?: string } | null
+      const m = e.data as { source?: string; type?: string; id?: string; done?: boolean } | null
       if (!m || m.source !== 'daily-report' || !m.id) return
       if (frame.current && e.source !== frame.current.contentWindow) return
       if (m.type === 'toggle-task') {
         const id = m.id
-        const done = !checked.has(id)
+        // The document says which way the box went. Never work it out from `checked`: two quick
+        // clicks arrive before React has re-rendered, and both would read as "done".
+        const done = m.done === true
         setChecked((prev) => {
           const next = new Set(prev)
           if (done) next.add(id)
@@ -166,7 +168,7 @@ export function DailyReportPage({
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [onToggleTask, checked])
+  }, [onToggleTask])
 
   // The PDF is made from the document as it stands in the frame right now, so a task he has just
   // ticked is crossed off in the file too.

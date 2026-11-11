@@ -1147,7 +1147,17 @@ console.log('\n== the daily report: the rules (dailyreport-core.js) ==')
   ok(html.startsWith('<!doctype html>') || html.startsWith('<!DOCTYPE html>'), 'the report is one whole document')
   ok(html.includes('Send the Hendersons a proposal') && html.includes('Dinner with Meg') && html.includes('Holiday outreach'), 'tasks, the schedule, and the focus are all in it')
   ok(!/[—–]/.test(html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<script[\s\S]*?<\/script>/g, '')), 'no em or en dashes anywhere in the page text')
-  ok(html.indexOf('Do these first') < html.indexOf('id="next"'), 'tasks come before the larger project')
+  ok(html.indexOf('Do these first') < html.indexOf('class="next"'), 'tasks come before the larger project')
+  // A SIMPLE DOCUMENT (2026-11-11): no links, no tooltips, nothing that follows the scroll.
+  const body = html.replace(/<link[^>]*>/g, '')
+  ok(!/<a[\s>]/.test(body) && !/href=/.test(body), 'the document has no links at all (a "#" link once loaded the whole CRM inside the report)')
+  ok(!/data-project/.test(body) && !/open-project/.test(body), 'a project is named in plain text, never as a button into the app')
+  ok(!/\stitle="/.test(body), 'nothing hides in a hover tooltip')
+  ok(!/position:\s*sticky/.test(body), 'the schedule does not follow the scroll')
+  ok(/class="box" data-task="/.test(body) && /role="checkbox"/.test(body), 'every task keeps its checkbox')
+  ok(/done: done/.test(body), 'a tick tells the app which way the box went')
+  ok(/class="what"/.test(body) && /class="notes"/.test(body), 'a task is laid out in two parts: what it is, and how to handle it')
+  ok(/@media print\{/.test(body) && /@page\{size:letter/.test(body), 'it carries its own print layout, on US Letter')
 }
 
 console.log('\n== the daily report: the phone ==')
@@ -1187,22 +1197,33 @@ console.log('\n== the daily report: the phone ==')
   // A box ticked inside the document.
   CALLS.length = 0
   const before = frame.srcdoc
-  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2' }, source: frame.contentWindow }))
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2', done: true }, source: frame.contentWindow }))
   await settle()
   ok(CALLS.some((c) => c.name === 'toggleTask' && c.args[0] === 'dr2' && c.args[1] === true), 'ticking a box in the report completes the task', JSON.stringify(CALLS))
   ok(SNAP.tasks.find((t) => t.id === 'dr2').done === true && frame.srcdoc === before, 'and the page is NOT rebuilt under his thumb')
-  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2' }, source: frame.contentWindow }))
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2', done: false }, source: frame.contentWindow }))
   await settle()
   ok(SNAP.tasks.find((t) => t.id === 'dr2').done === false, 'ticking it again reopens it')
+  // A fast double click: the document reports "done" then "not done", and the task ends up open.
   CALLS.length = 0
-  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr1' }, source: window }))
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2', done: true }, source: frame.contentWindow }))
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr2', done: false }, source: frame.contentWindow }))
+  await settle()
+  const sent = CALLS.filter((c) => c.name === 'toggleTask').map((c) => c.args[1])
+  ok(sent.length === 2 && sent[0] === true && sent[1] === false && SNAP.tasks.find((t) => t.id === 'dr2').done === false, 'two quick clicks end with the task open, not stuck done', JSON.stringify(sent))
+  CALLS.length = 0
+  window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'toggle-task', id: 'dr1', done: true }, source: window }))
   await settle()
   ok(!CALLS.some((c) => c.name === 'toggleTask'), 'a message from anywhere but the report is ignored')
 
-  // A project name tapped inside the document.
+  // The report is a simple document: nothing in it opens a project any more, even if asked to.
   window.dispatchEvent(new window.MessageEvent('message', { data: { source: 'daily-report', type: 'open-project', id: 'sarah-whitfield' }, source: frame.contentWindow }))
   await settle()
-  ok(!document.querySelector('.previewpane.dr-pane') && __app.getDetail() === 'sarah-whitfield', 'tapping a project name closes the report and opens that project')
+  ok(!!document.querySelector('.previewpane.dr-pane') && __app.getDetail() !== 'sarah-whitfield', 'the report no longer opens projects: it stays a document')
+  ok(!/<a\s|href="#|data-project|position:sticky/.test(frame.srcdoc.replace(/<link[^>]*>/g, '')), 'and the document itself has no links and nothing that follows the scroll')
+  pane.querySelector('.pv-back').dispatchEvent(new window.Event('click'))
+  await settle(); await settle()
+  if (document.querySelector('.previewpane.dr-pane')) { window.dispatchEvent(new window.Event('popstate')); await settle() }
 
   // Notes already written today: nothing is asked for, and the button offers a rewrite.
   DAILY.row = { reportDate: today, status: 'ready', error: '', generatedAt: new Date().toISOString(),

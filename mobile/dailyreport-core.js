@@ -616,7 +616,7 @@ function notesLine(model) {
 //   - NO HOVER TOOLTIPS. Anything worth saying is printed on the page.
 //   - THE ONE INTERACTIVE THING IS THE CHECKBOX, which he asked to keep: "I do want to maintain the
 //     ability to click a checkbox and it completely crosses off everything." On paper it is an empty
-//     box to tick with a pen. Clicking one posts { source: 'daily-report', type: 'toggle-task', id }
+//     box to tick with a pen. Clicking one posts { source: 'daily-report', type: 'toggle-task', id, done }
 //     to the page that framed it, and the document draws the tick itself, at once, so the app never
 //     has to rebuild the page for it.
 //   - IT MUST PRINT WELL AS IT IS. There is no Print button in the CRM, by his choice ("I don't need
@@ -693,7 +693,9 @@ document.addEventListener('click', function (e) {
   var row = el.closest('.task')
   var done = row ? row.classList.toggle('done') : false
   el.setAttribute('aria-checked', done ? 'true' : 'false')
-  try { window.parent.postMessage({ source: 'daily-report', type: 'toggle-task', id: el.getAttribute('data-task') }, '*') } catch (err) {}
+  // The message carries the box's NEW state, so the app never has to work it out from what it
+  // last knew (two quick clicks used to be read as done twice, and the task stayed done).
+  try { window.parent.postMessage({ source: 'daily-report', type: 'toggle-task', id: el.getAttribute('data-task'), done: done }, '*') } catch (err) {}
 })
 ;(function () {
   var tl = document.querySelector('.tl')

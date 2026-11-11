@@ -4012,7 +4012,6 @@ function openDailyReport() {
   var date = todayStr()
   var st = { events: null, calendarOk: true, notes: null, notesError: '', loaded: false, checked: {}, key: '', asking: false, seen: '', ticks: 0 }
   // A real printer is a computer's job. On a phone the button would print the wrong thing or nothing.
-  var canPrint = !isNativeApp() && window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches
   var pane = el(
     '<div class="previewpane dr-pane">' +
       '<div class="pv-bar">' +
@@ -4021,7 +4020,6 @@ function openDailyReport() {
         '<span>Home</span></button>' +
         '<div class="pv-t"><div class="pv-title">Daily report</div><div class="pv-sub"></div></div>' +
         '<button class="dr-btn dr-rewrite" disabled>Write notes</button>' +
-        (canPrint ? '<button class="dr-btn dr-print">Print</button>' : '') +
       '</div>' +
       '<div class="pv-body"><div class="pv-load">Putting today together…</div></div>' +
     '</div>'
@@ -4103,23 +4101,17 @@ function openDailyReport() {
       .catch(function (e) { st.asking = false; paint(); toast((e && e.message) || 'Could not ask for the notes.', 'err') })
   }
   rewrite.addEventListener('click', ask)
-  if (canPrint) pane.querySelector('.dr-print').addEventListener('click', function () {
-    try { frame.contentWindow.focus(); frame.contentWindow.print() } catch (_) { toast('Could not open the print window.', 'err') }
-  })
 
-  // The document's two buttons: a project name, and a task's checkbox.
+  // The report is a simple document (2026-11-11): nothing on it links into the app and there is no
+  // Print button. The one thing it ever reports is a task's checkbox.
   var onMessage = function (e) {
     var m = e.data
     if (!m || m.source !== 'daily-report' || !m.id || e.source !== frame.contentWindow) return
-    if (m.type === 'open-project') {
-      close()
-      try { history.back() } catch (_) { /* the pushed state is harmless if it stays */ }
-      openProjectById(m.id)
-    }
     if (m.type === 'toggle-task') {
       var t = (SNAP.tasks || []).find(function (x) { return x.id === m.id })
       if (!t) return
-      var done = !st.checked[t.id]
+      // The document says which way the box went (older documents did not, hence the fallback).
+      var done = typeof m.done === 'boolean' ? m.done : !st.checked[t.id]
       if (done) st.checked[t.id] = 1; else delete st.checked[t.id]
       doWrite(toggleTask(t.id, done), null, function () {
         // By id, not by reference: a background refresh may have replaced the task list meanwhile.
