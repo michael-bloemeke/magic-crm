@@ -1,6 +1,21 @@
+import { Fragment, useContext } from 'react'
+import { DateConflictContext } from '../dateConflicts'
+
 // A loud "Potential date conflict" flag, shown on any project whose event date collides with another
-// still-relevant project (a possible double-booking). `badge` is the compact pill for cards/rows;
+// still-relevant project (a possible double-booking). `badge` is the compact one for cards/rows;
 // `banner` is the larger, more prominent version for the project-view headers.
+//
+// ⚠️ IT NAMES THE OTHER PROJECT, IN PLAIN SIGHT, AND THE NAME IS A LINK (2026-11-11). Michael: "I
+// don't want to have to hover. I want it to just automatically show it." and "if I click on the
+// project name of whatever the conflict is, it'll take me to that project."
+//   - Never move the names back into a `title` tooltip, and never truncate them: a clipped name
+//     would need the hover again. A long list wraps instead.
+//   - Several clashes read "with A and B and C", his wording. Every one is listed.
+//   - A name that is a CRM project opens that project. A Google "Gigs" calendar entry is plain text.
+//   - The flag sits inside cards that are themselves clickable, so a click (or Enter / Space) on a
+//     name must NOT reach the card, or it would open the card's own project instead.
+//
+// The names and the opener come from DateConflictContext by `projectId`.
 
 const RED = '#ef4444'
 
@@ -13,27 +28,54 @@ function WarnIcon({ className }: { className?: string }) {
   )
 }
 
-export function DateConflictFlag({ variant = 'badge', conflictWith }: { variant?: 'badge' | 'banner'; conflictWith?: string[] }) {
+export function DateConflictFlag({ variant = 'badge', projectId }: { variant?: 'badge' | 'banner'; projectId: string }) {
+  const { info, open } = useContext(DateConflictContext)
+  const partners = info.get(projectId) || []
   const banner = variant === 'banner'
-  const title =
-    conflictWith && conflictWith.length
-      ? `Same date as: ${conflictWith.join('; ')}. Check for a double-booking.`
-      : 'Another project shares this event date. Check for a double-booking.'
   return (
     <span
-      title={title}
       className={[
-        'inline-flex items-center font-bold uppercase',
-        banner ? 'gap-1.5 rounded-lg px-2.5 py-1 text-[12px] tracking-[0.06em]' : 'gap-1 rounded-full px-1.5 py-0.5 text-[9.5px] tracking-[0.06em]',
+        'inline-flex max-w-full flex-wrap items-center text-left',
+        banner ? 'gap-x-2 gap-y-0.5 rounded-lg px-2.5 py-1' : 'gap-x-1.5 gap-y-0.5 rounded-md px-1.5 py-0.5',
       ].join(' ')}
       style={{
-        color: RED,
         backgroundColor: `color-mix(in oklab, ${RED} 18%, transparent)`,
         boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${RED} ${banner ? 55 : 45}%, transparent)`,
       }}
     >
-      <WarnIcon className={banner ? 'h-3.5 w-3.5' : 'h-2.5 w-2.5'} />
-      Potential date conflict
+      <span
+        className={['inline-flex shrink-0 items-center font-bold uppercase tracking-[0.06em]', banner ? 'gap-1.5 text-[12px]' : 'gap-1 text-[9.5px]'].join(' ')}
+        style={{ color: RED }}
+      >
+        <WarnIcon className={banner ? 'h-3.5 w-3.5' : 'h-2.5 w-2.5'} />
+        Potential date conflict
+      </span>
+      {partners.length > 0 && (
+        <span className={['min-w-0 font-semibold leading-snug text-parchment', banner ? 'text-[13px]' : 'text-[11px]'].join(' ')}>
+          with{' '}
+          {partners.map((c, i) => (
+            <Fragment key={(c.projectId || 'gig') + i}>
+              {i > 0 && ' and '}
+              {c.projectId ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    open(c.projectId!)
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="cursor-pointer rounded-sm text-left font-semibold underline decoration-1 underline-offset-2 hover:decoration-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1"
+                  style={{ textDecorationColor: `color-mix(in oklab, ${RED} 70%, transparent)`, outlineColor: RED }}
+                >
+                  {c.name}
+                </button>
+              ) : (
+                c.name
+              )}
+            </Fragment>
+          ))}
+        </span>
+      )}
     </span>
   )
 }

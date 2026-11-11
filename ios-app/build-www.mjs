@@ -4,11 +4,12 @@
 // WHY A COPY RATHER THAN POINTING CAPACITOR AT ../mobile:
 //   1. `npx cap sync` copies the ENTIRE webDir. Pointing it at ../mobile would drag in node_modules
 //      and any native build output the moment either folder grew one.
-//   2. The native shell needs two deliberate differences from the PWA (below), and doing that with a
-//      copy step keeps ../mobile byte-for-byte the thing that ships to michaelbloemeke.com/crm/.
+//   2. The native shell needs two deliberate differences from the plain web files (below), and a copy
+//      step keeps ../mobile free of them, which is what the tests run against.
 //
-// The file list is the SAME allowlist sync-to-website.mjs uses, for the same reason: an explicit
-// list cannot accidentally ship something. Keep the two in step.
+// The file list is an explicit allowlist, so nothing can ship by accident. (It used to mirror the
+// list in sync-to-website.mjs. That script is RETIRED: the web copy at michaelbloemeke.com/crm/ was
+// removed 2026-11-11, and this native build is now the only way the phone app ships.)
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'

@@ -2,7 +2,7 @@
 // Writes mobile/email-templates.js from src/emailTemplates.ts, so the phone's composer offers exactly
 // the Mac's template library. The Mac file stays the source of truth: re-run this whenever a template
 // changes (Node 22: node --experimental-strip-types scripts/gen-phone-email-templates.mjs), then
-// `npm run sync`.
+// build the iPhone app (ios-app/testflight.sh). There is no web copy any more (removed 2026-11-11).
 //
 // The only change made on the way through: a GIF's src points at the public `email-gifs` storage
 // bucket instead of the Mac's local /api/email-gif route, so it animates in the phone's composer.

@@ -103,6 +103,7 @@ import {
   refreshServerCache,
 } from './api'
 import { linkedProjectsFor, contactsForProject } from './contacts'
+import { DateConflictContext, type ConflictPartner } from './dateConflicts'
 
 type View = 'flow' | 'board' | 'cards'
 
@@ -452,7 +453,8 @@ function App() {
   // Google "Gigs" events) = a potential double-booking. Archived leads are ignored. A date is only
   // flagged when it's actionable: a Gigs event sits on it, or at least one CRM project on it is active
   // (so purely-historical same-day completed gigs don't nag). The map value is the list of conflicting
-  // names/titles (shown on hover in the open project); dateConflictIds is just its key set (for cards).
+  // names/titles, which DateConflictFlag shows in plain sight (never on hover) and, for a CRM project,
+  // as a link that opens it; dateConflictIds is its key set.
   const dateConflictInfo = useMemo(() => {
     const byDate = new Map<string, { crm: { id: string; name: string; active: boolean }[]; gigs: string[] }>()
     for (const p of allProjects) {
@@ -468,14 +470,14 @@ function App() {
       g.gigs.push(e.title)
       byDate.set(e.date, g)
     }
-    const info = new Map<string, string[]>()
+    const info = new Map<string, ConflictPartner[]>()
     for (const g of byDate.values()) {
       const actionable = g.gigs.length > 0 || g.crm.some((c) => c.active)
       if (!actionable) continue
       for (const c of g.crm) {
         const partners = [
-          ...g.crm.filter((o) => o.id !== c.id).map((o) => o.name),
-          ...g.gigs.map((t) => `${t} (Gigs calendar)`),
+          ...g.crm.filter((o) => o.id !== c.id).map((o): ConflictPartner => ({ name: o.name, projectId: o.id })),
+          ...g.gigs.map((t): ConflictPartner => ({ name: `${t} (Gigs calendar)` })),
         ]
         if (partners.length > 0) info.set(c.id, partners)
       }
@@ -1052,7 +1054,17 @@ function App() {
     : ''
 
 
+  // What every date-conflict flag reads: who each project clashes with, and how to open one of them.
+  const conflictContext = {
+    info: dateConflictInfo,
+    open: (id: string) => {
+      const p = allProjects.find((x) => x.id === id)
+      if (p) openFull(p)
+    },
+  }
+
   return (
+    <DateConflictContext.Provider value={conflictContext}>
     <div className="relative z-10 flex h-screen overflow-hidden">
       <Sidebar
         // While a project is open, highlight the nav item for where that project lives
@@ -1093,7 +1105,6 @@ function App() {
             project={fullProject}
             onPreview={setPreview}
             dateConflict={dateConflictIds.has(fullProject.id)}
-            conflictWith={dateConflictInfo.get(fullProject.id)}
             tasks={tasksForFull}
             onChangeStage={(stageId) => changeStage(fullProject.id, stageId)}
             onSaveField={(field, value) => saveField(fullProject.id, field, value)}
@@ -1430,7 +1441,6 @@ function App() {
         onPreview={setPreview}
         project={contactPane ? null : selected}
         dateConflict={!!(selected && dateConflictIds.has(selected.id))}
-        conflictWith={selected ? dateConflictInfo.get(selected.id) : undefined}
         tasks={tasksForSelected}
         contacts={contacts}
         links={links}
@@ -1636,6 +1646,7 @@ function App() {
         onSubmit={(payload) => callTarget && doLogCall(callTarget, payload)}
       />
     </div>
+    </DateConflictContext.Provider>
   )
 }
 

@@ -87,7 +87,7 @@ export function ProjectCard({ project, accentVar, onOpenFull, onOpenSide, unread
 
         {dateConflict && (
           <div className="mt-1.5">
-            <DateConflictFlag />
+            <DateConflictFlag projectId={project.id} />
           </div>
         )}
 

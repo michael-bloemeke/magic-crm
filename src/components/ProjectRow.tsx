@@ -68,7 +68,7 @@ export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0
             >
               {p.eventType}
             </span>
-            {dateConflict && <DateConflictFlag />}
+            {dateConflict && <DateConflictFlag projectId={p.id} />}
             {badge}
             {pendingPayment && (
               <span

@@ -47,7 +47,6 @@ type Props = {
   // See PreviewPage. Drilled from App because the preview takes over the whole main area.
   onPreview: (t: PreviewTarget) => void
   dateConflict?: boolean
-  conflictWith?: string[]
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
@@ -78,7 +77,6 @@ export function ProjectView({
   onPreview,
   groundClass = '',
   dateConflict = false,
-  conflictWith,
   tasks,
   onChangeStage,
   onSaveField,
@@ -437,7 +435,7 @@ export function ProjectView({
               <span className="max-w-[34rem] truncate text-[14px] text-muted">{project.eventLocation}</span>
             </>
           )}
-          {dateConflict && <DateConflictFlag variant="banner" conflictWith={conflictWith} />}
+          {dateConflict && <DateConflictFlag variant="banner" projectId={project.id} />}
         </div>
       </div>
 

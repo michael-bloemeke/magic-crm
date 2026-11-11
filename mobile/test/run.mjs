@@ -1269,5 +1269,38 @@ console.log('\n== el() never gets two top-level elements ==')
   ok(bad.length === 0, 'every el() call builds exactly one element', bad.join(', '))
 }
 
+console.log('\n== the date-conflict mark names the other project ==')
+{
+  const saved = SNAP.projects
+  const on = (id, client) => ({ ...PROJECT, id, client, bucket: 'active', eventDate: '2027-03-06' })
+  document.querySelectorAll('.sheet, .previewpane').forEach((x) => x.remove())
+  const marks = () => [...document.querySelectorAll('#view .card')].map((c) => [c.querySelector('.name')?.textContent, c.querySelector('.cmark-conflict')?.textContent || ''])
+  SNAP.projects = [...saved, on('cf-a', 'Clash One'), on('cf-b', 'Clash Two')]
+  __app.setDetail(null); __app.setTab('pipeline'); __app.renderPipeline(); await settle()
+  let m = Object.fromEntries(marks())
+  ok(m['Clash One'] === 'Date conflict with Clash Two' && m['Clash Two'] === 'Date conflict with Clash One', 'two projects on one date each name the other', JSON.stringify(m))
+  SNAP.projects = [...saved, on('cf-a', 'Clash One'), on('cf-b', 'Clash Two'), on('cf-c', 'Clash Three')]
+  __app.renderPipeline(); await settle()
+  m = Object.fromEntries(marks())
+  ok(m['Clash One'] === 'Date conflict with Clash Two and Clash Three', 'three on one date: both others are named', m['Clash One'])
+  SNAP.projects = [...saved, on('cf-a', 'Clash One'), on('cf-b', 'Clash Two'), on('cf-c', 'Clash Three'), on('cf-d', 'Clash Four')]
+  __app.renderPipeline(); await settle()
+  m = Object.fromEntries(marks())
+  ok(m['Clash One'] === 'Date conflict with Clash Two and Clash Three and Clash Four', 'four on one date: every one named, joined with "and"', m['Clash One'])
+  // The project page: each name is a link that opens that project.
+  __app.renderDetail('cf-a'); await settle()
+  const box = document.querySelector('#view .conflict')
+  ok(!!box && box.textContent.replace(/\s+/g, ' ').includes('Potential date conflict') && box.querySelector('span').textContent === 'with Clash Two and Clash Three and Clash Four', 'the project page names every clash', box && box.textContent)
+  const links = box ? [...box.querySelectorAll('.conflict-link')] : []
+  ok(links.length === 3 && links[1].textContent === 'Clash Three', 'and each name is a link', String(links.length))
+  links[1].dispatchEvent(new window.Event('click')); await settle()
+  const box2 = document.querySelector('#view .conflict')
+  ok(!!box2 && box2.querySelector('span').textContent === 'with Clash One and Clash Two and Clash Four', 'tapping a name opens THAT project (its own flag now lists the other three)', box2 && box2.textContent)
+  __app.setDetail(null); __app.setTab('pipeline')
+  ok(Object.entries(m).filter(([k]) => !k.startsWith('Clash')).every(([, v]) => v === ''), 'a project alone on its date carries no mark')
+  SNAP.projects = saved
+  __app.renderPipeline(); await settle()
+}
+
 console.log('\n' + (fails ? 'FAILURES: ' + fails : 'ALL PASS'))
 process.exit(fails ? 1 : 0)

@@ -806,7 +806,10 @@ function projectCard(p, accent) {
   // (or a Gigs calendar entry) on the same date.
   if (active) {
     if ((SNAP.payments || []).some(function (pm) { return pm.projectId === p.id && pm.pending })) marks += '<span class="cmark cmark-pay">Payment pending</span>'
-    if (conflictsFor(p).length) marks += '<span class="cmark cmark-conflict">Date conflict</span>'
+    // The mark NAMES the other project (2026-11-11, same as the Mac's flag): he should never have to
+    // open or hover anything to learn which one it clashes with.
+    var conf = conflictsFor(p)
+    if (conf.length) marks += '<span class="cmark cmark-conflict">Date conflict with ' + esc(conflictNames(conf)) + '</span>'
   }
   var loc = active ? (p.eventLocation || p.venueType || 'Location TBD') : ''
 
@@ -1088,8 +1091,22 @@ function projectHeader(p) {
   metaRow.appendChild(tp)
   if (p.eventDate) metaRow.appendChild(el('<span>' + esc(fmtDate(p.eventDate)) + '</span>'))
   head.appendChild(metaRow)
-  var conf = conflictsFor(p)
-  if (conf.length) head.appendChild(el('<div class="conflict"><b>⚠ Potential date conflict</b><span>Same date as: ' + esc(conf.join('; ')) + '. Check for a double-booking.</span></div>'))
+  // "Potential date conflict with A and B": every clash is named, and a name that is a CRM project
+  // is a link that opens it (2026-11-11, the Mac's DateConflictFlag does the same).
+  var conf = conflictPartners(p)
+  if (conf.length) {
+    var cbox = el('<div class="conflict"><b>⚠ Potential date conflict</b><span>with </span></div>')
+    var cline = cbox.querySelector('span')
+    conf.forEach(function (c, i) {
+      if (i) cline.appendChild(document.createTextNode(' and '))
+      if (!c.id) { cline.appendChild(document.createTextNode(c.name)); return }
+      var link = el('<button type="button" class="conflict-link"></button>')
+      link.textContent = c.name
+      link.addEventListener('click', function () { renderDetail(c.id) })
+      cline.appendChild(link)
+    })
+    head.appendChild(cbox)
+  }
   ensureConflictMonth(p)
 
   // Stage is a label here, not a control. It used to be a full-width dropdown in its own section,
@@ -8172,15 +8189,19 @@ function openEventTypeSheet(p) {
 // ---- the date-conflict flag ----
 // Same rule as the Mac (App.tsx): another live project on the same date, or anything on the Google
 // Gigs calendar that day, and a date only counts when at least one project on it is still active.
-function conflictsFor(p) {
+function conflictsFor(p) { return conflictPartners(p).map(function (c) { return c.name }) }
+// The same list with ids: a CRM project has one (its name can be tapped to open it), a Gigs entry does not.
+function conflictPartners(p) {
   if (!p.eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(p.eventDate) || (p.bucket !== 'active' && p.bucket !== 'completed')) return []
   var same = (SNAP.projects || []).filter(function (x) { return x.id !== p.id && x.eventDate === p.eventDate && (x.bucket === 'active' || x.bucket === 'completed') })
   var gigs = []
   var cache = CAL_EVENTS[p.eventDate.slice(0, 7)]
   if (cache && cache !== 'loading') gigs = (cache.events || []).filter(function (e) { return e.calendar === 'Gigs' && e.date === p.eventDate })
   if (!gigs.length && !same.some(function (x) { return x.bucket === 'active' }) && p.bucket !== 'active') return []
-  return same.map(function (x) { return x.client }).concat(gigs.map(function (e) { return e.title + ' (Gigs calendar)' }))
+  return same.map(function (x) { return { name: x.client, id: x.id } }).concat(gigs.map(function (e) { return { name: e.title + ' (Gigs calendar)', id: '' } }))
 }
+// "A", "A and B", "A and B and C": his wording (2026-11-11), the same as the Mac's flag.
+function conflictNames(a) { return a.join(' and ') }
 // Make sure the Gigs calendar for this project's month is loaded, then repaint once it lands.
 function ensureConflictMonth(p) {
   if (!p.eventDate || !/^\d{4}-\d{2}/.test(p.eventDate)) return

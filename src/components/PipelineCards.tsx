@@ -85,7 +85,7 @@ function DisplayCard({
 
       {dateConflict && (
         <div className="mt-1.5">
-          <DateConflictFlag />
+          <DateConflictFlag projectId={p.id} />
         </div>
       )}
 

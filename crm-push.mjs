@@ -16,6 +16,9 @@ import { sendWebPush } from './crm-webpush.mjs'
 // The deployed phone app, used as the tap target for web-push notifications. Moved off Vercel to
 // michaelbloemeke.com/crm/ on 2026-08-03. The cloud sender reads the same value from
 // push_config.app_url; keep the two in step or a tapped notification opens the wrong place.
+// 2026-11-11: that web copy was REMOVED. The only subscriber now is the native iPhone app (an apns://
+// row), where a tap simply opens the app and this address is not used. Left as is on purpose: it only
+// matters for a browser subscription, and there are none.
 const APP_URL = 'https://michaelbloemeke.com/crm/'
 
 const CONFIG_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'push-config.json')

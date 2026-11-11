@@ -16,7 +16,6 @@ type Props = {
   // See PreviewPage. Drilled from App because the preview takes over the whole main area.
   onPreview: (t: PreviewTarget) => void
   dateConflict?: boolean
-  conflictWith?: string[]
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
@@ -47,7 +46,6 @@ export function ProjectDetail({
   project,
   onPreview,
   dateConflict = false,
-  conflictWith,
   tasks,
   onChangeStage,
   onSaveField,
@@ -125,7 +123,7 @@ export function ProjectDetail({
                   </div>
                   {dateConflict && (
                     <div className="mt-2">
-                      <DateConflictFlag conflictWith={conflictWith} />
+                      <DateConflictFlag projectId={project.id} />
                     </div>
                   )}
                 </div>
