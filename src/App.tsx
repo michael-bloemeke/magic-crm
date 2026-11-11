@@ -1346,7 +1346,6 @@ function App() {
                   structure={structure}
                   bookedIds={bookedIds}
                   unreadMail={inboxUnread}
-                  onOpenProject={openProjectById}
                   onToggleTask={toggleTask}
                 />
               ) : page === 'playbook' ? (

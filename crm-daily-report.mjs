@@ -604,3 +604,47 @@ export async function reportData({ date, from, to } = {}) {
   ])
   return { date: dateISO, events: cal.events || [], calendarOk: !!cal.ok, calendarNote: cal.reason || cal.error || (cal.errors || []).join('; ') || '', notes, plate, writing: inflight.has(dateISO) }
 }
+
+// ---- THE REPORT AS A PDF FILE (2026-11-11) ---------------------------------------------------
+// Michael: "I just want it to basically generate a document for me that I can reference, whether
+// that be like a PDF I can pull up on my computer or something I want to print... I don't need the
+// CRM to connect to my printer or anything like that." So the CRM has no Print button. "Open as
+// PDF" hands this the very document he is looking at; headless Chrome runs it through its print
+// styles into a real file, and the Mac opens it in Preview, where printing is the Mac's job.
+//
+// One file per day, in "Daily reports" at the top of the Claude folder; making it again the same
+// day replaces it. Chrome is the only thing on this Mac that can print a web page to PDF without a
+// window, so without it this says so plainly rather than producing something half-right.
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+export const PDF_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'Daily reports')
+
+export async function makePdf({ html, date, open = true } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('The report needs a date.')
+  if (!html || !/<main class="sheet">/.test(String(html))) throw new Error('There is no report to save yet.')
+  if (!fs.existsSync(CHROME)) throw new Error('Making the PDF needs Google Chrome, which is not installed on this Mac.')
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-report-'))
+  try {
+    const src = path.join(work, 'report.html')
+    const made = path.join(work, 'report.pdf')
+    fs.writeFileSync(src, String(html))
+    await new Promise((resolve, reject) => {
+      // --virtual-time-budget gives the page's fonts time to load before the page is printed.
+      const p = spawn(CHROME, [
+        '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
+        `--user-data-dir=${path.join(work, 'profile')}`,
+        '--no-pdf-header-footer', '--virtual-time-budget=6000', `--print-to-pdf=${made}`,
+        'file://' + src,
+      ], { stdio: 'ignore' })
+      const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new Error('Making the PDF took too long.')) }, 45000)
+      p.on('error', (e) => { clearTimeout(timer); reject(e) })
+      p.on('exit', () => { clearTimeout(timer); fs.existsSync(made) && fs.statSync(made).size > 1000 ? resolve() : reject(new Error('Chrome did not produce the PDF.')) })
+    })
+    fs.mkdirSync(PDF_DIR, { recursive: true })
+    const out = path.join(PDF_DIR, `Daily report ${date}.pdf`)
+    fs.copyFileSync(made, out)
+    if (open) spawn('open', [out], { stdio: 'ignore', detached: true }).unref()
+    return { ok: true, path: out, name: path.basename(out), folder: path.basename(PDF_DIR) }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true })
+  }
+}

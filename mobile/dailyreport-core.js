@@ -26,7 +26,8 @@
 // dailyreport-core.d.ts), the phone (app.js), the Mac's note writer (crm-daily-report.mjs), and the
 // tests. Everything here is pure: data in, a model or an HTML string out. The page is ONE
 // self-contained HTML document, shown in a frame on both apps, so it looks the same on the laptop,
-// on the phone and on paper, and printing it prints the report and nothing else.
+// on the phone and on paper. It is a SIMPLE DOCUMENT: no links, no tooltips, nothing that follows
+// the scroll. The one live thing on it is the checkbox. See the note above renderReportHtml.
 
 // The day's fixed shape (Michael, 2026-11-11): up at 6:00, working out and getting ready take two
 // hours, at the computer by 8:00. Minutes after midnight.
@@ -400,7 +401,7 @@ ul{padding:0;list-style:none}
 
 /* ---- top: the date, and where things stand ---- */
 .top{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:8px 40px;align-items:start;padding-bottom:22px;border-bottom:1px solid var(--line)}
-.date{font:500 40px/1.05 var(--display);letter-spacing:-.01em;color:var(--navy)}
+.date{font:500 40px/1.05 var(--display);letter-spacing:-.01em;color:var(--navy);text-wrap:balance}
 .doc{margin-top:8px;font-size:13px;color:var(--muted)}
 .facts{font-size:14.5px;line-height:1.55;color:var(--ink)}
 .brief{margin-top:8px;font-size:14px;line-height:1.6;color:var(--muted);max-width:68ch}

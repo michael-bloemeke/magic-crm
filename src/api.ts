@@ -1523,6 +1523,11 @@ export async function loadDailyReport(date: string, from: string, to: string): P
 export function writeDailyNotes(date: string): Promise<{ ok: boolean }> {
   return postJsonStrict<{ ok: boolean }>('/api/daily-report/write', { date }, 'Could not start the notes')
 }
+// Save the report he is looking at as a PDF file and open it in Preview. `html` is the document
+// itself, so the file matches the screen, ticks included.
+export function makeDailyReportPdf(date: string, html: string): Promise<{ ok: boolean; name: string; folder: string }> {
+  return postJsonStrict<{ ok: boolean; name: string; folder: string }>('/api/daily-report/pdf', { date, html }, 'Could not make the PDF')
+}
 
 // ---- Gmail drafts (2026-11-10): the one draft store for every composer -------------------------
 // Typing in a CRM composer saves straight into Gmail Drafts, and any Gmail draft on a project's

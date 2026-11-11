@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadDailyReport, writeDailyNotes, type DailyReportData, type Task } from '../api'
+import { loadDailyReport, makeDailyReportPdf, writeDailyNotes, type DailyReportData, type Task } from '../api'
 import type { PipelineStructure, Project } from '../pipeline'
 import { buildReport, dayBounds, localToday, renderReportHtml } from '../../mobile/dailyreport-core.js'
 
 // THE DAILY REPORT, on the Mac (2026-11-11). Opened from the button on Home.
 //
-// Michael: "I want it to pull up in the window of the actual CRM... but I want the ability to print
-// it if I really want." So it is a screen in the app, like the proposal preview, and what it shows is
-// ONE self-contained document in a frame. The same document the phone shows, built by the same file
-// (mobile/dailyreport-core.js; read the top of it for what is on the report and why). Framing it is
-// what makes Print print the report and nothing else.
+// Michael: "I want it to pull up in the window of the actual CRM." So it is a screen in the app, and
+// what it shows is ONE self-contained document in a frame. The same document the phone shows, built
+// by the same file (mobile/dailyreport-core.js; read the top of it for what is on the report and why).
+//
+// ⚠️ IT IS A SIMPLE DOCUMENT, NOT PART OF THE APP (reworked 2026-11-11, his words: "I don't want it
+// to be so embedded in the app"). Nothing on it links into the CRM, so this page listens for ONE
+// thing from the frame: a ticked checkbox. There is no Print button either ("I don't need the CRM to
+// connect to my printer"). "Open as PDF" saves the document as a real PDF file and opens it in
+// Preview; printing from there is the Mac's job.
 //
 // THE FACTS ARE LIVE; THE NOTES ARE WRITTEN ONCE. Tasks and projects come from the app, the calendar
 // and On my plate from /api/daily-report, on every open. Claude's notes take a minute or two, so
@@ -25,7 +29,6 @@ export function DailyReportPage({
   structure,
   bookedIds,
   unreadMail,
-  onOpenProject,
   onToggleTask,
 }: {
   projects: Project[]
@@ -33,7 +36,6 @@ export function DailyReportPage({
   structure: PipelineStructure
   bookedIds: Set<string>
   unreadMail: number
-  onOpenProject: (id: string) => void
   onToggleTask: (id: string, done: boolean) => void
 }) {
   const [date] = useState(() => localToday())
@@ -41,6 +43,8 @@ export function DailyReportPage({
   const [loadError, setLoadError] = useState<string | null>(null)
   // Tasks ticked off on this screen. They stay on the page, struck through, until he leaves.
   const [checked, setChecked] = useState<Set<string>>(() => new Set())
+  // "Open as PDF": '' idle, 'making' while Chrome prints it, otherwise the line to show afterwards.
+  const [pdf, setPdf] = useState<{ state: '' | 'making' | 'done' | 'error'; text: string }>({ state: '', text: '' })
   const frame = useRef<HTMLIFrameElement>(null)
   const keepScroll = useRef(0)
   const autoWrote = useRef(false)
@@ -142,13 +146,12 @@ export function DailyReportPage({
     }
   }
 
-  // The document's two buttons: a project name, and a task's checkbox.
+  // The one thing the document ever reports: a task's checkbox.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const m = e.data as { source?: string; type?: string; id?: string } | null
       if (!m || m.source !== 'daily-report' || !m.id) return
       if (frame.current && e.source !== frame.current.contentWindow) return
-      if (m.type === 'open-project') onOpenProject(m.id)
       if (m.type === 'toggle-task') {
         const id = m.id
         const done = !checked.has(id)
@@ -163,20 +166,24 @@ export function DailyReportPage({
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [onOpenProject, onToggleTask, checked])
+  }, [onToggleTask, checked])
 
-  const print = () => {
-    try {
-      frame.current?.contentWindow?.focus()
-      frame.current?.contentWindow?.print()
-    } catch {
-      window.print()
-    }
+  // The PDF is made from the document as it stands in the frame right now, so a task he has just
+  // ticked is crossed off in the file too.
+  const openPdf = () => {
+    const doc = frame.current?.contentDocument
+    const now = doc ? '<!doctype html>' + doc.documentElement.outerHTML : html
+    setPdf({ state: 'making', text: 'Making the PDF…' })
+    makeDailyReportPdf(date, now)
+      .then((r) => setPdf({ state: 'done', text: `Saved as “${r.name}” in the “${r.folder}” folder, and opened.` }))
+      .catch((e) => setPdf({ state: 'error', text: String(e instanceof Error ? e.message : e) }))
   }
 
   const note = loadError
     ? loadError
-    : writing
+    : pdf.state
+      ? pdf.text
+      : writing
       ? 'Claude is writing today’s notes…'
       : status === 'error'
         ? 'The notes could not be written.'
@@ -189,8 +196,8 @@ export function DailyReportPage({
   return (
     <div className="flex h-full min-h-0 flex-col px-8 pb-6">
       <div className="mb-3 flex shrink-0 items-center gap-3">
-        <p className={`min-w-0 flex-1 truncate text-[12.5px] ${loadError || status === 'error' ? 'text-[#ffb4a8]' : 'text-parchment/80'}`}>
-          {writing && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-[#e3c279] align-middle" />}
+        <p className={`min-w-0 flex-1 truncate text-[12.5px] ${loadError || pdf.state === 'error' || (!pdf.state && status === 'error') ? 'text-[#ffb4a8]' : 'text-parchment/80'}`}>
+          {writing && !pdf.state && <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-[#e3c279] align-middle" />}
           {note}
         </p>
         <button
@@ -204,11 +211,12 @@ export function DailyReportPage({
         </button>
         <button
           type="button"
-          onClick={print}
-          disabled={!html}
+          onClick={openPdf}
+          disabled={!html || pdf.state === 'making'}
+          title="Save this report as a PDF file and open it"
           className="shrink-0 rounded-lg border border-line bg-surface px-3.5 py-2 text-[12.5px] font-semibold text-parchment transition-colors hover:border-line-strong disabled:opacity-50"
         >
-          Print
+          {pdf.state === 'making' ? 'Making the PDF…' : 'Open as PDF'}
         </button>
       </div>
 

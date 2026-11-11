@@ -36,7 +36,7 @@ import {
 } from './crm-data-core.mjs'
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { getDraft, saveDraft, sendDraft, discardDraft } from './crm-drafts.mjs'
-import { reportData as dailyReportData, writeNotes as writeDailyNotes, serveRequests as serveDailyReportRequests } from './crm-daily-report.mjs'
+import { reportData as dailyReportData, writeNotes as writeDailyNotes, serveRequests as serveDailyReportRequests, makePdf as makeDailyReportPdf } from './crm-daily-report.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail, resolveAttachments } from './crm-emails.mjs'
 import { emailGifPath } from './crm-email-render.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
@@ -431,6 +431,12 @@ export function crmDataPlugin() {
           void writeDailyNotes(b.date, { by: 'mac' })
           return { ok: true, started: true }
         })
+      })
+      // "Open as PDF": the page posts the document it is showing; this saves it as a PDF file and
+      // opens it in Preview. `open: false` saves without opening (used by the checks).
+      server.middlewares.use('/api/daily-report/pdf', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, (b) => makeDailyReportPdf({ html: b.html, date: b.date, open: b.open !== false }))
       })
       server.middlewares.use('/api/daily-report', (req, res, next) => {
         if (req.method !== 'GET') return next()
