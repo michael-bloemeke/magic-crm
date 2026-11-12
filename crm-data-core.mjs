@@ -866,7 +866,7 @@ function tasksMeta() {
       'CRM-owned task list. Each task links to a project by projectId (slug of client_name) and carries a due date + done flag. The CRM creates, checks off, and deletes these.',
     cowork_guidance:
       'Safe to read. The CRM manages this file. If Cowork wants to auto-create standard tasks for a project (midway / 1-week / day-before / thank-you), append objects to tasks[] with the same shape and a matching projectId.',
-    task_shape: 'id, projectId, title, dueDate (YYYY-MM-DD), dueTime (HH:MM 24h, optional/"" for none), done (bool), createdAt (ISO)',
+    task_shape: 'id, projectId, title, dueDate (YYYY-MM-DD), dueTime (HH:MM 24h, optional/"" for none), durationMin (minutes, default 30), busy (bool, default false = Free), done (bool), createdAt (ISO)',
   }
 }
 
@@ -879,6 +879,15 @@ function normalizeTime(t) {
   const min = Number(m[2])
   if (h > 23 || min > 59) return ''
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
+// A timed task's length in minutes (Michael, 2026-11-12). 30 was the fixed length before the field
+// existed, so it stays the default. Clamped to the DB check (5 to 1440).
+export const TASK_DEFAULT_DURATION_MIN = 30
+function normalizeDuration(n) {
+  const v = Math.round(Number(n))
+  if (!Number.isFinite(v) || v <= 0) return TASK_DEFAULT_DURATION_MIN
+  return Math.min(1440, Math.max(5, v))
 }
 
 function writeTasksFile(data) {
@@ -905,6 +914,11 @@ function taskFromRow(r) {
     title: r.title == null ? '' : String(r.title),
     dueDate: r.due_date == null ? '' : String(r.due_date),
     dueTime: normalizeTime(r.due_time),
+    // Length and Busy/Free only matter once the task has a time (it then goes on the calendar).
+    // Free is the default (Michael, 2026-11-12): a task is a reminder, not an appointment, so it
+    // should not stop a client booking a call over it.
+    durationMin: normalizeDuration(r.duration_min),
+    busy: r.busy === true,
     done: !!r.done,
     createdAt: isoZ(r.created_at),
   }
@@ -917,6 +931,8 @@ function taskToRow(t) {
     title: t.title || '',
     due_date: t.dueDate || '',
     due_time: t.dueTime || '',
+    duration_min: normalizeDuration(t.durationMin),
+    busy: t.busy === true,
     done: !!t.done,
     created_at: t.createdAt || null,
   }
@@ -925,10 +941,15 @@ function taskToRow(t) {
 export function loadTasks() {
   if (CRM_STORE === 'supabase') return getCachedTasks().map(taskFromRow)
   // Default dueTime for tasks created before the field existed.
-  return readTasksFile().tasks.map((t) => ({ ...t, dueTime: normalizeTime(t.dueTime) }))
+  return readTasksFile().tasks.map((t) => ({
+    ...t,
+    dueTime: normalizeTime(t.dueTime),
+    durationMin: normalizeDuration(t.durationMin),
+    busy: t.busy === true,
+  }))
 }
 
-export async function addTask({ projectId, title, dueDate, dueTime }) {
+export async function addTask({ projectId, title, dueDate, dueTime, durationMin, busy }) {
   const t = String(title || '').trim()
   if (!t) throw new Error('task title is required')
   const task = {
@@ -938,6 +959,8 @@ export async function addTask({ projectId, title, dueDate, dueTime }) {
     dueDate: String(dueDate || ''),
     // Optional time-of-day. "" = an all-day task (still gets date-based CRM reminders).
     dueTime: normalizeTime(dueTime),
+    durationMin: normalizeDuration(durationMin),
+    busy: busy === true,
     done: false,
     createdAt: new Date().toISOString(),
   }
@@ -954,7 +977,7 @@ export async function addTask({ projectId, title, dueDate, dueTime }) {
   return task
 }
 
-export async function updateTask({ id, done, title, dueDate, dueTime }) {
+export async function updateTask({ id, done, title, dueDate, dueTime, durationMin, busy }) {
   if (CRM_STORE === 'supabase') {
     const existing = getCachedTasks().find((x) => x.id === id)
     if (!existing) throw new Error('task not found')
@@ -966,6 +989,8 @@ export async function updateTask({ id, done, title, dueDate, dueTime }) {
     if (title != null) task.title = String(title)
     if (dueDate != null) task.dueDate = String(dueDate)
     if (dueTime != null) task.dueTime = normalizeTime(dueTime)
+    if (durationMin != null) task.durationMin = normalizeDuration(durationMin)
+    if (typeof busy === 'boolean') task.busy = busy
     const row = taskToRow(task)
     // Rescheduled? Clear the cloud alarm stamp so notify-cron will alarm this task again at its new
     // time. taskToRow omits notified_at (so a plain edit like toggling done leaves it untouched); we
@@ -983,6 +1008,8 @@ export async function updateTask({ id, done, title, dueDate, dueTime }) {
   if (title != null) task.title = String(title)
   if (dueDate != null) task.dueDate = String(dueDate)
   if (dueTime != null) task.dueTime = normalizeTime(dueTime)
+  if (durationMin != null) task.durationMin = normalizeDuration(durationMin)
+  if (typeof busy === 'boolean') task.busy = busy
   data._meta = tasksMeta()
   writeTasksFile(data)
   return task

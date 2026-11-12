@@ -5,7 +5,7 @@
 // reached the calendar until the server was restarted.
 //
 // Run it:  node crm-calendar.test.mjs      (exits non-zero on failure)
-import { singleFlight } from './crm-calendar.mjs'
+import { singleFlight, taskEventBody } from './crm-calendar.mjs'
 
 let failures = 0
 function check(label, ok) {
@@ -78,6 +78,21 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
   check('a failed run rejects for its own caller', threw)
   check('the follow-up still runs after a failure', (await b) === 2)
   check('the gate is free again afterwards', (await sync()) === 3)
+}
+
+// ---- A task's length and Busy/Free (2026-11-12) ----
+{
+  const base = { title: 'Call venue', dueDate: '2026-11-20', dueTime: '14:00' }
+  const free = taskEventBody({ ...base, durationMin: 15, busy: false }, null)
+  check('a free task is transparent (does not block TidyCal)', free.transparency === 'transparent')
+  check('a task uses its own length', free.end.dateTime === '2026-11-20T14:15:00')
+  const busy = taskEventBody({ ...base, durationMin: 90, busy: true }, null)
+  check('a busy task is opaque (blocks TidyCal)', busy.transparency === 'opaque')
+  check('a 90-minute task ends 90 minutes later', busy.end.dateTime === '2026-11-20T15:30:00')
+  const old = taskEventBody({ ...base }, null)
+  check('a task with no length or busy flag is 30 minutes and free', old.end.dateTime === '2026-11-20T14:30:00' && old.transparency === 'transparent')
+  const late = taskEventBody({ ...base, dueTime: '23:30', durationMin: 60 }, null)
+  check('a late task rolls past midnight', late.end.dateTime === '2026-11-21T00:30:00')
 }
 
 if (failures) {

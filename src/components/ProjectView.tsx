@@ -14,6 +14,8 @@ import {
   type Payment,
   type ProjectLinks,
   type Task,
+  type TaskEditPatch,
+  type TaskTiming,
 } from '../api'
 import { StageSelect } from './StageSelect'
 import { EventTypeSelect } from './EventTypeSelect'
@@ -50,10 +52,10 @@ type Props = {
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
-  onAddTask: (title: string, dueDate: string, dueTime: string) => void
+  onAddTask: (title: string, dueDate: string, dueTime: string, timing: TaskTiming) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
-  onEditTask: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
+  onEditTask: (id: string, patch: TaskEditPatch) => void
   onArchive: () => void
   onComplete: () => void
   onRestore: () => void

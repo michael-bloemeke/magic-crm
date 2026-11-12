@@ -73,8 +73,24 @@ export type Task = {
   title: string
   dueDate: string // YYYY-MM-DD
   dueTime: string // HH:MM (24h), or '' for an all-day task. CRM reminders stay date-based either way.
+  // Length and Busy/Free (Michael, 2026-11-12). They only matter once the task has a time, because
+  // only timed tasks go on Google Calendar. Free is the default so a task never blocks TidyCal.
+  durationMin: number
+  busy: boolean
   done: boolean
   createdAt: string
+}
+
+export type TaskTiming = { durationMin: number; busy: boolean }
+export type TaskEditPatch = { title: string; dueDate: string; dueTime: string } & TaskTiming
+export const TASK_DEFAULT_TIMING: TaskTiming = { durationMin: 30, busy: false }
+// The lengths offered in the task forms, in minutes.
+export const TASK_LENGTHS = [5, 10, 15, 30, 45, 60, 90, 120, 180, 240]
+// 30 -> "30 min", 90 -> "1.5 hr", 120 -> "2 hr".
+export function taskLengthLabel(min: number): string {
+  if (min < 60) return `${min} min`
+  const h = min / 60
+  return `${Number.isInteger(h) ? h : h.toFixed(1).replace(/\.0$/, '')} hr`
 }
 
 // Ask the server to re-read everything from Supabase right now (the Refresh button). Waits at most 6
@@ -103,6 +119,8 @@ export async function addTask(input: {
   title: string
   dueDate: string
   dueTime?: string
+  durationMin?: number
+  busy?: boolean
 }): Promise<Task> {
   const res = await fetch('/api/tasks/add', {
     method: 'POST',
@@ -124,7 +142,7 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
 }
 
 // Rename a task and/or change its due date/time.
-export async function editTask(id: string, patch: { title?: string; dueDate?: string; dueTime?: string }): Promise<void> {
+export async function editTask(id: string, patch: Partial<TaskEditPatch>): Promise<void> {
   const res = await fetch('/api/tasks/update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -225,6 +225,8 @@ function taskRecord(r) {
     dueDate: r.due_date == null ? '' : String(r.due_date),
     // dueTime is optional in the files; the app defaults absent/invalid to "" (normalizeTime).
     dueTime: r.due_time == null ? '' : String(r.due_time),
+    durationMin: r.duration_min == null ? 30 : Number(r.duration_min),
+    busy: r.busy === true,
     done: !!r.done,
     createdAt: isoZ(r.created_at),
   }

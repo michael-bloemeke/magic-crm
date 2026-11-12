@@ -95,7 +95,10 @@ import {
   setTaskDone,
   editTask as apiEditTask,
   removeTask,
+  TASK_DEFAULT_TIMING,
   type Task,
+  type TaskEditPatch,
+  type TaskTiming,
   type Payment,
   type Contact,
   type ContactType,
@@ -938,9 +941,9 @@ function App() {
     reloadProjects()
   }
 
-  const addTaskFor = (projectId: string, title: string, dueDate: string, dueTime = '') => {
+  const addTaskFor = (projectId: string, title: string, dueDate: string, dueTime = '', timing: TaskTiming = TASK_DEFAULT_TIMING) => {
     lastEditAt.current = Date.now()
-    apiAddTask({ projectId, title, dueDate, dueTime })
+    apiAddTask({ projectId, title, dueDate, dueTime, ...timing })
       .then((task) => setTasks((prev) => [...(prev ?? []), task]))
       .catch(() => {})
   }
@@ -958,7 +961,7 @@ function App() {
       loadTasks().then(setTasks).catch(() => {})
     })
   }
-  const editTask = (id: string, patch: { title: string; dueDate: string; dueTime: string }) => {
+  const editTask = (id: string, patch: TaskEditPatch) => {
     lastEditAt.current = Date.now()
     setTasks((prev) => (prev ? prev.map((t) => (t.id === id ? { ...t, ...patch } : t)) : prev))
     apiEditTask(id, patch).catch(() => {
@@ -1108,7 +1111,7 @@ function App() {
             tasks={tasksForFull}
             onChangeStage={(stageId) => changeStage(fullProject.id, stageId)}
             onSaveField={(field, value) => saveField(fullProject.id, field, value)}
-            onAddTask={(title, dueDate, dueTime) => addTaskFor(fullProject.id, title, dueDate, dueTime)}
+            onAddTask={(title, dueDate, dueTime, timing) => addTaskFor(fullProject.id, title, dueDate, dueTime, timing)}
             onToggleTask={toggleTask}
             onDeleteTask={deleteTask}
             onEditTask={editTask}
@@ -1317,7 +1320,7 @@ function App() {
                 <TasksPage
                   tasks={liveTasks}
                   projects={liveProjects}
-                  onAdd={(title, dueDate, dueTime) => addTaskFor('', title, dueDate, dueTime)}
+                  onAdd={(title, dueDate, dueTime, timing) => addTaskFor('', title, dueDate, dueTime, timing)}
                   onToggle={toggleTask}
                   onDelete={deleteTask}
                   onEdit={editTask}
@@ -1445,7 +1448,7 @@ function App() {
         links={links}
         onChangeStage={(stageId) => selected && changeStage(selected.id, stageId)}
         onSaveField={(field, value) => selected && saveField(selected.id, field, value)}
-        onAddTask={(title, dueDate, dueTime) => selected && addTaskFor(selected.id, title, dueDate, dueTime)}
+        onAddTask={(title, dueDate, dueTime, timing) => selected && addTaskFor(selected.id, title, dueDate, dueTime, timing)}
         onToggleTask={toggleTask}
         onDeleteTask={deleteTask}
         onEditTask={editTask}

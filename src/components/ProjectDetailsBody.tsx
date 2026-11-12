@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { type Project, type PipelineStructure, type CategoryDef } from '../pipeline'
-import { loadConfig, loadCustomValues, loadInquiryForm, loadStructure, saveCustomValue, TIP_METHODS, type Contact, type InquiryForm, type Payment, type ProjectLinks, type Task } from '../api'
+import { loadConfig, loadCustomValues, loadInquiryForm, loadStructure, saveCustomValue, TIP_METHODS, type Contact, type InquiryForm, type Payment, type ProjectLinks, type Task, type TaskEditPatch, type TaskTiming, TASK_DEFAULT_TIMING } from '../api'
 import { type CustomField, INDOOR_OUTDOOR_OPTIONS } from '../eventFields'
 import { to12h } from '../format'
 import { TaskRow } from './TaskRow'
+import { TaskTimingInputs } from './TaskTimingInputs'
 import { EditableField } from './EditableField'
 import { PaymentsEditor } from './PaymentsEditor'
 import { BookingCard } from './BookingCard'
@@ -32,10 +33,10 @@ type Props = {
   contacts: Contact[]
   links: ProjectLinks
   onSaveField: (field: string, value: string) => void
-  onAddTask: (title: string, dueDate: string, dueTime: string) => void
+  onAddTask: (title: string, dueDate: string, dueTime: string, timing: TaskTiming) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
-  onEditTask: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
+  onEditTask: (id: string, patch: TaskEditPatch) => void
   onPaymentsChange?: (payments: Payment[]) => void
   onOpenContact: (c: Contact) => void
   onUnlinkContact: (c: Contact) => void
@@ -473,14 +474,15 @@ function ProjectTasks({
   onEdit,
 }: {
   tasks: Task[]
-  onAdd: (title: string, dueDate: string, dueTime: string) => void
+  onAdd: (title: string, dueDate: string, dueTime: string, timing: TaskTiming) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
-  onEdit: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
+  onEdit: (id: string, patch: TaskEditPatch) => void
 }) {
   const [title, setTitle] = useState('')
   const [due, setDue] = useState('')
   const [time, setTime] = useState('')
+  const [timing, setTiming] = useState<TaskTiming>(TASK_DEFAULT_TIMING)
 
   const active = tasks.filter((t) => !t.done).sort(byDueAsc)
   const done = tasks.filter((t) => t.done).sort(byDueAsc)
@@ -489,10 +491,11 @@ function ProjectTasks({
     e.preventDefault()
     const t = title.trim()
     if (!t) return
-    onAdd(t, due, time)
+    onAdd(t, due, time, timing)
     setTitle('')
     setDue('')
     setTime('')
+    setTiming(TASK_DEFAULT_TIMING)
   }
 
   return (
@@ -526,13 +529,13 @@ function ProjectTasks({
         </div>
       )}
 
-      <form onSubmit={submit} className="flex items-center gap-2">
+      <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="New task…"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
+          className="min-w-[12rem] flex-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment placeholder:text-faint focus:border-brass-dim focus:outline-none"
         />
         <input
           type="date"
@@ -545,6 +548,12 @@ function ProjectTasks({
           value={time}
           onChange={(e) => setTime(e.target.value)}
           title="Optional time (leave blank for an all-day task)"
+          className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[12px] text-muted focus:border-brass-dim focus:outline-none"
+        />
+        <TaskTimingInputs
+          value={timing}
+          onChange={setTiming}
+          hasTime={!!time}
           className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[12px] text-muted focus:border-brass-dim focus:outline-none"
         />
         <button

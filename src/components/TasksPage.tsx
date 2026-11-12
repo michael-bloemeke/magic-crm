@@ -1,17 +1,18 @@
 import { useMemo, useState, type ReactElement } from 'react'
 import { motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
-import type { Task } from '../api'
+import { TASK_DEFAULT_TIMING, type Task, type TaskEditPatch, type TaskTiming } from '../api'
 import { TaskRow } from './TaskRow'
 import { TaskSchedules } from './TaskSchedules'
+import { TaskTimingInputs } from './TaskTimingInputs'
 
 type Props = {
   tasks: Task[]
   projects: Project[]
-  onAdd: (title: string, dueDate: string, dueTime: string) => void
+  onAdd: (title: string, dueDate: string, dueTime: string, timing: TaskTiming) => void
   onToggle: (id: string, done: boolean) => void
   onDelete: (id: string) => void
-  onEdit: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
+  onEdit: (id: string, patch: TaskEditPatch) => void
   onOpenProject: (project: Project) => void
 }
 
@@ -49,6 +50,7 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
   const [newTitle, setNewTitle] = useState('')
   const [newDue, setNewDue] = useState('')
   const [newTime, setNewTime] = useState('')
+  const [newTiming, setNewTiming] = useState<TaskTiming>(TASK_DEFAULT_TIMING)
   // Completed tasks are not listed on this page (Michael, 2026-10-31); each project's page still shows
   // its own. A task ticked off HERE stays in place, struck through, until he leaves the page, so a
   // mis-tap can be undone. That matters most for standalone tasks, which have no project page.
@@ -65,10 +67,11 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
   const submitNew = () => {
     const t = newTitle.trim()
     if (!t) return
-    onAdd(t, newDue, newTime)
+    onAdd(t, newDue, newTime, newTiming)
     setNewTitle('')
     setNewDue('')
     setNewTime('')
+    setNewTiming(TASK_DEFAULT_TIMING)
   }
 
   // A task is overdue if its due date already passed, OR it's due today with a set time that's passed.
@@ -174,6 +177,12 @@ export function TasksPage({ tasks, projects, onAdd, onToggle, onDelete, onEdit, 
             value={newTime}
             onChange={(e) => setNewTime(e.target.value)}
             title="Optional time (leave blank for an all-day task)"
+            className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+          />
+          <TaskTimingInputs
+            value={newTiming}
+            onChange={setNewTiming}
+            hasTime={!!newTime}
             className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
           />
           <button

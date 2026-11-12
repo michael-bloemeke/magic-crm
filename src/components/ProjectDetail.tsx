@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { formatEventDate, formatFee, type CategoryDef, type Project } from '../pipeline'
-import type { Contact, Payment, ProjectLinks, Task } from '../api'
+import type { Contact, Payment, ProjectLinks, Task, TaskEditPatch, TaskTiming } from '../api'
 import { StageSelect } from './StageSelect'
 import { EventTypeSelect } from './EventTypeSelect'
 import { ProjectDetailsBody } from './ProjectDetailsBody'
@@ -19,10 +19,10 @@ type Props = {
   tasks: Task[]
   onChangeStage: (stageId: string) => void
   onSaveField: (field: string, value: string) => void
-  onAddTask: (title: string, dueDate: string, dueTime: string) => void
+  onAddTask: (title: string, dueDate: string, dueTime: string, timing: TaskTiming) => void
   onToggleTask: (id: string, done: boolean) => void
   onDeleteTask: (id: string) => void
-  onEditTask: (id: string, patch: { title: string; dueDate: string; dueTime: string }) => void
+  onEditTask: (id: string, patch: TaskEditPatch) => void
   onArchive: () => void
   onComplete: () => void
   onRestore: () => void

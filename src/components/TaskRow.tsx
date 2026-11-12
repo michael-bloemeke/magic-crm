@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { formatEventDate, todayISO } from '../pipeline'
-import type { Task } from '../api'
+import { taskLengthLabel, type Task, type TaskEditPatch, type TaskTiming } from '../api'
+import { TaskTimingInputs } from './TaskTimingInputs'
 
 type Props = {
   task: Task
@@ -8,7 +9,7 @@ type Props = {
   onToggle: (done: boolean) => void
   onDelete: () => void
   // When provided, the row can be renamed / re-dated / re-timed inline (a pencil appears on hover).
-  onEdit?: (patch: { title: string; dueDate: string; dueTime: string }) => void
+  onEdit?: (patch: TaskEditPatch) => void
   onOpenProject?: () => void
 }
 
@@ -30,17 +31,19 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
   const [draftTitle, setDraftTitle] = useState(task.title)
   const [draftDue, setDraftDue] = useState(task.dueDate || '')
   const [draftTime, setDraftTime] = useState(task.dueTime || '')
+  const [draftTiming, setDraftTiming] = useState<TaskTiming>({ durationMin: task.durationMin || 30, busy: task.busy === true })
 
   const startEdit = () => {
     setDraftTitle(task.title)
     setDraftDue(task.dueDate || '')
     setDraftTime(task.dueTime || '')
+    setDraftTiming({ durationMin: task.durationMin || 30, busy: task.busy === true })
     setEditing(true)
   }
   const saveEdit = () => {
     const t = draftTitle.trim()
     if (!t) return
-    onEdit?.({ title: t, dueDate: draftDue, dueTime: draftTime })
+    onEdit?.({ title: t, dueDate: draftDue, dueTime: draftTime, ...draftTiming })
     setEditing(false)
   }
 
@@ -69,6 +72,12 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
           onChange={(e) => setDraftTime(e.target.value)}
           title="Optional time (leave blank for an all-day task)"
           className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
+        />
+        <TaskTimingInputs
+          value={draftTiming}
+          onChange={setDraftTiming}
+          hasTime={!!draftTime}
+          className="shrink-0 rounded-md border border-line bg-surface px-1.5 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
         />
         <button type="button" onClick={saveEdit} aria-label="Save task" className="shrink-0 rounded-md p-1 text-brass-bright transition-colors hover:text-brass">
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 6" /></svg>
@@ -125,7 +134,7 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
           <span className="tabular-nums" style={{ color: dueColor }}>
             {overdue ? 'Overdue · ' : ''}
             {formatEventDate(task.dueDate)}
-            {task.dueTime ? ` · ${fmtTime(task.dueTime)}` : ''}
+            {task.dueTime ? ` · ${fmtTime(task.dueTime)} · ${taskLengthLabel(task.durationMin || 30)}${task.busy ? ' · Busy' : ''}` : ''}
           </span>
           {projectName && onOpenProject && (
             <>

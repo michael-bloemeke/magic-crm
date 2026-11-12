@@ -9,8 +9,8 @@
 // - A gig that is NOT booked is an all-day FREE event (prefixed "Inquiry: "). A BOOKED gig is a
 //   timed BUSY block from Leave home to Back home (2026-10-15). It carries the location, the times
 //   and basic details.
-// - A task goes on the calendar ONLY when it has a time: a timed block with 10-min + at-time
-//   reminders. A task with no time stays in the CRM and never touches the calendar (2026-10-14).
+// - A task goes on the calendar ONLY when it has a time: a block of its own length (default 30 min),
+//   FREE unless marked Busy (2026-11-12), with 10-min + at-time reminders. A task with no time stays in the CRM and never touches the calendar (2026-10-14).
 //   The CRM's own due reminders stay date-based regardless; these are just the calendar's reminders.
 
 import fs from 'node:fs'
@@ -29,7 +29,7 @@ const MAP_FILE = path.join(RECORDS_DIR, 'crm-calendar-map.json')
 const TIMEZONE = 'America/New_York' // Michael is in Durham, NC
 const GIGS_CALENDAR = 'Gigs'
 const WORK_CALENDAR = 'Work'
-const TASK_DURATION_MIN = 30 // a timed task blocks 30 min
+const TASK_DURATION_MIN = 30 // fallback length for a timed task with no durationMin
 
 // ---- Connection -------------------------------------------------------------
 
@@ -255,13 +255,19 @@ function taskBelongsOnCalendar(task) {
   return !!task && !task.done && isValidDate(task.dueDate) && !!parseTime(task.dueTime)
 }
 
-function taskEventBody(task, project) {
+// LENGTH AND BUSY/FREE (Michael, 2026-11-12). Each task carries its own length and a Busy/Free choice,
+// and FREE is the default. TidyCal reads this calendar's busy time, so a busy task removed call times
+// from his booking page; a free one shows on the calendar without blocking anything. Busy is for the
+// rare task that really is an appointment.
+export function taskEventBody(task, project) {
   const t = parseTime(task.dueTime)
+  const len = Number(task.durationMin) > 0 ? Number(task.durationMin) : TASK_DURATION_MIN
   return {
     summary: task.title,
     description: (project ? `Project: ${project.client}\n\n` : '') + '(Synced from Magic CRM.)',
     start: { dateTime: dateTimeAt(task.dueDate, t), timeZone: TIMEZONE },
-    end: { dateTime: dateTimeAt(task.dueDate, t, TASK_DURATION_MIN), timeZone: TIMEZONE },
+    end: { dateTime: dateTimeAt(task.dueDate, t, len), timeZone: TIMEZONE },
+    transparency: task.busy === true ? 'opaque' : 'transparent',
     reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 10 }, { method: 'popup', minutes: 0 }] },
   }
 }
