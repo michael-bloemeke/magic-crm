@@ -1147,7 +1147,38 @@ console.log('\n== the daily report: the rules (dailyreport-core.js) ==')
   ok(html.startsWith('<!doctype html>') || html.startsWith('<!DOCTYPE html>'), 'the report is one whole document')
   ok(html.includes('Send the Hendersons a proposal') && html.includes('Dinner with Meg') && html.includes('Holiday outreach'), 'tasks, the schedule, and the focus are all in it')
   ok(!/[—–]/.test(html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<script[\s\S]*?<\/script>/g, '')), 'no em or en dashes anywhere in the page text')
-  ok(html.indexOf('Do these first') < html.indexOf('class="next"'), 'tasks come before the larger project')
+  ok(html.indexOf('<h2>Tasks</h2>') > 0 && html.indexOf('<h2>Tasks</h2>') < html.indexOf('class="next"'), 'tasks come before the larger project')
+  ok(!/New inquiries|No task scheduled/.test(html), 'with no inquiry waiting and every project scheduled, neither standing list is shown')
+
+  // THE TWO STANDING LISTS (2026-11-12): new inquiries, and projects with nothing scheduled.
+  const many = [
+    { id: 'p1', client: 'Henderson wedding', bucket: 'active', stageId: 's1', eventDate: '2026-12-12' },
+    { id: 'q1', client: 'Fresh Lead', bucket: 'active', stageId: 'inquiry', eventDate: '2026-12-05', eventType: 'Corporate', eventLocation: 'Raleigh, NC', bookingSource: 'Google', leadDate: day },
+    { id: 'q2', client: 'Waiting Lead', bucket: 'active', stageId: 'inquiry', eventDate: '', eventType: 'Wedding', eventLocation: '', bookingSource: '', leadDate: '2026-11-08' },
+    { id: 'q3', client: 'Archived Lead', bucket: 'archived', stageId: 'inquiry', eventDate: '', leadDate: '2026-11-01' },
+    { id: 'n1', client: 'Forgotten Booking', bucket: 'active', stageId: 's1', eventDate: '2026-12-20', eventType: 'Private Event' },
+    { id: 'n2', client: 'Only Future Task', bucket: 'active', stageId: 's1', eventDate: '2027-01-08' },
+    { id: 'n3', client: 'Finished Show', bucket: 'completed', stageId: 's1', eventDate: '2026-10-01' },
+  ]
+  const moreTasks = [...tasks, { id: 'g', projectId: 'n2', title: 'Check in next month', dueDate: '2026-12-15', dueTime: '', done: false }, { id: 'h', projectId: 'n1', title: 'Old one', dueDate: '2026-11-01', dueTime: '', done: true }]
+  const flagsIn = { dateISO: day, tasks: moreTasks, projects: many, stageNames: { s1: 'Proposal', inquiry: 'Inquiry' }, bookedStageIds: [], events: [], plate: [], unreadMail: null, checkedIds: [] }
+  const mf = D.buildReport({ ...flagsIn, notes: { reportDate: day, status: 'ready', generatedAt: at(7), error: '', notes: { briefing: 'x', tasks: {}, inquiries: { q2: 'Call her today. Nothing argues against it.' } } } })
+  ok(mf.inquiries.map((q) => q.id).join(',') === 'q2,q1', 'every active project in the Inquiry stage is listed, the longest wait first (archived ones are not)', mf.inquiries.map((q) => q.id).join(','))
+  ok(mf.inquiries[0].waitedLabel === 'Waiting 3 days' && mf.inquiries[1].waitedLabel === 'Came in today', 'each says how long it has waited', mf.inquiries.map((q) => q.waitedLabel).join(' | '))
+  ok(mf.inquiries[0].note === 'Call her today. Nothing argues against it.' && mf.inquiries[1].note === '', "Claude's recommendation sits on the inquiry it was written for")
+  ok(mf.noTask.map((x) => x.id).join(',') === 'n1', 'a project with no open task is flagged; one with a future task, an inquiry, and a finished show are not', mf.noTask.map((x) => x.id).join(','))
+  ok(mf.facts.some((f) => f === '2 new inquiries waiting on a first reply.') && mf.facts.some((f) => f === '1 project has no task.'), 'the line at the top counts both', mf.facts.join(' '))
+  const hf = D.renderReportHtml(mf)
+  ok(hf.indexOf('<h2>New inquiries</h2>') > 0 && hf.indexOf('<h2>New inquiries</h2>') < hf.indexOf('<h2>Tasks</h2>') && hf.indexOf('<h2>Tasks</h2>') < hf.indexOf('<h2>No task scheduled</h2>'), 'on the page: new inquiries, then the tasks, then the projects with no task')
+  ok(hf.includes('Waiting Lead') && hf.includes('Call her today. Nothing argues against it.') && hf.includes('From Google') && hf.includes('Raleigh, NC'), 'an inquiry shows who, where, the source, and the recommendation')
+  ok(hf.includes('Forgotten Booking') && hf.includes('Private Event on December 20'), 'a project with no task shows where it stands')
+  const flagRows = hf.split('<li class="task flag">').slice(1).map((r) => r.split('</li>')[0])
+  ok(flagRows.length === 3 && flagRows.every((r) => !/data-task|class="box"/.test(r)), 'neither list has checkboxes: they are not tasks')
+  ok(!/<a[\s>]|href=/.test(hf.replace(/<link[^>]*>/g, '')), 'and still no links anywhere')
+  // Ticking a project's only task on this screen must not move it into the "no task" list while he reads.
+  const onlyTask = [{ id: 'z', projectId: 'n1', title: 'The only task', dueDate: day, dueTime: '', done: true }]
+  ok(D.buildReport({ ...flagsIn, tasks: onlyTask, checkedIds: ['z'], notes: null }).noTask.every((x) => x.id !== 'n1'), 'a task ticked on this screen still counts until he leaves the report')
+  ok(D.buildReport({ ...flagsIn, tasks: onlyTask, checkedIds: [], notes: null }).noTask.some((x) => x.id === 'n1'), 'and the next time the report opens, that project is flagged')
   // A SIMPLE DOCUMENT (2026-11-11): no links, no tooltips, nothing that follows the scroll.
   const body = html.replace(/<link[^>]*>/g, '')
   ok(!/<a[\s>]/.test(body) && !/href=/.test(body), 'the document has no links at all (a "#" link once loaded the whole CRM inside the report)')

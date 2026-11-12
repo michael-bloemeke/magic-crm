@@ -106,8 +106,11 @@ export function DailyReportPage({
     const onReport = tasks
       .filter((t) => t.dueDate && t.dueDate <= date && (!t.done || checked.has(t.id)))
       .map((t) => [t.id, t.title, t.dueDate, t.dueTime, t.projectId])
-    const named = projects.map((p) => [p.id, p.client, p.stageId, p.eventDate, p.bucket])
-    return JSON.stringify([date, onReport, named, stageNames, data?.events, data?.plate, data?.notes, writing, unreadMail])
+    const named = projects.map((p) => [p.id, p.client, p.stageId, p.eventDate, p.bucket, p.eventType, p.eventLocation, p.bookingSource, p.leadDate])
+    // Which projects have an open task at all (for the "No task scheduled" list). A task ticked on
+    // this screen still counts, so ticking never rebuilds the page.
+    const withTask = [...new Set(tasks.filter((t) => t.projectId && (!t.done || checked.has(t.id))).map((t) => t.projectId))].sort()
+    return JSON.stringify([date, onReport, named, withTask, stageNames, data?.events, data?.plate, data?.notes, writing, unreadMail])
   }, [tasks, projects, stageNames, data, writing, unreadMail, date, checked])
 
   const html = useMemo(() => {

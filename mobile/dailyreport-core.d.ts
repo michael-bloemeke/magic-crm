@@ -19,6 +19,8 @@ export type ReportNotes = {
   tasks?: Record<string, { how: string; send: string }>
   focus?: { title: string; why: string; firstStep: string } | null
   alsoOpen?: { title: string; why: string }[]
+  // Claude's recommendation for each project still in the Inquiry stage, by project id.
+  inquiries?: Record<string, string>
   // Every task Claude was shown when it wrote the notes, noted or not.
   covered?: string[]
   model?: string
@@ -37,7 +39,7 @@ export type ReportNotesRow = {
 export type ReportInput = {
   dateISO: string
   tasks: { id: string; projectId?: string; title: string; dueDate?: string; dueTime?: string; done?: boolean }[]
-  projects: { id: string; client: string; bucket: string; stageId?: string; eventDate?: string; eventType?: string }[]
+  projects: { id: string; client: string; bucket: string; stageId?: string; eventDate?: string; eventType?: string; eventLocation?: string; bookingSource?: string; leadDate?: string }[]
   stageNames?: Record<string, string>
   bookedStageIds?: string[]
   events?: ReportEvent[]
@@ -49,12 +51,15 @@ export type ReportInput = {
 export type ReportModel = {
   dateISO: string
   dateLabel: string
-  counts: { overdue: number; dueToday: number; total: number; noted: number; unseen: number }
+  counts: { overdue: number; dueToday: number; total: number; noted: number; unseen: number; inquiries: number; noTask: number }
+  inquiries: { id: string; name: string; line: string; where: string; source: string; waited: number | null; waitedLabel: string; note: string }[]
+  noTask: { id: string; name: string; line: string }[]
   notes: { state: 'none' | 'asked' | 'writing' | 'fresh' | 'old' | 'error'; generatedAt: string; reportDate: string; error: string; showingOld: boolean }
   [key: string]: unknown
 }
 export const ROUTINE: { wake: number; deskAt: number }
 export const GROUPS: { key: string; title: string }[]
+export const INQUIRY_STAGE: string
 export function localToday(now?: Date): string
 export function dayBounds(dateISO: string): { from: string; to: string }
 export function longDate(iso: string, withYear?: boolean): string

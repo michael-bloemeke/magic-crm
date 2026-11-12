@@ -35,7 +35,7 @@ import { contactsForProject, emailsForProject } from './crm-links.mjs'
 import { searchThreads, isConnected as gmailConnected } from './crm-gmail.mjs'
 import { loadHomeList } from './crm-home-list.mjs'
 import { proposalsOverview } from './crm-proposals.mjs'
-import { GROUPS, groupOf, placeEvents, dayBounds, localToday, longDate, clock, clockRange, daysBetween, tidy, ROUTINE } from './mobile/dailyreport-core.js'
+import { GROUPS, INQUIRY_STAGE, groupOf, placeEvents, dayBounds, localToday, longDate, clock, clockRange, daysBetween, tidy, ROUTINE } from './mobile/dailyreport-core.js'
 
 const CRM_MARKER = 'Synced from Magic CRM'
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -272,9 +272,9 @@ export async function buildPrompt(dateISO) {
       return []
     }
   })()
-  const projectBlocks = await mapLimit([...wanted], 3, async (id) => {
+  const describeProject = async (id, label = 'PROJECT') => {
     const p = byId.get(id)
-    const lines = [`PROJECT: ${p.client}`]
+    const lines = [`${label}: ${p.client}`]
     const add = (label, v, n = 300) => {
       const t = clip(v, n)
       if (t) lines.push(`  ${label}: ${t}`)
@@ -311,7 +311,29 @@ export async function buildPrompt(dateISO) {
     const mail = await mailFor(id)
     if (mail) lines.push('  Recent email:', mail)
     return lines.join('\n')
+  }
+  const projectBlocks = await mapLimit([...wanted], 3, (id) => describeProject(id))
+
+  // ---- new inquiries: still in the first stage, so he has not reached out to them at all ----
+  const activeNow = all.filter((p) => p.bucket === 'active')
+  const inqRefs = activeNow.filter((p) => p.stageId === INQUIRY_STAGE).map((p, i) => ({ ref: `Q${i + 1}`, id: p.id }))
+  const inquiryBlocks = await mapLimit(inqRefs, 3, async ({ ref, id }) => {
+    const p = byId.get(id)
+    const extra = []
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str(p.leadDate))) {
+      const d = daysBetween(p.leadDate, dateISO)
+      extra.push(`  Came in: ${longDate(p.leadDate, false)} (${d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`})`)
+    }
+    const same = p.eventDate ? activeNow.filter((o) => o.id !== id && o.eventDate === p.eventDate).map((o) => `${o.client} (${stageName[o.stageId] || o.stageId})`) : []
+    if (same.length) extra.push(`  SAME DATE AS: ${same.join('; ')}`)
+    return [await describeProject(id, `${ref}. NEW INQUIRY`), ...extra].join('\n')
   })
+
+  // ---- active projects with nothing scheduled (the page lists these itself) ----
+  const withOpenTask = new Set(loadTasks().filter((t) => !t.done && t.projectId).map((t) => t.projectId))
+  const noTask = activeNow
+    .filter((p) => p.stageId !== INQUIRY_STAGE && !withOpenTask.has(p.id))
+    .map((p) => `  ${p.client} | ${stageName[p.stageId] || p.stageId} | ${p.eventDate ? longDate(p.eventDate, false) : 'no date'}`)
 
   // ---- the day ----
   const bounds = dayBounds(dateISO)
@@ -359,6 +381,12 @@ export async function buildPrompt(dateISO) {
     '=== THE PROJECTS THOSE TASKS BELONG TO ===',
     projectBlocks.join('\n\n') || '(none)',
     '',
+    '=== NEW INQUIRIES: PROJECTS STILL IN HIS INQUIRY STAGE. HE HAS NOT REACHED OUT TO THESE AT ALL (write one note per inquiry, by its Q number) ===',
+    inquiryBlocks.join('\n\n') || '(none: nothing is sitting in the Inquiry stage)',
+    '',
+    '=== ACTIVE PROJECTS WITH NO OPEN TASK (the report lists these itself; do not list them again) ===',
+    noTask.join('\n') || '(none)',
+    '',
     '=== TODAY\'S SCHEDULE ===',
     dayText,
     '',
@@ -372,7 +400,7 @@ export async function buildPrompt(dateISO) {
     ...plans.map(([label, body]) => `--- ${label} ---\n${body}\n`),
   ].join('\n')
 
-  return { prompt, refs, taskCount: refs.length }
+  return { prompt, refs, inqRefs, taskCount: refs.length }
 }
 
 const SYSTEM_PROMPT = `You write the notes on Michael Bloemeke's daily report. Michael is a professional magician in Raleigh, North Carolina, and runs the business alone. Each morning he opens one page that lists his tasks, shows his schedule, and tells him what larger project to work on. You write three things for that page: a note on each task, a short read on where things stand, and the larger project for today.
@@ -402,6 +430,15 @@ THE TASK NOTES. For each task give:
 - "how": one to three sentences on how to get it done today. Lead with the first action. Use what the emails, the activity log, the proposal views, and his notes tell you: who to contact, by what channel, about what, and what is still unknown. For a small personal chore where the title says it all, leave "how" as an empty string rather than padding.
 - "send": if finishing the task means sending a message, one or two sentences on what that message should say and by which channel (and which ready template fits, if one does). Do NOT write the message itself. Otherwise an empty string.
 
+THE INQUIRY NOTES. A project in his Inquiry stage is a new lead he has not reached out to at all. The report lists each one with its event, place, source, and how long it has waited. For each Q number give "note": two or three sentences with your recommendation for handling it.
+- Lead with the recommendation: call it (his default for any new inquiry, as described above), answer on the gig site first, or decline it. Then the reason, from the material only.
+- Reasons worth naming: what they actually asked for, a date already taken by another project (shown as SAME DATE AS), an event very soon or very far off, a place well outside the Raleigh and Durham area, a missing phone number, a budget they stated, or anything in their own words that changes the approach.
+- When nothing argues against it, say so plainly and recommend the call. Do not invent a reason to hesitate.
+- It is a recommendation. He decides what to pursue and what to decline.
+- Do not repeat the name, event type, date, place, or source shown beside it unless it is the reason.
+
+PROJECTS WITH NO TASK. The page lists every active project that has no open task. Never list them yourself, and never write that a project "has no task today". At most, the briefing may mention how many there are.
+
 THE BRIEFING. Three to five sentences on where things stand this morning: what matters most today, what is waiting on clients, what is coming up soon, and anything at risk of being dropped. Facts from the material only. No pep talk.
 
 THE LARGER PROJECT ("focus"). This is what he works on AFTER the tasks are done, when he has time. Pick ONE.
@@ -417,9 +454,13 @@ Return only the structured answer.`
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['briefing', 'tasks', 'focus', 'alsoOpen'],
+  required: ['briefing', 'tasks', 'inquiries', 'focus', 'alsoOpen'],
   properties: {
     briefing: { type: 'string' },
+    inquiries: {
+      type: 'array',
+      items: { type: 'object', additionalProperties: false, required: ['ref', 'note'], properties: { ref: { type: 'string' }, note: { type: 'string' } } },
+    },
     tasks: {
       type: 'array',
       items: {
@@ -533,7 +574,7 @@ export function writeNotes(dateISO, { by = 'mac' } = {}) {
     const { error: upErr } = await sb().from('daily_reports').upsert({ report_date: date, status: 'writing', requested_by: by, requested_at: stamp, error: null }, { onConflict: 'report_date' })
     if (upErr) throw new Error(`daily_reports: ${upErr.message}`)
     try {
-      const { prompt, refs } = await buildPrompt(date)
+      const { prompt, refs, inqRefs } = await buildPrompt(date)
       const { answer, model } = await askClaude(prompt)
       const idByRef = new Map(refs.map((r) => [r.ref.toUpperCase(), r.id]))
       const tasks = {}
@@ -543,9 +584,18 @@ export function writeNotes(dateISO, { by = 'mac' } = {}) {
         const how = tidy(t.how), send = tidy(t.send)
         if (how || send) tasks[id] = { how, send }
       }
+      // His recommendation for each new inquiry, by project id.
+      const inqByRef = new Map(inqRefs.map((r) => [r.ref.toUpperCase(), r.id]))
+      const inquiries = {}
+      for (const q of Array.isArray(answer.inquiries) ? answer.inquiries : []) {
+        const id = inqByRef.get(str(q.ref).trim().toUpperCase())
+        const note = tidy(q.note)
+        if (id && note) inquiries[id] = note
+      }
       const notes = {
         briefing: tidy(answer.briefing),
         tasks,
+        inquiries,
         focus: answer.focus ? { title: tidy(answer.focus.title), why: tidy(answer.focus.why), firstStep: tidy(answer.focus.firstStep) } : null,
         alsoOpen: (Array.isArray(answer.alsoOpen) ? answer.alsoOpen : []).map((x) => ({ title: tidy(x.title), why: tidy(x.why) })).filter((x) => x.title).slice(0, 3),
         // Every task the writer was shown, noted or not, so the page can tell "added since" from

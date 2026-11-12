@@ -4059,8 +4059,12 @@ function openDailyReport() {
     var onReport = (SNAP.tasks || [])
       .filter(function (t) { return t.dueDate && t.dueDate <= date && (!t.done || st.checked[t.id]) })
       .map(function (t) { return [t.id, t.title, t.dueDate, t.dueTime, t.projectId] })
-    var named = (SNAP.projects || []).map(function (p) { return [p.id, p.client, p.stageId, p.eventDate, p.bucket] })
-    var key = JSON.stringify([date, onReport, named, st.events, plate, st.notes, UNREAD_MAIL])
+    var named = (SNAP.projects || []).map(function (p) { return [p.id, p.client, p.stageId, p.eventDate, p.bucket, p.eventType, p.eventLocation, p.bookingSource, p.leadDate] })
+    // Which projects have an open task at all (for the "No task scheduled" list). A task ticked on
+    // this screen still counts, so ticking never rebuilds the page.
+    var withTask = {}
+    ;(SNAP.tasks || []).forEach(function (t) { if (t.projectId && (!t.done || st.checked[t.id])) withTask[t.projectId] = 1 })
+    var key = JSON.stringify([date, onReport, named, Object.keys(withTask).sort(), st.events, plate, st.notes, UNREAD_MAIL])
     if (key === st.key) return
     st.key = key
     var stageNames = {}

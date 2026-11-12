@@ -17,6 +17,20 @@
 //   3. The larger project to work on once the tasks are done, chosen by Claude from his plans and his
 //      own "On my plate" list.
 //
+// STANDING CONTENT: things that are on the report EVERY day because he said so once, not because
+// they are in the calendar or the task list. Add to this list when he names another; never drop one.
+//   a. The morning routine: up at 6:00, working out and getting ready until 8:00 (2026-11-11).
+//   b. NEW INQUIRIES (2026-11-12): every active project still in the `inquiry` stage. That stage
+//      means he has not reached out AT ALL: "Once I even reach out to them at all, regardless of
+//      whether or not they answer, I move it over to the answered inquiry stage. So for that reason,
+//      anything that's sitting in the inquiry stage should get my attention." Each is listed with
+//      what it is and how long it has waited, and Claude may add a short recommendation.
+//   c. PROJECTS WITH NO TASK (2026-11-12): every other active project with no open task. His rule is
+//      that every project has something scheduled "that way, it's never just going to get forgotten
+//      about... include in the report if there's any projects that have slipped by that have no
+//      tasks." Inquiry-stage projects are left out of this list: they are already in (b), and a new
+//      website inquiry has no task by design.
+//
 // TWO LAYERS. The FACTS (tasks, calendar, On my plate) are read live every time, so the report is
 // never stale and opens instantly. CLAUDE'S NOTES (how to handle each task, where things stand, what
 // to work on) are written on the Mac, saved in `daily_reports`, and laid over the facts when they
@@ -34,6 +48,8 @@
 export const ROUTINE = { wake: 6 * 60, deskAt: 8 * 60 }
 // A task with a time blocks half an hour, the same as its calendar event (crm-calendar.mjs).
 export const TIMED_TASK_MIN = 30
+// The first stage of the pipeline: a lead nobody has reached out to yet.
+export const INQUIRY_STAGE = 'inquiry'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -228,7 +244,8 @@ function projectLine(p, dateISO, stageNames) {
 // input:
 //   dateISO        the day the report is for
 //   tasks          every open task [{ id, projectId, title, dueDate, dueTime, done }]
-//   projects       live projects [{ id, client, bucket, stageId, eventDate, eventType }]
+//   projects       live projects [{ id, client, bucket, stageId, eventDate, eventType, eventLocation,
+//                  bookingSource, leadDate }]
 //   stageNames     { stageId: 'Proposal Sent' }
 //   bookedStageIds [stageId] of the Booked category, for "next show"
 //   events         the day's calendar events (see above)
@@ -283,6 +300,35 @@ export function buildReport(input) {
   const overdue = openCount(['overdueProject', 'overdueOwn'])
   const dueToday = openCount(['todayProject', 'todayOwn'])
 
+  // ---- the two standing flags: new inquiries, and projects with nothing scheduled ----
+  // A task ticked off on this screen still counts as open until he leaves, like everywhere else on
+  // the page, so a project does not jump into the "no task" list while he is reading.
+  const hasOpenTask = new Set()
+  for (const t of input.tasks || []) if (t && t.projectId && (!t.done || checked.has(t.id))) hasOpenTask.add(t.projectId)
+  const inquiryNotes = n.inquiries || {}
+  const live = projects.filter((p) => p.bucket === 'active')
+  const inquiries = live
+    .filter((p) => p.stageId === INQUIRY_STAGE)
+    .map((p) => {
+      const waited = isISO(p.leadDate) ? Math.max(0, daysBetween(p.leadDate, dateISO)) : null
+      return {
+        id: p.id,
+        name: str(p.client).trim() || '(no name)',
+        line: projectLine(p, dateISO, null),
+        where: str(p.eventLocation).trim(),
+        source: str(p.bookingSource).trim(),
+        waited,
+        waitedLabel: waited == null ? '' : waited === 0 ? 'Came in today' : waited === 1 ? 'Came in yesterday' : `Waiting ${waited} days`,
+        note: tidy(inquiryNotes[p.id]),
+      }
+    })
+    // Longest wait first, the same way the tasks put the most overdue first.
+    .sort((a, b) => (b.waited == null ? -1 : b.waited) - (a.waited == null ? -1 : a.waited) || a.name.localeCompare(b.name))
+  const noTask = live
+    .filter((p) => p.stageId !== INQUIRY_STAGE && !hasOpenTask.has(p.id))
+    .sort((a, b) => str(a.eventDate || '9999').localeCompare(str(b.eventDate || '9999')) || str(a.client).localeCompare(str(b.client)))
+    .map((p) => ({ id: p.id, name: str(p.client).trim() || '(no name)', line: projectLine(p, dateISO, input.stageNames) }))
+
   // ---- timeline ----
   const placed = placeEvents(input.events, dateISO)
   const blocks = [
@@ -315,8 +361,8 @@ export function buildReport(input) {
     facts.push('Nothing with a set time today.')
   }
   if (input.unreadMail != null && input.unreadMail > 0) facts.push(`${plural(input.unreadMail, 'unread client email')}.`)
-  const waiting = projects.filter((p) => p.bucket === 'active' && p.stageId === 'inquiry').length
-  if (waiting) facts.push(`${plural(waiting, 'new inquiry', 'new inquiries')} waiting on a first reply.`)
+  if (inquiries.length) facts.push(`${plural(inquiries.length, 'new inquiry', 'new inquiries')} waiting on a first reply.`)
+  if (noTask.length) facts.push(`${plural(noTask.length, 'project')} ${noTask.length === 1 ? 'has' : 'have'} no task.`)
   const booked = new Set(input.bookedStageIds || [])
   const nextShow = projects
     .filter((p) => p.bucket === 'active' && booked.has(p.stageId) && isISO(p.eventDate) && p.eventDate >= dateISO)
@@ -353,7 +399,9 @@ export function buildReport(input) {
     facts,
     briefing: tidy(n.briefing),
     groups,
-    counts: { overdue, dueToday, total, noted, unseen },
+    inquiries,
+    noTask,
+    counts: { overdue, dueToday, total, noted, unseen, inquiries: inquiries.length, noTask: noTask.length },
     timeline: { startMin, endMin, blocks, allDay: placed.allDay, deskAt: ROUTINE.deskAt },
     focus,
     alsoOpen,
@@ -449,6 +497,11 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .how+.send{margin-top:4px}
 .send b{font-weight:600}
 .none{padding:10px 0;font-size:13px;color:var(--faint);border-bottom:1px solid var(--line)}
+/* The two standing lists (new inquiries, projects with no task): task rows without a checkbox. */
+.tasks h2:not(:first-child){margin-top:30px}
+.flags{margin-top:12px;border-top:2px solid var(--ink)}
+.dot{width:7px;height:7px;margin:7px 0 0 5px;border-radius:50%;background:var(--gold)}
+.quiet-line{color:var(--muted)}
 .clear{margin-top:16px;padding:16px 18px;background:var(--soft);border-radius:5px;font-size:14px;color:var(--muted)}
 
 /* ---- the day ---- */
@@ -530,7 +583,9 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
   .tl{zoom:.86}
   .tasks{padding-top:14px}
   .task{grid-template-columns:16px minmax(0,34%) minmax(0,1fr);gap:0 10px}
-  .gh{break-after:avoid}
+  .gh,.tasks h2,.tasks .lede{break-after:avoid}
+  .tasks h2:not(:first-child){margin-top:18px}
+  .dot{width:5px;height:5px;margin:5px 0 0 4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .clear{display:flow-root}
   .tt{font-size:12px}.how,.send{font-size:11px}.meta{font-size:10.5px}
   .task{padding:6px 0}
@@ -556,6 +611,27 @@ function taskHtml(t) {
 <button type="button" class="box" data-task="${esc(t.id)}" role="checkbox" aria-checked="${t.done ? 'true' : 'false'}" aria-label="Done: ${esc(t.title)}"></button>
 <div class="what"><div class="tt">${esc(t.title)}${who}</div>${meta.length ? `<div class="meta">${meta.join('. ')}</div>` : ''}</div>
 <div class="notes">${t.how ? `<p class="how">${esc(t.how)}</p>` : ''}${t.send ? `<p class="send"><b>Send:</b> ${esc(t.send)}</p>` : ''}</div>
+</li>`
+}
+
+// A new inquiry: who and what on the left, Claude's recommendation on the right. No checkbox: it is
+// not a task, and it leaves this list when he moves the project out of the Inquiry stage.
+function inquiryHtml(q) {
+  const meta = []
+  if (q.waitedLabel) meta.push(q.waited >= 2 ? `<span class="late">${esc(q.waitedLabel)}</span>` : esc(q.waitedLabel))
+  if (q.line) meta.push(esc(q.line))
+  if (q.where) meta.push(esc(q.where))
+  if (q.source) meta.push(esc(`From ${q.source}`))
+  return `<li class="task flag"><span class="dot" aria-hidden="true"></span>
+<div class="what"><div class="tt">${esc(q.name)}</div>${meta.length ? `<div class="meta">${meta.join('. ')}</div>` : ''}</div>
+<div class="notes">${q.note ? `<p class="how">${esc(q.note)}</p>` : ''}</div>
+</li>`
+}
+// A project with nothing scheduled: its name, and where it stands.
+function noTaskHtml(x) {
+  return `<li class="task flag"><span class="dot" aria-hidden="true"></span>
+<div class="what"><div class="tt">${esc(x.name)}</div></div>
+<div class="notes">${x.line ? `<p class="how quiet-line">${esc(x.line)}</p>` : ''}</div>
 </li>`
 }
 
@@ -677,8 +753,11 @@ export function renderReportHtml(model) {
 <section class="day" aria-label="Schedule"><h2>The day</h2><p class="lede">${scheduled ? 'Everything with a set time, from every calendar.' : 'Nothing has a set time today.'}</p>
 ${allDay}${timelineHtml(tl, model.dateISO)}
 </section>
-<section class="tasks" aria-label="Tasks"><h2>Do these first</h2><p class="lede">No set time. Work down the list in this order.</p>
+<section class="tasks" aria-label="Tasks">
+${model.inquiries.length ? `<h2>New inquiries</h2><p class="lede">Still in the Inquiry stage, so you have not reached out to ${model.inquiries.length === 1 ? 'this one' : 'these'} yet.</p><ul class="flags">${model.inquiries.map(inquiryHtml).join('')}</ul>` : ''}
+<h2>Tasks</h2><p class="lede">No set time. Work down the list in this order.</p>
 ${hasTasks ? groupsHtml : '<p class="clear">Nothing is overdue and nothing is due today. Straight to the project below.</p>'}
+${model.noTask.length ? `<h2>No task scheduled</h2><p class="lede">${model.noTask.length === 1 ? 'This project has' : 'These projects have'} nothing scheduled, so nothing will bring ${model.noTask.length === 1 ? 'it' : 'them'} back up. Add a task to each.</p><ul class="flags">${model.noTask.map(noTaskHtml).join('')}</ul>` : ''}
 </section>
 <section class="next" aria-label="After the tasks"><h2>After the tasks</h2>
 ${next}
