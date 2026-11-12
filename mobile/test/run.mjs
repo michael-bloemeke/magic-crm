@@ -142,6 +142,45 @@ ok(!!upd, 'Save calls updateTask')
 ok(upd && upd.args[0].dueDate === '', 'clearing the date sends an empty STRING, not undefined', JSON.stringify(upd && upd.args[0]))
 document.querySelectorAll('.sheet').forEach((s) => s.remove())
 
+console.log('\n== a task has a length and Busy/Free (2026-11-12) ==')
+CALLS.length = 0
+__app.setDetail(null); __app.setTab('tasks'); __app.renderTasks()
+await settle()
+document.querySelector('#add-task').dispatchEvent(new window.Event('click'))
+await settle()
+const form = document.querySelector('.addform')
+const [lenSel, busySel] = form.querySelectorAll('select')
+ok(!!lenSel && !!busySel, 'the add form has a length and a Busy/Free choice')
+ok(lenSel.value === '30' && busySel.value === 'free', 'they default to 30 min and Free', lenSel.value + ' ' + busySel.value)
+ok(lenSel.disabled && busySel.disabled, 'both are greyed out until a time is picked')
+const ntTime = form.querySelector('#nt-time')
+ntTime.value = '14:00'; ntTime.dispatchEvent(new window.Event('input'))
+ok(!lenSel.disabled && !busySel.disabled, 'picking a time switches them on')
+form.querySelector('#nt-title').value = 'Call the venue'
+lenSel.value = '15'; busySel.value = 'busy'
+form.querySelector('#nt-save').dispatchEvent(new window.Event('click'))
+await settle()
+const added = CALLS.find((c) => c.name === 'addTask')
+ok(added && added.args[0].durationMin === 15 && added.args[0].busy === true, 'Add task sends the length and Busy', JSON.stringify(added && added.args[0]))
+CALLS.length = 0
+const t3 = SNAP.tasks.find((t) => t.id === 't3')
+t3.durationMin = 30; t3.busy = false
+__app.renderTasks()
+await settle()
+const t3body = [...document.querySelectorAll('.taskbody')].find((b) => b.textContent.includes('Order new deck'))
+ok(t3body.textContent.includes('9:00 AM · 30 min') && !t3body.textContent.includes('Busy'), 'a free timed task shows its length and no Busy mark', t3body.textContent)
+t3body.dispatchEvent(new window.Event('click'))
+await settle()
+const [eLen, eBusy] = document.querySelectorAll('.sheet select')
+ok(eLen && eLen.value === '30' && eBusy.value === 'free' && !eLen.disabled, 'the editor shows the saved length and Free, switched on')
+eLen.value = '60'; eBusy.value = 'busy'
+;[...document.querySelectorAll('.sheet .btn-gold')].find((b) => b.textContent === 'Save').dispatchEvent(new window.Event('click'))
+await settle()
+const upd2 = CALLS.find((c) => c.name === 'updateTask')
+ok(upd2 && upd2.args[0].durationMin === 60 && upd2.args[0].busy === true, 'Save sends the new length and Busy', JSON.stringify(upd2 && upd2.args[0]))
+document.querySelectorAll('.sheet').forEach((s) => s.remove())
+t3.durationMin = 30; t3.busy = false
+
 console.log('\n== inbox is scoped to contacts on ACTIVE projects ==')
 CALLS.length = 0
 __app.setDetail(null); __app.setTab('inbox'); __app.renderInbox()

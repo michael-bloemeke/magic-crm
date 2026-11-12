@@ -38,7 +38,7 @@ export type ReportNotesRow = {
 }
 export type ReportInput = {
   dateISO: string
-  tasks: { id: string; projectId?: string; title: string; dueDate?: string; dueTime?: string; done?: boolean }[]
+  tasks: { id: string; projectId?: string; title: string; dueDate?: string; dueTime?: string; durationMin?: number; done?: boolean }[]
   projects: { id: string; client: string; bucket: string; stageId?: string; eventDate?: string; eventType?: string; eventLocation?: string; bookingSource?: string; leadDate?: string }[]
   stageNames?: Record<string, string>
   bookedStageIds?: string[]

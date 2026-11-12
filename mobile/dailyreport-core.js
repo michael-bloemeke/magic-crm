@@ -47,7 +47,7 @@
 // hours, at the computer by 8:00. Minutes after midnight.
 export const ROUTINE = { wake: 6 * 60, deskAt: 8 * 60 }
 // A task with a time blocks half an hour, the same as its calendar event (crm-calendar.mjs).
-export const TIMED_TASK_MIN = 30
+export const TIMED_TASK_MIN = 30 // fallback; each task now carries its own durationMin (2026-11-12)
 // The first stage of the pipeline: a lead nobody has reached out to yet.
 export const INQUIRY_STAGE = 'inquiry'
 
@@ -292,7 +292,7 @@ export function buildReport(input) {
       send: note ? tidy(note.send) : '',
     }
     groupByKey[key].items.push(item)
-    if (at != null) timedTasks.push({ item, at })
+    if (at != null) timedTasks.push({ item, at, len: Number(t.durationMin) > 0 ? Number(t.durationMin) : TIMED_TASK_MIN })
   }
   const order = (a, b) => b.late - a.late || a.projectName.localeCompare(b.projectName) || a.title.localeCompare(b.title)
   for (const g of groups) g.items.sort(order)
@@ -334,8 +334,8 @@ export function buildReport(input) {
   const blocks = [
     { id: 'routine', startMin: ROUTINE.wake, endMin: ROUTINE.deskAt, title: 'Work out and get ready', kind: 'routine', where: '' },
     ...placed.timed,
-    ...timedTasks.map(({ item, at }) => ({
-      id: 'task-' + item.id, startMin: at, endMin: Math.min(1440, at + TIMED_TASK_MIN),
+    ...timedTasks.map(({ item, at, len }) => ({
+      id: 'task-' + item.id, startMin: at, endMin: Math.min(1440, at + len),
       title: item.projectName ? `${item.title}: ${item.projectName}` : item.title, kind: 'task', where: '', projectId: item.projectId,
     })),
   ].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin)

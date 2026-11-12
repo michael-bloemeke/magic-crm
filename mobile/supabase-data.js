@@ -235,7 +235,7 @@ export async function loadStructure() {
 
 // Tasks: project_id, title, due_date, due_time, done. Grouped overdue/today/upcoming in the view.
 export async function loadTasks() {
-  const { data, error } = await sb.from('tasks').select('id,project_id,title,due_date,due_time,done')
+  const { data, error } = await sb.from('tasks').select('id,project_id,title,due_date,due_time,duration_min,busy,done')
   if (error) throw error
   return (data || []).map((t) => ({
     id: str(t.id),
@@ -243,6 +243,8 @@ export async function loadTasks() {
     title: str(t.title),
     dueDate: str(t.due_date),
     dueTime: str(t.due_time),
+    durationMin: Number(t.duration_min) > 0 ? Number(t.duration_min) : 30,
+    busy: t.busy === true,
     done: !!t.done,
   }))
 }
@@ -482,6 +484,13 @@ function normalizeTime(t) {
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 
+// A timed task's length in minutes. Mirrors normalizeDuration() in crm-data-core (default 30, 5 to 1440).
+function normalizeDuration(n) {
+  const v = Math.round(Number(n))
+  if (!Number.isFinite(v) || v <= 0) return 30
+  return Math.min(1440, Math.max(5, v))
+}
+
 // A fresh uuid (the desktop uses crypto.randomUUID() for task/payment ids; the DB columns are uuid).
 function uuid() {
   if (globalThis.crypto && crypto.randomUUID) return crypto.randomUUID()
@@ -495,7 +504,7 @@ function uuid() {
 // ---------- tasks ----------
 // addTask: same shape + id generation as crm-data-core.addTask (uuid id, normalized dueTime, done
 // false, created_at now). Returns the app task record.
-export async function addTask({ projectId, title, dueDate, dueTime } = {}) {
+export async function addTask({ projectId, title, dueDate, dueTime, durationMin, busy } = {}) {
   const t = String(title == null ? '' : title).trim()
   if (!t) throw new Error('Task title is required.')
   const row = {
@@ -504,22 +513,27 @@ export async function addTask({ projectId, title, dueDate, dueTime } = {}) {
     title: t,
     due_date: String(dueDate || ''),
     due_time: normalizeTime(dueTime),
+    // Free unless marked Busy (Michael, 2026-11-12), so a task never blocks a TidyCal call by default.
+    duration_min: normalizeDuration(durationMin),
+    busy: busy === true,
     done: false,
     created_at: new Date().toISOString(),
   }
   const { error } = await sb.from('tasks').insert(row)
   if (error) throw error
-  return { id: row.id, projectId: row.project_id, title: row.title, dueDate: row.due_date, dueTime: row.due_time, done: false }
+  return { id: row.id, projectId: row.project_id, title: row.title, dueDate: row.due_date, dueTime: row.due_time, durationMin: row.duration_min, busy: row.busy, done: false }
 }
 
 // updateTask: edit a task's title / due date / due time (crm-data-core.updateTask). Only the given
 // fields are written. If the due date or time actually changes, notified_at is reset to NULL so the
 // cloud alarm (notify-cron) will fire again at the new time. Mirrors the desktop reschedule reset.
 // (No phone UI calls this yet, but it's here and correct for when task-editing lands on the phone.)
-export async function updateTask({ id, title, dueDate, dueTime } = {}) {
+export async function updateTask({ id, title, dueDate, dueTime, durationMin, busy } = {}) {
   if (!id) throw new Error('Task id is required.')
   const patch = {}
   if (title != null) patch.title = String(title)
+  if (durationMin != null) patch.duration_min = normalizeDuration(durationMin)
+  if (typeof busy === 'boolean') patch.busy = busy
   const rescheduling = dueDate != null || dueTime != null
   if (dueDate != null) patch.due_date = String(dueDate)
   if (dueTime != null) patch.due_time = normalizeTime(dueTime)

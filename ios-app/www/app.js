@@ -2567,6 +2567,37 @@ function openAddContact(p, after) {
   })
 }
 
+// The two extra task controls (Michael, 2026-11-12): how long the task runs and whether it shows as
+// Busy or Free on Google Calendar. Free is the default, so a task never stops a client booking a
+// TidyCal call over it. Both only matter once the task has a time (untimed tasks never go on the
+// calendar), so they stay greyed out until a time is picked. Mirrors TaskTimingInputs.tsx on the Mac.
+var TASK_LENGTHS = [5, 10, 15, 30, 45, 60, 90, 120, 180, 240]
+function taskLengthLabel(min) {
+  min = Number(min) || 30
+  if (min < 60) return min + ' min'
+  var h = min / 60
+  return (h % 1 === 0 ? String(h) : h.toFixed(1).replace(/\.0$/, '')) + ' hr'
+}
+function taskTimingRow(timing, timeInput) {
+  var row = el('<div class="addrow"></div>')
+  var len = document.createElement('select'); len.className = 'search'; len.setAttribute('aria-label', 'Task length')
+  var lens = TASK_LENGTHS.indexOf(timing.durationMin) >= 0 ? TASK_LENGTHS : TASK_LENGTHS.concat([timing.durationMin]).sort(function (a, b) { return a - b })
+  lens.forEach(function (m) { var o = document.createElement('option'); o.value = String(m); o.textContent = taskLengthLabel(m); len.appendChild(o) })
+  len.value = String(timing.durationMin)
+  var busy = document.createElement('select'); busy.className = 'search'; busy.setAttribute('aria-label', 'Busy or free')
+  ;[['free', 'Free'], ['busy', 'Busy']].forEach(function (b) { var o = document.createElement('option'); o.value = b[0]; o.textContent = b[1]; busy.appendChild(o) })
+  busy.value = timing.busy ? 'busy' : 'free'
+  row.appendChild(len); row.appendChild(busy)
+  var sync = function () {
+    var off = !timeInput.value
+    len.disabled = off; busy.disabled = off
+    row.style.opacity = off ? '0.45' : ''
+  }
+  timeInput.addEventListener('input', sync); timeInput.addEventListener('change', sync)
+  sync()
+  return { row: row, sync: sync, value: function () { return { durationMin: Number(len.value) || 30, busy: busy.value === 'busy' } } }
+}
+
 // A task row with a tap-to-toggle checkbox on the left, the title/meta in the middle (tapping the
 // body opens the project when showProject), and a delete (x) on the right. Toggling checks it off
 // (crm rule: done=true), which removes it from the open lists on the next render.
@@ -2583,7 +2614,7 @@ function taskCard(t, showProject, onChange) {
       '<div class="taskbody">' +
         '<div class="name" style="font-size:14.5px">' + esc(t.title || 'Task') + '</div>' +
         (showProject && pName ? '<div class="meta">' + esc(pName) + '</div>' : '') +
-        (t.dueDate ? '<span class="pill ' + (st || '') + '">' + (st === 'overdue' ? 'Overdue · ' : st === 'due' ? 'Due today' : 'Due ') + (st === 'due' ? '' : esc(fmtShort(t.dueDate))) + (t.dueTime ? esc(' · ' + to12h(t.dueTime)) : '') + '</span>' : '') +
+        (t.dueDate ? '<span class="pill ' + (st || '') + '">' + (st === 'overdue' ? 'Overdue · ' : st === 'due' ? 'Due today' : 'Due ') + (st === 'due' ? '' : esc(fmtShort(t.dueDate))) + (t.dueTime ? esc(' · ' + to12h(t.dueTime) + ' · ' + taskLengthLabel(t.durationMin) + (t.busy ? ' · Busy' : '')) : '') + '</span>' : '') +
       '</div>' +
       '<button class="taskdel" aria-label="Delete task"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' +
     '</div>'
@@ -2647,13 +2678,15 @@ function openTaskEditor(t, after) {
   var tIn = document.createElement('input'); tIn.className = 'search'; tIn.type = 'time'; tIn.value = t.dueTime || ''
   when.appendChild(dIn); when.appendChild(tIn)
   body.appendChild(when)
+  var timing = taskTimingRow({ durationMin: Number(t.durationMin) || 30, busy: t.busy === true }, tIn)
+  body.appendChild(timing.row)
 
   var quick = el('<div class="do-actions" style="margin-top:9px"></div>')
   ;[['Today', 0], ['Tomorrow', 1], ['+1 week', 7], ['Clear', null]].forEach(function (q) {
     var b = el('<button class="do-alt" style="padding:8px 4px;font-size:12.5px">' + esc(q[0]) + '</button>')
     b.addEventListener('click', function () {
       dIn.value = q[1] == null ? '' : addDays(todayStr(), q[1])
-      if (q[1] == null) tIn.value = ''
+      if (q[1] == null) { tIn.value = ''; timing.sync() }
     })
     quick.appendChild(b)
   })
@@ -2672,8 +2705,9 @@ function openTaskEditor(t, after) {
     if (!nt) { toast('A task needs a title.', 'err'); return }
     // Every field is sent, including the blanks: updateTask treats null as "leave alone" and a
     // string as "set to this", so clearing a due date has to be an empty STRING, not an omission.
-    doWrite(updateTask({ id: t.id, title: nt, dueDate: dIn.value || '', dueTime: tIn.value || '' }), 'Task saved', function () {
-      t.title = nt; t.dueDate = dIn.value || ''; t.dueTime = tIn.value || ''
+    var tv = timing.value()
+    doWrite(updateTask({ id: t.id, title: nt, dueDate: dIn.value || '', dueTime: tIn.value || '', durationMin: tv.durationMin, busy: tv.busy }), 'Task saved', function () {
+      t.title = nt; t.dueDate = dIn.value || ''; t.dueTime = tIn.value || ''; t.durationMin = tv.durationMin; t.busy = tv.busy
       close(); refresh()
     })
   })
@@ -2707,6 +2741,8 @@ function addTaskForm(projectId, onDone) {
       '</div>' +
     '</div>'
   )
+  var timing = taskTimingRow({ durationMin: 30, busy: false }, wrap.querySelector('#nt-time'))
+  wrap.insertBefore(timing.row, wrap.querySelector('#nt-cancel').parentNode)
   var close = function () { wrap.remove() }
   wrap.querySelector('#nt-cancel').addEventListener('click', close)
   wrap.querySelector('#nt-save').addEventListener('click', function () {
@@ -2714,7 +2750,8 @@ function addTaskForm(projectId, onDone) {
     if (!title) { toast('Enter a task title.', 'err'); return }
     var dueDate = wrap.querySelector('#nt-date').value || ''
     var dueTime = wrap.querySelector('#nt-time').value || ''
-    doWrite(addTask({ projectId: projectId || '', title: title, dueDate: dueDate, dueTime: dueTime }), 'Task added', function (nt) {
+    var tv = timing.value()
+    doWrite(addTask({ projectId: projectId || '', title: title, dueDate: dueDate, dueTime: dueTime, durationMin: tv.durationMin, busy: tv.busy }), 'Task added', function (nt) {
       SNAP.tasks.push(nt)
       close()
       if (onDone) onDone(nt)
@@ -4077,7 +4114,7 @@ function openDailyReport() {
     var plate = plateItems()
     var onReport = (SNAP.tasks || [])
       .filter(function (t) { return t.dueDate && t.dueDate <= date && (!t.done || st.checked[t.id]) })
-      .map(function (t) { return [t.id, t.title, t.dueDate, t.dueTime, t.projectId] })
+      .map(function (t) { return [t.id, t.title, t.dueDate, t.dueTime, t.durationMin, t.projectId] })
     var named = (SNAP.projects || []).map(function (p) { return [p.id, p.client, p.stageId, p.eventDate, p.bucket, p.eventType, p.eventLocation, p.bookingSource, p.leadDate] })
     // Which projects have an open task at all (for the "No task scheduled" list). A task ticked on
     // this screen still counts, so ticking never rebuilds the page.
