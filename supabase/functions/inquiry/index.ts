@@ -329,16 +329,14 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
 // ⚠️ ONE PER ADDRESS PER DAY. The form is public, so without this anyone could make Michael's Gmail mail
 // a stranger again and again by resubmitting with their address. His own addresses are exempt so his
 // test submissions always get one.
-// ⚠️ PAUSED 2026-10-17. Michael took the booking calendar off the website while he travels (LA, then
-// China to November 9), so this email ("grab a time here") must not go out. Set this back to true
-// when /thank-you is the calendar again (relaunch = revert Website commit b7f85ee); the two go together.
-const AUTO_REPLY_ENABLED = false;
+// Paused 2026-10-17 while Michael traveled (LA, then China to November 9) and RELAUNCHED 2026-11-12 with
+// the booking calendar on /thank-you, on his word. The two go together: if the calendar comes off the
+// site again, set this to false in the same change.
+const AUTO_REPLY_ENABLED = true;
 
-const AUTO_AWAY = [
-  { from: "2026-10-18", back: "2026-10-21" },
-  { from: "2026-10-25", back: "2026-11-09" },
-];
-const AUTO_CALL_DAYS = [1, 2, 3, 4, 5, 6]; // Monday to Saturday, matching TidyCal (0 = Sunday)
+// Trips, same entries as AWAY in Website/thank-you.html. The October trips were cleared at the relaunch.
+const AUTO_AWAY: { from: string; back: string }[] = [];
+const AUTO_CALL_DAYS = [0, 1, 2, 3, 4, 5, 6]; // every day, matching TidyCal (0 = Sunday), checked 2026-11-12
 const AUTO_FROM = "Michael Bloemeke <michael@michaelbloemeke.com>";
 const AUTO_SUBJECT = "Thanks for reaching out!";
 const OWN_ADDRESSES = ["michael@michaelbloemeke.com", "mchlbloemeke@gmail.com"];
@@ -348,10 +346,11 @@ function easternISO(daysAhead: number): string {
     .format(new Date(Date.now() + daysAhead * 86400000));
 }
 
-// The page's rule exactly: away when none of today and the next two days is a call day off a trip.
+// The page's rule exactly: away when none of today and the next four days is a call day off a trip.
+// TidyCal's "4 days ahead" (Michael, 2026-11-12) offers today through four days from now.
 function bookingPageAway(): boolean {
   let open = false, trip = false;
-  for (let i = 0; i < 3 && !open; i++) {
+  for (let i = 0; i < 5 && !open; i++) {
     const iso = easternISO(i);
     const onTrip = AUTO_AWAY.some((t) => iso >= t.from && iso <= t.back);
     const weekday = new Date(iso + "T12:00:00Z").getUTCDay();
