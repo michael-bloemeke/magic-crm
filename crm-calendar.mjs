@@ -663,9 +663,10 @@ export async function sendCalendarInvite({
 // tidycal.com "Reschedule or cancel" link. TidyCal writes his bookings as him, so an event someone
 // else organised is not one, even with a tidycal.com link in it: that is Michael booking a call on
 // THEIR page (Jeff Newman's, Kelvin's). Same rule as classify in calendar-alerts/logic.ts.
+const MICHAEL_EMAILS = ['michael@michaelbloemeke.com', 'mchlbloemeke@gmail.com']
 function isTidyCalEvent(e) {
   const org = e?.organizer
-  if (org && !org.self && !['michael@michaelbloemeke.com', 'mchlbloemeke@gmail.com'].includes(String(org.email || '').toLowerCase())) return false
+  if (org && !org.self && !MICHAEL_EMAILS.includes(String(org.email || '').toLowerCase())) return false
   let host = ''
   try {
     host = new URL(String(e?.source?.url || '')).hostname.toLowerCase()
@@ -725,6 +726,7 @@ export async function listCalendarEvents(names = [WORK_CALENDAR, GIGS_CALENDAR],
           const allDay = !!(e.start && e.start.date)
           const date = allDay ? e.start.date : e.start && e.start.dateTime ? e.start.dateTime.slice(0, 10) : ''
           if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+          const booking = isTidyCalEvent(e)
           events.push({
             id: e.id,
             calendar: name,
@@ -732,9 +734,19 @@ export async function listCalendarEvents(names = [WORK_CALENDAR, GIGS_CALENDAR],
             date,
             allDay,
             startTime: !allDay && e.start && e.start.dateTime ? e.start.dateTime : '',
+            endTime: !allDay && e.end && e.end.dateTime ? e.end.dateTime : '',
             location: e.location || '',
             htmlLink: e.htmlLink || '',
-            booking: isTidyCalEvent(e),
+            booking,
+            // A TidyCal booking's guests (the client), so the CRM can tie the booking to its project
+            // (the TidyCal bar on the project page and the green pipeline card, 2026-11-12).
+            ...(booking
+              ? {
+                  guests: (e.attendees || [])
+                    .filter((a) => !a.self && a.email && !MICHAEL_EMAILS.includes(String(a.email).toLowerCase()))
+                    .map((a) => String(a.email).toLowerCase()),
+                }
+              : {}),
           })
         }
         pageToken = res.data.nextPageToken
