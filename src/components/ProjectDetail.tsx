@@ -9,6 +9,7 @@ import { type PreviewTarget } from './PreviewPage'
 import { ProjectActions } from './ProjectActions'
 import { EditableTitle } from './EditableTitle'
 import { DateConflictFlag } from './DateConflictFlag'
+import { TidyCalBar } from './TidyCalBar'
 
 type Props = {
   project: Project | null
@@ -126,6 +127,7 @@ export function ProjectDetail({
                       <DateConflictFlag projectId={project.id} />
                     </div>
                   )}
+                  <TidyCalBar projectId={project.id} className="mt-2.5" />
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button

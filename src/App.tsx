@@ -107,6 +107,7 @@ import {
 } from './api'
 import { linkedProjectsFor, contactsForProject } from './contacts'
 import { DateConflictContext, type ConflictPartner } from './dateConflicts'
+import { TidyCalContext, tidyCalByProject } from './tidycal'
 
 type View = 'flow' | 'board' | 'cards'
 
@@ -488,6 +489,10 @@ function App() {
     return info
   }, [allProjects, calEvents])
   const dateConflictIds = useMemo(() => new Set(dateConflictInfo.keys()), [dateConflictInfo])
+  // Upcoming TidyCal bookings per project, matched by the client's email (src/tidycal.ts). Read by the
+  // TidyCal bar on the project page and the green glow on pipeline cards. calEvents is re-pulled on
+  // every background refresh, so a new booking shows within about 20 seconds and a finished call drops off.
+  const tidyCal = useMemo(() => tidyCalByProject(calEvents, projects ?? [], contacts, links), [calEvents, projects, contacts, links])
   const hasReceivedPayment = (projectId: string) =>
     payments.some((p) => p.projectId === projectId && isReceivedPayment(p))
   // Keep the global payments list in sync when a PaymentsEditor mutates a project.
@@ -1068,6 +1073,7 @@ function App() {
 
   return (
     <DateConflictContext.Provider value={conflictContext}>
+    <TidyCalContext.Provider value={tidyCal}>
     <div className="relative z-10 flex h-screen overflow-hidden">
       <Sidebar
         // While a project is open, highlight the nav item for where that project lives
@@ -1648,6 +1654,7 @@ function App() {
         onSubmit={(payload) => callTarget && doLogCall(callTarget, payload)}
       />
     </div>
+    </TidyCalContext.Provider>
     </DateConflictContext.Provider>
   )
 }

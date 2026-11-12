@@ -27,6 +27,7 @@ import { NotesDrawer } from './NotesDrawer'
 import { EmailBuilderModal } from './EmailBuilderModal'
 import { ProjectActions } from './ProjectActions'
 import { DateConflictFlag } from './DateConflictFlag'
+import { TidyCalBar } from './TidyCalBar'
 import { EditableTitle } from './EditableTitle'
 import { ProjectChat } from './ProjectChat'
 import { contactsForProject } from '../contacts'
@@ -439,6 +440,7 @@ export function ProjectView({
           )}
           {dateConflict && <DateConflictFlag variant="banner" projectId={project.id} />}
         </div>
+        <TidyCalBar projectId={project.id} className="mt-3" />
       </div>
 
       {/* Content: the full-page thread reader when a conversation is open,

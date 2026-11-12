@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
+import { TidyCalContext, TIDYCAL_GLOW, hasClientBooking } from '../tidycal'
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project } from '../pipeline'
 import { DateConflictFlag } from './DateConflictFlag'
 
@@ -22,9 +23,12 @@ type Props = {
 
 export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, dateConflict = false, badge, summary = false }: Props) {
   const typeColor = EVENT_TYPE_ACCENT[p.eventType]
+  // Green when the client has booked a TidyCal call that has not happened yet (src/tidycal.ts).
+  const booked = hasClientBooking(useContext(TidyCalContext), p.id)
   return (
     <div
       role="button"
+      style={booked ? TIDYCAL_GLOW : undefined}
       tabIndex={0}
       onClick={() => onOpenFull(p)}
       onKeyDown={(e) => {

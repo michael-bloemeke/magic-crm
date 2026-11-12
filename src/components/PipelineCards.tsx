@@ -1,4 +1,6 @@
+import { useContext } from 'react'
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project, type Umbrella } from '../pipeline'
+import { TidyCalContext, TIDYCAL_GLOW_NO_TOP, hasClientBooking } from '../tidycal'
 import { DateConflictFlag } from './DateConflictFlag'
 
 // The "Cards" pipeline view: the whole active pipeline laid out as a dense, scannable
@@ -35,6 +37,9 @@ function DisplayCard({
   const typeColor = EVENT_TYPE_ACCENT[p.eventType]
   const blurb = (p.eventDescription || p.projectNotes || '').trim()
   const contact = (p.contactNames || '').split(/[;,]/)[0].trim()
+  // Green when the client has booked a TidyCal call that has not happened yet (src/tidycal.ts). The top
+  // border shorthand stays in the style either way, so React never strips its color on a toggle.
+  const booked = hasClientBooking(useContext(TidyCalContext), p.id)
 
   return (
     <div
@@ -53,7 +58,7 @@ function DisplayCard({
           ? 'border-brass-dim bg-surface-3/80 hover:border-brass-dim'
           : 'border-line bg-surface-2/80 hover:border-line-strong hover:bg-surface-3/80',
       ].join(' ')}
-      style={{ borderTop: `2px solid ${accent}` }}
+      style={booked ? { ...TIDYCAL_GLOW_NO_TOP, borderTop: '2px solid #22c55e' } : { borderTop: `2px solid ${accent}` }}
     >
       {/* Top row: event type + fee */}
       <div className="mb-1.5 flex items-center justify-between gap-2">

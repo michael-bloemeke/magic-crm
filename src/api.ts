@@ -1378,9 +1378,11 @@ export type CalendarEvent = {
   date: string // YYYY-MM-DD
   allDay: boolean
   startTime: string // RFC 3339 with offset, '' when all-day
+  endTime?: string // RFC 3339 with offset, '' when all-day
   location: string
   htmlLink: string
   booking: boolean
+  guests?: string[] // a TidyCal booking's guest emails (the client), lowercased. Read by src/tidycal.ts
 }
 export async function loadCalendarEvents(from: string, to: string): Promise<CalendarEvent[]> {
   try {
