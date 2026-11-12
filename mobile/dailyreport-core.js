@@ -499,7 +499,8 @@ h2{font:600 19px/1.2 var(--display);color:var(--ink)}
 .none{padding:10px 0;font-size:13px;color:var(--faint);border-bottom:1px solid var(--line)}
 /* The two standing lists (new inquiries, projects with no task): task rows without a checkbox. */
 .tasks h2:not(:first-child){margin-top:30px}
-.flags{margin-top:12px;border-top:2px solid var(--ink)}
+/* flow-root: beside the schedule the list narrows, instead of drawing its rule underneath it. */
+.flags{display:flow-root;margin-top:12px;border-top:2px solid var(--ink)}
 .dot{width:7px;height:7px;margin:7px 0 0 5px;border-radius:50%;background:var(--gold)}
 .quiet-line{color:var(--muted)}
 .clear{margin-top:16px;padding:16px 18px;background:var(--soft);border-radius:5px;font-size:14px;color:var(--muted)}

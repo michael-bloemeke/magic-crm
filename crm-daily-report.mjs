@@ -618,8 +618,9 @@ export function writeNotes(dateISO, { by = 'mac' } = {}) {
 }
 
 // The phone asked for notes (it set a row to `requested`). Claim each request with a conditional
-// update, so a request is written once even if this runs twice, then write it. Called when the
-// data changes and at boot; costs one small read when there is nothing to do.
+// update, so a request is written once even if this runs twice, then write it. Also picks up a write
+// that a restart cut off. Called when the data changes and at boot; costs two small reads when there
+// is nothing to do.
 export async function serveRequests() {
   if (CRM_STORE !== 'supabase') return
   try {
@@ -632,6 +633,20 @@ export async function serveRequests() {
       }
       const { data: claimed } = await sb().from('daily_reports').update({ status: 'writing', requested_at: new Date().toISOString() }).eq('report_date', r.report_date).eq('status', 'requested').select('report_date')
       if (claimed && claimed.length) void writeNotes(r.report_date, { by: 'phone' })
+    }
+    // A row left at `writing` by a server that was restarted or quit in the middle of a write is an
+    // orphan. Only this process writes notes, so "writing" with nothing in flight here means nobody
+    // is. Without this the page says "Claude is writing today's notes" for ever, with Rewrite held
+    // off, and the notes never arrive. (Found 2026-11-12, when a code change restarted the server
+    // mid-write.) Today's are started again; a past day's are closed off.
+    const { data: stuck } = await sb().from('daily_reports').select('report_date').eq('status', 'writing').limit(5)
+    for (const r of stuck || []) {
+      if (inflight.has(r.report_date)) continue
+      if (r.report_date < localToday()) {
+        await sb().from('daily_reports').update({ status: 'error', error: 'These notes were interrupted before they finished.' }).eq('report_date', r.report_date).eq('status', 'writing')
+        continue
+      }
+      void writeNotes(r.report_date, { by: 'mac' })
     }
   } catch (e) {
     console.warn('[daily-report] could not check for requests:', e?.message || e)
