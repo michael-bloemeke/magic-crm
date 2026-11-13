@@ -31,7 +31,7 @@ export const FIELD_DEFS = [
   { key: 'venue_type', label: 'Venue type', get: (p) => s(p.venueType) },
   { key: 'indoors_or_outdoors', label: 'Indoor / outdoor', get: (p) => s(p.indoorsOrOutdoors) },
   { key: 'event_start_time', label: 'Event start time', get: (p) => s(p.eventStartTime) },
-  { key: 'show_start_time', label: 'Show start time', get: (p) => s(p.showStartTime) },
+  { key: 'show_start_time', label: 'Performance start time', get: (p) => s(p.showStartTime) },
   { key: 'services_description', label: 'Performance scope', get: (p) => s(p.performanceStyle) },
   { key: 'booking_fee', label: 'Booking fee', get: (p) => money(p.totalFee) },
 ]

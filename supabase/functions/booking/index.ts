@@ -98,7 +98,7 @@ function prettyTime(v: string): string {
 const FIELDS: { id: string; label: string; type: string; contractKey?: string }[] = [
   { id: "event_summary", label: "Basic description of the event", type: "textarea" },
   { id: "event_start_time", label: "Event start time", type: "time", contractKey: "event_start_time" },
-  { id: "show_start_time", label: "Show start time", type: "time", contractKey: "show_start_time" },
+  { id: "show_start_time", label: "Performance start time", type: "time", contractKey: "show_start_time" },
   { id: "av", label: "For a stage show, what AV is available at the venue (sound system, projector/screen, etc)?", type: "textarea" },
   { id: "number_of_guests", label: "Number of guests", type: "text" },
   { id: "venue_address", label: "Venue address", type: "textarea", contractKey: "event_location" },
