@@ -814,7 +814,7 @@ function projectCard(p, accent) {
   var loc = active ? (p.eventLocation || p.venueType || 'Location TBD') : ''
 
   var c = el(
-    '<button class="card' + (accent ? ' accented' : '') + '">' +
+    '<button class="card' + (accent ? ' accented' : '') + (tidyCalFor(p).length ? ' tc-glow' : '') + '">' +
       '<div class="row1"><span class="name">' + esc(p.client) + '</span><span class="fee">' + esc(money(p.totalFee)) + '</span></div>' +
       '<div class="meta">' + (active ? eventTypePill(p.eventType) + ' ' : '') + esc(meta) + (cd ? '<span class="cdown' + (soon ? ' soon' : '') + '">' + esc(cd) + '</span>' : '') + '</div>' +
       (loc ? '<div class="card-loc">' + esc(loc) + '</div>' : '') +
@@ -1108,6 +1108,7 @@ function projectHeader(p) {
     head.appendChild(cbox)
   }
   ensureConflictMonth(p)
+  head.appendChild(tidyCalBar(p))
 
   // Stage is a label here, not a control. It used to be a full-width dropdown in its own section,
   // which spent a lot of screen on one word; changing it now lives in Actions.
@@ -4948,6 +4949,100 @@ function startMailCount() {
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible' && Date.now() - UNREAD_AT > 60000) refreshUnreadMail()
   })
+}
+
+// ---------- TidyCal bookings on a project (2026-11-12, the Mac's src/tidycal.ts) ----------
+//
+// Michael: a TidyCal booking only showed up as a phone alert and on his calendar, so a project gave
+// no sign a call was booked. Now the project page has a TidyCal bar (grey "No call booked", or green
+// with the call and its time) and the pipeline card glows green. EVERY TidyCal booking counts,
+// including follow-up calls he books for a client through his hidden TidyCal page: "Anybody who gets
+// a TidyCal invite counts." A CRM task like "follow up call", or a time agreed on the phone, is not a
+// TidyCal event and never reaches here.
+//
+// Matched by the client's EMAIL (projectEmails), never the name: TidyCal titles the event "Event
+// Strategy Call with Michael Bloemeke", from the guest's side. phone-api `calendar-events` passes the
+// guests' emails through. Polled every two minutes and when the app comes back to the front.
+var TIDYCAL = []          // upcoming bookings: { callName, start, end, guests }
+var TIDYCAL_AT = 0
+var TIDYCAL_INFLIGHT = null
+var TIDYCAL_MS = 2 * 60 * 1000
+var tidyCalTimer = null
+function tcCallName(title) {
+  var t = String(title || '')
+  var i = t.toLowerCase().lastIndexOf(' with ')
+  return (i > 0 ? t.slice(0, i) : t).trim() || 'Call'
+}
+function refreshTidyCal() {
+  if (!SNAP) return Promise.resolve() // projects not loaded yet: nothing to match against
+  if (TIDYCAL_INFLIGHT) return TIDYCAL_INFLIGHT
+  var end = new Date(); end.setDate(end.getDate() + 60) // the hidden follow-up page books well ahead
+  var to = end.getFullYear() + '-' + String(end.getMonth() + 1).padStart(2, '0') + '-' + String(end.getDate()).padStart(2, '0')
+  TIDYCAL_INFLIGHT = withTimeout(phoneApi('calendar-events', { from: todayStr(), to: to }), 20000, 'TidyCal check timed out.')
+    .then(function (r) {
+      var now = Date.now()
+      var next = (r.events || []).filter(function (e) {
+        if (!e.booking || !e.startTime || !(e.guests || []).length) return false
+        var fin = Date.parse(e.endTime || e.startTime)
+        return isFinite(fin) && fin > now
+      }).map(function (e) {
+        return { callName: tcCallName(e.title), start: e.startTime, end: e.endTime || e.startTime, guests: e.guests }
+      }).sort(function (a, b) { return Date.parse(a.start) - Date.parse(b.start) })
+      var changed = JSON.stringify(next) !== JSON.stringify(TIDYCAL)
+      TIDYCAL = next
+      TIDYCAL_AT = now
+      if (changed) repaintTidyCal()
+    })
+    .finally(function () { TIDYCAL_INFLIGHT = null })
+  TIDYCAL_INFLIGHT.catch(function () {}) // a calendar hiccup must never break the CRM
+  return TIDYCAL_INFLIGHT
+}
+function startTidyCal() {
+  if (tidyCalTimer) return
+  refreshTidyCal()
+  tidyCalTimer = setInterval(function () { if (!document.hidden) refreshTidyCal() }, TIDYCAL_MS)
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && Date.now() - TIDYCAL_AT > 30000) refreshTidyCal()
+  })
+}
+// The upcoming bookings for one project, soonest first. A booking drops off once its end time passes.
+function tidyCalFor(p) {
+  if (!p || p.bucket === 'deleted' || !TIDYCAL.length) return []
+  var mine = {}
+  projectEmails(p).forEach(function (e) { mine[e] = 1 })
+  var now = Date.now()
+  return TIDYCAL.filter(function (b) {
+    return Date.parse(b.end) > now && b.guests.some(function (g) { return mine[g] })
+  })
+}
+// "Friday, November 13 at 1:30 PM", Eastern, the same as the Mac.
+function tcWhen(iso) {
+  var d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/New_York' }) +
+    ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+}
+function tidyCalBar(p) {
+  var list = tidyCalFor(p)
+  var bar = el('<div class="tcbar' + (list.length ? ' on' : '') + '"></div>')
+  bar.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10h18"/>' + (list.length ? '<path d="M8.5 15.5l2.5 2.5 4.5-5"/>' : '') + '</svg>' +
+    '<b>TidyCal</b>' +
+    (list.length
+      ? list.map(function (b) { return '<span>' + esc(b.callName + ', ' + tcWhen(b.start)) + '</span>' }).join('')
+      : '<span>No call booked</span>')
+  return bar
+}
+// A booking came or went: swap the bar on an open project in place, or repaint the pipeline, never
+// while something is being typed or a sheet is open (same guard as the unread-mail repaint).
+function repaintTidyCal() {
+  if (DETAIL_ID) {
+    var old = document.querySelector('#view .tcbar')
+    var p = (SNAP.projects || []).find(function (x) { return x.id === DETAIL_ID })
+    if (old && p) old.replaceWith(tidyCalBar(p))
+    return
+  }
+  if (TAB === 'pipeline' && !isEditingActive() && !editorOpen() && !document.querySelector('.sheet')) render()
 }
 
 // The header's date line and the page marker the stylesheet keys off (Home gets the damask ground,
@@ -9249,6 +9344,7 @@ function enterApp() {
   loadAndRender().then(function (r) {
     if (r === 'ok') {
       refreshUnreadMail() // the first count waits for the projects, or it would read a false 0
+      startTidyCal()      // the TidyCal bar and the green cards, on their own two-minute clock
       connectWidgets(false).then(function () { reloadWidgets(true) })
       if (WIDGET_PENDING_LINK) { var wl = WIDGET_PENDING_LINK; WIDGET_PENDING_LINK = null; handleWidgetLink(wl); return }
     }

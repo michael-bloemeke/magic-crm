@@ -1,6 +1,6 @@
 import { useContext } from 'react'
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project, type Umbrella } from '../pipeline'
-import { TidyCalContext, TIDYCAL_GLOW_NO_TOP, hasClientBooking } from '../tidycal'
+import { TidyCalContext, TIDYCAL_GLOW_NO_TOP, hasBooking } from '../tidycal'
 import { DateConflictFlag } from './DateConflictFlag'
 
 // The "Cards" pipeline view: the whole active pipeline laid out as a dense, scannable
@@ -37,9 +37,9 @@ function DisplayCard({
   const typeColor = EVENT_TYPE_ACCENT[p.eventType]
   const blurb = (p.eventDescription || p.projectNotes || '').trim()
   const contact = (p.contactNames || '').split(/[;,]/)[0].trim()
-  // Green when the client has booked a TidyCal call that has not happened yet (src/tidycal.ts). The top
+  // Green when a TidyCal call is booked and has not happened yet (src/tidycal.ts). The top
   // border shorthand stays in the style either way, so React never strips its color on a toggle.
-  const booked = hasClientBooking(useContext(TidyCalContext), p.id)
+  const booked = hasBooking(useContext(TidyCalContext), p.id)
 
   return (
     <div

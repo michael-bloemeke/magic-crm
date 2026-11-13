@@ -15,18 +15,16 @@ import type { Project } from './pipeline'
 // real booking, 2026-11-12. A client who books with a different email from the one on the project
 // will not match.
 //
-// THE GLOW IS ONLY FOR CALLS THE CLIENT BOOKED. Michael: "not just a call that I told them I'd call
-// with them, but they actually filled out my TidyCal calendar." The follow-up calls he books himself
-// on the sales call go through his HIDDEN TidyCal page, so they are TidyCal bookings too. They still
-// show on the bar, but they do not light up the card. Listed by the names they carry on his
-// calendar; everything else counts as client-booked, so a renamed public call can never lose its glow.
-const SELF_BOOKED_CALLS = ['follow-up call', 'event planning call']
+// EVERY TIDYCAL BOOKING COUNTS, for the bar AND the glow (Michael, 2026-11-12): "Anybody who gets a
+// TidyCal invite counts." That includes the follow-up calls he books for a client through his hidden
+// TidyCal page. What does NOT count is a CRM task like "follow up call with Victoria", or a time he
+// agreed on the phone without a TidyCal booking; neither is a TidyCal event, so neither reaches here.
+// (A first version glowed only for calls the client booked; he corrected that the same day.)
 
 export type TidyCalBooking = {
   callName: string // "Event Strategy Call", the part of the title before " with "
   start: string // RFC 3339 with offset
   end: string
-  clientBooked: boolean
 }
 
 export function callNameOf(title: string): string {
@@ -63,10 +61,7 @@ export function tidyCalByProject(
     if (mine.size === 0) continue
     const hits = upcoming
       .filter((e) => (e.guests || []).some((g) => mine.has(g)))
-      .map((e): TidyCalBooking => {
-        const callName = callNameOf(e.title)
-        return { callName, start: e.startTime, end: e.endTime || e.startTime, clientBooked: !SELF_BOOKED_CALLS.includes(callName.toLowerCase()) }
-      })
+      .map((e): TidyCalBooking => ({ callName: callNameOf(e.title), start: e.startTime, end: e.endTime || e.startTime }))
       .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))
     if (hits.length) out.set(p.id, hits)
   }
@@ -77,8 +72,8 @@ export function tidyCalByProject(
 // reads DateConflictContext.
 export const TidyCalContext = createContext<Map<string, TidyCalBooking[]>>(new Map())
 
-export function hasClientBooking(map: Map<string, TidyCalBooking[]>, projectId: string): boolean {
-  return (map.get(projectId) || []).some((b) => b.clientBooked)
+export function hasBooking(map: Map<string, TidyCalBooking[]>, projectId: string): boolean {
+  return (map.get(projectId) || []).length > 0
 }
 
 // The green glow on a pipeline card. Inline on purpose: the navy brand ground repaints every

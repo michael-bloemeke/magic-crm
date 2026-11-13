@@ -1393,5 +1393,41 @@ console.log('\n== the date-conflict mark names the other project ==')
   __app.renderPipeline(); await settle()
 }
 
+console.log('\n== TidyCal bookings: the green card and the bar ==')
+{
+  const saved = SNAP.projects
+  const soon = (h) => new Date(Date.now() + h * 3600e3).toISOString()
+  globalThis.__TC_EVENTS = [
+    { booking: true, title: 'Event Strategy Call with Michael Bloemeke', startTime: soon(20), endTime: soon(20.2), guests: ['tc-one@example.test'] },
+    { booking: true, title: 'Follow-Up Call with Michael Bloemeke', startTime: soon(48), endTime: soon(48.2), guests: ['tc-two@example.test'] },
+    { booking: true, title: 'Event Strategy Call with Michael Bloemeke', startTime: soon(-3), endTime: soon(-2.8), guests: ['tc-past@example.test'] },
+    { booking: false, title: 'Coffee', startTime: soon(5), endTime: soon(6), guests: ['tc-none@example.test'] },
+  ]
+  const mk = (id, client, email) => ({ ...PROJECT, id, client, bucket: 'active', eventDate: '2027-05-01', contactEmails: email })
+  SNAP.projects = [...saved, mk('tc-a', 'Tidy One', 'TC-One@example.test'), mk('tc-b', 'Tidy Two', 'tc-two@example.test'), mk('tc-c', 'Tidy Past', 'tc-past@example.test'), mk('tc-d', 'Tidy None', 'tc-none@example.test')]
+  document.querySelectorAll('.sheet, .previewpane').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('pipeline')
+  await __app.refreshTidyCal()
+  __app.renderPipeline(); await settle()
+  const glow = Object.fromEntries([...document.querySelectorAll('#view .card')].map((c) => [c.querySelector('.name')?.textContent, c.classList.contains('tc-glow')]))
+  ok(glow['Tidy One'] === true, 'a call the client booked lights the card (email matched whatever its case)', JSON.stringify(glow))
+  ok(glow['Tidy Two'] === true, 'a follow-up call booked through TidyCal lights it too')
+  ok(glow['Tidy Past'] === false, 'a call that has already ended does not')
+  ok(glow['Tidy None'] === false, 'a calendar event that is not a TidyCal booking does not')
+  ok(Object.entries(glow).filter(([k]) => !k.startsWith('Tidy')).every(([, v]) => v === false), 'no other project lights up')
+  __app.renderDetail('tc-a'); await settle()
+  const bar = document.querySelector('#view .tcbar')
+  ok(!!bar && bar.classList.contains('on') && /^TidyCal\s*Event Strategy Call, \w+day, \w+ \d+ at \d+:\d\d [AP]M$/.test(bar.textContent.trim()), 'the project page bar names the call and its time', bar && bar.textContent)
+  __app.renderDetail('tc-d'); await settle()
+  const bar2 = document.querySelector('#view .tcbar')
+  ok(!!bar2 && !bar2.classList.contains('on') && bar2.textContent.includes('No call booked'), 'with nothing booked the bar is grey and says so', bar2 && bar2.textContent)
+  globalThis.__TC_EVENTS = null
+  __app.setDetail(null); __app.setTab('pipeline')
+  await __app.refreshTidyCal()
+  ok(__app.tidyCalFor(SNAP.projects.find((p) => p.id === 'tc-a')).length === 0, 'when the booking is gone from the calendar, the project lets go of it')
+  SNAP.projects = saved
+  __app.renderPipeline(); await settle()
+}
+
 console.log('\n' + (fails ? 'FAILURES: ' + fails : 'ALL PASS'))
 process.exit(fails ? 1 : 0)

@@ -556,6 +556,11 @@
       .psection-chev.col { transform: rotate(0deg); }
       .psection-body { padding-top: 9px; }
       .card.accented { border-left: 3px solid var(--acc, var(--line-strong)); }
+      /* TidyCal bookings (2026-11-12, same as the Mac): the TidyCal bar on the project page (grey when
+         nothing is booked). The green CARD is further down, after the "#view" card shadow it has to beat. */
+      .tcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 10px; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface2); color: var(--faint); font-size: 12.5px; opacity: 0.75; }
+      .tcbar svg { flex: none; }
+      .tcbar.on { border-color: #22c55e; background: #effbf3; color: #166534; opacity: 1; font-weight: 600; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
       /* One row per stage inside a pipeline section: the stage name, then its projects scrolling
          sideways. The strip bleeds to the screen edges (main has 14px side padding) so a card can
          slide all the way off; with more than one card each is 82% wide so the next one peeks in. */
@@ -630,6 +635,10 @@
       #view :is(.card, .stat, .statcard, .phead, .dayof, .panel, .fin-card, .chartcard, .pb-card, .box) :is(.card, .stat, .statcard, .emailcard, .box) { box-shadow: none; }
       /* A filled gold button on navy needs navy text; inside a card the accent is blue again. */
       #view .btn-gold { color: var(--ink-on-accent); }
+      /* TidyCal: the green card while a TidyCal call is booked (2026-11-12). ⚠️ It must say "#view" and sit
+         AFTER the two card-shadow rules above: "#view :is(.card...)" outranks a plain ".card.tc-glow", and
+         the first build lost its glow to exactly that, leaving only a faint tint Michael could not see. */
+      #view .card.tc-glow, #view .card.tc-glow.accented { border-color: #22c55e; background: #e8f8ee; box-shadow: 0 0 0 2px #22c55e, 0 0 18px 3px rgba(34, 197, 94, 0.55); }
 
       /* The header band: navy, a hairline under it, a date line above a serif title. */
       header.topbar { background: linear-gradient(180deg, rgba(24, 41, 95, 0.97) 0%, rgba(22, 38, 90, 0.97) 100%);

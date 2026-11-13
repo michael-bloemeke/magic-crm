@@ -1,6 +1,6 @@
 import { useContext } from 'react'
 import { EVENT_TYPE_ACCENT, formatEventDate, formatFee, type Project } from '../pipeline'
-import { TidyCalContext, TIDYCAL_GLOW, hasClientBooking } from '../tidycal'
+import { TidyCalContext, TIDYCAL_GLOW, hasBooking } from '../tidycal'
 import { DateConflictFlag } from './DateConflictFlag'
 
 type Props = {
@@ -15,8 +15,8 @@ type Props = {
 
 export function ProjectCard({ project, accentVar, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, dateConflict = false }: Props) {
   const typeColor = EVENT_TYPE_ACCENT[project.eventType]
-  // Green when the client has booked a TidyCal call that has not happened yet (src/tidycal.ts).
-  const booked = hasClientBooking(useContext(TidyCalContext), project.id)
+  // Green when a TidyCal call is booked and has not happened yet (src/tidycal.ts).
+  const booked = hasBooking(useContext(TidyCalContext), project.id)
 
   return (
     <div

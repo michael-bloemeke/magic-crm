@@ -91,6 +91,8 @@ export const STUB = {
       return Promise.resolve({ ok: true, exists: false, status: 'none', gaps: [], views: 0 })
     }
     if (action === 'widget-token') return Promise.resolve({ ok: true, token: 'test-widget-key-0123456789abcdef' })
+    // The TidyCal test sets globalThis.__TC_EVENTS; every other test sees an empty calendar, as before.
+    if (action === 'calendar-events' && globalThis.__TC_EVENTS) return Promise.resolve({ ok: true, events: globalThis.__TC_EVENTS })
     return Promise.resolve({ ok: true })
   },
   EXPENSE_CADENCES: ['monthly', 'quarterly', 'yearly', 'weekly', 'one-time'],

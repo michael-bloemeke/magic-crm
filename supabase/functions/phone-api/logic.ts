@@ -187,10 +187,19 @@ export async function calendarEvents(sb: SupabaseClient, from: string, to: strin
           const allDay = !!e.start?.date
           const date = allDay ? e.start.date : e.start?.dateTime ? String(e.start.dateTime).slice(0, 10) : ''
           if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+          const booking = isTidyCal(e)
           events.push({
             id: e.id, calendar: name, title: e.summary || '(untitled)', date, allDay,
             startTime: !allDay && e.start?.dateTime ? e.start.dateTime : '',
-            location: e.location || '', htmlLink: e.htmlLink || '', booking: isTidyCal(e),
+            endTime: !allDay && e.end?.dateTime ? e.end.dateTime : '',
+            location: e.location || '', htmlLink: e.htmlLink || '', booking,
+            // A TidyCal booking's guests (the client), so the phone can tie it to its project: the
+            // TidyCal bar and the green card (2026-11-12). Same as crm-calendar.mjs on the Mac.
+            ...(booking ? {
+              guests: (e.attendees || [])
+                .filter((a: any) => !a.self && a.email && !['michael@michaelbloemeke.com', 'mchlbloemeke@gmail.com'].includes(String(a.email).toLowerCase()))
+                .map((a: any) => String(a.email).toLowerCase()),
+            } : {}),
           })
         }
         pageToken = r.nextPageToken || ''
