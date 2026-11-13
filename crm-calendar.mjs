@@ -141,13 +141,6 @@ function parseTime(raw) {
   return null
 }
 
-// "{h, m}" back to the 12-hour form Michael reads everywhere else in the CRM: 19:00 -> "7:00 PM".
-function timeLabel(t) {
-  if (!t) return ''
-  const h12 = t.h % 12 === 0 ? 12 : t.h % 12
-  return `${h12}:${String(t.m).padStart(2, '0')} ${t.h < 12 ? 'AM' : 'PM'}`
-}
-
 // A real calendar date: strictly YYYY-MM-DD AND an actual day (so "TBD", "2026", or "2026-13-40"
 // never get sent to Google, which would 400). Guards both gig eventDates and task dueDates.
 function isValidDate(s) {
@@ -191,10 +184,12 @@ function line(label, value) {
 
 function projectEventBody(project) {
   const booked = isProjectBooked(project)
-  // The arrival / show time rides in the TITLE so it reads at a glance, including on the all-day
-  // (unbooked) version where the event itself carries no time.
-  const t = parseTime(project.arrivalTime) || parseTime(project.eventStartTime) || parseTime(project.showStartTime)
-  const summary = `${booked ? '' : 'Inquiry: '}${project.client}${t ? ` · ${timeLabel(t)}` : ''}`
+  // The title is the project name only (Michael, 2026-11-13). The time used to ride in the title
+  // ("Carmen Victoria Milam · 1:15 PM") from when every gig was an all-day event; now a booked gig is a
+  // timed block from Leave home to Back home, so a second time in the name only confused it. The
+  // arrival, event and show times are still in the event's description. Unbooked projects keep the
+  // "Inquiry: " prefix, which is not a time.
+  const summary = `${booked ? '' : 'Inquiry: '}${project.client}`
 
   let description = ''
   // The project's Description blurb leads the event details, when there is one.

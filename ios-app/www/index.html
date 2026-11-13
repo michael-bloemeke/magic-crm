@@ -560,6 +560,20 @@
          nothing is booked). The green CARD is further down, after the "#view" card shadow it has to beat. */
       .tcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 10px; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface2); color: var(--faint); font-size: 12.5px; opacity: 0.75; }
       .tcbar svg { flex: none; }
+      /* Book a TidyCal call from the CRM (2026-11-13): two buttons, and a full-height panel holding the
+         TidyCal page. Literal colors so they read the same on the navy ground and inside a card. */
+      .tcbook-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .tcbook-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 10px; border: 1px solid rgba(15, 22, 32, 0.18); background: #ffffff; color: #545b64; font-size: 12.5px; font-weight: 600; }
+      .tcbook-btn:active { background: #eaedf1; }
+      .tcbook-cal { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 2px 0 10px; }
+      .tcbook-cal .tcbook-row { margin-top: 0; }
+      .tcbook-cal-l { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+      .tcbook-card .sheet-body { display: flex; flex-direction: column; overflow: hidden; }
+      .tcbook-note { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+      .tcbook-phone { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+      .tcbook-phone b { color: var(--parchment); font-weight: 600; }
+      .tcbook-copy { padding: 5px 12px; border-radius: 9px; border: 1px solid var(--line-strong); background: var(--surface2); color: var(--parchment); font-size: 12.5px; font-weight: 600; }
+      .tcbook-frame { flex: 1 1 auto; width: 100%; min-height: 0; border: 0; border-radius: 12px; background: #fff; }
       .tcbar.on { border-color: #22c55e; background: #effbf3; color: #166534; opacity: 1; font-weight: 600; box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
       /* One row per stage inside a pipeline section: the stage name, then its projects scrolling
          sideways. The strip bleeds to the screen edges (main has 14px side padding) so a card can

@@ -96,3 +96,24 @@ export function whenLabel(iso: string): string {
   const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
   return `${day} at ${time}`
 }
+
+// BOOKING FROM THE CRM (Michael, 2026-11-13): his two hidden TidyCal pages, opened inside the CRM so he
+// never has to go to tidycal.com. From a project the page arrives with the client's name and email
+// filled in; from the Calendar page it is blank. The public "Event Strategy Call" (4 days ahead) is left
+// out on purpose: the hidden "Event Planning Call" books the same first call with a long window.
+export const TIDYCAL_BOOKING_PAGES = [
+  { key: 'followup', label: 'Follow-up call', path: 'm8n7r2r/follow-up-call' },
+  { key: 'planning', label: 'Event planning call', path: 'm8n7r2r/event-strategy-call-manual' },
+] as const
+export type TidyCalBookingPage = (typeof TIDYCAL_BOOKING_PAGES)[number]
+
+// TidyCal's own embed passes these as query parameters (embed.js: embed, name, email), so this is the
+// same pre-fill its "Embed on website" code does. They go to tidycal.com only, the service that is
+// booking the call with them anyway.
+export function tidyCalBookingUrl(path: string, who?: { name?: string; email?: string }): string {
+  const u = new URL(`https://tidycal.com/${path}`)
+  u.searchParams.set('embed', '1')
+  if (who?.name?.trim()) u.searchParams.set('name', who.name.trim())
+  if (who?.email?.trim()) u.searchParams.set('email', who.email.trim())
+  return u.toString()
+}

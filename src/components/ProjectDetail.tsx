@@ -10,6 +10,8 @@ import { ProjectActions } from './ProjectActions'
 import { EditableTitle } from './EditableTitle'
 import { DateConflictFlag } from './DateConflictFlag'
 import { TidyCalBar } from './TidyCalBar'
+import { TidyCalBookButtons } from './TidyCalBook'
+import { contactsForProject } from '../contacts'
 
 type Props = {
   project: Project | null
@@ -127,7 +129,16 @@ export function ProjectDetail({
                       <DateConflictFlag projectId={project.id} />
                     </div>
                   )}
-                  <TidyCalBar projectId={project.id} className="mt-2.5" />
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <TidyCalBar projectId={project.id} />
+                    <TidyCalBookButtons
+                      who={{
+                        name: contactsForProject(project, contacts, links)[0]?.name || (project.contactNames || '').split(/[;,]/)[0].trim(),
+                        email: contactsForProject(project, contacts, links)[0]?.emails?.[0] || (project.contactEmails || '').split(/[\s,;]+/).filter(Boolean)[0] || '',
+                        phone: contactsForProject(project, contacts, links)[0]?.phones?.[0] || (project.contactPhones || '').split(/[;,]/)[0].trim(),
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button

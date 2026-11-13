@@ -1109,6 +1109,7 @@ function projectHeader(p) {
   }
   ensureConflictMonth(p)
   head.appendChild(tidyCalBar(p))
+  head.appendChild(tidyCalBookButtons(tidyCalWhoFor(p)))
 
   // Stage is a label here, not a control. It used to be a full-width dropdown in its own section,
   // which spent a lot of screen on one word; changing it now lives in Actions.
@@ -5033,6 +5034,71 @@ function tidyCalBar(p) {
       : '<span>No call booked</span>')
   return bar
 }
+// BOOKING FROM THE CRM (2026-11-13, the Mac's TidyCalBook.tsx): his two hidden TidyCal pages, opened
+// in a full-height panel. From a project the page arrives with the client's name and email filled in
+// (TidyCal's own embed parameters: embed, name, email); from the Calendar page it is blank. The public
+// 4-day Event Strategy Call is left out on purpose.
+var TIDYCAL_BOOKING_PAGES = [
+  { key: 'followup', label: 'Follow-up call', path: 'm8n7r2r/follow-up-call' },
+  { key: 'planning', label: 'Event planning call', path: 'm8n7r2r/event-strategy-call-manual' },
+]
+function tidyCalBookingUrl(path, who) {
+  var q = 'embed=1'
+  if (who && who.name) q += '&name=' + encodeURIComponent(who.name)
+  if (who && who.email) q += '&email=' + encodeURIComponent(who.email)
+  return 'https://tidycal.com/' + path + '?' + q
+}
+function tidyCalBookLabel(pg) {
+  var l = pg.label.toLowerCase()
+  return 'Book ' + (/^[aeiou]/.test(l) ? 'an' : 'a') + ' ' + l
+}
+// Who a booking from this project is for: the primary contact, else the project's own fields.
+function tidyCalWhoFor(p) {
+  var r = projectContactCards(p)[0]
+  return {
+    name: (r && r.contact && r.name) || String(p.contactNames || '').split(/[;,]/)[0].trim(),
+    email: (r && r.emails && r.emails[0]) || String(p.contactEmails || '').split(/[\s,;]+/).filter(Boolean)[0] || '',
+    phone: (r && r.phones && r.phones[0]) || String(p.contactPhones || '').split(/[;,]/)[0].trim(),
+  }
+}
+function openTidyCalBooking(pg, who) {
+  var sh = makeSheet(tidyCalBookLabel(pg), true)
+  sh.sheet.querySelector('.sheet-card').classList.add('sheet-full', 'tcbook-card')
+  var note = el('<p class="tcbook-note"></p>')
+  note.textContent = who && (who.name || who.email)
+    ? 'For ' + [who.name, who.email].filter(Boolean).join(', ') + '. TidyCal sends them the invite.'
+    : "Type in the client's name and email. TidyCal sends them the invite."
+  sh.body.appendChild(note)
+  // The Event Planning Call asks for the CLIENT's phone number, and TidyCal only takes a name and email
+  // from the link (checked in its booking-page code, 2026-11-13), so the number is shown with a Copy button.
+  if (pg.key === 'planning' && who && who.phone) {
+    var ph = el('<div class="tcbook-phone"><span>Their phone: <b></b></span><button type="button" class="tcbook-copy">Copy</button></div>')
+    ph.querySelector('b').textContent = who.phone
+    var cp = ph.querySelector('.tcbook-copy')
+    cp.addEventListener('click', function () {
+      copyText(who.phone)
+      cp.textContent = 'Copied'
+      setTimeout(function () { cp.textContent = 'Copy' }, 1500)
+    })
+    sh.body.appendChild(ph)
+  }
+  var f = document.createElement('iframe')
+  f.className = 'tcbook-frame'
+  f.title = pg.label
+  f.src = tidyCalBookingUrl(pg.path, who)
+  sh.body.appendChild(f)
+}
+function tidyCalBookButtons(who) {
+  var row = el('<div class="tcbook-row"></div>')
+  TIDYCAL_BOOKING_PAGES.forEach(function (pg) {
+    var b = el('<button type="button" class="tcbook-btn"></button>')
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10h18M12 13.5v5M9.5 16h5"/></svg>' + esc(pg.label)
+    b.addEventListener('click', function () { openTidyCalBooking(pg, who) })
+    row.appendChild(b)
+  })
+  return row
+}
+
 // A booking came or went: swap the bar on an open project in place, or repaint the pipeline, never
 // while something is being typed or a sheet is open (same guard as the unread-mail repaint).
 function repaintTidyCal() {
@@ -7488,6 +7554,10 @@ function renderCalendar() {
   head.querySelector('.cal-next').addEventListener('click', function () { CAL_CURSOR = { y: c.m === 11 ? c.y + 1 : c.y, m: (c.m + 1) % 12 }; renderCalendar() })
   head.querySelector('.cal-today').addEventListener('click', function () { CAL_CURSOR = { y: now.getFullYear(), m: now.getMonth() }; CAL_SELECTED = todayStr(); renderCalendar() })
   v.appendChild(head)
+  // Book a call without opening a project (2026-11-13): the TidyCal page opens blank.
+  var sched = el('<div class="tcbook-cal"><span class="tcbook-cal-l">Schedule a call:</span></div>')
+  sched.appendChild(tidyCalBookButtons(null))
+  v.appendChild(sched)
   v.appendChild(el('<div class="cal-legend"><span><i style="background:' + CAL_COLORS.booked + '"></i>Booked gig</span><span><i style="background:' + CAL_COLORS.unbooked + '"></i>Not booked</span>' +
     '<span><i style="background:' + CAL_COLORS.work + '"></i>Work calendar</span><span><i style="background:' + CAL_COLORS.gcal + '"></i>Gigs calendar</span><span><i style="background:' + CAL_COLORS.task + '"></i>Task due</span></div>'))
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { TidyCalBookButtons } from './TidyCalBook'
 import { motion } from 'motion/react'
 import { todayISO, type Project } from '../pipeline'
 import type { CalendarEvent, Task } from '../api'
@@ -183,6 +184,11 @@ export function CalendarPage({ projects, tasks, calendarEvents, bookedIds, posts
         <button type="button" onClick={() => setCursor({ y: now.getFullYear(), m: now.getMonth() })} className="rounded-lg border border-line px-3 py-1.5 text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-parchment">
           Today
         </button>
+        {/* Book a call without opening a project (Michael, 2026-11-13): the TidyCal page opens blank. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[12px] font-medium text-muted">Schedule a call:</span>
+          <TidyCalBookButtons />
+        </div>
         <div className="ml-auto flex flex-wrap items-center gap-4 text-[11px] text-muted">
           <Legend color={COLORS.booked} label="Booked gig" />
           <Legend color={COLORS.unbooked} label="Not booked" />

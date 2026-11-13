@@ -28,6 +28,7 @@ import { EmailBuilderModal } from './EmailBuilderModal'
 import { ProjectActions } from './ProjectActions'
 import { DateConflictFlag } from './DateConflictFlag'
 import { TidyCalBar } from './TidyCalBar'
+import { TidyCalBookButtons } from './TidyCalBook'
 import { EditableTitle } from './EditableTitle'
 import { ProjectChat } from './ProjectChat'
 import { contactsForProject } from '../contacts'
@@ -120,6 +121,15 @@ export function ProjectView({
   const [undoBar, setUndoBar] = useState<UndoBarState | null>(null)
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const undoCommit = useRef<(() => void) | null>(null)
+
+  // Who a TidyCal booking from this page is for: the primary (first linked) contact, else the project's
+  // own contact fields. Pre-fills the TidyCal page's name and email.
+  const primaryContact = contactsForProject(project, contacts, links)[0]
+  const bookingWho = {
+    name: primaryContact?.name || (project.contactNames || '').split(/[;,]/)[0].trim(),
+    email: primaryContact?.emails?.[0] || (project.contactEmails || '').split(/[\s,;]+/).filter(Boolean)[0] || '',
+    phone: primaryContact?.phones?.[0] || (project.contactPhones || '').split(/[;,]/)[0].trim(),
+  }
 
   // Recipient emails for the one-off "Write email" composer: every email on the
   // project's linked contacts.
@@ -357,7 +367,9 @@ export function ProjectView({
           while you read. */}
       <div className="px-8 pt-6">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
+          {/* The name box takes all the room up to the action buttons (Michael, 2026-11-13: "Bari and Nick
+              Vega's wedding" was cut off with space to spare). It only shrinks when the window does. */}
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               type="button"
               onClick={onBack}
@@ -369,7 +381,7 @@ export function ProjectView({
                 <path d="M15 6l-6 6 6 6" />
               </svg>
             </button>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <EditableTitle
                 value={project.client}
                 onSave={(v) => onSaveField('client', v)}
@@ -440,7 +452,10 @@ export function ProjectView({
           )}
           {dateConflict && <DateConflictFlag variant="banner" projectId={project.id} />}
         </div>
-        <TidyCalBar projectId={project.id} className="mt-3" />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <TidyCalBar projectId={project.id} />
+          <TidyCalBookButtons who={bookingWho} />
+        </div>
       </div>
 
       {/* Content: the full-page thread reader when a conversation is open,

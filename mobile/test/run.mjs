@@ -1429,5 +1429,34 @@ console.log('\n== TidyCal bookings: the green card and the bar ==')
   __app.renderPipeline(); await settle()
 }
 
+console.log('\n== booking a TidyCal call from the phone ==')
+{
+  const saved = SNAP.projects
+  SNAP.projects = [...saved, { ...PROJECT, id: 'tcb-a', client: 'Book Me', bucket: 'active', contactNames: 'Pat Booker', contactEmails: 'pat@example.test' }]
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setTab('pipeline'); __app.renderDetail('tcb-a'); await settle()
+  const btns = [...document.querySelectorAll('#view .tcbook-btn')].map((b) => b.textContent.trim())
+  ok(btns.join('|') === 'Follow-up call|Event planning call', 'the project page has both booking buttons', btns.join('|'))
+  document.querySelector('#view .tcbook-btn').dispatchEvent(new window.Event('click')); await settle()
+  const f = document.querySelector('.sheet .tcbook-frame')
+  ok(!!f && f.src === 'https://tidycal.com/m8n7r2r/follow-up-call?embed=1&name=Pat%20Booker&email=pat%40example.test', 'Follow-up call opens TidyCal with the name and email filled in', f && f.src)
+  ok(document.querySelector('.sheet .sheet-title').textContent === 'Book a follow-up call', 'the panel says what it books')
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  document.querySelectorAll('#view .tcbook-btn')[1].dispatchEvent(new window.Event('click')); await settle()
+  ok(document.querySelector('.sheet .sheet-title').textContent === 'Book an event planning call' && /event-strategy-call-manual\?embed=1&name=/.test(document.querySelector('.sheet .tcbook-frame').src), 'Event planning call opens the long-window page')
+  const ph = document.querySelector('.sheet .tcbook-phone b')
+  ok(!!ph && ph.textContent === PROJECT.contactPhones, 'the event planning panel shows their phone to copy (TidyCal cannot take it from the link)', ph && ph.textContent)
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  __app.setDetail(null); __app.setTab('calendar'); __app.render(); await settle()
+  const cal = [...document.querySelectorAll('#view .tcbook-cal .tcbook-btn')]
+  ok(cal.length === 2, 'the Calendar page has both booking buttons', String(cal.length))
+  if (cal[0]) { cal[0].dispatchEvent(new window.Event('click')); await settle() }
+  const f2 = document.querySelector('.sheet .tcbook-frame')
+  ok(!!f2 && f2.src === 'https://tidycal.com/m8n7r2r/follow-up-call?embed=1', 'from the Calendar page the TidyCal page opens blank', f2 && f2.src)
+  document.querySelectorAll('.sheet').forEach((x) => x.remove())
+  SNAP.projects = saved
+  __app.setTab('pipeline'); __app.renderPipeline(); await settle()
+}
+
 console.log('\n' + (fails ? 'FAILURES: ' + fails : 'ALL PASS'))
 process.exit(fails ? 1 : 0)
