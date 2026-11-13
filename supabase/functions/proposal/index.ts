@@ -314,6 +314,21 @@ function safeVideoId(v: unknown): string {
   return /^[A-Za-z0-9_-]{6,20}$/.test(s) ? s : "";
 }
 
+// The second video can also be a Vimeo video (added 2026-11-13 for the new promo reel draft, an
+// unlisted Vimeo link). Written in video2_id as "vimeo:<id>:<hash>", the two numbers in an unlisted
+// link vimeo.com/<id>/<hash>. Whitelisted the same way, since it also ends up in an iframe src.
+// A third, optional video: an Instagram post or reel (added 2026-11-13, Bari and Nick's wedding reel).
+// Written in video3_id as "instagram:<shortcode>", the code in instagram.com/p/<shortcode>/.
+function safeInstagram(v: unknown): string {
+  const m = /^instagram:([A-Za-z0-9_-]{5,20})$/.exec(clean(v));
+  return m ? m[1] : "";
+}
+
+function safeVimeo(v: unknown): { id: string; h: string } | null {
+  const m = /^vimeo:(\d{5,12})(?::([0-9a-f]{6,16}))?$/.exec(clean(v));
+  return m ? { id: m[1], h: m[2] || "" } : null;
+}
+
 // ---------------------------------------------------------------------------
 // "It was opened"
 // ---------------------------------------------------------------------------
@@ -473,6 +488,15 @@ Deno.serve(async (req) => {
     // An optional second video shown under the promo reel (added 2026-10-09 for the Charlotte Today
     // clip). Same whitelist as the first; empty means the page shows one video, as before.
     video2Id: safeVideoId(prop.video2_id),
+    video2Vimeo: safeVimeo(prop.video2_id),
+    // Optional words for the videos (added 2026-11-13, Bari and Nick): a line under each video, and
+    // the label on the second video's poster. When a page has two videos and either line is set,
+    // the two sit side by side, each with its line under it. Empty means the page as before.
+    videoNote: clean(prop.video_note).slice(0, 300),
+    video2Note: clean(prop.video2_note).slice(0, 300),
+    video2Label: clean(prop.video2_label).slice(0, 80),
+    video3Instagram: safeInstagram(prop.video3_id),
+    video3Note: clean(prop.video3_note).slice(0, 300),
   };
 
   if (preview || admin) return json({ ...body, preview: true, admin });

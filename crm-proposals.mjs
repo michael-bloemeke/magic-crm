@@ -62,7 +62,9 @@ function defaultExpiry(eventDate) {
 // these arrays for it. The shape is all this module cares about.
 export const REVIEW_BANK = {
   wedding: [
-    { name: 'Deegan M.', text: 'This was the best night of my life and I got married last year. Came unsure of what to think, left with my mind blown and two souvenirs. 10/10 would come again.' },
+    // Deegan M. was removed from weddings (Michael, 2026-11-13): "I got married last year" is not a
+    // review of a wedding Michael performed at. Jack and Grace's wedding review replaced it.
+    { name: 'Jack S.', text: "We highly recommend Michael for any wedding or event. He was a huge hit with our guests and brought a really fun surprise to the cocktail hour. His close-up magic was quite impressive and he did an amazing job getting our guests to mingle and interact during the event." },
     { name: 'Dasha B.', text: 'WOW. This man is hilarious, charismatic, and ridiculously talented. Best magic show I have ever seen.' },
     { name: 'Christian D.', text: 'Absolutely phenomenal. Best magician ever in all of history.' },
   ],
