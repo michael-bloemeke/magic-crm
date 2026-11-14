@@ -37,6 +37,7 @@ import {
 import { loadThreads, draftReply, sendEmail, loadInbox, markRead, starThread, starMessage } from './crm-comms.mjs'
 import { getDraft, saveDraft, sendDraft, discardDraft } from './crm-drafts.mjs'
 import { reportData as dailyReportData, writeNotes as writeDailyNotes, serveRequests as serveDailyReportRequests, makePdf as makeDailyReportPdf } from './crm-daily-report.mjs'
+import { loadSummary as loadGigSummary, writeSummary as writeGigSummary, serveSummaryRequests as serveGigSummaryRequests } from './crm-gig-summary.mjs'
 import { loadEmails, saveProjectEmail, sendProjectEmail, deleteProjectEmail, resolveAttachments } from './crm-emails.mjs'
 import { emailGifPath } from './crm-email-render.mjs'
 import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
@@ -216,6 +217,8 @@ export function crmDataPlugin() {
               // is a data change like any other, so this is the moment to look for one. Not in a
               // test copy: only the real app writes notes.
               if (process.env.CRM_QUIET !== '1') void serveDailyReportRequests()
+              // Same for the gig summary: the phone asks by setting a gig_summaries row to `requested`.
+              if (process.env.CRM_QUIET !== '1') void serveGigSummaryRequests()
             }
           } catch (e) {
             console.error('[crm-data] cache refresh failed (will retry next tick):', e?.message || e)
@@ -232,6 +235,7 @@ export function crmDataPlugin() {
       if (quiet) console.log('[crm-data] CRM_QUIET=1: background jobs are off (test server).')
       // A request the phone made while the Mac was off is picked up as soon as the app starts.
       if (!quiet) setTimeout(() => void serveDailyReportRequests(), 15_000)
+      if (!quiet) setTimeout(() => void serveGigSummaryRequests(), 16_000)
       // Push the contract wording (every variant, fields unfilled) up to Supabase so the CLOUD can
       // build a booking agreement. Without this the phone cannot issue a booking form at all, because
       // the template needs JSDOM and only exists here. Cheap and idempotent; runs once per boot, so
@@ -425,6 +429,31 @@ export function crmDataPlugin() {
       // this: the day's events from every calendar, Claude's notes for the day, and On my plate.
       // `/write` starts the notes and answers at once; the page then re-reads until they are in.
       // (Registered before the bare path, which would otherwise match it by prefix.)
+      // THE GIG SUMMARY (2026-11-14). `/write` starts Claude writing one project's day-of summary and
+      // answers at once; the window then re-reads until it is in. The bare path returns the saved row.
+      // (Registered before the bare path, which would otherwise match it by prefix.)
+      server.middlewares.use('/api/gig-summary/write', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => {
+          void writeGigSummary(b.id, { by: 'mac' })
+          return { ok: true, started: true }
+        })
+      })
+      server.middlewares.use('/api/gig-summary', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        loadGigSummary(url.searchParams.get('id') || '')
+          .then((r) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(r))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
+
       server.middlewares.use('/api/daily-report/write', (req, res, next) => {
         if (req.method !== 'POST') return next()
         withbody(req, res, async (b) => {

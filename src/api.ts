@@ -1979,3 +1979,45 @@ export async function saveHomeListLayout(rows: { id: string; position: number | 
 export async function deleteHomeListItem(id: string): Promise<void> {
   await postJsonStrict('/api/home-list/delete', { id }, 'Could not delete that')
 }
+
+// --- Gig summary (2026-11-14) -------------------------------------------------
+// A Claude-written day-of briefing for one project, kept in Supabase (`gig_summaries`) until Michael
+// asks for a new one. The Mac writes it (crm-gig-summary.mjs); the phone asks the Mac to.
+
+export type GigSummary = {
+  headline: string
+  overview: string
+  schedule: { time: string; what: string }[]
+  location: { venue: string; address: string; details: string[] }
+  performance: string[]
+  notes: string[]
+  contacts: { name: string; role: string; phone: string }[]
+  collect: string
+  missing: string[]
+}
+export type GigSummaryRow = {
+  project_id: string
+  status: 'requested' | 'writing' | 'ready' | 'error'
+  summary: GigSummary | null
+  model: string | null
+  error: string | null
+  requested_by: string | null
+  requested_at: string | null
+  generated_at: string | null
+}
+
+export async function loadGigSummary(projectId: string): Promise<{ row: GigSummaryRow | null; writing: boolean }> {
+  const res = await fetch(`/api/gig-summary?id=${encodeURIComponent(projectId)}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `Could not load the summary (${res.status})`)
+  return { row: data.row ?? null, writing: !!data.writing }
+}
+
+export async function writeGigSummary(projectId: string): Promise<void> {
+  const res = await fetch('/api/gig-summary/write', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: projectId }),
+  })
+  if (!res.ok) throw new Error(`Could not start the summary (${res.status})`)
+}

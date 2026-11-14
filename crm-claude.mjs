@@ -224,7 +224,8 @@ function clip(v, n = 4000) {
   const t = String(v ?? '').trim()
   return t.length > n ? t.slice(0, n) + ' [...]' : t
 }
-async function fullProjectContext(projectId) {
+// Also used by the gig summary (crm-gig-summary.mjs), which needs the same whole picture of one project.
+export async function fullProjectContext(projectId) {
   const p = loadAll().projects.find((x) => x.id === projectId)
   if (!p) throw new Error('Project not found.')
   const out = []

@@ -29,6 +29,7 @@ import { ProjectActions } from './ProjectActions'
 import { DateConflictFlag } from './DateConflictFlag'
 import { TidyCalBar } from './TidyCalBar'
 import { TidyCalBookButtons } from './TidyCalBook'
+import { GigSummaryButton } from './GigSummary'
 import { EditableTitle } from './EditableTitle'
 import { ProjectChat } from './ProjectChat'
 import { contactsForProject } from '../contacts'
@@ -455,6 +456,7 @@ export function ProjectView({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <TidyCalBar projectId={project.id} />
           <TidyCalBookButtons who={bookingWho} />
+          <GigSummaryButton projectId={project.id} projectName={project.client} />
         </div>
       </div>
 

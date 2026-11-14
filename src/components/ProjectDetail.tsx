@@ -11,6 +11,7 @@ import { EditableTitle } from './EditableTitle'
 import { DateConflictFlag } from './DateConflictFlag'
 import { TidyCalBar } from './TidyCalBar'
 import { TidyCalBookButtons } from './TidyCalBook'
+import { GigSummaryButton } from './GigSummary'
 import { contactsForProject } from '../contacts'
 
 type Props = {
@@ -138,6 +139,7 @@ export function ProjectDetail({
                         phone: contactsForProject(project, contacts, links)[0]?.phones?.[0] || (project.contactPhones || '').split(/[;,]/)[0].trim(),
                       }}
                     />
+                    <GigSummaryButton projectId={project.id} projectName={project.client} />
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">

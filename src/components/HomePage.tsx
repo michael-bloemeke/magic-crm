@@ -34,6 +34,7 @@ import {
 import type { Page } from './Sidebar'
 import { TaskRow } from './TaskRow'
 import { ProjectRow } from './ProjectRow'
+import { GigSummaryButton } from './GigSummary'
 import { UnreadMailModal } from './UnreadMailModal'
 
 const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('en-US')
@@ -230,6 +231,7 @@ export function HomePage({
                       {formatEventDate(p.eventDate)}
                     </span>
                   }
+                  action={<GigSummaryButton projectId={p.id} projectName={p.client} compact />}
                 />
               ))}
             </div>

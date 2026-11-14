@@ -16,12 +16,14 @@ type Props = {
   pendingPayment?: boolean
   dateConflict?: boolean
   badge?: ReactNode
+  // A control at the right end of the row (Home's Next 7 days puts the Gig summary button here).
+  action?: ReactNode
   // Flow-view list: show the event description as the preview line and drop the
   // guest count. Off (records pages) keeps the location line + guest count.
   summary?: boolean
 }
 
-export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, dateConflict = false, badge, summary = false }: Props) {
+export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0, pendingPayment = false, dateConflict = false, badge, action, summary = false }: Props) {
   const typeColor = EVENT_TYPE_ACCENT[p.eventType]
   // Green when a TidyCal call is booked and has not happened yet (src/tidycal.ts).
   const booked = hasBooking(useContext(TidyCalContext), p.id)
@@ -107,6 +109,7 @@ export function ProjectRow({ project: p, onOpenFull, onOpenSide, unreadCount = 0
           </p>
         </div>
 
+        {action}
         <div className="hidden shrink-0 items-center gap-6 text-[12px] sm:flex">
           <div className="max-w-[10rem] text-right">
             <p className="tabular-nums text-muted">{formatEventDate(p.eventDate)}</p>
