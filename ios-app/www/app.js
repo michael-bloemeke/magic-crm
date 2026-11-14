@@ -27,6 +27,7 @@ import {
   sbList, sbGet, sbSave, sbMutateShow, sbMutatePacking, sbDelete, sbUploadAudio, sbAudioUrls,
   addHomeListItem, deleteHomeListItem, renameHomeListItem, saveHomeListLayout,
   loadDayEvents, loadDailyNotes, loadDailyStatus, requestDailyNotes,
+  loadGigSummary, requestGigSummary,
 } from './supabase-data.js'
 // The Show Builder's rules, shared with the Mac's server (see showbuilder-core.js).
 import {
@@ -1110,6 +1111,7 @@ function projectHeader(p) {
   ensureConflictMonth(p)
   head.appendChild(tidyCalBar(p))
   head.appendChild(tidyCalBookButtons(tidyCalWhoFor(p)))
+  head.appendChild(gigSummaryButton(p.id))
 
   // Stage is a label here, not a control. It used to be a full-width dropdown in its own section,
   // which spent a lot of screen on one word; changing it now lives in Actions.
@@ -7141,6 +7143,150 @@ function renderHome() {
 }
 function money0(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('en-US') }
 
+// ---- The gig summary (2026-11-14) ----
+// Michael: "everything that I need to know about the gig... as if I were going to leave for that gig
+// today." The button sits on every project (under its header) and under each gig in Home's "Gigs next
+// 7 days"; the Gigs widget opens it too (bloomcrm://project/<id>/summary). It opens full screen over
+// the page. The first open asks for one; after that the saved summary shows, with when it was written
+// at the top and a Regenerate button. CLAUDE WRITES IT ON THE MAC (crm-gig-summary.mjs): this phone
+// marks the row `requested`, the Mac writes it, and this screen looks again every few seconds.
+var GS_ICON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6M9 9h2"/></svg>'
+var GS_TIMER = null
+function gigSummaryButton(projectId) {
+  var b = el('<button type="button" class="gs-btn">' + GS_ICON + '<span>Gig summary</span></button>')
+  b.addEventListener('click', function (e) { e.stopPropagation(); openGigSummary(projectId) })
+  return b
+}
+function gsWhen(iso) {
+  var d = new Date(iso || '')
+  if (isNaN(d.getTime())) return ''
+  var day = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  var time = d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
+  return day + ' at ' + time
+}
+function openGigSummary(projectId) {
+  var p = (SNAP.projects || []).find(function (x) { return x.id === projectId })
+  var name = p ? p.client : 'This gig'
+  document.querySelectorAll('.gs-sheet').forEach(function (x) { x.remove() })
+  if (GS_TIMER) { clearInterval(GS_TIMER); GS_TIMER = null }
+  var sheet = el(
+    '<div class="sheet gs-sheet"><div class="sheet-card sheet-tall sheet-full">' +
+      '<div class="sheet-head"><div class="sheet-title">Gig summary</div>' +
+      '<button class="sheet-x" aria-label="Close">' +
+      '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      '</button></div><div class="sheet-body gs-body"></div>' +
+    '</div></div>'
+  )
+  var body = sheet.querySelector('.gs-body')
+  var row = null, loaded = false, err = '', askedAt = 0
+  var stop = function () { if (GS_TIMER) { clearInterval(GS_TIMER); GS_TIMER = null } }
+  var close = function () { stop(); sheet.remove() }
+  sheet.querySelector('.sheet-x').addEventListener('click', close)
+  var busy = function () { return !!row && (row.status === 'requested' || row.status === 'writing') }
+
+  function poll() {
+    stop()
+    GS_TIMER = setInterval(function () {
+      if (!document.body.contains(sheet)) { stop(); return }
+      loadGigSummary(projectId).then(function (r) { row = r; err = ''; if (!busy()) stop(); draw() }).catch(function () { /* next tick */ })
+    }, 4000)
+  }
+  function ask() {
+    askedAt = Date.now(); err = ''
+    row = Object.assign({ summary: null, generatedAt: '' }, row || {}, { status: 'requested', error: '' })
+    draw()
+    requestGigSummary(projectId).then(poll).catch(function (e) {
+      err = String((e && e.message) || e || 'Could not ask for the summary.')
+      row.status = 'error'; draw()
+    })
+  }
+  function section(title) { var s = el('<div class="gs-sec"><div class="gs-h"></div></div>'); s.firstChild.textContent = title; return s }
+  function bullets(items) {
+    var ul = el('<ul class="gs-list"></ul>')
+    items.forEach(function (t) { var li = document.createElement('li'); li.textContent = t; ul.appendChild(li) })
+    return ul
+  }
+  function draw() {
+    body.innerHTML = ''
+    var s = row && row.summary
+    var head = el('<div class="gs-head"><div class="gs-title"></div><div class="gs-when"></div></div>')
+    head.querySelector('.gs-title').textContent = (s && s.headline) || name
+    head.querySelector('.gs-when').textContent = s && row.generatedAt ? 'Generated ' + gsWhen(row.generatedAt) : (busy() ? 'Claude is writing this summary now.' : '')
+    body.appendChild(head)
+    if (s) {
+      var regen = el('<button type="button" class="btn-ghost gs-regen"></button>')
+      regen.textContent = busy() ? 'Writing a new summary...' : 'Regenerate'
+      regen.disabled = busy()
+      regen.addEventListener('click', ask)
+      body.appendChild(regen)
+    }
+    if (busy()) {
+      var wait = s ? 'Writing a new summary. This one stays here until it is ready.' : 'Claude is reading this project and writing the summary. It takes about a minute.'
+      // The Mac does the writing. If nothing has happened after a while, say why rather than spin.
+      if (askedAt && Date.now() - askedAt > 45000 && row.status === 'requested') wait += ' Your Mac writes these, so if Bloom CRM is not open on it, the summary will arrive once it is.'
+      var note = el('<div class="gs-note"></div>'); note.textContent = wait; body.appendChild(note)
+    }
+    if (err || (row && row.status === 'error')) {
+      var bad = el('<div class="gs-err"><b>The summary could not be written.</b><div class="gs-err-t"></div><button type="button" class="btn-ghost">Try again</button></div>')
+      bad.querySelector('.gs-err-t').textContent = err || row.error || ''
+      bad.querySelector('button').addEventListener('click', ask)
+      body.appendChild(bad)
+    }
+    if (!loaded) { body.appendChild(el('<div class="empty">Loading...</div>')); return }
+    if (!s) return
+    if (s.overview) { var ov = el('<p class="gs-overview"></p>'); ov.textContent = s.overview; body.appendChild(ov) }
+    if (s.missing && s.missing.length) {
+      var miss = el('<div class="gs-missing"><div class="gs-h">Still missing</div></div>')
+      miss.appendChild(bullets(s.missing)); body.appendChild(miss)
+    }
+    if (s.schedule && s.schedule.length) {
+      var sec = section('Schedule'), grid = el('<div class="gs-sched"></div>')
+      s.schedule.forEach(function (x) {
+        var t = el('<div class="gs-t"></div>'); t.textContent = x.time
+        var w = el('<div></div>'); w.textContent = x.what
+        grid.appendChild(t); grid.appendChild(w)
+      })
+      sec.appendChild(grid); body.appendChild(sec)
+    }
+    var loc = s.location || {}
+    if (loc.venue || loc.address || (loc.details && loc.details.length)) {
+      var ws = section('Where')
+      if (loc.venue) { var vn = el('<div class="gs-strong"></div>'); vn.textContent = loc.venue; ws.appendChild(vn) }
+      var maps = loc.address ? mapsLinks(loc.address) : null
+      if (maps) { var a = el('<a class="gs-addr"></a>'); a.href = maps.apple; a.textContent = loc.address; ws.appendChild(a) }
+      if (loc.details && loc.details.length) ws.appendChild(bullets(loc.details))
+      body.appendChild(ws)
+    }
+    if (s.performance && s.performance.length) { var ps = section('The performance'); ps.appendChild(bullets(s.performance)); body.appendChild(ps) }
+    if (s.notes && s.notes.length) { var ns = section('Good to know'); ns.appendChild(bullets(s.notes)); body.appendChild(ns) }
+    if (s.contacts && s.contacts.length) {
+      var cs = section('Contacts')
+      s.contacts.forEach(function (c) {
+        var line = el('<div class="gs-contact"><b></b><span></span></div>')
+        line.querySelector('b').textContent = c.name
+        line.querySelector('span').textContent = c.role ? ', ' + c.role : ''
+        if (c.phone) {
+          var tel = el('<a class="gs-tel"></a>'); tel.href = 'tel:' + String(c.phone).replace(/[^\d+]/g, ''); tel.textContent = c.phone
+          line.appendChild(tel)
+        }
+        cs.appendChild(line)
+      })
+      body.appendChild(cs)
+    }
+    if (s.collect) { var ms = section('To collect at the gig'), mv = el('<div class="gs-strong"></div>'); mv.textContent = s.collect; ms.appendChild(mv); body.appendChild(ms) }
+  }
+
+  document.body.appendChild(sheet)
+  draw()
+  loadGigSummary(projectId).then(function (r) {
+    row = r; loaded = true
+    // Nothing written yet: ask for one straight away. A failed first try is shown, never retried on its own.
+    if (!r || (!r.summary && r.status !== 'error' && !busy())) { ask(); return }
+    if (busy()) poll()
+    draw()
+  }).catch(function (e) { loaded = true; err = String((e && e.message) || e || 'Could not load the summary.'); draw() })
+}
+
 // ---- On my plate (the Mac's HomeList) ----
 // The big things he is working on, in the space under the tiles (Michael, 2026-10-24): "the major
 // elements of my business that I'm working on that still need to be done." No due date, no checkbox,
@@ -7414,7 +7560,12 @@ function openHomeSheet(kind) {
       setTitle(d.gigs.length)
       if (!d.gigs.length) list.appendChild(el('<div class="empty">No gigs in the next 7 days.</div>'))
       // Tapping a gig opens its project; the sheet goes with the move (see noteLoc).
-      d.gigs.forEach(function (p) { list.appendChild(projectCard(p)) })
+      // Each gig carries its Gig summary button right under the card (2026-11-14), so the day-of brief
+      // is one tap from Home without opening the project.
+      d.gigs.forEach(function (p) {
+        list.appendChild(projectCard(p))
+        var b = gigSummaryButton(p.id); b.classList.add('gs-under'); list.appendChild(b)
+      })
       return
     }
     var tasks = kind === 'overdue' ? d.overdue : d.dueToday
@@ -9174,6 +9325,8 @@ function handleWidgetLink(url) {
     PTAB = sub === 'email' ? 'email' : 'details'
     renderDetail(p.id)
     window.scrollTo(0, 0)
+    // The Gigs widget's Summary button (2026-11-14): the project, with its gig summary open over it.
+    if (sub === 'summary') openGigSummary(p.id)
     return
   }
   if (what === 'gigs') { navigate('home'); openHomeSheet('gigs'); return }

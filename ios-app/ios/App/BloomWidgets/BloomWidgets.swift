@@ -333,13 +333,35 @@ struct GigsView: View {
                 else {
                     VStack(spacing: 6) {
                         ForEach(Array(gigs.dropFirst(page * per).prefix(per)), id: \.id) { g in
-                            Link(destination: link("bloomcrm://project/\(g.id)")) { GigCard(g: g) }
+                            // The card opens the project; the Summary chip on its right opens the project
+                            // with its gig summary on top (Michael, 2026-11-14). Two sibling Links, never
+                            // one inside the other, so each tap goes where it says.
+                            ZStack(alignment: .trailing) {
+                                Link(destination: link("bloomcrm://project/\(g.id)")) { GigCard(g: g) }
+                                Link(destination: link("bloomcrm://project/\(g.id)/summary")) { SummaryChip() }
+                                    .padding(.trailing, 10)
+                            }
                         }
                     }
                 }
             }
         }
         .widgetURL(link("bloomcrm://gigs"))
+    }
+}
+
+// The Gig summary button on each widget card. Sits on the card's middle row, right side, where nothing
+// else is (the fee is top right, the stage bottom right).
+struct SummaryChip: View {
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "doc.text").font(.system(size: 10.5, weight: .semibold))
+            Text("Summary").font(.system(size: 11, weight: .bold))
+        }
+        .foregroundStyle(blue)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(Capsule().fill(blue.opacity(0.12)))
+        .overlay(Capsule().stroke(blue.opacity(0.45), lineWidth: 1))
     }
 }
 
@@ -357,6 +379,8 @@ struct GigCard: View {
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Capsule().fill(typeColor(g.eventType).opacity(0.12)))
                 Text("\(g.dateLabel) · \(g.countdown)").font(.system(size: 11.5, weight: .medium)).foregroundStyle(muted).lineLimit(1)
+                // Room for the Summary chip laid over this row's right end (GigsView).
+                Spacer(minLength: 92)
             }
             HStack(alignment: .center, spacing: 6) {
                 Text(g.location).font(.system(size: 11)).foregroundStyle(faint).lineLimit(1)

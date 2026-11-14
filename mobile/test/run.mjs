@@ -3,7 +3,7 @@ const SD = new URL('.', import.meta.url).pathname
 process.argv[2] = SD + 'app.built.mjs'
 await import('./harness.mjs')
 const { __app } = await import('./app.built.mjs')
-const { CALLS, FIXTURE_THREADS, SB_DOCS, sbFixtureReset, DAILY } = await import('./stub.mjs')
+const { CALLS, FIXTURE_THREADS, SB_DOCS, sbFixtureReset, DAILY, GIGSUM } = await import('./stub.mjs')
 const CORE = await import('../showbuilder-core.js')
 
 let fails = 0
@@ -180,6 +180,47 @@ const upd2 = CALLS.find((c) => c.name === 'updateTask')
 ok(upd2 && upd2.args[0].durationMin === 60 && upd2.args[0].busy === true, 'Save sends the new length and Busy', JSON.stringify(upd2 && upd2.args[0]))
 document.querySelectorAll('.sheet').forEach((s) => s.remove())
 t3.durationMin = 30; t3.busy = false
+
+console.log('\n== the gig summary (2026-11-14) ==')
+CALLS.length = 0
+GIGSUM.rows = {}
+__app.setTab('pipeline'); __app.setPtab('details'); __app.renderDetail('sarah-whitfield')
+await settle()
+const gsBtn = [...document.querySelectorAll('#view .gs-btn')].find((b) => b.textContent.includes('Gig summary'))
+ok(!!gsBtn, 'every project page has a Gig summary button')
+gsBtn.dispatchEvent(new window.Event('click'))
+await settle()
+ok(!!document.querySelector('.gs-sheet'), 'tapping it opens the summary over the page')
+ok(CALLS.some((c) => c.name === 'requestGigSummary' && c.args[0] === 'sarah-whitfield'), 'with nothing saved yet, it asks the Mac to write one')
+ok(document.querySelector('.gs-sheet').textContent.includes('Claude is reading this project'), 'and says the summary is being written')
+document.querySelectorAll('.gs-sheet').forEach((x) => x.remove())
+GIGSUM.rows['sarah-whitfield'] = { status: 'ready', generatedAt: '2026-11-14T19:50:22.000Z', error: '', summary: {
+  headline: "Saturday, October 4: Sarah Whitfield's gala", overview: 'Mingling magic at a black tie gala.',
+  schedule: [{ time: '5:00 PM', what: 'Leave home' }, { time: '7:00 PM', what: 'Arrive' }],
+  location: { venue: 'Hotel ballroom', address: '3001 Cameron Blvd, Durham, NC 27705', details: ['Indoors'] },
+  performance: ['Mingling magic, 90 minutes'], notes: ['No AV: bring the speaker'],
+  contacts: [{ name: 'Sarah Whitfield', role: 'Client', phone: '(919) 555-1234' }], collect: '', missing: ['On-site contact'] } }
+CALLS.length = 0
+gsBtn.dispatchEvent(new window.Event('click'))
+await settle()
+const gsTxt = document.querySelector('.gs-sheet').textContent
+ok(gsTxt.includes("Saturday, October 4: Sarah Whitfield's gala"), 'a saved summary shows straight away')
+ok(gsTxt.includes('Generated Saturday, November 14, 2026 at 2:50 PM'), 'with the date and time it was written at the top', gsTxt.slice(0, 160))
+ok(!CALLS.some((c) => c.name === 'requestGigSummary'), 'opening it again does not write a new one')
+ok(gsTxt.includes('No AV: bring the speaker') && gsTxt.includes('Still missing') && gsTxt.includes('7:00 PM'), 'schedule, notes and missing details are shown')
+const gsTel = document.querySelector('.gs-sheet a.gs-tel')
+ok(gsTel && gsTel.getAttribute('href') === 'tel:9195551234', 'a contact number is a tap-to-call link')
+ok(!!document.querySelector('.gs-sheet a.gs-addr'), 'the address opens in Maps')
+document.querySelector('.gs-sheet .gs-regen').dispatchEvent(new window.Event('click'))
+await settle()
+ok(CALLS.some((c) => c.name === 'requestGigSummary'), 'Regenerate asks for a new one')
+const gsTxt2 = document.querySelector('.gs-sheet').textContent
+ok(gsTxt2.includes("Sarah Whitfield's gala") && gsTxt2.includes('Writing a new summary'), 'the old summary stays up while the new one is written')
+document.querySelectorAll('.gs-sheet').forEach((x) => x.remove())
+__app.handleWidgetLink('bloomcrm://project/sarah-whitfield/summary')
+await settle()
+ok(__app.getDetail() === 'sarah-whitfield' && !!document.querySelector('.gs-sheet'), 'the Gigs widget Summary link opens the project with its summary on top')
+document.querySelectorAll('.gs-sheet').forEach((x) => x.remove())
 
 console.log('\n== inbox is scoped to contacts on ACTIVE projects ==')
 CALLS.length = 0

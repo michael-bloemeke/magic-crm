@@ -287,6 +287,31 @@
          resize grip) let the whole panel slide sideways, which made reading down a list of fields
          unnecessarily fiddly. Nothing in here ever needs horizontal scrolling. */
       .sheet-body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-top: 12px; }
+      /* The gig summary (2026-11-14): the button on every project and under each Home gig, and the
+         full-screen sheet it opens. Full-strength text throughout (no faded text, Michael 2026-11-13). */
+      .gs-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--brass); background: var(--surface); color: var(--brass); font-size: 14px; font-weight: 700; }
+      .gs-btn.gs-under { margin: -2px 0 12px; }
+      .gs-head { margin-bottom: 10px; }
+      .gs-title { font-family: var(--font-display, Georgia, serif); font-size: 21px; line-height: 1.25; color: var(--parchment); }
+      .gs-when { margin-top: 4px; font-size: 14px; font-weight: 700; color: var(--parchment); }
+      .gs-regen { width: 100%; margin-bottom: 12px; color: var(--parchment); font-weight: 700; }
+      .gs-regen:disabled { opacity: .6; }
+      .gs-note { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface2); color: var(--parchment); font-size: 14px; line-height: 1.45; }
+      .gs-err { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--red); color: var(--parchment); font-size: 14px; }
+      .gs-err b { color: var(--red); }
+      .gs-err .btn-ghost { margin-top: 8px; color: var(--parchment); }
+      .gs-overview { margin: 0 0 14px; font-size: 16px; line-height: 1.5; color: var(--parchment); }
+      .gs-missing { margin-bottom: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid #d97706; background: rgba(217, 119, 6, 0.10); }
+      .gs-sec { margin-bottom: 16px; }
+      .gs-h { font-family: var(--font-display, Georgia, serif); font-size: 17px; margin-bottom: 6px; color: var(--parchment); }
+      .gs-list { margin: 0; padding-left: 20px; color: var(--parchment); font-size: 15px; line-height: 1.5; }
+      .gs-list li { margin-bottom: 4px; }
+      .gs-sched { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; color: var(--parchment); font-size: 15px; line-height: 1.4; }
+      .gs-t { font-weight: 700; font-variant-numeric: tabular-nums; }
+      .gs-strong { font-weight: 700; color: var(--parchment); font-size: 15px; }
+      .gs-addr { display: block; margin: 2px 0 6px; color: var(--brass); font-size: 15px; text-decoration: underline; }
+      .gs-contact { color: var(--parchment); font-size: 15px; line-height: 1.6; }
+      .gs-tel { margin-left: 6px; color: var(--brass); font-weight: 700; }
       .sheet-body .field-input { max-width: 100%; }
       /* One always-visible field. The value is readable without tapping, which was the whole point:
          previously every value was hidden behind its own label and had to be opened to be read. */

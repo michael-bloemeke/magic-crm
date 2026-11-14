@@ -55,7 +55,7 @@ const tail = [
   "  renderProposals, proposalCard, openPreview, copyText, renderPipeline, projectCard,",
   "  buildClientMailQueries, activeProjectEmails, openContactSheet, openSearch, openScheduleSheet,",
   "  handleWidgetLink, connectWidgets, forgetReadHere: () => { READ_HERE = {} }, mailForget, alertCard, getPtab: () => PTAB, getSnap: () => SNAP, setSnapRaw: (s) => { SNAP = s },",
-  "  openDailyReport, refreshTidyCal, tidyCalFor,",
+  "  openDailyReport, refreshTidyCal, tidyCalFor, openGigSummary,",
   "  renderHome, openHomeSheet, goBack, homeData, getNav: () => NAV_STACK, getTab: () => TAB, getDetail: () => DETAIL_ID,",
   "  bookingTab, proposalSection, emailToProjectIndex, openNewProject,",
   "  refreshNativePushToken, registerNativePush, updatePushButton,",

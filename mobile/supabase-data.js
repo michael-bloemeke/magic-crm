@@ -1596,6 +1596,31 @@ export async function requestDailyNotes(dateISO) {
   if (error) throw error
 }
 
+// ---------- the gig summary (2026-11-14) ----------
+// Claude's day-of briefing for one project (`gig_summaries`, one row per project). The phone READS it;
+// it cannot write it, because Claude runs on the Mac (crm-gig-summary.mjs). So it ASKS: it marks the
+// row `requested` and the Mac writes it. The last summary stays in the row until the new one lands.
+export async function loadGigSummary(projectId) {
+  const { data, error } = await sb.from('gig_summaries').select('*').eq('project_id', projectId).maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  return {
+    projectId: str(data.project_id),
+    status: str(data.status),
+    summary: data.summary || null,
+    error: str(data.error),
+    generatedAt: data.generated_at ? new Date(data.generated_at).toISOString() : '',
+    requestedAt: data.requested_at ? new Date(data.requested_at).toISOString() : '',
+  }
+}
+export async function requestGigSummary(projectId) {
+  const { error } = await sb.from('gig_summaries').upsert(
+    { project_id: projectId, status: 'requested', requested_by: 'phone', requested_at: new Date().toISOString(), error: null },
+    { onConflict: 'project_id' },
+  )
+  if (error) throw error
+}
+
 // The phone's server-side half (supabase/functions/phone-api). Everything that needs a secret the
 // phone must never hold: QuickBooks, Google Calendar, calendar-alert status.
 export async function phoneApi(action, body = {}) {

@@ -2,6 +2,8 @@
 export const CALLS = []
 // The daily report (2026-11-11): what the notes row and the calendar answer, set by each test.
 export const DAILY = { row: null, events: [], calendarFails: false }
+// The gig summary (2026-11-14): the saved row per project, set by each test.
+export const GIGSUM = { rows: {} }
 export const SHOW_ROWS = []
 import { normalizeDoc, sortDocs } from '../showbuilder-core.js'
 
@@ -161,6 +163,9 @@ export const STUB = {
   saveHomeListLayout: (rows) => { CALLS.push({ name: 'saveHomeListLayout', args: [rows] }); return Promise.resolve({ ok: true, saved: rows.length }) },
   deleteHomeListItem: (id) => { CALLS.push({ name: 'deleteHomeListItem', args: [id] }); return Promise.resolve({ ok: true }) },
   // The daily report (2026-11-11).
+  // The gig summary (2026-11-14).
+  loadGigSummary: (id) => { CALLS.push({ name: 'loadGigSummary', args: [id] }); const r = GIGSUM.rows[id]; return Promise.resolve(r ? JSON.parse(JSON.stringify(r)) : null) },
+  requestGigSummary: (id) => { CALLS.push({ name: 'requestGigSummary', args: [id] }); GIGSUM.rows[id] = Object.assign({ summary: null, generatedAt: '' }, GIGSUM.rows[id] || {}, { status: 'requested', error: '' }); return Promise.resolve() },
   loadDailyNotes: (date) => { CALLS.push({ name: 'loadDailyNotes', args: [date] }); return Promise.resolve(DAILY.row ? JSON.parse(JSON.stringify(DAILY.row)) : null) },
   loadDailyStatus: (date) => { CALLS.push({ name: 'loadDailyStatus', args: [date] }); return Promise.resolve(DAILY.row ? DAILY.row.status + '|' + (DAILY.row.generatedAt || '') : '') },
   requestDailyNotes: (date) => { CALLS.push({ name: 'requestDailyNotes', args: [date] }); DAILY.row = { reportDate: date, status: 'requested', error: '', generatedAt: (DAILY.row && DAILY.row.generatedAt) || '', notes: (DAILY.row && DAILY.row.notes) || null }; return Promise.resolve() },
