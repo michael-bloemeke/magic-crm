@@ -6,17 +6,17 @@ How the CRM is backed up, and exactly how to get running again on a new computer
 
 | Repo | Holds | Must live at |
 |---|---|---|
-| `magic-crm` | The app's code (this folder) + the static portal site (`portal/`) | `~/Desktop/Claude/magic-crm` |
-| `The-Award-Winning-Magic-of-Michael-Bloemeke` | All business data: the CRM's JSON (`Project Records/`), plus pricing, voice, playbooks, templates, recordings | `~/Desktop/Claude/The Award-Winning Magic of Michael Bloemeke` |
+| `magic-crm` | The app's code (this folder) + the static portal site (`portal/`) | `~/Desktop/Claude/Business/Bloom CRM` |
+| `The-Award-Winning-Magic-of-Michael-Bloemeke` | All business data: the CRM's JSON (`Project Records/`), plus pricing, voice, playbooks, templates, recordings | `~/Desktop/Claude/Business` |
 
 URLs:
 - `git@github.com:michael-bloemeke/magic-crm.git`
 - `git@github.com:michael-bloemeke/The-Award-Winning-Magic-of-Michael-Bloemeke.git`
 
 **The paths matter.** The app reads its data from the absolute path
-`~/Desktop/Claude/The Award-Winning Magic of Michael Bloemeke/Project Records`. So the
+`~/Desktop/Claude/Business/Project Records`. So the
 data repo MUST be cloned into a folder with that exact spaced name (NOT the hyphenated
-GitHub name), and the code repo into `~/Desktop/Claude/magic-crm`.
+GitHub name), and the code repo into `~/Desktop/Claude/Business/Bloom CRM`.
 
 ## How backup works (no thinking required)
 
@@ -47,7 +47,7 @@ safe immediately, hit the Backup command.
    git clone git@github.com:michael-bloemeke/magic-crm.git "$HOME/Desktop/Claude/magic-crm"
    git clone git@github.com:michael-bloemeke/The-Award-Winning-Magic-of-Michael-Bloemeke.git "$HOME/Desktop/Claude/The Award-Winning Magic of Michael Bloemeke"
    ```
-4. **Install deps:** `cd ~/Desktop/Claude/magic-crm && npm install`
+4. **Install deps:** `cd ~/Desktop/Claude/Business/Bloom\ CRM && npm install`
 5. **Run the app:** `npm run dev` (or double-click `Open Magic CRM.command`).
 6. **Restore the things that are NOT in git (secrets / links, by design):**
    - **Gmail:** `gmail-credentials.json` + `gmail-token.json` are gitignored. Reconnect

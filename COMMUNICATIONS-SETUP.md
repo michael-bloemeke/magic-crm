@@ -33,7 +33,7 @@ below is in place, and replace the demo builders with the real API calls.
 
 ## 2. Claude writes the drafts (Anthropic API)
 1. Get an API key at console.anthropic.com (Settings > API Keys).
-2. Give it to me (or drop it in a local `.env` in `~/Desktop/Claude/magic-crm`).
+2. Give it to me (or drop it in a local `.env` in `~/Desktop/Claude/Business/Bloom CRM`).
 3. I'll have the server send the project record + the email thread + your
    `voice.md`, templates, and `CLAUDE.md` to Claude, so drafts come back in
    your voice. Small cost per draft (pennies).

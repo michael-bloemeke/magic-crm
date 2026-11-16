@@ -710,7 +710,7 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
   // ---- 22. crm-show-builder.json (added 2026-10-24) ----
   // The CRM's Show Builder: { show: [...], trick: [...], tag, music, other, audio, _meta }, each
   // document exactly as stored. The AUDIO itself is binary and too big for this git-backed folder, so
-  // it is mirrored into the CRM's own magic-crm/backups/show-builder-audio/ (git-ignored), downloading
+  // it is mirrored into the CRM's own Bloom CRM/backups/show-builder-audio/ (git-ignored), downloading
   // only files not already there and never deleting anything.
   //
   // ⚠️ NEVER into ~/Documents/Show Builder/. That folder belongs to Michael's standalone Show Builder
@@ -747,7 +747,7 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
         fs.writeFileSync(path.join(audioDir, `${a.id}.audio.json`), JSON.stringify(a, null, 2))
         fetched++
       }
-      written.push(`show builder audio: ${out.audio.length} on file, ${fetched} newly copied to magic-crm/backups/show-builder-audio`)
+      written.push(`show builder audio: ${out.audio.length} on file, ${fetched} newly copied to Bloom CRM/backups/show-builder-audio`)
     } catch (e) {
       // Never let the audio copy fail the backup of everything else.
       written.push(`show builder audio NOT mirrored: ${e?.message || e}`)
