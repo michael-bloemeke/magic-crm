@@ -187,7 +187,7 @@ function tripToRow(t) {
 function metaBlock(file, purpose, shape) {
   return {
     file,
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose,
     cowork_guidance: 'Safe to read. The CRM manages this file. Do NOT delete or overwrite.',
     shape,

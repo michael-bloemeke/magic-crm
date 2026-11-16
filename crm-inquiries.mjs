@@ -58,7 +58,7 @@ async function persistInquiry(id, data) {
 function writeStore(d) {
   d._meta = {
     file: 'crm-inquiries.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       "Website contact-form inquiries imported from the Blob relay, keyed by the relay's inquiry id, each with an in-CRM notification state.",
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',

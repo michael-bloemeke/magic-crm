@@ -22,7 +22,7 @@ const PIPELINE_FILE = path.join(
   os.homedir(),
   'Desktop',
   'Claude',
-  'The Award-Winning Magic of Michael Bloemeke',
+  'Business',
   'Project Records',
   'crm-pipeline.json',
 )

@@ -84,7 +84,7 @@ function reSubject(s) {
 function meta() {
   return {
     file: 'crm-emails.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'CRM-owned per-project composed emails (e.g. the post-gig thank-you). A saved draft lives here, NOT in Gmail drafts; sending goes out through Gmail and flips status to sent.',
     cowork_guidance: 'Safe to read. The CRM manages this file. Do NOT delete or overwrite.',

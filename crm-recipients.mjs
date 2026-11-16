@@ -30,7 +30,7 @@ function recipientsMapFromCache() {
 function meta() {
   return {
     file: 'crm-recipients.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'Per-project document recipients: the contract signer (signerId) and the invoice bill-to (billToId + billToName). Defaults to the project first contact when unset.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT delete or overwrite.',

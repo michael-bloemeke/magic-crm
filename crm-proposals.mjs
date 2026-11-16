@@ -117,7 +117,7 @@ export const reviewsFor = (eventType) => REVIEW_BANK[normaliseType(eventType)] |
 // ⚠️ These are the site's EXISTING photos, standing in until Michael's proposal shoot. They are the
 // right shape but they are not the right pictures: the hero in particular wants a wide frame with an
 // uncluttered centre, because text sits over it. The shot list is in
-// `The Award-Winning Magic of Michael Bloemeke/proposal-shot-list.md`, and the live template preview
+// `Business/project-files/proposal-shot-list.md`, and the live template preview
 // at /proposal/?demo=1 shows every slot with its aspect ratio.
 // ⚠️ THE PORTRAIT IS THE SAME PICTURE ON EVERY SET, ON PURPOSE (Michael, 2026-09-01).
 // It is `michael-portrait-hero-dark.webp`: Michael seated at the table looking off to his right,

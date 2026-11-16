@@ -47,7 +47,7 @@ function norm(s) {
 function meta() {
   return {
     file: 'crm-contacts.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'First-class contacts (clients, vendors, associates). relationship = durable yes/no/maybe client disposition; type = client/vendor/associate/other; engagement = emailed/collaborated (for vendors/associates); tags = free-form; notes = free text. Projects are linked by email/name match (not stored here).',
     cowork_guidance: 'Safe to read. The CRM manages this file.',

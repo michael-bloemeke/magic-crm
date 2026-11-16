@@ -7,7 +7,7 @@
 //
 // THE PHONE APP NOW SHIPS ONE WAY ONLY: the native iPhone app, through TestFlight.
 //
-//   cd ~/Desktop/Claude/magic-crm/ios-app && ./testflight.sh
+//   cd ~/Desktop/Claude/Business/Bloom CRM/ios-app && ./testflight.sh
 //
 // That build carries its own copy of these files (ios-app/build-www.mjs), so nothing needs a website.
 //
@@ -16,6 +16,6 @@
 console.error(
   '\n  The web copy of the phone app was removed on 2026-11-11, at Michael\'s request.\n' +
   '  Nothing was copied. To update the phone, build the iPhone app instead:\n\n' +
-  '    cd ~/Desktop/Claude/magic-crm/ios-app && ./testflight.sh\n',
+  '    cd ~/Desktop/Claude/Business/Bloom CRM/ios-app && ./testflight.sh\n',
 )
 process.exit(1)

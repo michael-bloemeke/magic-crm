@@ -63,7 +63,7 @@ function list(v) {
 function meta() {
   return {
     file: 'crm-links.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'Explicit project->contact links. links[projectId] = array of contact ids (from crm-contacts.json). A project can have 0, 1, or many contacts. This is the single source of truth for which contacts are on a project (and therefore which email threads show in the Communications + Inbox views).',
     cowork_guidance:

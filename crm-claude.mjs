@@ -17,7 +17,7 @@ import { loadThreads } from './crm-comms.mjs'
 import { CRM_STORE, sb } from './crm-store.mjs'
 
 const CLAUDE_BIN = path.join(os.homedir(), '.local', 'bin', 'claude')
-// RECORDS_DIR is ".../The Award-Winning Magic of Michael Bloemeke/Project Records"; its parent is
+// RECORDS_DIR is ".../Business/Project Records"; its parent is
 // the business folder, which holds CLAUDE.md, voice.md, templates/, and "Plaud recordings/".
 const BUSINESS_DIR = path.dirname(RECORDS_DIR)
 const MEMORY_DIR = path.join(os.homedir(), '.claude', 'projects', '-Users-michaelbloemeke', 'memory')

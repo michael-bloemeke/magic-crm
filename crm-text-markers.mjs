@@ -60,7 +60,7 @@ function markerToRow(m) {
 function meta() {
   return {
     file: 'crm-text-markers.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'Manual "this was sent" markers per project communication slot (kind) per channel (email | text). No message content is stored, only a sent flag + date (YYYY-MM-DD). Michael drafts and sends in Gmail; these are the CRM record that a step happened.',
     cowork_guidance: 'Safe to read. The CRM manages this file. Do NOT delete or overwrite.',

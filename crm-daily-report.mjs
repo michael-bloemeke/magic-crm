@@ -367,7 +367,7 @@ export async function buildPrompt(dateISO) {
   const plans = [
     ['His own to-do list (to-do.md, the "Now" section; parts are out of date, trust the dates)', sections(path.join(CLAUDE_HOME, 'to-do.md'), [/^## Now/], 9000)],
     ['The ninety-day plan agreed with Jonah Babins, his head coach (projects.md)', sections(path.join(BUSINESS_DIR, 'projects.md'), [/Priority order/, /NINETY-DAY PLAN/, /CORPORATE MIX PUSH/, /Ideas to ask Michael about/], 4500)],
-    ['The December push list (inbox/DECEMBER-PUSH)', fs.existsSync(path.join(BUSINESS_DIR, 'inbox')) ? fs.readdirSync(path.join(BUSINESS_DIR, 'inbox')).filter((f) => /PUSH.*\.md$/i.test(f)).map((f) => readText(path.join(BUSINESS_DIR, 'inbox', f), 9000)).join('\n\n') : ''],
+    ['The December push list (project-files/DECEMBER-PUSH)', fs.existsSync(path.join(BUSINESS_DIR, 'project-files')) ? fs.readdirSync(path.join(BUSINESS_DIR, 'project-files')).filter((f) => /PUSH.*\.md$/i.test(f)).map((f) => readText(path.join(BUSINESS_DIR, 'project-files', f), 9000)).join('\n\n') : ''],
     ['Long-range goals and strategy, from his ChatGPT planning notes (ChatGPT/memory.md)', sections(path.join(CLAUDE_HOME, 'ChatGPT', 'memory.md'), [/Strategy retained/, /Networking\/showcase/, /SEO\/backlinks/, /Catholic market/, /Current-state pointers/], 3200, /^# Preserved import sources/m)],
     ["Claude's own memory index: one line per standing fact (MEMORY.md)", readText(path.join(MEMORY_DIR, 'MEMORY.md'), 14000)],
   ].filter(([, body]) => body)
@@ -677,7 +677,7 @@ export async function reportData({ date, from, to } = {}) {
 // PDF" hands this the very document he is looking at; headless Chrome runs it through its print
 // styles into a real file, and the Mac opens it in Preview, where printing is the Mac's job.
 //
-// One file per day, in "Daily reports" at the top of the Claude folder; making it again the same
+// One file per day, in "Business/Daily reports" next to this app's folder; making it again the same
 // day replaces it. Chrome is the only thing on this Mac that can print a web page to PDF without a
 // window, so without it this says so plainly rather than producing something half-right.
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'

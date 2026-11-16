@@ -24,7 +24,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // Reuse the app's OWN read helpers (raw snake_case rows) so the data is exactly what the app sees.
 import {
@@ -59,7 +59,7 @@ export const REAL_RECORDS_DIR = path.join(
   os.homedir(),
   'Desktop',
   'Claude',
-  'The Award-Winning Magic of Michael Bloemeke',
+  'Business',
   'Project Records',
 )
 
@@ -775,7 +775,9 @@ export async function exportBackup({ targetDir, srcMetaDir = REAL_RECORDS_DIR } 
 
 // ---- CLI ----
 // argv[2] = target dir. Default: a temp dir (safe; never the real Project Records).
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not a plain "file://" + path: the folder name has a space ("Bloom CRM"), which the URL
+// form writes as %20, so the plain comparison never matched and the nightly backup silently did nothing.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const targetArg = process.argv[2]
   const targetDir = targetArg
     ? path.resolve(targetArg)

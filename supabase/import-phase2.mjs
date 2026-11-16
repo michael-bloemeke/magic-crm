@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(DIR, '..')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const RECORDS = '/Users/michaelbloemeke/Desktop/claude/The Award-Winning Magic of Michael Bloemeke/Project Records'
+const RECORDS = '/Users/michaelbloemeke/Desktop/Claude/Business/Project Records'
 
 const creds = JSON.parse(fs.readFileSync(path.join(REPO, 'supabase-credentials.json'), 'utf8'))
 const { url, projectRef, secretKey, accessToken } = creds

@@ -73,7 +73,7 @@ async function persistContract(projectId, d) {
 function writeContracts(d) {
   d._meta = {
     file: 'crm-contracts.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'Per-project Performance Services Agreement versions generated in the CRM. Each version stores the final (edited) contract TEXT; the PDF is rendered on demand from it. Michael signs/sends the PDF outside the app.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',

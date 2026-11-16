@@ -30,7 +30,7 @@ const FILE = path.join(RECORDS_DIR, 'crm-notifications.json')
 function meta() {
   return {
     file: 'crm-notifications.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'Status-change notifications surfaced in the bell: invoice paid, contract viewed, contract signed, task due, new inquiry. One event per transition (deduped by kind + sourceId), each with a seen flag.',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT delete or overwrite.',

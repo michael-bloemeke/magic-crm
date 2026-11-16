@@ -49,7 +49,7 @@ export const RECORDS_DIR = path.join(
   os.homedir(),
   'Desktop',
   'Claude',
-  'The Award-Winning Magic of Michael Bloemeke',
+  'Business',
   'Project Records',
 )
 
@@ -545,7 +545,7 @@ function inferStage(p) {
 function stageMeta() {
   return {
     file: 'crm-pipeline.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'CRM-owned overlay assigning a pipeline STAGE to each project. The canonical detail JSONs (active/completed/archived) intentionally have no stage field (stage is a HoneyBook concept), so the CRM stores stage here to group projects into its kanban/flow pipeline.',
     cowork_guidance:
@@ -861,7 +861,7 @@ export async function saveLayout(layout) {
 function tasksMeta() {
   return {
     file: 'crm-tasks.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'CRM-owned task list. Each task links to a project by projectId (slug of client_name) and carries a due date + done flag. The CRM creates, checks off, and deletes these.',
     cowork_guidance:

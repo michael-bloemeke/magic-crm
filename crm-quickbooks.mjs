@@ -421,7 +421,7 @@ function readInvoices() {
 function writeInvoices(d) {
   d._meta = {
     file: 'crm-invoices.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       'Per-project reference to the QuickBooks invoice generated from the CRM (the invoice itself lives in QuickBooks; this just links projectId -> invoice id/number/total/status so the project page can show it).',
     cowork_guidance: 'Safe to read. CRM-owned, do NOT overwrite.',

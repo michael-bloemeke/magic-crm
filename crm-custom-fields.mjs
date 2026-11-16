@@ -16,7 +16,7 @@ const FILE = path.join(RECORDS_DIR, 'crm-custom-fields.json')
 function meta() {
   return {
     file: 'crm-custom-fields.json',
-    owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+    owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
     purpose:
       "Per-project values for user-defined custom event-detail fields. Field definitions (id + label) live in crm-config.json (customFields[]); this holds the values keyed by project then field id.",
     cowork_guidance: 'Safe to read. CRM-owned, do NOT delete or overwrite.',

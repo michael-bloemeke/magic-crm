@@ -10,8 +10,8 @@ set -u
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
 repos=(
-  "$HOME/Desktop/Claude/magic-crm"
-  "$HOME/Desktop/Claude/The Award-Winning Magic of Michael Bloemeke"
+  "$HOME/Desktop/Claude/Business/Bloom CRM"
+  "$HOME/Desktop/Claude/Business"
 )
 
 for repo in "${repos[@]}"; do

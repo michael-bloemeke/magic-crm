@@ -7,9 +7,11 @@
 // element that does not exist fails here the same way it would on the phone.
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { JSDOM } from '../../node_modules/jsdom/lib/api.js'
 
-const MOB = new URL('..', import.meta.url).pathname
+// fileURLToPath, not .pathname: the folder is "Bloom CRM", and .pathname keeps the space as %20.
+const MOB = fileURLToPath(new URL('..', import.meta.url))
 const OUT = process.argv[2]
 
 const html = fs.readFileSync(path.join(MOB, 'index.html'), 'utf8')

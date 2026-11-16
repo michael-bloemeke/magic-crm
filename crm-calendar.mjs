@@ -74,7 +74,7 @@ async function writeMap(map) {
   try {
     map._meta = {
       file: 'crm-calendar-map.json',
-      owner: 'Magic CRM app (~/Desktop/Claude/magic-crm)',
+      owner: 'Magic CRM app (~/Desktop/Claude/Business/Bloom CRM)',
       purpose:
         'Maps CRM projects/tasks to the Google Calendar event ids the CRM created for them, plus the resolved ids of the "Gigs" and "Work" calendars. Lets the CRM update/remove the right events. Safe to delete to force a fresh re-sync (a new sync re-creates events, which may duplicate any left behind).',
     }

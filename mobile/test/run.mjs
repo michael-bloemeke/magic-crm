@@ -1,5 +1,7 @@
 import fs from 'node:fs'
-const SD = new URL('.', import.meta.url).pathname
+import { fileURLToPath } from 'node:url'
+// fileURLToPath, not .pathname: the folder is "Bloom CRM", and .pathname keeps the space as %20.
+const SD = fileURLToPath(new URL('.', import.meta.url))
 process.argv[2] = SD + 'app.built.mjs'
 await import('./harness.mjs')
 const { __app } = await import('./app.built.mjs')
@@ -131,7 +133,8 @@ const btns = [...document.querySelectorAll('.sheet .do-alt')]
 btns.find((b) => b.textContent === 'Tomorrow').dispatchEvent(new window.Event('click'))
 const dIn = document.querySelector('.sheet input[type=date]')
 const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1)
-const iso = tomorrow.toISOString().slice(0, 10)
+// Local date, not toISOString(): after 7 PM Eastern, UTC is already the next day and the test failed.
+const iso = tomorrow.getFullYear() + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0')
 ok(dIn.value === iso, 'Tomorrow sets the date to tomorrow', dIn.value + ' vs ' + iso)
 btns.find((b) => b.textContent === 'Clear').dispatchEvent(new window.Event('click'))
 ok(dIn.value === '', 'Clear empties the date')
@@ -639,7 +642,7 @@ ok(__app.fmtTime('5ish') === '5ish', 'fmtTime passes free text through untouched
 ok(__app.fmtTime('') === '', 'fmtTime blank stays blank')
 ok(__app.fmtPhoneDisplay('19195551234') === '(919) 555-1234', 'an 11-digit number with a leading 1')
 ok(__app.fmtPhoneDisplay('+44 20 7946 0958') === '+44 20 7946 0958', 'a non-US number is left alone')
-const t0 = new Date(); const d = (n) => { const x = new Date(t0); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10) }
+const t0 = new Date(); const d = (n) => { const x = new Date(t0); x.setDate(x.getDate() + n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0') }
 ok(__app.countdownText(d(0)) === 'Today', 'countdown today')
 ok(__app.countdownText(d(1)) === 'Tomorrow', 'countdown tomorrow')
 ok(__app.countdownText(d(12)) === 'in 12 days', 'countdown future')

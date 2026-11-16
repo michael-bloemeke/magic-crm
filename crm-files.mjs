@@ -1,5 +1,5 @@
 // Business files store for the CRM (slide decks, one-sheets, contracts, any
-// document Michael might send a client). Files live in ~/Desktop/Claude/magic-crm/crm-files.
+// document Michael might send a client). Files live in ~/Desktop/Claude/Business/Bloom CRM/crm-files.
 //
 // These are CRM-owned working assets, NOT canonical project records, so they sit
 // inside the app folder rather than Project Records. When this becomes an
