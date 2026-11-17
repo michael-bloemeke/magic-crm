@@ -13,8 +13,18 @@
 // It also stores the raw submission in the `inquiries` table for the project page's record.
 //
 // Steps 2 to 4 are best-effort: a mail/push failure never blocks the project from being created.
-// Public endpoint (verify_jwt=false): it's a contact form. A honeypot field drops bots and the
-// service-role client (auto-injected) bypasses RLS to write the rows.
+// Public endpoint (verify_jwt=false): it's a contact form. The service-role client (auto-injected)
+// bypasses RLS to write the rows.
+//
+// ⚠️ THIS FUNCTION NEVER THROWS A SUBMISSION AWAY (Michael, 2026-11-17). It used to carry a "honeypot":
+// a hidden form field that only bots were supposed to fill in, and anything arriving with it filled
+// was answered "ok" and silently discarded. On 2026-11-17 a real customer's browser autofilled that
+// hidden field (it was labelled "Company") and her whole inquiry vanished: no project, no email, no
+// trace. The only reason Michael found out was that she booked a call from the thank-you page.
+// In the logs that existed, the trap had caught no bots and lost a real lead.
+// The rule now: every submission is saved and Michael is always told. A filled trap field (it can
+// still arrive from an old cached copy of the page) only LABELS the inquiry as possible spam and
+// holds the automatic thanks email. Do not reintroduce any path that answers "ok" without saving.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -165,7 +175,15 @@ function formSummary(inq: Record<string, string>, showTypes: string): string {
   lines.push(`Submitted via the website contact form${inq.formLocation ? ` (${inq.formLocation})` : ""} on ${logDate()}.`, "");
   for (const [label, value] of rows) if (value) lines.push(`${label}: ${value}`);
   if (inq.message) lines.push("", "Message:", inq.message);
+  if (inq.trap) lines.push("", trapNote(inq.trap));
   return lines.join("\n");
+}
+
+// The plain-words note added to an inquiry whose hidden trap field came back filled in.
+function trapNote(trap: string): string {
+  return `Possible spam: a hidden form field that visitors cannot see came back filled in with "${trap}". `
+    + `A browser's autofill can do that for a real person (it is often their company name), so check before ignoring this one. `
+    + `The automatic "Thanks for reaching out!" email was not sent.`;
 }
 
 // ---- Push the phone + record the bell notification (best-effort). ----
@@ -265,6 +283,9 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
       ? `<p style="margin:26px 0 6px;font-weight:700;color:#111;">Message</p>`
         + `<p style="margin:0;color:#333;white-space:pre-wrap;">${escHtml(inq.message)}</p>`
       : "";
+    const trapBlock = inq.trap
+      ? `<p style="margin:0 0 24px;padding:12px 16px;background:#fff4e5;border:1px solid #e0a040;color:#111;">${escHtml(trapNote(inq.trap))}</p>`
+      : "";
     const crmNote = projectId
       ? "It has been added to your CRM as a new project in the Inquiry stage."
       : "Heads up: the CRM project could not be auto-created for this one, so add it manually.";
@@ -276,13 +297,14 @@ async function sendAlertEmail(inq: Record<string, string>, showTypes: string, pr
       + `font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;`
       + `font-size:15px;line-height:1.7;color:#333;">`
       + `<p style="margin:0 0 24px;font-size:16px;color:#111;">A new inquiry just came in through the website contact form.</p>`
+      + trapBlock
       + `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:15px;line-height:1.6;">${fieldRows}</table>`
       + messageBlock
       + `<p style="margin:26px 0 0;color:#555;">${crmNote}</p>`
       + sentFrom
       + `</div></body></html>`;
 
-    const subject = `New website inquiry${inq.formLocation ? ` (${inq.formLocation})` : ""}: ${inq.name || inq.email || "someone"}`;
+    const subject = `New website inquiry${inq.formLocation ? ` (${inq.formLocation})` : ""}: ${inq.name || inq.email || "someone"}${inq.trap ? " (possible spam, please check)" : ""}`;
 
     const headers = [
       `From: ${FROM}`,
@@ -403,10 +425,13 @@ function autoReplyBody(inq: Record<string, string>): string {
   ].join("\r\n");
 }
 
-// Returns what happened, for the response and the logs: sent | off | away | duplicate | no-email | failed.
+// Returns what happened, for the response and the logs: sent | off | held | away | duplicate | no-email | failed.
 // deno-lint-ignore no-explicit-any
 async function sendAutoReply(sb: any, inq: Record<string, string>, inquiryId: string): Promise<string> {
   if (!AUTO_REPLY_ENABLED) return "off";
+  // A filled trap field might be a bot, and a bot can type anyone's address. The inquiry is still saved
+  // and Michael is still told (see the top of this file); only this email to a possible stranger waits.
+  if (inq.trap) return "held";
   const to = normEmail(inq.email);
   // No whitespace allowed, so a crafted address can never smuggle in extra mail headers.
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return "no-email";
@@ -560,7 +585,9 @@ Deno.serve(async (req) => {
 
   try {
     const b = await req.json().catch(() => ({}));
-    if (b && b._hp) return json({ ok: true }); // honeypot: pretend success, discard
+    // The hidden trap field. It NEVER causes a discard (see the top of this file): it only labels the
+    // inquiry and holds the auto-reply. The live pages no longer send it at all.
+    const trap = str(b?._hp, 200);
 
     const inq = {
       name: str(b?.name, 200),
@@ -574,6 +601,7 @@ Deno.serve(async (req) => {
       venue: str(b?.venue, 400),
       message: str(b?.message, 5000),
       formLocation: str(b?.formLocation, 40),
+      trap,
     };
     const showTypes = Array.isArray(b?.showTypes)
       ? b.showTypes.map((x: unknown) => str(x, 80)).filter(Boolean).join(", ")
@@ -590,7 +618,8 @@ Deno.serve(async (req) => {
     );
 
     const displayName = inq.name || inq.email || "Website inquiry";
-    const activity = `${logDate()}: New inquiry from the website contact form${inq.formLocation ? ` (${inq.formLocation})` : ""}.`;
+    const activity = `${logDate()}: New inquiry from the website contact form${inq.formLocation ? ` (${inq.formLocation})` : ""}.`
+      + (trap ? " Flagged as possible spam because a hidden form field was filled in, so no automatic thanks email was sent." : "");
 
     const baseRow: Record<string, unknown> = {
       client_name: displayName,
@@ -690,6 +719,18 @@ Deno.serve(async (req) => {
       const line = `${logDate()}: "Thanks for reaching out!" email sent automatically.`;
       const { error } = await supabase.from("projects").update({ activity_log: [activity, line] }).eq("id", projectId);
       if (error) console.warn("[inquiry] activity log update failed:", error.message);
+    }
+
+    // One line per submission in the function logs, so "what happened to that form fill?" always has
+    // an answer. No personal details beyond the project id.
+    console.log("[inquiry] handled", JSON.stringify({ projectId, storedRaw: !inqErr, emailed, autoReply, pushed, trap: !!trap }));
+
+    // ⚠️ NEVER SAY "OK" WHEN NOTHING REACHED MICHAEL. If the project, the raw record AND the alert
+    // email all failed, the visitor must see the form's error message (which tells them to email him
+    // directly) instead of being sent to the thank-you page believing it went through.
+    if (!projectId && inqErr && !emailed) {
+      console.error("[inquiry] NOTHING was saved or sent for this submission; answering 500 so the visitor is told to email directly.");
+      return json({ error: "The inquiry could not be saved." }, 500);
     }
 
     return json({ ok: true, projectId, emailed, autoReply, pushed });
