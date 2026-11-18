@@ -481,6 +481,10 @@ Deno.serve(async (req) => {
     recommendation: clean(prop.recommendation).split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
     styles: normaliseStyles(prop.styles),
     packages: normalisePackages(prop.packages),
+    // Per-proposal layout switch for the packages section (added 2026-11-17, Anngie Villegas).
+    // "rows" = full-width horizontal rows, recommended package first. Anything else = the standard
+    // side-by-side cards, so every older proposal is unchanged.
+    packagesLayout: clean(prop.packages_layout) === "rows" ? "rows" : "",
     reviews: normaliseReviews(prop.reviews),
     clients: normaliseClients(prop.clients),
     photos: normalisePhotos(prop.photos),
