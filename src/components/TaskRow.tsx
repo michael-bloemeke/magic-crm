@@ -47,44 +47,55 @@ export function TaskRow({ task, projectName, onToggle, onDelete, onEdit, onOpenP
     setEditing(false)
   }
 
+  // EDITING IS TWO ROWS (Michael, 2026-11-23). On one row the name box was squeezed to about 80px
+  // by the date, time, length, and Busy/Free controls: "I have to scroll through it to be able to
+  // change one word." His layout: the name and the date on the first row, everything else (time,
+  // length, Busy/Free, save, cancel) on the second. Do not fold it back into one line.
   if (editing) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-brass-dim bg-surface-2/50 px-3 py-2">
-        <input
-          value={draftTitle}
-          onChange={(e) => setDraftTitle(e.target.value)}
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') saveEdit()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-          className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
-        />
-        <input
-          type="date"
-          value={draftDue}
-          onChange={(e) => setDraftDue(e.target.value)}
-          className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-        />
-        <input
-          type="time"
-          value={draftTime}
-          onChange={(e) => setDraftTime(e.target.value)}
-          title="Optional time (leave blank for an all-day task)"
-          className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-        />
-        <TaskTimingInputs
-          value={draftTiming}
-          onChange={setDraftTiming}
-          hasTime={!!draftTime}
-          className="shrink-0 rounded-md border border-line bg-surface px-1.5 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
-        />
-        <button type="button" onClick={saveEdit} aria-label="Save task" className="shrink-0 rounded-md p-1 text-brass-bright transition-colors hover:text-brass">
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 6" /></svg>
-        </button>
-        <button type="button" onClick={() => setEditing(false)} aria-label="Cancel" className="shrink-0 rounded-md p-1 text-faint transition-colors hover:text-parchment">
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-        </button>
+      <div className="rounded-lg border border-brass-dim bg-surface-2/50 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <input
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            autoFocus
+            aria-label="Task name"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveEdit()
+              if (e.key === 'Escape') setEditing(false)
+            }}
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[13px] text-parchment focus:border-brass-dim focus:outline-none"
+          />
+          <input
+            type="date"
+            value={draftDue}
+            onChange={(e) => setDraftDue(e.target.value)}
+            aria-label="Due date"
+            className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
+          />
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="time"
+            value={draftTime}
+            onChange={(e) => setDraftTime(e.target.value)}
+            title="Optional time (leave blank for an all-day task)"
+            aria-label="Time"
+            className="shrink-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
+          />
+          <TaskTimingInputs
+            value={draftTiming}
+            onChange={setDraftTiming}
+            hasTime={!!draftTime}
+            className="shrink-0 rounded-md border border-line bg-surface px-1.5 py-1 text-[12px] text-parchment focus:border-brass-dim focus:outline-none"
+          />
+          <button type="button" onClick={saveEdit} aria-label="Save task" title="Save" className="ml-auto shrink-0 rounded-md p-1 text-brass-bright transition-colors hover:text-brass">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 6" /></svg>
+          </button>
+          <button type="button" onClick={() => setEditing(false)} aria-label="Cancel" title="Cancel" className="shrink-0 rounded-md p-1 text-faint transition-colors hover:text-parchment">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </div>
       </div>
     )
   }
