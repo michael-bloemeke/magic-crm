@@ -5,7 +5,7 @@
 // reached the calendar until the server was restarted.
 //
 // Run it:  node crm-calendar.test.mjs      (exits non-zero on failure)
-import { singleFlight, taskEventBody } from './crm-calendar.mjs'
+import { singleFlight, taskEventBody, projectEventNotes, projectLink } from './crm-calendar.mjs'
 
 let failures = 0
 function check(label, ok) {
@@ -93,6 +93,35 @@ const tick = () => new Promise((r) => setTimeout(r, 0))
   check('a task with no length or busy flag is 30 minutes and free', old.end.dateTime === '2026-11-20T14:30:00' && old.transparency === 'transparent')
   const late = taskEventBody({ ...base, dueTime: '23:30', durationMin: 60 }, null)
   check('a late task rolls past midnight', late.end.dateTime === '2026-11-21T00:30:00')
+}
+
+// ---- The "Open in Bloom CRM" link on every project's event (2026-11-23) ----
+{
+  const link = 'bloomcrm://project/sample-company-holiday-party'
+  check('the link is the app link for that project', projectLink('sample-company-holiday-party') === link)
+  // The notes are the same whether the gig is an inquiry or booked (projectEventBody only adds the
+  // title, the times and busy/free around them).
+  const notes = projectEventNotes({
+    id: 'sample-company-holiday-party',
+    client: 'Sample Company',
+    eventDate: '2026-12-12',
+    eventSummary: 'Holiday party cocktail hour',
+    eventLocation: 'Somewhere, Raleigh',
+  })
+  const lines = notes.split('\n')
+  check('a gig or inquiry carries the link', notes.includes(link))
+  check('the link is the first line of the notes', lines[0] === `Open in Bloom CRM: ${link}`)
+  check('a blank line follows the link', lines[1] === '')
+  check('the description blurb still follows', lines[2] === 'Holiday party cocktail hour')
+  check('the CRM marker line is still there', notes.includes('Synced from Magic CRM'))
+  const bare = projectEventNotes({ id: 'sample-company-holiday-party', client: 'Sample Company', eventDate: '2026-12-12' })
+  check('a project with no details still leads with the link', bare.split('\n')[0] === `Open in Bloom CRM: ${link}`)
+  const task = { title: 'Call venue', dueDate: '2026-11-20', dueTime: '14:00' }
+  const withProject = taskEventBody(task, { id: 'sample-company-holiday-party', client: 'Sample Company' })
+  check('a task on a project links to that project', withProject.description.includes(`\nOpen in Bloom CRM: ${link}\n`))
+  const alone = taskEventBody(task, null)
+  check('a task with no project has no link', !alone.description.includes('bloomcrm://'))
+  check('an id with odd characters is made link-safe', projectLink("o'neil & co") === "bloomcrm://project/o'neil%20%26%20co")
 }
 
 if (failures) {

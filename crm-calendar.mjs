@@ -182,17 +182,39 @@ function line(label, value) {
   return v ? `${label}: ${v}\n` : ''
 }
 
-function projectEventBody(project) {
-  const booked = isProjectBooked(project)
-  // The title is the project name only (Michael, 2026-11-13). The time used to ride in the title
-  // ("Carmen Victoria Milam · 1:15 PM") from when every gig was an all-day event; now a booked gig is a
-  // timed block from Leave home to Back home, so a second time in the name only confused it. The
-  // arrival, event and show times are still in the event's description. Unbooked projects keep the
-  // "Inquiry: " prefix, which is not a time.
-  const summary = `${booked ? '' : 'Inquiry: '}${project.client}`
+// THE "OPEN IN BLOOM CRM" LINK (2026-11-23). Every event this CRM puts on the calendar for a project
+// (an inquiry, a booked gig, or a timed task that belongs to a project) carries one link that opens
+// that project in the app. His words: "if I click on it and open up the details, I want to have an
+// easy link that I can click on that'll take me to the app."
+//
+// It is the app's own link type (the "bloomcrm" scheme, then project/<id>), not a web address:
+//   - On the iPhone the app has answered it since the home-screen widgets (handleWidgetLink in
+//     mobile/app.js).
+//   - On the Mac the Bloom CRM app answers it (electron/main.cjs, "open-url"), starting itself first
+//     if it is closed.
+//   - Apple's Calendar app, which is what he uses on both, draws it as a clickable link in the
+//     event's notes (checked with Apple's own link detector, NSDataDetector).
+// Nothing is hosted anywhere and nothing leaves his devices. Google Calendar's own website and app
+// do NOT make this kind of link clickable; if he ever moves to those, the link has to become a web
+// address that forwards to the app, which needs a small public page and his yes.
+//
+// It is the FIRST line of the notes so it is the first thing he sees, and it sits on its own line
+// with a blank line after it so the link detector never swallows the next word.
+const APP_LINK_SCHEME = 'bloomcrm'
+export function projectLink(projectId) {
+  return `${APP_LINK_SCHEME}://project/${encodeURIComponent(String(projectId || ''))}`
+}
+function linkLine(project) {
+  return project && project.id ? `Open in Bloom CRM: ${projectLink(project.id)}\n` : ''
+}
 
-  let description = ''
-  // The project's Description blurb leads the event details, when there is one.
+// The notes of a gig's event, the same for an inquiry and a booked gig. Its own function so the test
+// can check it without the database (projectEventBody needs the pipeline to know what is booked).
+export function projectEventNotes(project) {
+  // The link to this project in the app leads the notes (see projectLink above).
+  let description = linkLine(project)
+  if (description) description += '\n'
+  // The project's Description blurb comes next, when there is one.
   if (String(project.eventSummary || '').trim()) description += `${String(project.eventSummary).trim()}\n\n`
   description += line('Event type', project.eventType)
   description += line('Arrival', project.arrivalTime)
@@ -204,11 +226,22 @@ function projectEventBody(project) {
   description += line('Guests', project.numberOfGuests)
   description += line('Contact', [project.contactNames, project.contactPhones].filter(Boolean).join(' · '))
   description += '\n(Synced from Magic CRM. Edit details in the CRM.)'
+  return description.trim()
+}
+
+function projectEventBody(project) {
+  const booked = isProjectBooked(project)
+  // The title is the project name only (Michael, 2026-11-13). The time used to ride in the title
+  // ("Carmen Victoria Milam · 1:15 PM") from when every gig was an all-day event; now a booked gig is a
+  // timed block from Leave home to Back home, so a second time in the name only confused it. The
+  // arrival, event and show times are still in the event's description. Unbooked projects keep the
+  // "Inquiry: " prefix, which is not a time.
+  const summary = `${booked ? '' : 'Inquiry: '}${project.client}`
 
   const body = {
     summary,
     location: project.eventLocation || undefined,
-    description: description.trim(),
+    description: projectEventNotes(project),
     reminders: { useDefault: true },
   }
 
@@ -259,7 +292,8 @@ export function taskEventBody(task, project) {
   const len = Number(task.durationMin) > 0 ? Number(task.durationMin) : TASK_DURATION_MIN
   return {
     summary: task.title,
-    description: (project ? `Project: ${project.client}\n\n` : '') + '(Synced from Magic CRM.)',
+    // A task that belongs to a project carries the same link to that project.
+    description: (project ? `Project: ${project.client}\n${linkLine(project)}\n` : '') + '(Synced from Magic CRM.)',
     start: { dateTime: dateTimeAt(task.dueDate, t), timeZone: TIMEZONE },
     end: { dateTime: dateTimeAt(task.dueDate, t, len), timeZone: TIMEZONE },
     transparency: task.busy === true ? 'opaque' : 'transparent',

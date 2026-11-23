@@ -7,6 +7,9 @@ declare global {
     crm?: {
       isElectron?: boolean
       setBadge?: (count: number) => void
+      // A link from outside the app, e.g. the "Open in Bloom CRM" link in a calendar event. Returns a
+      // function that stops listening.
+      onOpenLink?: (cb: (link: { what: string; id: string; sub: string }) => void) => () => void
     }
   }
 }
