@@ -13,6 +13,7 @@
 
 const { app, BrowserWindow, ipcMain, nativeImage, screen, shell } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const os = require('os')
 const http = require('http')
 const { spawn } = require('child_process')
@@ -26,7 +27,6 @@ const BASE_URL = `http://localhost:${PORT}`
 // The folder moved on 2026-11-15, from ~/Desktop/Claude/magic-crm to ~/Desktop/Claude/Business/Bloom CRM,
 // and this still named the old one until 2026-11-23. Nothing broke only because a server was already
 // running, so the app never had to start one. The first existing folder wins, newest location first.
-const fs = require('fs')
 const REPO_HOMES = [
   path.join(os.homedir(), 'Desktop', 'Claude', 'Business', 'Bloom CRM'),
   path.join(os.homedir(), 'Desktop', 'Claude', 'magic-crm'),
@@ -168,8 +168,11 @@ function createWindow() {
 
   // A reload or a closed window means the page is not listening for links until it says so again.
   const thisWin = win
-  thisWin.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
-    if (isMainFrame && !isInPlace) pageListening = false
+  thisWin.webContents.on('did-start-navigation', (e, _url, isInPlace, isMainFrame) => {
+    // Newer Electron puts these on the event; older passed them as arguments. Read whichever is there.
+    const mainFrame = typeof e.isMainFrame === 'boolean' ? e.isMainFrame : isMainFrame
+    const samePage = typeof e.isSameDocument === 'boolean' ? e.isSameDocument : isInPlace
+    if (mainFrame && !samePage) pageListening = false
   })
   thisWin.on('closed', () => {
     if (win === thisWin) {

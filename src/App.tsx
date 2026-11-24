@@ -268,6 +268,33 @@ function App() {
     const p = (projects ?? []).find((x) => x.id === id)
     if (p) openFull(p)
   }
+  // A LINK FROM OUTSIDE THE APP (2026-11-23). Every calendar event the CRM makes for a project carries
+  // an "Open in Bloom CRM" link (projectLink in crm-calendar.mjs). Clicking it in the Calendar app
+  // hands the link to the Mac app (electron/main.cjs), which brings this window to the front and
+  // passes the link here; this opens that project's page. If the link is what STARTED the app, the
+  // projects are not loaded yet, so the id goes where the "project that was open before a refresh"
+  // goes and the data-load effect opens it. In a plain browser tab there is no window.crm and this
+  // does nothing.
+  const openLinked = useRef<(id: string) => void>(() => {})
+  useEffect(() => {
+    openLinked.current = (id) => {
+      if (!projects) {
+        pendingProjectId.current = id
+        return
+      }
+      const p = projects.find((x) => x.id === id)
+      if (!p) return
+      setSearchOpen(false)
+      openFull(p)
+    }
+  })
+  useEffect(
+    () =>
+      window.crm?.onOpenLink?.((link) => {
+        if (link?.what === 'project' && link.id) openLinked.current(link.id)
+      }),
+    [],
+  )
   // Back: pop the last recorded location and restore it (page/view/open-project/open-contact),
   // walking back through the whole session. Null-safe so a deleted project/contact just clears.
   const goBack = () => {

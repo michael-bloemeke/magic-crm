@@ -22,6 +22,14 @@
       "electron/**/*",
       "package.json"
     ],
+    "protocols": [
+      {
+        "name": "Bloom CRM link",
+        "schemes": [
+          "bloomcrm"
+        ]
+      }
+    ],
     "mac": {
       "target": [
         "dir"
