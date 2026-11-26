@@ -141,6 +141,11 @@ export function ProposalEditor({ target, onBack }: { target: PreviewTarget; onBa
   const [query, setQuery] = useState('')
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  // The full-screen client view. `viewKey` reloads the frame every time it opens, so it always
+  // shows what was just saved.
+  const [clientView, setClientView] = useState(false)
+  const [openingView, setOpeningView] = useState(false)
+  const [viewKey, setViewKey] = useState(0)
 
   // --- Load --------------------------------------------------------------------------------
   useEffect(() => {
@@ -246,7 +251,8 @@ export function ProposalEditor({ target, onBack }: { target: PreviewTarget; onBa
     }
     handlers.current.key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (photoFor !== null) setPhotoFor(null)
+      if (clientView) setClientView(false)
+      else if (photoFor !== null) setPhotoFor(null)
       else back()
     }
     // Leaving by the sidebar or search unmounts this without Back. Save whatever is pending anyway.
@@ -285,6 +291,29 @@ export function ProposalEditor({ target, onBack }: { target: PreviewTarget; onBa
     setState(next)
     pushToPage(next)
     scheduleSave()
+  }
+
+  // The same flagged link the editor frames, minus `edit=1`: the plain page from the live edge
+  // function, `preview=1` (plus the admin key when it is not public), so it never counts as a view.
+  let viewSrc = ''
+  try {
+    if (data?.src) {
+      const u = new URL(data.src)
+      u.searchParams.delete('edit')
+      viewSrc = u.toString()
+    }
+  } catch {
+    viewSrc = ''
+  }
+  const openClientView = async () => {
+    setOpeningView(true)
+    try {
+      await flush()
+    } finally {
+      setOpeningView(false)
+    }
+    setViewKey((k) => k + 1)
+    setClientView(true)
   }
 
   const copy = () => {
@@ -472,6 +501,22 @@ export function ProposalEditor({ target, onBack }: { target: PreviewTarget; onBa
         {/* THE PANEL. Pick saved styles, reviews and packages. Typing happens on the page itself. */}
         {data && lib && (
           <aside className="flex w-[360px] shrink-0 flex-col border-l border-line bg-surface">
+            {/* THE CLIENT'S VIEW (Michael, 2026-11-26): the whole window, none of the editing
+                outlines or buttons, exactly what the client gets. Not offered on the template: its
+                plain page is the old baked-in sample, not the saved styles and packages. */}
+            {mode === 'proposal' && (
+              <div className="shrink-0 border-b border-line px-3 py-2.5">
+                <button
+                  type="button"
+                  className={smallBtn + ' w-full py-2 text-[12.5px]'}
+                  disabled={!pageReady || openingView || !viewSrc}
+                  onClick={openClientView}
+                  title="Saves anything pending, then shows the page full screen the way the client sees it. Not counted as a view."
+                >
+                  {openingView ? 'Saving…' : 'View full screen as the client'}
+                </button>
+              </div>
+            )}
             <div className="flex shrink-0 gap-1 border-b border-line px-3 py-2">
               {mode === 'proposal' ? (
                 <>
@@ -676,6 +721,29 @@ export function ProposalEditor({ target, onBack }: { target: PreviewTarget; onBa
           </aside>
         )}
       </div>
+
+      {/* The client's view, covering the whole window, the CRM sidebar included. A fresh frame of the
+          plain flagged page, so it shows exactly what was just saved and never counts as a view. */}
+      {clientView && viewSrc && (
+        <div className="fixed inset-0 z-[60] flex flex-col bg-surface-2">
+          <div className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-5 py-2.5">
+            <button
+              type="button"
+              onClick={() => setClientView(false)}
+              className="flex items-center gap-2 rounded-lg border border-line-strong bg-surface-2 px-3.5 py-1.5 text-[13px] font-semibold text-parchment transition-colors hover:border-brass hover:text-brass-bright"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Back to editing
+            </button>
+            <p className="min-w-0 flex-1 truncate text-[12.5px] text-muted">
+              {target.title}: exactly what the client sees. Not counted as a view.
+            </p>
+          </div>
+          <iframe key={`view-${viewKey}`} src={viewSrc} title={`${target.title}, client view`} className="min-h-0 w-full flex-1 border-0" />
+        </div>
+      )}
 
       {/* The photo picker, for "Change photo" on a style. Every photo the website already has. */}
       {photoFor !== null && data && (
