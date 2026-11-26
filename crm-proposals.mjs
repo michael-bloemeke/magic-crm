@@ -23,6 +23,9 @@
 // later is a config change here, not another page.
 
 import { randomBytes } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { sb } from './crm-store.mjs'
 import { loadAll, appendActivityLog, slugify } from './crm-data-core.mjs'
 import { proposalEmail } from './crm-booking-emails.mjs'
@@ -299,15 +302,27 @@ export async function ensureProposal(projectId) {
   if (!project) throw new Error(`crm-proposals: no project "${projectId}"`)
 
   const type = normaliseType(project.eventType)
+  // The usual four reviews for this kind of event, from the saved library (the same sets as the
+  // editor's quick-set buttons). The old per-type REVIEW_BANK above is only the fallback now.
+  let reviews = reviewsFor(type)
+  try {
+    const preset = presetReviews(await loadLibrary(), PRESET_FOR_TYPE[type] || 'general')
+    if (preset.length) reviews = preset
+  } catch (e) {
+    console.warn('[proposals] library unavailable, seeding the old review set:', e?.message || e)
+  }
   const row = {
     project_id: projectId,
     token: newToken(),
     status: 'draft',
     event_type: type,
     hero_line: '',
-    recommendation: '',
+    // The fixed lede over Performance styles. The same sentence on every proposal (see the
+    // proposal playbook), so a new one starts with it and never trips the publish gate over it.
+    recommendation: FIXED_RECOMMENDATION,
+    styles: [],
     packages: [],
-    reviews: reviewsFor(type),
+    reviews,
     clients: CLIENT_LOGOS,
     photos: photosFor(type),
     video_id: DEFAULT_VIDEO_ID,
@@ -321,7 +336,7 @@ export async function ensureProposal(projectId) {
 // Patch keys map straight onto the columns: hero_line, recommendation, packages, reviews, photos,
 // video_id, event_type, expires_at. Anything else is ignored rather than thrown, so a caller can
 // hand over a whole object without filtering it first.
-const WRITABLE = ['event_type', 'headline', 'hero_line', 'event_copy', 'recommendation', 'styles', 'styles_note', 'packages', 'reviews', 'clients', 'photos', 'video_id', 'video2_id', 'followup', 'followup_title', 'followup_text', 'expires_at']
+const WRITABLE = ['event_type', 'headline', 'event_title', 'hero_line', 'event_copy', 'recommendation', 'styles', 'styles_note', 'packages', 'reviews', 'clients', 'photos', 'video_id', 'video2_id', 'followup', 'followup_title', 'followup_text', 'expires_at']
 
 export async function saveProposal(projectId, patch) {
   const update = { updated_at: new Date().toISOString() }
@@ -538,6 +553,131 @@ export async function draftProposalEmail(projectId, { createDraft }) {
   await appendActivityLog(projectId, 'Proposal email drafted in Gmail. Not sent.')
 
   return { ok: true, to, url, threadId: draft?.threadId || '' }
+}
+
+// ---------------------------------------------------------------------------
+// The proposal editor and its saved library (2026-11-26)
+// ---------------------------------------------------------------------------
+//
+// Michael's ask: open a proposal in the CRM and edit it in place, and build new ones from SAVED
+// performance styles, packages and reviews instead of having Claude write every one from scratch.
+// The editing happens on the real proposal page (Website/proposal/index.html, `&edit=1`, framed by
+// ProposalEditor.tsx). These functions are the data side: what the editor loads and where it saves.
+//
+// `proposal_library` is ONE row (id 1), service role only:
+//   styles          the saved performance styles: { key, name, description, photo }
+//   packages        the saved packages: { key, name, tagline, price, duration, includes, recommended }
+//   reviews         the review bank: every review used on a proposal plus every written five-star
+//                   review on file, each { id, name, text, company, highlight, tags, source, used }
+//   review_presets  the one-click sets: { wedding, corporate, general, house } -> review ids
+// Styles and packages are edited in the CRM's Proposal template. The bank and presets are built by
+// scripts/seed-proposal-library.mjs and are not editable in the app (reviews are verbatim, always).
+
+export const FIXED_RECOMMENDATION = 'The performance styles we talked about on the call are described in more detail below.'
+
+// Which quick set a brand-new proposal starts with, by event type.
+const PRESET_FOR_TYPE = {
+  wedding: 'wedding',
+  corporate: 'corporate',
+  'holiday-party': 'corporate',
+  bachelorette: 'house',
+  private: 'house',
+}
+
+export async function loadLibrary() {
+  const { data, error } = await sb().from('proposal_library').select('*').eq('id', 1).maybeSingle()
+  if (error) throw new Error(`crm-proposals.loadLibrary: ${error.message}`)
+  return {
+    styles: Array.isArray(data?.styles) ? data.styles : [],
+    packages: Array.isArray(data?.packages) ? data.packages : [],
+    reviews: Array.isArray(data?.reviews) ? data.reviews : [],
+    review_presets: data?.review_presets && typeof data.review_presets === 'object' ? data.review_presets : {},
+  }
+}
+
+// A review as it sits on a proposal. `bank_id` marks where it came from; the page ignores it.
+const toProposalReview = (r) => ({ name: r.name, text: r.text, company: r.company || '', highlight: r.highlight || [], bank_id: r.id })
+
+export function presetReviews(library, key) {
+  const ids = library?.review_presets?.[key] || []
+  return ids.map((id) => library.reviews.find((r) => r.id === id)).filter(Boolean).map(toProposalReview)
+}
+
+const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v))
+const safePhotoPath = (v) => (/^\/assets\/[A-Za-z0-9/._-]+$/.test(str(v)) ? str(v) : '')
+
+// Only the two editable parts of the library are written, and each entry is rebuilt field by field
+// so a bad message from the page can never store anything but the shapes below.
+export async function saveLibrary(patch) {
+  const update = { updated_at: new Date().toISOString() }
+  if (Array.isArray(patch?.styles)) {
+    update.styles = patch.styles.map((x, i) => ({
+      key: str(x?.key) || `style-${i}`,
+      name: str(x?.name),
+      description: str(x?.description),
+      photo: safePhotoPath(x?.photo),
+    }))
+  }
+  if (Array.isArray(patch?.packages)) {
+    update.packages = patch.packages.map((x, i) => ({
+      key: str(x?.key) || `package-${i}`,
+      name: str(x?.name),
+      tagline: str(x?.tagline),
+      price: str(x?.price),
+      duration: str(x?.duration),
+      includes: Array.isArray(x?.includes) ? x.includes.map(str) : [],
+      recommended: x?.recommended === true,
+    }))
+  }
+  const { error } = await sb().from('proposal_library').update(update).eq('id', 1)
+  if (error) throw new Error(`crm-proposals.saveLibrary: ${error.message}`)
+  return { ok: true }
+}
+
+// Every photo the website already serves, for the editor's photo picker. Read off the Website
+// folder next to the CRM, so a new photo shows up as soon as it is in the site.
+const WEBSITE_PHOTOS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'Website', 'assets', 'photos')
+export function sitePhotos() {
+  try {
+    return fs
+      .readdirSync(WEBSITE_PHOTOS, { withFileTypes: true })
+      .filter((d) => d.isFile() && /\.webp$/i.test(d.name))
+      .map((d) => `/assets/photos/${d.name}`)
+      .sort()
+  } catch (e) {
+    console.warn('[proposals] could not list the website photos:', e?.message || e)
+    return []
+  }
+}
+
+// Everything the editor needs for one proposal. `src` is the same flagged preview link the old
+// Open preview used, plus `edit=1`: it NEVER counts as a view.
+export async function proposalEditorData(projectId) {
+  const row = await loadProposal(projectId)
+  if (!row) throw new Error('No proposal for this project yet.')
+  const project = loadAll().projects.find((p) => p.id === projectId)
+  const openUrl = previewUrlFor(row, project, await previewKey())
+  if (!openUrl) throw new Error('Could not build the preview link for this proposal.')
+  return {
+    src: `${openUrl}&edit=1`,
+    publicUrl: proposalUrl(row.token),
+    state: {
+      headline: row.headline || '',
+      event_title: row.event_title || '',
+      event_copy: row.event_copy || '',
+      styles: Array.isArray(row.styles) ? row.styles : [],
+      packages: Array.isArray(row.packages) ? row.packages : [],
+      reviews: Array.isArray(row.reviews) ? row.reviews : [],
+      followup: row.followup || '',
+    },
+    library: await loadLibrary(),
+    photos: sitePhotos(),
+  }
+}
+
+// The Proposal template: the sample page in edit mode, fed the saved styles and packages.
+export async function templateEditorData() {
+  return { src: `${SITE}/proposal/?demo=1&edit=1`, library: await loadLibrary(), photos: sitePhotos() }
 }
 
 // ---------------------------------------------------------------------------

@@ -30,6 +30,9 @@ export type PreviewTarget = {
   subtitle?: string
   // Where Back goes, in his words: "the proposals page or the project page, wherever I was."
   backLabel: string
+  // Open the proposal EDITOR instead of a plain preview (2026-11-26). The editor frames the same
+  // flagged page with `&edit=1`, so it still never counts as a view. See ProposalEditor.tsx.
+  editor?: { mode: 'proposal'; projectId: string } | { mode: 'template' }
 }
 
 export function PreviewPage({ target, onBack }: { target: PreviewTarget; onBack: () => void }) {

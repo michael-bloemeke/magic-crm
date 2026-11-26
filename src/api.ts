@@ -894,6 +894,79 @@ export type ProposalStatus = {
   packageCount?: number
 }
 
+// --- The proposal editor (2026-11-26) ---------------------------------------------------------
+// The saved library every new proposal is built from: the performance styles and packages (both
+// editable in the Proposal template) and the review bank (read-only, real reviews only).
+export type LibraryStyle = { key: string; name: string; description: string; photo: string; photo2?: string; duration?: string }
+export type LibraryPackage = {
+  key: string
+  name: string
+  tagline: string
+  price: string
+  duration: string
+  includes: string[]
+  recommended: boolean
+}
+export type BankReview = {
+  id: string
+  name: string
+  text: string
+  company: string
+  highlight: string[]
+  tags: string[]
+  source: string
+  used: number
+}
+export type ProposalLibrary = {
+  styles: LibraryStyle[]
+  packages: LibraryPackage[]
+  reviews: BankReview[]
+  review_presets: Record<string, string[]>
+}
+// A review as it sits on a proposal. `bank_id` only marks where it came from; the page ignores it.
+export type ProposalReview = { name: string; text: string; company?: string; highlight?: string[]; bank_id?: string }
+// The fields the editor changes, in the shape the proposals row stores them.
+export type ProposalEditState = {
+  headline: string
+  event_title: string
+  event_copy: string
+  styles: (LibraryStyle | (Omit<LibraryStyle, 'key'> & { key?: string }))[]
+  packages: (LibraryPackage | (Omit<LibraryPackage, 'key'> & { key?: string }))[]
+  reviews: ProposalReview[]
+  followup: string
+}
+export type ProposalEditorData = {
+  // The page to frame, already flagged so it never counts as a view, plus `edit=1`.
+  src: string
+  publicUrl: string
+  state: ProposalEditState
+  library: ProposalLibrary
+  photos: string[]
+}
+export type TemplateEditorData = {
+  src: string
+  library: ProposalLibrary
+  photos: string[]
+}
+
+export async function loadProposalEditor(projectId: string): Promise<ProposalEditorData> {
+  const res = await fetch(`/api/proposal/editor?projectId=${encodeURIComponent(projectId)}`)
+  const d = await res.json().catch(() => null)
+  if (!res.ok || !d || d.error) throw new Error(d?.error || 'Could not open the proposal editor.')
+  return d as ProposalEditorData
+}
+
+export async function loadTemplateEditor(): Promise<TemplateEditorData> {
+  const res = await fetch('/api/proposal-library/load')
+  const d = await res.json().catch(() => null)
+  if (!res.ok || !d || d.error) throw new Error(d?.error || 'Could not open the proposal template.')
+  return d as TemplateEditorData
+}
+
+export async function saveProposalLibrary(patch: { styles?: unknown[]; packages?: unknown[] }): Promise<{ ok: true }> {
+  return postJsonStrict('/api/proposal-library/save', patch, 'Could not save the proposal template')
+}
+
 export async function loadProposalStatus(projectId: string): Promise<ProposalStatus | null> {
   const res = await fetch(`/api/proposal/status?projectId=${encodeURIComponent(projectId)}`)
   if (!res.ok) return null

@@ -364,9 +364,9 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
       <div className="rounded-xl border border-line bg-surface px-4 py-4 shadow-[0_24px_50px_-24px_rgba(4,8,24,0.75),0_6px_16px_-8px_rgba(4,8,24,0.45)]">
         <p className="text-[13px] font-semibold text-parchment">What the client sees</p>
         <p className="mt-1 text-[12px] leading-relaxed text-muted">
-          The proposal template is the master copy: every new proposal starts from it, and only the
-          parts in [brackets] get changed. Both are attached to nobody, nothing you do in them is
-          saved, and no client's numbers move.
+          The proposal template is the master copy, and its performance styles and packages are
+          editable: change one there and every new proposal starts from the new version. The
+          sample booking form is attached to nobody and nothing typed in it is saved.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {/* Buttons, not links, for the same reason every other preview here is: they open as a
@@ -384,6 +384,9 @@ export function ProposalsPage({ onPreview }: { onPreview: (t: PreviewTarget) => 
                 title: 'Proposal template',
                 subtitle: 'The master copy. Every new proposal starts from this.',
                 backLabel: 'Proposals',
+                // The template is now editable (2026-11-26): the saved performance styles and
+                // packages every new proposal is built from. See ProposalEditor.tsx.
+                editor: { mode: 'template' },
               })
             }
           >

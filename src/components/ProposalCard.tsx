@@ -79,6 +79,16 @@ export function ProposalCard({
   const primary =
     'rounded-lg border border-brass-dim/60 bg-surface-3 px-3 py-1.5 text-[12.5px] font-semibold text-brass-bright transition-colors hover:border-brass disabled:cursor-not-allowed disabled:opacity-40'
 
+  const openEditor = () =>
+    onPreview({
+      src: p?.openUrl || '',
+      publicUrl: p?.url || '',
+      title: project.client || project.id,
+      subtitle: 'Proposal editor',
+      backLabel: 'Back to the project',
+      editor: { mode: 'proposal', projectId: project.id },
+    })
+
   const copy = () => {
     if (!p?.url) return
     navigator.clipboard.writeText(p.url).then(() => {
@@ -120,22 +130,17 @@ export function ProposalCard({
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted" title={p.url}>
             {p.url.replace(/^https:\/\//, '')}
           </span>
+          {/* THE EDITOR (2026-11-26). This used to be "Open preview", a read-only frame. It is now
+              the same frame with the page's edit mode on, so the proposal can be fixed right where
+              it is read. Still never counted as a view. */}
           {p.openUrl && (
             <button
               type="button"
-              onClick={() =>
-                onPreview({
-                  src: p.openUrl as string,
-                  publicUrl: p.url as string,
-                  title: project.client || project.id,
-                  subtitle: p.state === 'live' ? 'Proposal · live' : `Proposal · ${p.stateReason || ''}`,
-                  backLabel: 'Back to the project',
-                })
-              }
+              onClick={openEditor}
               className="shrink-0 rounded-md border border-brass-dim/60 bg-surface-3 px-2.5 py-1 text-[11.5px] font-semibold text-brass-bright transition-colors hover:border-brass"
-              title="Opens inside the CRM. Not counted as a view."
+              title="Opens the proposal inside the CRM, ready to edit. Not counted as a view."
             >
-              Open preview
+              Open and edit
             </button>
           )}
           <button type="button" onClick={copy} className="shrink-0 text-[11px] text-faint transition-colors hover:text-parchment">
@@ -157,7 +162,7 @@ export function ProposalCard({
             ))}
           </ul>
           <p className="mt-1.5 text-[11px] leading-relaxed text-faint">
-            Ask Claude to write it, or edit the proposal directly. There is no editor in here yet.
+            Open and edit fills these in on the page itself, or ask Claude to write it.
           </p>
         </div>
       )}
@@ -166,7 +171,7 @@ export function ProposalCard({
         {p == null
           ? 'Loading…'
           : !p.exists
-            ? 'No proposal yet. Starting one seeds the photos and reviews from the event type; the write-up and the packages still get written per client.'
+            ? 'No proposal yet. Creating one issues the link (not live until you publish), puts the usual reviews for this kind of event on it, and opens the editor to add the styles and packages.'
             : retired
               ? 'The page is down. Anyone with the link now sees a friendly "this proposal has expired" message rather than a 404.'
               : draft
@@ -211,9 +216,30 @@ export function ProposalCard({
             type="button"
             className={primary}
             disabled={busy || p == null}
-            onClick={() => run(() => createProposal(project.id), () => 'Draft started. Fill in the write-up and the packages, then publish.')}
+            onClick={async () => {
+              // Create it, then go straight into the editor (Michael, 2026-11-26): "it'll create
+              // the proposal URL and everything", and the button opens it the way the old preview did.
+              setBusy(true)
+              setNote(null)
+              try {
+                const st = await createProposal(project.id)
+                setP(st)
+                onPreview({
+                  src: st.openUrl || '',
+                  publicUrl: st.url || '',
+                  title: project.client || project.id,
+                  subtitle: 'Proposal editor',
+                  backLabel: 'Back to the project',
+                  editor: { mode: 'proposal', projectId: project.id },
+                })
+              } catch (e) {
+                setNote(String(e instanceof Error ? e.message : e))
+              } finally {
+                setBusy(false)
+              }
+            }}
           >
-            {busy ? 'Working…' : 'Start a proposal'}
+            {busy ? 'Working…' : 'Create proposal'}
           </button>
         )}
 

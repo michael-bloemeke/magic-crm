@@ -20,6 +20,7 @@ import { WebsiteAnalyticsPage } from './components/WebsiteAnalyticsPage'
 import { ProposalsPage } from './components/ProposalsPage'
 import { PlaybookPage } from './components/PlaybookPage'
 import { PreviewPage, type PreviewTarget } from './components/PreviewPage'
+import { ProposalEditor } from './components/ProposalEditor'
 import { DailyReportPage } from './components/DailyReportPage'
 import { StatsPage } from './components/StatsPage'
 import { ContactsPage } from './components/ContactsPage'
@@ -1134,7 +1135,11 @@ function App() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         {preview ? (
-          <PreviewPage target={preview} onBack={closePreview} />
+          preview.editor ? (
+            <ProposalEditor key={preview.editor.mode === 'proposal' ? preview.editor.projectId : 'template'} target={preview} onBack={closePreview} />
+          ) : (
+            <PreviewPage target={preview} onBack={closePreview} />
+          )
         ) : fullProject ? (
           <ProjectView
             groundClass="brand-ground"

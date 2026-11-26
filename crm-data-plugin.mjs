@@ -44,7 +44,7 @@ import { loadTextMarkers, saveTextMarker } from './crm-text-markers.mjs'
 import { bookingFormLink, pullSubmission, submissionSummary, invoiceTarget, draftBookingEmail, liveProgress } from './crm-booking-form.mjs'
 import {
   proposalStatus, ensureProposal, saveProposal, publishProposal, retireProposal, draftProposalEmail,
-  proposalsOverview,
+  proposalsOverview, proposalEditorData, templateEditorData, saveLibrary,
   resetProposalViews,
 } from './crm-proposals.mjs'
 import { sendAgreement, publishAgreement, autoInvoice, refreshPaidInvoices, publishContractTemplates, contractVariants, resetBooking, agreementPdfFromCloud } from './crm-booking-agreement.mjs'
@@ -1658,6 +1658,41 @@ export function crmDataPlugin() {
           await retireProposal(b.projectId)
           return await proposalStatus(b.projectId)
         })
+      })
+
+      // THE PROPOSAL EDITOR (2026-11-26). What ProposalEditor.tsx loads: the flagged preview link
+      // with edit=1 (never counted as a view), the proposal's editable fields, the saved library,
+      // and the website's photos. Saving goes through /api/proposal/save above, like everything else.
+      server.middlewares.use('/api/proposal/editor', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        const url = new URL(req.originalUrl || req.url, 'http://localhost:5199')
+        proposalEditorData(url.searchParams.get('projectId') || '')
+          .then((out) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(out))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
+      // The Proposal template: the saved performance styles and packages every new proposal is
+      // built from. Editing them changes the defaults, never a proposal already made.
+      server.middlewares.use('/api/proposal-library/load', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+        templateEditorData()
+          .then((out) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(out))
+          })
+          .catch((e) => {
+            res.statusCode = 500
+            res.end(JSON.stringify({ error: String(e?.message || e) }))
+          })
+      })
+      server.middlewares.use('/api/proposal-library/save', (req, res, next) => {
+        if (req.method !== 'POST') return next()
+        withbody(req, res, async (b) => await saveLibrary({ styles: b.styles, packages: b.packages }))
       })
 
       server.middlewares.use('/api/contracts/send-signature', (req, res, next) => {

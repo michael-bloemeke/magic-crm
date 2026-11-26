@@ -448,6 +448,9 @@ Deno.serve(async (req) => {
     // Michael's own wording for the event, when the computed "Your <type> at <venue>" would get it
     // wrong. Blank means the page builds its own.
     headline: clean(prop.headline),
+    // The heading over the event write-up (added 2026-11-26 with the CRM's proposal editor). Blank
+    // means the page's standard "Your Event".
+    eventTitle: clean(prop.event_title).slice(0, 80),
     event: {
       typeLabel: typeLabel(project.event_type),
       dateLong: prettyDate(project.event_date),
